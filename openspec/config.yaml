@@ -13,7 +13,7 @@ context: |
                       extension + Network Extension + host app loader.
                       Communicates with the agent over XPC Mach
                       services with code-signing peer validation
-                      (anchor apple generic, team ID FDG8Q7N4CC).
+                      (anchor apple generic, identifier fleet-edr-agent, team ID FDG8Q7N4CC).
   - agent/            Go daemon. Receives events from the extension
                       via XPC, queues them in a SQLite WAL store,
                       uploads to the server with a signed, refreshable
