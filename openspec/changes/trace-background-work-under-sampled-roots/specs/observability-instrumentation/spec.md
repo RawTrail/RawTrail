@@ -2,7 +2,7 @@
 
 ### Requirement: Background work is traced under a sampled root span
 
-Work that no inbound request starts SHALL be traced under a root span that the sampling policy can classify, so its volume is set by a sampling decision rather than by how many queries and rules it runs. Each detection batch SHALL run under one root span that names the host and is sampled at the high-volume ratio, and the batch's rule-evaluation spans and database spans SHALL be its children. Each periodic sweep pass SHALL run under its own root span at full fidelity. A database query made with no active span SHALL NOT record a span, and connection housekeeping (session reset, statement prepare, row iteration) SHALL NOT be recorded as spans. Database latency metrics SHALL still record every query.
+Work that no inbound request starts SHALL be traced under a root span that the sampling policy can classify, so its volume is set by a sampling decision rather than by how many queries and rules it runs. Each attempt to claim and process a host's detection batch SHALL run under one root span that names the host, reports the number of events claimed (zero when the attempt claimed nothing), and is sampled at the high-volume ratio, and the batch's rule-evaluation spans and database spans SHALL be its children. Each periodic sweep pass SHALL run under its own root span at full fidelity. A database query made with no active span SHALL NOT record a span, and connection housekeeping (session reset, statement prepare, row iteration) SHALL NOT be recorded as spans. Database latency metrics SHALL still record every query.
 
 #### Scenario: A detection batch is sampled as one unit
 

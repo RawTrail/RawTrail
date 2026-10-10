@@ -331,8 +331,10 @@ func (p *Processor) processOnce(ctx context.Context, workerIndex int) int {
 	return 0
 }
 
-// processHostTraced runs processHost under the batch's root span (api.BatchSpanName). The server's sampling policy classifies that
-// span with the agent ingest traffic that drives it, and the per-rule evaluation spans and the batch's queries follow its decision.
+// processHostTraced runs one claim attempt under its root span (api.BatchSpanName). The span opens before the claim so the lock and
+// claim queries are inside it, which means an attempt that claims nothing records a span too, with edr.batch.events = 0. The
+// server's sampling policy classifies the span with the agent ingest traffic that drives it, and the per-rule evaluation spans and
+// the batch's queries follow its decision.
 func (p *Processor) processHostTraced(ctx context.Context, host string) (int, bool) {
 	ctx, span := tracer().Start(ctx, api.BatchSpanName, trace.WithAttributes(attribute.String("host_id", host)))
 	defer span.End()
