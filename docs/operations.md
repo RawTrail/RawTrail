@@ -319,7 +319,7 @@ Ready-made SigNoz alert rules live in `config/observability/alerts/`, one JSON f
 SIGNOZ_URL=https://signoz.example.com SIGNOZ_API_KEY=<key> EDR_ENVIRONMENT=production tools/signoz-alerts.sh
 ```
 
-The script matches rules by name, so re-running it updates rules instead of duplicating them. `EDR_ENVIRONMENT` replaces the `prod` value the rules filter `deployment.environment` on. The rules assume delta temporality (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, see [install-server.md](install-server.md#otel-metrics-and-logs)); with cumulative export, SigNoz misses the first increment of each counter series.
+The script matches rules by name, so re-running it updates rules instead of duplicating them. `EDR_ENVIRONMENT` is required: set it to the `deployment.environment` your server reports, which is the value in its `OTEL_RESOURCE_ATTRIBUTES`, or `default` when that is unset. The rules assume delta temporality (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, see [install-server.md](install-server.md#otel-metrics-and-logs)); with cumulative export, SigNoz misses the first increment of each counter series.
 
 | Rule | Severity | Fires when |
 | --- | --- | --- |
