@@ -33,7 +33,21 @@ Endpoint protection does not depend on control-plane availability: application-c
 
 - **Easier**: zero-downtime upgrades and replica restarts; horizontal scale is "add a replica"; no LB session affinity to configure; a crashed replica is replaced without customer-visible state loss.
 - **Harder / the cost**: every schema change must be expand-contract (ADR-0009) because two versions read and write the same MySQL during a cutover; the stateless invariant (ADR-0010) is a standing review constraint on new in-process state; operators must run a real load balancer and, for a fully HA datastore, a replicated MySQL.
-- **Accepted gaps**: per-replica rate-limit fragmentation, async-audit-queue loss on hard kill, and the MySQL SPOF are real but bounded; documented, not fixed, in v0.1.0. Each has a v0.1.x follow-up (shared rate limiter, audit outbox, MySQL replication) listed as out of scope here.
+- **Accepted gaps**: per-replica rate-limit fragmentation, async-audit-queue loss on hard kill, and the MySQL SPOF are real but bounded; documented, not fixed, in v0.1.0. Each has a v0.1.x follow-up (shared rate limiter, audit outbox, MySQL replication) listed as out of scope here. The audit outbox has since shipped for changes; see the 2026-10-10 amendment.
+
+## Amendment (2026-10-10): audited changes commit their audit entry with the change
+
+The accepted gap above was about reads: only sampled read-audit events ride the in-memory queue that a hard kill can lose. Changes had a different gap that this ADR did not name. A handler that changes state and then records its audit row in a second step can commit the change and fail the audit write, leaving an action no audit reader can see. A crash between the two steps does the same.
+
+The fix is the transactional outbox, the standard pattern for this. The audit entry is written in the same database transaction as the change, so it exists if and only if the change does, and a drain delivers it to the audit log afterwards (`server/auditoutbox`). An entry can arrive late, after an audit-store outage or a crash, but it is never lost and never describes a change that did not happen. Containment, host commands, rule content and detection configuration already work this way, so the gap has narrowed but not closed.
+
+Decision:
+
+- Every audited state change SHALL commit its audit entry in the same transaction as the change. A change stored by the identity context, which owns the audit table, writes the audit row in its own transaction. A change stored by any other context writes an entry to its own outbox table and drains it with `auditoutbox.Drain`.
+- Events that record something other than a stored change keep the synchronous path: sign-ins, sign-outs, break-glass attempts and authorization denials. The event is the fact being recorded, so there is no second write for it to disagree with.
+- Sampled read audits stay on the asynchronous queue, as accepted above.
+
+Audited changes that still record after their own commit move to the outbox under #1246: user, SSO and service-account administration, OIDC just-in-time provisioning, the tracing sampler settings, enrollment revocation and alert updates. New code follows the decision now.
 
 ## Alternatives considered
 

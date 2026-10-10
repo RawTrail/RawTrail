@@ -54,8 +54,8 @@ For the full picture (the seven-layer test pyramid, the fake-agent / headless-ag
     --color ededed
   ```
 
-- **After a spec-bearing PR merges, archive its change.** Run `openspec archive <name>` (without `--skip-specs`): it merges the delta into `openspec/specs/**` and moves the proposal to `openspec/changes/archive/`. Use `--skip-specs` only for a legacy change whose canonical spec was already hand-edited or a tooling/doc-only change. Never move or rename a change folder into `archive/` by hand.
-- Do **not** add `Co-Authored-By` lines to commits. AI-assisted code is welcome; the assistant is a tool, not a co-author.
+- **Leave a merged change in `openspec/changes/` until the release.** Archiving is batched at release time: the release checklist runs `openspec archive <name>` (without `--skip-specs`) for every pending change, which merges each delta into `openspec/specs/**`, and the release workflow refuses to publish while any change is left unarchived. Never archive on a feature branch, and never move or rename a change folder into `archive/` by hand.
+- Do **not** add `Co-Authored-By` lines to commits, for people or for AI assistants. AI-assisted code is welcome; the assistant is a tool, not a co-author. The `No agent attribution` check refuses any such trailer except the one GitHub writes on a squash-merged dependabot PR.
 - Sign your commits if you can (`git commit -S`); we do not require this today, but plan to.
 
 ## Security-sensitive changes
