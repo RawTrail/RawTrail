@@ -1,7 +1,7 @@
 {
   "alert": "EDR retention not running",
   "alertType": "TRACES_BASED_ALERT",
-  "description": "No retention pass has run in three hours. The pass runs hourly on whichever replica holds the leader lock, so a missing pass means the leader is wedged or every replica lost the lock, and process and alert rows stop expiring. Watches the pass span rather than rows deleted, because a quiet fleet legitimately deletes nothing.",
+  "description": "No retention pass has run in three hours. The pass runs hourly on whichever replica holds the leader lock, so a missing pass means the leader is wedged or every replica lost the lock, and process and alert rows stop expiring. Watches the pass span rather than rows deleted, because a quiet fleet legitimately deletes nothing. Disable this rule if every retention window (EDR_RETENTION_DAYS, EDR_ALERT_RETENTION_DAYS and EDR_MONITOR_RETENTION_DAYS) is 0, because retention then never runs by design.",
   "ruleType": "threshold_rule",
   "condition": {
     "compositeQuery": {

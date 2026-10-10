@@ -307,7 +307,7 @@ Core metrics to chart:
 | `edr.retention.processes.rows_deleted` | counter | Completed process rows pruned per retention run (hourly). Raw-event pruning is ClickHouse-native TTL, not a server metric |
 | `edr.processes.ttl_reconciled` | counter | TTL-driven synthetic-exit emissions. The counter only increments when the reconciler synthesises an exit (it no-ops when there's nothing stale), so a non-zero rate or spike means the reconciler is firing, typically because a host missed an exec/exit pair. A sustained zero is ambiguous (either no stale processes to reconcile, or the reconciler has wedged); rely on logs/traces or a separate heartbeat to distinguish |
 | `db.sql.latency` | histogram | DB call latency, emitted by the otelsql driver instrumentation (not a bespoke metric). p99 creeping up = DB overloaded or a slow query regressed |
-| `edr.agent.queue.dropped` | counter | Non-zero = agent's local SQLite queue hit its cap. Investigate connectivity |
+| `edr.agent.queue.dropped` | counter | Exported by the agent (`fleet-edr-agent`) when its OTel export is configured. `lossy=true` non-zero = the local queue hit its cap and dropped undelivered events. Investigate connectivity |
 | `edr.events.set_aside` | counter | By `host_id`. Non-zero = a batch failed repeatedly and was withdrawn; the log line's `consequence` names what the host lost |
 | `edr.detection.rule_evaluation_skipped` | counter | By `rule_id`. Non-zero = that rule stopped running on a replica after exceeding its evaluation budget; fix the rule, then restart |
 
@@ -329,10 +329,10 @@ The script matches rules by name, so re-running it updates rules instead of dupl
 | EDR detection rule skipped | error | `edr.detection.rule_evaluation_skipped` increased: a rule stopped running on a replica |
 | EDR break-glass sign-in failures | error | More than 25 failed break-glass sign-ins in 5 minutes |
 | EDR hosts offline | warning | More than 10% of enrolled hosts offline for 15 minutes |
-| EDR agents dropping events | warning | `edr.agent.queue.dropped` increased: an endpoint lost telemetry |
+| EDR agents dropping events | warning | Lossy `edr.agent.queue.dropped` increased: an endpoint lost telemetry. Needs agents exporting OTel |
 | EDR event batch set aside | warning | `edr.events.set_aside` increased: a batch was withdrawn before detection ran |
 | EDR maintenance sweep failed | warning | A periodic sweep (`detection.periodic.*` span) failed more than twice in 30 minutes |
-| EDR retention not running | warning | No retention pass in 3 hours |
+| EDR retention not running | warning | No retention pass in 3 hours. Disable it if every retention window is 0 |
 
 The rules route through SigNoz notification policies rather than naming a channel, so they work in any SigNoz. Add a notification channel, then a routing policy that matches `service = fleet-edr-server` (add `severity` to split paging from email). Until a policy matches, a firing rule shows on the SigNoz alerts page but notifies nobody.
 

@@ -251,10 +251,11 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel
   - `edr.offline.hosts` (gauge): hosts unseen longer than the offline threshold (5 min).
   - `edr.retention.processes.rows_deleted` (counter): process-graph rows pruned per retention run. (Raw-event retention is the ClickHouse archive's native TTL, ADR-0015, not a server-emitted metric.)
   - `edr.processes.ttl_reconciled` (counter): processes whose exit was synthesized by the freshness-TTL reconciler (missed-exit fallback).
-  - `edr.agent.queue.dropped` (counter): agent-side queue drops reported back.
   - `edr.audit.write_failures` (counter): audit-row INSERT failures; any non-zero value means the append-only audit contract is broken, so alert on it.
   - `http.server.request.duration` (histogram, by route + method + status): request volume and latency.
   - `db.sql.latency` (histogram) and `db.sql.connection.*` (connection-pool stats): DB call latency and pool health, from the otelsql driver instrumentation.
+
+  The agent exports `edr.agent.queue.dropped` itself (service `fleet-edr-agent`, attribute `lossy`) when its own OTel export is configured; see [install-agent-manual.md](install-agent-manual.md).
 
   See [operations.md](operations.md#metrics-and-monitoring) for what to alert on.
 

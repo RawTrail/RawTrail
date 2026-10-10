@@ -1,7 +1,7 @@
 {
   "alert": "EDR agents dropping events",
   "alertType": "METRIC_BASED_ALERT",
-  "description": "An agent's local upload queue hit its cap and discarded events, so that host has a telemetry gap. Usually the host could not reach the server for a long stretch.",
+  "description": "An agent's local upload queue hit its cap and discarded events it had not uploaded, so that host has a telemetry gap. Usually the host could not reach the server for a long stretch. The agent reports this itself, so the rule sees it only from agents configured to export OTel (OTEL_EXPORTER_OTLP_ENDPOINT in the agent's configuration). Trims of rows already delivered (lossy=false) are not counted.",
   "ruleType": "threshold_rule",
   "condition": {
     "compositeQuery": {
@@ -23,7 +23,7 @@
             ],
             "disabled": false,
             "filter": {
-              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+              "expression": "service.name = 'fleet-edr-agent' AND deployment.environment = 'prod' AND lossy = true"
             },
             "order": [
               {
@@ -66,7 +66,7 @@
     "team": "edr"
   },
   "annotations": {
-    "description": "edr.agent.queue.dropped increased. Check connectivity from the affected hosts to the server.",
+    "description": "edr.agent.queue.dropped (lossy) increased. Check connectivity from the affected hosts to the server.",
     "summary": "EDR agents dropped {{$value}} queued events"
   },
   "disabled": false,

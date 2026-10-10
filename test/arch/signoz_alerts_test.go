@@ -18,8 +18,19 @@ import (
 
 const alertRulesDir = "config/observability/alerts"
 
-// metricLiteralRE matches an EDR metric name as the instrument constructors receive it: a quoted string literal.
-var metricLiteralRE = regexp.MustCompile(`"(edr\.[a-z0-9_.]+)"`)
+var (
+	// metricLiteralRE matches an EDR metric name as the instrument constructors receive it: a quoted string literal.
+	metricLiteralRE = regexp.MustCompile(`"(edr\.[a-z0-9_.]+)"`)
+	// serviceFilterRE pulls the service a rule's query is scoped to.
+	serviceFilterRE = regexp.MustCompile(`service\.name = '([a-z-]+)'`)
+)
+
+// serviceSourceRoots maps each OTel service.name to the source trees its binary is built from, so a rule is checked against the
+// metrics that service emits rather than against the whole repository: the agent and the server share metric names.
+var serviceSourceRoots = map[string][]string{
+	"fleet-edr-server": {"server", "internal"},
+	"fleet-edr-agent":  {"agent", "internal"},
+}
 
 type alertRule struct {
 	Alert     string            `json:"alert"`
@@ -41,10 +52,14 @@ type alertRule struct {
 	} `json:"condition"`
 }
 
-func TestSigNozAlertRules_WatchMetricsTheServerEmits(t *testing.T) {
+// spec:observability-instrumentation/shipped-alert-rules-read-emitted-metrics/a-rule-reads-a-metric-its-service-emits
+func TestSigNozAlertRules_WatchMetricsTheirServiceEmits(t *testing.T) {
 	t.Parallel()
 	repo := os.DirFS(repoRootFromTest(t))
-	emitted := emittedMetricNames(t, repo)
+	emitted := make(map[string]map[string]bool, len(serviceSourceRoots))
+	for service, roots := range serviceSourceRoots {
+		emitted[service] = emittedMetricNames(t, repo, roots)
+	}
 
 	files, err := fs.Glob(repo, path.Join(alertRulesDir, "*.json"))
 	require.NoError(t, err)
@@ -68,26 +83,29 @@ func TestSigNozAlertRules_WatchMetricsTheServerEmits(t *testing.T) {
 				if query.Spec.Signal == "" {
 					continue // a formula: it reads the builder queries, which are checked on their own
 				}
-				require.NotNil(t, query.Spec.Filter, "every query is scoped to one server and environment")
-				assert.Contains(t, query.Spec.Filter.Expression, "service.name = 'fleet-edr-server'")
+				require.NotNil(t, query.Spec.Filter, "every query is scoped to one service and environment")
+				service := serviceFilterRE.FindStringSubmatch(query.Spec.Filter.Expression)
+				require.NotNil(t, service, "every query filters on service.name")
+				serviceMetrics, known := emitted[service[1]]
+				require.True(t, known, "unknown service %q", service[1])
 				// tools/signoz-alerts.sh rewrites this literal to the operator's environment, so it must appear verbatim.
 				assert.Contains(t, query.Spec.Filter.Expression, "deployment.environment = 'prod'")
 				for _, aggregation := range query.Spec.Aggregations {
 					if !strings.HasPrefix(aggregation.MetricName, "edr.") {
 						continue // a trace count, or a metric from the shared instrumentation (db.sql.*, http.server.*)
 					}
-					assert.Contains(t, emitted, aggregation.MetricName, "no server code emits the metric this rule watches")
+					assert.Contains(t, serviceMetrics, aggregation.MetricName, "%s does not emit the metric this rule watches", service[1])
 				}
 			}
 		})
 	}
 }
 
-// emittedMetricNames collects every edr.* metric name written as a string literal in the server and shared packages, outside tests.
-func emittedMetricNames(t *testing.T, repo fs.FS) map[string]bool {
+// emittedMetricNames collects every edr.* metric name written as a string literal under roots, outside tests.
+func emittedMetricNames(t *testing.T, repo fs.FS, roots []string) map[string]bool {
 	t.Helper()
 	names := make(map[string]bool)
-	for _, root := range []string{"server", "internal"} {
+	for _, root := range roots {
 		err := fs.WalkDir(repo, root, func(file string, entry fs.DirEntry, err error) error {
 			if err != nil || entry.IsDir() || !strings.HasSuffix(file, ".go") || strings.HasSuffix(file, "_test.go") {
 				return err

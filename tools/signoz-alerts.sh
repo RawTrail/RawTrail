@@ -9,6 +9,7 @@
 set -euo pipefail
 
 : "${SIGNOZ_URL:?set SIGNOZ_URL to your SigNoz base URL}"
+SIGNOZ_URL="${SIGNOZ_URL%/}"
 : "${SIGNOZ_API_KEY:?set SIGNOZ_API_KEY to a SigNoz API key with editor access}"
 environment="${EDR_ENVIRONMENT:-prod}"
 
