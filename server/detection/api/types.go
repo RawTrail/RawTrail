@@ -735,3 +735,10 @@ func IsValidationError(err error) bool {
 	return errors.Is(err, ErrInvalidAlertTransition) ||
 		errors.Is(err, ErrInvalidUserUpdater)
 }
+
+// BatchSpanName is the root span the detection processor opens around each attempt to claim and process a host's batch. An attempt
+// that claims nothing (another worker holds the host, or the pending hint was stale) still records one, with zero events. Exported
+// so the server's sampling policy (server/tracingpolicy) can classify it without reaching into the detection context: the per-rule
+// evaluation spans and the batch's queries are its children and follow its sampling decision, so this one name sets the trace
+// volume of the whole pipeline.
+const BatchSpanName = "detection.batch.process"
