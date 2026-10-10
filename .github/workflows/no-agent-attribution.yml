@@ -1,6 +1,6 @@
 name: No agent attribution
 
-# Fails when a commit message credits an AI agent as an author. Commits here are authored by the people who own them; an agent
+# Fails when a commit message carries a Co-Authored-By trailer or credits an AI agent. Commits here are authored by the people who own them; an agent
 # that helped write a change is a tool, and tools do not take authorship credit.
 #
 # This gate exists because the local commit-msg hook cannot see the path that actually broke it. Four commits reached main
@@ -8,8 +8,7 @@ name: No agent attribution
 # server-side from a PR body. No local hook runs for those. So this checks the commits themselves once they exist, on both the
 # pull_request range and the push to main, and it is the backstop that catches a merge nobody ran a hook for.
 #
-# It is NOT a ban on Co-Authored-By. Real co-authors are legitimate and dependabot's own merges carry one; only trailers naming
-# an agent are refused.
+# Every Co-Authored-By trailer is refused, except the one GitHub writes for dependabot when a dependabot PR is squash-merged.
 
 on:
   push:

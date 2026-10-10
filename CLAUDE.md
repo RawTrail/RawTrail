@@ -166,6 +166,7 @@ Layered on the global guide. Project-specific:
   prefers them over `for i := 0; i < N; i++`; the same applies to newer stdlib like `strings.SplitSeq` / `bytes.SplitSeq`.
   Copilot and CodeRabbit have re-flagged these as "doesn't compile" or "breaks Go 1.22+" on multiple PRs;
   the claim is false and the finding should be skipped.
+- An audited state change commits its audit entry in the same transaction as the change (ADR-0011, 2026-10-10 amendment): directly into `audit_events` inside the identity context, through the context's outbox table and `server/auditoutbox` everywhere else. Recording the audit row after the change commits is a review defect: the change can land without its audit row.
 - When you delete a symbol (function, type, command name, XPC message kind, config field),
   scrub every doc comment that still references it before committing. Stale comments
   in IPC-adjacent code are a recurring class of footgun in review. Treat the comment delta as part of the
