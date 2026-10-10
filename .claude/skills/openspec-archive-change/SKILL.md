@@ -13,8 +13,9 @@ metadata:
 > **fleet-edr repo policy. It overrides the generated steps below wherever they disagree.**
 >
 > - **Archive only at release.** A merged change stays in `openspec/changes/<name>/` until the release archive step (CLAUDE.md, `docs/release-checklist.md`). Outside that step, stop and say so rather than archiving one change.
-> - **The CLI merges the deltas, never you.** For the release batch run `task release:archive -- --dry-run`, then `task release:archive`, which applies `openspec archive <name> -y` (no `--skip-specs`) in the order `spectrace archive-order` computes. To archive one named change on the user's explicit request, run `openspec archive "<name>" -y`.
-> - **Skip step 4's sync entirely.** Do not "sync" specs, do not run an `openspec-sync-specs` workflow, and never edit `openspec/specs/**` with ordinary file edits: canonical specs change only through `openspec archive`. Pass `--skip-specs` only when the canonical spec was already updated by hand for a legacy change.
+> - **The CLI merges the deltas, never you, and only in the computed order.** Run `task release:archive -- --dry-run`, then `task release:archive`, which applies `openspec archive <name> -y` in the order `spectrace archive-order` computes. Never archive a spec-bearing change on its own: a MODIFIED requirement replaces the canonical one whole, so the wrong order silently discards text (`docs/release-checklist.md`, step 2).
+> - **Skip step 4's sync entirely.** Do not "sync" specs, do not run an `openspec-sync-specs` workflow, and never edit `openspec/specs/**` with ordinary file edits: canonical specs change only through `openspec archive`.
+> - **`--skip-specs` only for a change with no spec delta.** A tooling or doc-only change is archived by hand with `openspec archive <name> -y --skip-specs`, then `task release:archive` runs for the rest. Never pass it for a change that has a delta.
 > - **Never move or rename a change folder** into `openspec/changes/archive/` by hand.
 
 Archive a completed change in the experimental workflow.
