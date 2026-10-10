@@ -42,4 +42,6 @@ jobs:
         # --ignore-scripts: npx fetches @fission-ai/openspec at run time; skip the package's install lifecycle scripts so a
         # compromised dependency can't run arbitrary code in CI (Sonar githubactions:S6505). openspec is pure JS with no
         # required postinstall, so the CLI still works.
-        run: npx --ignore-scripts -y @fission-ai/openspec@1.3.1 validate --all --strict
+        # Keep the version in step with OPENSPEC_VERSION in Taskfile.yml, which the release archive checks. 1.14.1 and later fail
+        # --strict on every requirement longer than 500 characters, which most of ours are (#1251 tracks that migration).
+        run: npx --ignore-scripts -y @fission-ai/openspec@1.14.0 validate --all --strict

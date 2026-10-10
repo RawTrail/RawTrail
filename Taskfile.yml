@@ -12,6 +12,9 @@
 version: "3"
 
 vars:
+  # The OpenSpec CLI version the release archive must run. Keep in step with the pin in .github/workflows/openspec-validate.yml,
+  # so the archive applies deltas with the same CLI that validated them.
+  OPENSPEC_VERSION: 1.14.0
   SERVER_PKG: ./server/cmd/fleet-edr-server
   INGEST_PKG: ./server/cmd/fleet-edr-ingest
   AGENT_PKG: ./agent/cmd/fleet-edr-agent
@@ -1128,7 +1131,9 @@ tasks:
       archive-verify comparison in the checklist.
     preconditions:
       - sh: command -v openspec
-        msg: "openspec must be on PATH (npm i -g @fission-ai/openspec)"
+        msg: "openspec must be on PATH (npm i -g @fission-ai/openspec@{{.OPENSPEC_VERSION}})"
+      - sh: '[ "$(openspec --version)" = "{{.OPENSPEC_VERSION}}" ]'
+        msg: "openspec on PATH is not {{.OPENSPEC_VERSION}}, the version CI validates with (npm i -g @fission-ai/openspec@{{.OPENSPEC_VERSION}})"
     cmds:
       - go run ./tools/releasearchive {{.CLI_ARGS}}
 
