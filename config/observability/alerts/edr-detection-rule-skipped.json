@@ -1,0 +1,97 @@
+{
+  "alert": "EDR detection rule skipped",
+  "alertType": "METRIC_BASED_ALERT",
+  "description": "A replica stopped evaluating a detection rule after it repeatedly exceeded its evaluation budget, so that rule is not detecting anything there. It stays skipped until the replica restarts.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 60,
+            "signal": "metrics",
+            "source": "",
+            "aggregations": [
+              {
+                "metricName": "edr.detection.rule_evaluation_skipped",
+                "temporality": "",
+                "timeAggregation": "increase",
+                "spaceAggregation": "sum"
+              }
+            ],
+            "disabled": false,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+            },
+            "groupBy": [
+              {
+                "name": "rule_id",
+                "signal": "",
+                "fieldContext": "attribute",
+                "fieldDataType": "string"
+              }
+            ],
+            "order": [
+              {
+                "key": {
+                  "name": "__result",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "selectedQueryName": "A",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "error",
+          "target": 0,
+          "targetUnit": "",
+          "recoveryTarget": null,
+          "matchType": "in_total",
+          "op": "above",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "error",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "edr.detection.rule_evaluation_skipped increased for rule {{$labels.rule_id}}. Find the slow rule's evaluations, fix or disable it, then restart the replica.",
+    "summary": "EDR rule {{$labels.rule_id}} stopped running"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "10m",
+      "frequency": "1m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "groupBy": ["rule_id"],
+    "renotify": {
+      "enabled": false
+    },
+    "usePolicy": true
+  }
+}

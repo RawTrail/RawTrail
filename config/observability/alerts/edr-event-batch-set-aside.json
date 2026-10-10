@@ -1,0 +1,97 @@
+{
+  "alert": "EDR event batch set aside",
+  "alertType": "METRIC_BASED_ALERT",
+  "description": "A host's event batch failed processing past its retry bounds and was withdrawn, so detection never ran on those events. The server log line for the withdrawal names what the host lost.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 60,
+            "signal": "metrics",
+            "source": "",
+            "aggregations": [
+              {
+                "metricName": "edr.events.set_aside",
+                "temporality": "",
+                "timeAggregation": "increase",
+                "spaceAggregation": "sum"
+              }
+            ],
+            "disabled": false,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+            },
+            "groupBy": [
+              {
+                "name": "host_id",
+                "signal": "",
+                "fieldContext": "attribute",
+                "fieldDataType": "string"
+              }
+            ],
+            "order": [
+              {
+                "key": {
+                  "name": "__result",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "selectedQueryName": "A",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "warning",
+          "target": 0,
+          "targetUnit": "",
+          "recoveryTarget": null,
+          "matchType": "in_total",
+          "op": "above",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "warning",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "edr.events.set_aside increased for host {{$labels.host_id}}. The server's queued events set aside after repeated failure log line names the consequence and the cause.",
+    "summary": "EDR set aside {{$value}} events for host {{$labels.host_id}}"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "10m",
+      "frequency": "1m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "groupBy": ["host_id"],
+    "renotify": {
+      "enabled": false
+    },
+    "usePolicy": true
+  }
+}

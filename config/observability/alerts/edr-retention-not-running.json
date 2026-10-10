@@ -1,0 +1,87 @@
+{
+  "alert": "EDR retention not running",
+  "alertType": "TRACES_BASED_ALERT",
+  "description": "No retention pass has run in three hours. The pass runs hourly on whichever replica holds the leader lock, so a missing pass means the leader is wedged or every replica lost the lock, and process and alert rows stop expiring. Watches the pass span rather than rows deleted, because a quiet fleet legitimately deletes nothing. Disable this rule if every retention window (EDR_RETENTION_DAYS, EDR_ALERT_RETENTION_DAYS and EDR_MONITOR_RETENTION_DAYS) is 0, because retention then never runs by design.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 600,
+            "signal": "traces",
+            "source": "",
+            "aggregations": [
+              {
+                "expression": "count()"
+              }
+            ],
+            "disabled": false,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod' AND name = 'detection.periodic.retention'"
+            },
+            "order": [
+              {
+                "key": {
+                  "name": "count()",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "alertOnAbsent": true,
+    "absentFor": 180,
+    "selectedQueryName": "A",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "warning",
+          "target": 1,
+          "targetUnit": "",
+          "recoveryTarget": null,
+          "matchType": "in_total",
+          "op": "below",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "warning",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "No detection.periodic.retention span in 3 hours. Check which replica holds the edr_retention leader lock and that its retention loop is alive.",
+    "summary": "EDR retention has not run for 3 hours"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "3h",
+      "frequency": "10m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "renotify": {
+      "enabled": false
+    },
+    "usePolicy": true
+  }
+}

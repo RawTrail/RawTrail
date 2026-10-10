@@ -307,16 +307,33 @@ Core metrics to chart:
 | `edr.retention.processes.rows_deleted` | counter | Completed process rows pruned per retention run (hourly). Raw-event pruning is ClickHouse-native TTL, not a server metric |
 | `edr.processes.ttl_reconciled` | counter | TTL-driven synthetic-exit emissions. The counter only increments when the reconciler synthesises an exit (it no-ops when there's nothing stale), so a non-zero rate or spike means the reconciler is firing, typically because a host missed an exec/exit pair. A sustained zero is ambiguous (either no stale processes to reconcile, or the reconciler has wedged); rely on logs/traces or a separate heartbeat to distinguish |
 | `db.sql.latency` | histogram | DB call latency, emitted by the otelsql driver instrumentation (not a bespoke metric). p99 creeping up = DB overloaded or a slow query regressed |
-| `edr.agent.queue.dropped` | counter | Non-zero = agent's local SQLite queue hit its cap. Investigate connectivity |
+| `edr.agent.queue.dropped` | counter | Exported by the agent (`fleet-edr-agent`) when its OTel export is configured. `lossy=true` non-zero = the local queue hit its cap and dropped undelivered events. Investigate connectivity |
 | `edr.events.set_aside` | counter | By `host_id`. Non-zero = a batch failed repeatedly and was withdrawn; the log line's `consequence` names what the host lost |
 | `edr.detection.rule_evaluation_skipped` | counter | By `rule_id`. Non-zero = that rule stopped running on a replica after exceeding its evaluation budget; fix the rule, then restart |
 
-Recommended alerts (SigNoz, Grafana, wherever your OTel backend lives):
+### Alert rules
 
-- `edr.offline.hosts > 10% of edr.enrolled.hosts for 15m` - fleet-wide connectivity issue.
-- `rate(edr.events.ingested[5m]) == 0 for 5m` - server isn't receiving events. Either all agents are offline (see above), ingress is broken, or the server wedged.
-- `rate(edr.retention.processes.rows_deleted[1h]) == 0 for 2h` when `EDR_RETENTION_DAYS > 0` - process-record retention job stuck.
-- `rate(edr.agent.queue.dropped[5m]) > 0` - endpoints losing data.
+Ready-made SigNoz alert rules live in `config/observability/alerts/`, one JSON file per rule. Apply them, or re-apply after editing, with:
+
+```sh
+SIGNOZ_URL=https://signoz.example.com SIGNOZ_API_KEY=<key> EDR_ENVIRONMENT=production tools/signoz-alerts.sh
+```
+
+The script matches rules by name, so re-running it updates rules instead of duplicating them. `EDR_ENVIRONMENT` is required: set it to the `deployment.environment` your server reports, which is the value in its `OTEL_RESOURCE_ATTRIBUTES`, or `default` when that is unset. The rules assume delta temporality (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`, see [install-server.md](install-server.md#otel-metrics-and-logs)); with cumulative export, SigNoz misses the first increment of each counter series.
+
+| Rule | Severity | Fires when |
+| --- | --- | --- |
+| EDR server not reporting | critical | No `edr.enrolled.hosts` sample for 10 minutes: the server is down or cannot reach the collector |
+| EDR event ingest stopped | critical | Hosts are online but `edr.events.ingested` stayed at zero for 15 minutes |
+| EDR audit write failures | critical | `edr.audit.write_failures` increased: the append-only audit log is missing rows |
+| EDR detection rule skipped | error | `edr.detection.rule_evaluation_skipped` increased: a rule stopped running on a replica |
+| EDR break-glass sign-in failures | error | More than 25 failed break-glass sign-ins in 5 minutes |
+| EDR hosts offline | warning | More than 10% of enrolled hosts offline for 15 minutes |
+| EDR event batch set aside | warning | `edr.events.set_aside` increased: a batch was withdrawn before detection ran |
+| EDR maintenance sweep failed | warning | A periodic sweep (`detection.periodic.*` span) failed more than twice in 30 minutes |
+| EDR retention not running | warning | No retention pass in 3 hours. Disable it if every retention window is 0 |
+
+The rules route through SigNoz notification policies rather than naming a channel, so they work in any SigNoz. Add a notification channel, then a routing policy that matches `service = fleet-edr-server` (add `severity` to split paging from email). Until a policy matches, a firing rule shows on the SigNoz alerts page but notifies nobody.
 
 Server logs go through the same OTLP pipeline (via `otelslog`) with `service.name=fleet-edr-server`. Use them for audit-style queries like "who resolved alert X" (look for `edr.admin.action=alert_update` log events with `user.id`).
 
@@ -365,11 +382,7 @@ A starter SigNoz dashboard for the auth + authz surface lives at `config/observa
 
 Every audit emission sets three attributes on the active request span (`server/identity/internal/audit`): `edr.audit.action` (e.g. `auth.login.success`, `authz.host_read`, `enrollment.revoke`), `edr.audit.decision` (`allow` | `deny` | `error` | `unspecified`), and `edr.audit.reason` (a machine-readable code, empty for context-free rows). These live on the **traces** signal, so every panel queries traces rather than logs. Bearer/session rejections additionally set `edr.auth.reason` (`invalid_token`, `missing_bearer`, ...) on the span, which the auth-rejections panel groups on. The same events dual-emit to slog (allow at INFO, deny/error/break-glass at WARN) for log-side queries, but the dashboard binds to the span attributes so it pivots on the same dimensions the trace UI uses.
 
-Recommended alerts to add against this dashboard:
-
-- `rate(edr.audit.write_failures[5m]) > 0`: paging condition. This counter increments once per audit row the slog dual-emit captured but the DB rejected; the audit log's append-only invariant is broken if it is ever non-zero.
-- `rate(edr.audit.action="auth.breakglass.failure") > 5/min for 5m`: brute-force on the recovery surface. Cross-check `EDR_BREAKGLASS_IP_ALLOWLIST`.
-- `rate(edr.audit.decision="error" AND edr.audit.reason matches state_mismatch|exchange_failed) > 0 for 5m`: IdP misconfig or load-balancer affinity issue (see [`okta-setup.md`](okta-setup.md) troubleshooting table).
+The committed [alert rules](#alert-rules) cover audit write failures and break-glass guessing. One more is worth adding if you sign in through an IdP: `edr.audit.decision = 'error'` with `edr.audit.reason` of `state_mismatch` or `exchange_failed` for 5 minutes points at an IdP misconfiguration or a load-balancer affinity problem (see the [`okta-setup.md`](okta-setup.md) troubleshooting table).
 
 ## Reaching the server through a proxy
 

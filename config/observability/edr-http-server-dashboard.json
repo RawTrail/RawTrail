@@ -59,7 +59,6 @@
               "aggregations": [
                 {
                   "metricName": "http.server.request.duration.count",
-                  "temporality": "Cumulative",
                   "timeAggregation": "rate",
                   "spaceAggregation": "sum"
                 }
@@ -102,7 +101,6 @@
               "aggregations": [
                 {
                   "metricName": "http.server.request.duration.count",
-                  "temporality": "Cumulative",
                   "timeAggregation": "rate",
                   "spaceAggregation": "sum"
                 }
@@ -145,7 +143,6 @@
               "aggregations": [
                 {
                   "metricName": "http.server.request.duration.bucket",
-                  "temporality": "Cumulative",
                   "timeAggregation": "",
                   "spaceAggregation": "p95"
                 }
@@ -188,7 +185,6 @@
               "aggregations": [
                 {
                   "metricName": "http.server.request.duration.bucket",
-                  "temporality": "Cumulative",
                   "timeAggregation": "",
                   "spaceAggregation": "p99"
                 }
@@ -231,7 +227,6 @@
               "aggregations": [
                 {
                   "metricName": "http.server.request.duration.count",
-                  "temporality": "Cumulative",
                   "timeAggregation": "rate",
                   "spaceAggregation": "sum"
                 }
@@ -274,7 +269,6 @@
               "aggregations": [
                 {
                   "metricName": "http.server.request.duration.count",
-                  "temporality": "Cumulative",
                   "timeAggregation": "rate",
                   "spaceAggregation": "sum"
                 }

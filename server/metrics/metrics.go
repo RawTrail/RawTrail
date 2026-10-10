@@ -69,7 +69,6 @@ type Recorder struct {
 	monitorRecordRetentionRowsDeleted metric.Int64Counter
 	queueRowsPruned                   metric.Int64Counter
 	processesReconciled               metric.Int64Counter
-	queueDropped                      metric.Int64Counter
 	detectionMaterializationRetries   metric.Int64Counter
 	eventsSetAside                    metric.Int64Counter
 	ruleEvalSkipped                   metric.Int64Counter
@@ -162,11 +161,6 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 		"edr.processes.ttl_reconciled",
 		metric.WithDescription("Processes whose exit_time_ns was synthesized by the freshness-TTL reconciler (missed-exit-event fallback)."),
 		metric.WithUnit("{process}"),
-	)
-	r.queueDropped, _ = meter.Int64Counter(
-		"edr.agent.queue.dropped",
-		metric.WithDescription("Events dropped by agent queue cap. Attribute `lossy=true` means data loss; `lossy=false` means already-delivered rows trimmed for space."),
-		metric.WithUnit(unitEvent),
 	)
 	r.detectionMaterializationRetries, _ = meter.Int64Counter(
 		"edr.detection.materialization_retries",
@@ -404,15 +398,6 @@ func (r *Recorder) ProcessesTTLReconciled(ctx context.Context, n int64) {
 		return
 	}
 	r.processesReconciled.Add(ctx, n)
-}
-
-// QueueDropped satisfies queue.MetricsRecorder. A single counter with a `lossy` attribute lets operators alert on lossy drops (real
-// data loss) independently of lossless drops (already-delivered events pruned for space) without maintaining two metric families.
-func (r *Recorder) QueueDropped(ctx context.Context, n int64, lossy bool) {
-	if r == nil || r.queueDropped == nil || n <= 0 {
-		return
-	}
-	r.queueDropped.Add(ctx, n, metric.WithAttributes(attribute.Bool("lossy", lossy)))
 }
 
 // DetectionMaterializationRetry satisfies detection api.MetricsRecorder. The processor calls it once per batch whose rule evaluation

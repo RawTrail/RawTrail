@@ -1,0 +1,92 @@
+{
+  "alert": "EDR server not reporting",
+  "alertType": "METRIC_BASED_ALERT",
+  "description": "The server has exported no edr.enrolled.hosts gauge for 10 minutes. The gauge is reported every collection whatever the fleet is doing, so its absence means the server is down, crash-looping, or cannot reach the collector.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 60,
+            "signal": "metrics",
+            "source": "",
+            "aggregations": [
+              {
+                "metricName": "edr.enrolled.hosts",
+                "temporality": "",
+                "timeAggregation": "latest",
+                "spaceAggregation": "max"
+              }
+            ],
+            "disabled": false,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+            },
+            "order": [
+              {
+                "key": {
+                  "name": "__result",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "alertOnAbsent": true,
+    "absentFor": 10,
+    "selectedQueryName": "A",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "critical",
+          "target": -1,
+          "targetUnit": "",
+          "recoveryTarget": null,
+          "matchType": "at_least_once",
+          "op": "below",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "critical",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "No edr.enrolled.hosts sample for 10 minutes. Check that the server container is running (docker compose ps), its logs for a fatal env-validation error, and the OTLP export path.",
+    "summary": "fleet-edr-server stopped reporting telemetry"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "10m",
+      "frequency": "1m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "renotify": {
+      "enabled": true,
+      "interval": "4h",
+      "alertStates": ["firing", "nodata"]
+    },
+    "usePolicy": true
+  }
+}

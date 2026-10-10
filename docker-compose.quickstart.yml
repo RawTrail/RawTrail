@@ -123,10 +123,14 @@ services:
       # to keep telemetry off. The URL scheme picks the transport: http:// is
       # plaintext, https:// uses TLS. OTEL_EXPORTER_OTLP_HEADERS carries an
       # auth/ingestion token (e.g. SigNoz Cloud); OTEL_RESOURCE_ATTRIBUTES sets
-      # deployment.environment and any other resource tags. See
+      # deployment.environment and any other resource tags.
+      # OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta suits SigNoz and
+      # Datadog; leave it unset (cumulative) for Prometheus-style backends. See
       # docs/quickstart-vm.md ("Send telemetry to a collector").
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_EXPORTER_OTLP_COMPRESSION: ${OTEL_EXPORTER_OTLP_COMPRESSION:-}
+      OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: ${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE:-}
       OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
       OTEL_SERVICE_NAME: fleet-edr-server
     secrets:

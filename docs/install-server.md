@@ -231,6 +231,7 @@ Non-exhaustive; see `server/config/config.go` for every knob. Anything unset use
 | `EDR_BREAKGLASS_SESSION_IDLE_TIMEOUT` | no | 15m | Strict idle cap for recovery sessions |
 | `EDR_BREAKGLASS_SESSION_ABSOLUTE_TIMEOUT` | no | 1h | Absolute cap for recovery sessions |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | none | `host:port` of an OTLP/gRPC collector; unset disables metrics export |
+| `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` | no | cumulative | `delta` for SigNoz and Datadog; see [OTel metrics and logs](#otel-metrics-and-logs) |
 
 Every string knob accepts a `_FILE` variant (`EDR_ENROLL_SECRET_FILE`, `EDR_DSN_FILE`, etc.) that points at a file whose trimmed contents become the value. That's how the compose stack delivers secrets.
 
@@ -250,12 +251,15 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel
   - `edr.offline.hosts` (gauge): hosts unseen longer than the offline threshold (5 min).
   - `edr.retention.processes.rows_deleted` (counter): process-graph rows pruned per retention run. (Raw-event retention is the ClickHouse archive's native TTL, ADR-0015, not a server-emitted metric.)
   - `edr.processes.ttl_reconciled` (counter): processes whose exit was synthesized by the freshness-TTL reconciler (missed-exit fallback).
-  - `edr.agent.queue.dropped` (counter): agent-side queue drops reported back.
   - `edr.audit.write_failures` (counter): audit-row INSERT failures; any non-zero value means the append-only audit contract is broken, so alert on it.
   - `http.server.request.duration` (histogram, by route + method + status): request volume and latency.
   - `db.sql.latency` (histogram) and `db.sql.connection.*` (connection-pool stats): DB call latency and pool health, from the otelsql driver instrumentation.
 
+  The agent exports `edr.agent.queue.dropped` itself (service `fleet-edr-agent`, attribute `lossy`) when its own OTel export is configured; see [install-agent-manual.md](install-agent-manual.md).
+
   See [operations.md](operations.md#metrics-and-monitoring) for what to alert on.
+
+- **Counter temporality.** Counters and histograms export cumulative by default, which suits Prometheus-style backends. For SigNoz or Datadog, set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`. Those backends drop the first sample of each new cumulative series when computing an increase, so a counter that moves rarely, such as `edr.audit.write_failures`, can increment without an increase-based alert ever seeing it. Delta export reports every increment, and the switch needs no dashboard changes: queries that leave temporality unset read both kinds.
 
 There is no Prometheus scrape endpoint; this is OTel-only.
 
