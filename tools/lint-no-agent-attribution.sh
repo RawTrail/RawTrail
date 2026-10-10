@@ -28,7 +28,9 @@ ALLOWED="Co-Authored-By: dependabot\[bot\] <49699333\+dependabot\[bot\]@users\.n
 # offending prints the numbered lines of a message that the gate refuses. Matching ignores case, because git and GitHub write the
 # trailer key in more than one casing.
 offending() {
-  { grep -niE "$PATTERN" || true; } | { grep -viE ":[[:space:]]*${ALLOWED}[[:space:]]*$" || true; }
+  # The allowance is anchored to the whole line (grep -n prefixes "<line>:"), so text that merely ends in the dependabot trailer,
+  # such as a generated-by footer followed by it, is still refused.
+  { grep -niE "$PATTERN" || true; } | { grep -viE "^[0-9]+:[[:space:]]*${ALLOWED}[[:space:]]*$" || true; }
 }
 
 fail() {

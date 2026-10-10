@@ -38,6 +38,10 @@ func TestNoAgentAttribution_RefusesCoAuthorsExceptGitHubsDependabotLine(t *testi
 				": dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>\n", false,
 		},
 		{
+			"agent footer ending in the dependabot trailer", "fix: a thing\n\n" + "Generated with [" + "Claude" + " Code]: " + coAuthor +
+				": dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>\n", true,
+		},
+		{
 			"dependabot name with another address", "deps: bump x (#1)\n\n" + coAuthor +
 				": dependabot[bot] <someone@example.com>\n", true,
 		},
