@@ -1,0 +1,85 @@
+{
+  "alert": "EDR break-glass sign-in failures",
+  "alertType": "TRACES_BASED_ALERT",
+  "description": "More than 25 failed break-glass sign-ins in 5 minutes: someone is guessing at the recovery surface. Break-glass requests are never downsampled, so the span count is the real attempt count.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 60,
+            "signal": "traces",
+            "source": "",
+            "aggregations": [
+              {
+                "expression": "count()"
+              }
+            ],
+            "disabled": false,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod' AND edr.audit.action = 'auth.breakglass.failure'"
+            },
+            "order": [
+              {
+                "key": {
+                  "name": "count()",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "selectedQueryName": "A",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "error",
+          "target": 25,
+          "targetUnit": "",
+          "recoveryTarget": null,
+          "matchType": "in_total",
+          "op": "above",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "error",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "Repeated auth.breakglass.failure audit events. Check the source addresses in the audit log and set EDR_BREAKGLASS_IP_ALLOWLIST if the recovery surface is reachable from untrusted networks.",
+    "summary": "{{$value}} failed EDR break-glass sign-ins in 5 minutes"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "5m",
+      "frequency": "1m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "renotify": {
+      "enabled": false
+    },
+    "usePolicy": true
+  }
+}

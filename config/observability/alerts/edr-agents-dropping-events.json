@@ -1,0 +1,88 @@
+{
+  "alert": "EDR agents dropping events",
+  "alertType": "METRIC_BASED_ALERT",
+  "description": "An agent's local upload queue hit its cap and discarded events, so that host has a telemetry gap. Usually the host could not reach the server for a long stretch.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 60,
+            "signal": "metrics",
+            "source": "",
+            "aggregations": [
+              {
+                "metricName": "edr.agent.queue.dropped",
+                "temporality": "",
+                "timeAggregation": "increase",
+                "spaceAggregation": "sum"
+              }
+            ],
+            "disabled": false,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+            },
+            "order": [
+              {
+                "key": {
+                  "name": "__result",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "selectedQueryName": "A",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "warning",
+          "target": 0,
+          "targetUnit": "",
+          "recoveryTarget": null,
+          "matchType": "in_total",
+          "op": "above",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "warning",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "edr.agent.queue.dropped increased. Check connectivity from the affected hosts to the server.",
+    "summary": "EDR agents dropped {{$value}} queued events"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "5m",
+      "frequency": "1m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "renotify": {
+      "enabled": false
+    },
+    "usePolicy": true
+  }
+}

@@ -106,10 +106,12 @@ echo 'OTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.us.signoz.cloud:443' >> .env
 docker compose -f docker-compose.quickstart.yml up -d server
 ```
 
-The URL scheme picks the transport: `http://host:4317` is plaintext (a collector on the same VM or private network), `https://host:443` uses TLS (a hosted backend). The quickstart compose forwards three OTel variables from `.env`, all optional:
+The URL scheme picks the transport: `http://host:4317` is plaintext (a collector on the same VM or private network), `https://host:443` uses TLS (a hosted backend). The quickstart compose forwards five OTel variables from `.env`, all optional:
 
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: the OTLP/gRPC collector URL. Unset disables export entirely.
 - `OTEL_EXPORTER_OTLP_HEADERS`: comma-separated headers, used for an ingestion or auth token, for example `signoz-ingestion-key=<key>` for SigNoz Cloud or `authorization=Bearer <token>` for an OTLP gateway.
+- `OTEL_EXPORTER_OTLP_COMPRESSION`: set `gzip` to compress the export, which cuts its bandwidth several-fold.
+- `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`: set `delta` for SigNoz or Datadog. Leave it unset (cumulative) for Prometheus-style backends such as Grafana Mimir. See [install-server.md](install-server.md#otel-metrics-and-logs).
 - `OTEL_RESOURCE_ATTRIBUTES`: comma-separated resource tags. Set `deployment.environment.name=production` (or `staging`, etc.) so the backend can separate this deployment's signals from others. `service.name` is already pinned to `fleet-edr-server`.
 
 The full list of exported metrics and what to alert on is in [install-server.md](install-server.md#otel-metrics-and-logs) and [operations.md](operations.md#metrics-and-monitoring). There is no Prometheus scrape endpoint; export is OTel-only.

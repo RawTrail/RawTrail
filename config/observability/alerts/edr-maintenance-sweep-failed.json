@@ -1,0 +1,94 @@
+{
+  "alert": "EDR maintenance sweep failed",
+  "alertType": "TRACES_BASED_ALERT",
+  "description": "A periodic maintenance pass (retention, process TTL, queue prune, webhook delivery) returned an error. Each pass is its own root span at full fidelity, so a failed pass is never sampled away. One failure can be transient; a sweep failing every pass is not.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 60,
+            "signal": "traces",
+            "source": "",
+            "aggregations": [
+              {
+                "expression": "count()"
+              }
+            ],
+            "disabled": false,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod' AND name LIKE 'detection.periodic.%' AND has_error = true"
+            },
+            "groupBy": [
+              {
+                "name": "name",
+                "signal": "",
+                "fieldContext": "span",
+                "fieldDataType": "string"
+              }
+            ],
+            "order": [
+              {
+                "key": {
+                  "name": "count()",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "selectedQueryName": "A",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "warning",
+          "target": 2,
+          "targetUnit": "",
+          "recoveryTarget": null,
+          "matchType": "in_total",
+          "op": "above",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "warning",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "{{$labels.name}} passes returned errors in the last 30 minutes. The span's status message and the server's run failed warning carry the cause.",
+    "summary": "EDR sweep {{$labels.name}} failed {{$value}} times"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "30m",
+      "frequency": "5m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "groupBy": ["name"],
+    "renotify": {
+      "enabled": false
+    },
+    "usePolicy": true
+  }
+}

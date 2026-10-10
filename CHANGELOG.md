@@ -8,6 +8,11 @@ Notable changes to Fleet EDR, newest first. This project follows [Semantic Versi
 
 - **The agent requires macOS 26 (Tahoe) or later.** The installer now refuses older Macs and says so. Earlier packages installed on macOS 13 to 26.1 but could not run there, so upgrade any such Mac to macOS 26 first.
 
+### Added
+
+- **SigNoz alert rules.** Ten ready-made rules cover a silent server, stalled ingest, audit write failures, skipped detection rules, break-glass guessing and dropped agent telemetry. Apply them with `tools/signoz-alerts.sh`; see `docs/operations.md`.
+- **SigNoz and Datadog users: set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`.** Without it those backends miss the first increment of each counter, so a rarely-moving counter such as audit write failures can increase without alerting. The quickstart compose now forwards this variable and `OTEL_EXPORTER_OTLP_COMPRESSION`.
+
 ### Changed
 
 - **Much lower trace volume.** Detection batches are now sampled with agent ingest traffic, and database queries outside a request or batch no longer produce spans. One host exported about 500,000 spans an hour, almost all from this background work. Metrics are unchanged.

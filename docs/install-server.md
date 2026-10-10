@@ -231,6 +231,7 @@ Non-exhaustive; see `server/config/config.go` for every knob. Anything unset use
 | `EDR_BREAKGLASS_SESSION_IDLE_TIMEOUT` | no | 15m | Strict idle cap for recovery sessions |
 | `EDR_BREAKGLASS_SESSION_ABSOLUTE_TIMEOUT` | no | 1h | Absolute cap for recovery sessions |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | none | `host:port` of an OTLP/gRPC collector; unset disables metrics export |
+| `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` | no | cumulative | `delta` for SigNoz and Datadog; see [OTel metrics and logs](#otel-metrics-and-logs) |
 
 Every string knob accepts a `_FILE` variant (`EDR_ENROLL_SECRET_FILE`, `EDR_DSN_FILE`, etc.) that points at a file whose trimmed contents become the value. That's how the compose stack delivers secrets.
 
@@ -256,6 +257,8 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel
   - `db.sql.latency` (histogram) and `db.sql.connection.*` (connection-pool stats): DB call latency and pool health, from the otelsql driver instrumentation.
 
   See [operations.md](operations.md#metrics-and-monitoring) for what to alert on.
+
+- **Counter temporality.** Counters and histograms export cumulative by default, which suits Prometheus-style backends. For SigNoz or Datadog, set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`. Those backends drop the first sample of each new cumulative series when computing an increase, so a counter that moves rarely, such as `edr.audit.write_failures`, can increment without an increase-based alert ever seeing it. Delta export reports every increment, and the switch needs no dashboard changes: queries that leave temporality unset read both kinds.
 
 There is no Prometheus scrape endpoint; this is OTel-only.
 
