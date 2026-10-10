@@ -9,3 +9,13 @@ The project SHALL ship its recommended alert rules as importable definitions rat
 - **GIVEN** a shipped alert rule that reads an `edr.*` metric and filters on a `service.name`
 - **WHEN** the build checks the shipped rules
 - **THEN** the check fails unless that service's own source emits the metric
+
+### Requirement: Metric temporality is selectable per backend
+
+The server SHALL export metrics with the temporality the standard `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` variable selects, defaulting to cumulative, so a deployment reporting to a backend that drops the first cumulative sample (SigNoz, Datadog) can switch to delta. The quickstart compose SHALL forward that variable to the server, and the shipped dashboards SHALL NOT pin a temporality, so they read either kind.
+
+#### Scenario: Compose forwards it and dashboards do not pin it
+
+- **GIVEN** the shipped quickstart compose and dashboards
+- **WHEN** the build checks them
+- **THEN** the compose passes `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` to the server and no dashboard query names a temporality

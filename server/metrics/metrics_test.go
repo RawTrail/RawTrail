@@ -116,19 +116,17 @@ func (s stubGauges) OfflineHosts(context.Context, time.Duration) (int, error) {
 //
 // spec:observability-instrumentation/stable-counter-names/ingested-events-are-counted-by-host
 // spec:observability-instrumentation/stable-counter-names/alerts-are-counted-only-on-creation
-// spec:observability-instrumentation/stable-counter-names/already-delivered-queue-trim-is-distinguishable-from-data-loss
 // spec:observability-instrumentation/stable-counter-names/materialization-miss-batch-retries-are-counted
 // spec:observability-instrumentation/stable-counter-names/events-withdrawn-from-processing-are-counted-per-host
 // spec:observability-instrumentation/observable-host-fleet-gauges/gauges-evaluate-on-the-reader-cadence
 //
-// Six scenarios share this test because they describe the same observation from different angles: every
+// Five scenarios share this test because they describe the same observation from different angles: every
 // counter / gauge that the spec names is fired once by Recorder methods and then collected via the
 // ManualReader. The asserts pin (a) host_id attr on edr.events.ingested, (b) rule_id+severity attrs on
-// edr.alerts.created, (c) the lossy=true vs lossy=false distinction on edr.agent.queue.dropped
-// (server-side mirror of the agent-side TestRecorder_QueueDropped), (d) that collect() drives the
-// gauge callbacks and observes their values (stubGauges feeds enrolled=3, offline=1), (e) the
-// attribute-free edr.detection.materialization_retries counter sums both fired retries, and (f) the
-// host_id attr and count on edr.events.set_aside, which nothing else collects.
+// edr.alerts.created, (c) that collect() drives the gauge callbacks and observes their values (stubGauges
+// feeds enrolled=3, offline=1), (d) the attribute-free edr.detection.materialization_retries counter sums
+// both fired retries, and (e) the host_id attr and count on edr.events.set_aside, which nothing else
+// collects. edr.agent.queue.dropped is the agent's own counter and is pinned by agent/metrics.
 //
 // spec:observability-instrumentation/aggregate-latency-and-alerting-derive-from-metrics-not-sampled-spans/event-counts-are-unaffected-by-the-sample-ratio
 // The recorder counts every ingested event with no reference to the trace sampler, so counts are authoritative regardless of the
@@ -148,8 +146,6 @@ func TestRecorder_RecordsCounters(t *testing.T) {
 	r.AlertRetentionRowsDeleted(ctx, 11)
 	r.MonitorRecordRetentionRowsDeleted(ctx, 13)
 	r.QueueRowsPruned(ctx, 9)
-	r.QueueDropped(ctx, 3, false)
-	r.QueueDropped(ctx, 5, true)
 	r.DetectionMaterializationRetry(ctx)
 	r.DetectionMaterializationRetry(ctx)
 	r.EventsSetAside(ctx, "host-wedged", 4)
@@ -174,8 +170,6 @@ func TestRecorder_RecordsCounters(t *testing.T) {
 	assert.Equal(t, int64(11), findSum(t, rm, "edr.retention.alerts.rows_deleted", nil))
 	assert.Equal(t, int64(13), findSum(t, rm, "edr.retention.monitor_records.rows_deleted", nil))
 	assert.Equal(t, int64(9), findSum(t, rm, "edr.event_queue.rows_pruned", nil))
-	assert.Equal(t, int64(3), findSum(t, rm, "edr.agent.queue.dropped", map[string]any{"lossy": false}))
-	assert.Equal(t, int64(5), findSum(t, rm, "edr.agent.queue.dropped", map[string]any{"lossy": true}))
 	assert.Equal(t, int64(2), findSum(t, rm, "edr.detection.materialization_retries", nil))
 	// Asserted against the concrete recorder, not just a fake, for the same reason edr.detection.monitor_matches is: the
 	// pipeline test proves the processor forwards a count to whatever recorder it holds, which a misspelled instrument name
@@ -231,7 +225,7 @@ func (g thresholdCapturingGauges) OfflineHosts(_ context.Context, t time.Duratio
 // spec:observability-instrumentation/instrumentation-is-safe-on-a-nil-receiver/call-sites-do-not-guard-the-recorder
 //
 // Methods short-circuit on nil so call sites can tolerate "no metrics configured" without defensive
-// checks. Companion agent-side coverage in TestNilRecorder_QueueDropped_Safe.
+// checks. The agent recorder has its own nil-safety test.
 func TestNilRecorder_AllMethodsSafe(t *testing.T) {
 	t.Parallel()
 	// Methods short-circuit on nil so call sites can tolerate "no metrics configured"
@@ -245,8 +239,6 @@ func TestNilRecorder_AllMethodsSafe(t *testing.T) {
 		r.ProcessRetentionRowsDeleted(ctx, 1)
 		r.AlertRetentionRowsDeleted(ctx, 1)
 		r.MonitorRecordRetentionRowsDeleted(ctx, 1)
-		r.QueueDropped(ctx, 1, false)
-		r.QueueDropped(ctx, 1, true)
 	})
 }
 

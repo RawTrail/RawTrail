@@ -123,3 +123,26 @@ func emittedMetricNames(t *testing.T, repo fs.FS, roots []string) map[string]boo
 	}
 	return names
 }
+
+// A dashboard query that names a temporality reads only that kind, so a deployment switching to delta would see its panels go
+// empty; and a compose that does not forward the variable leaves the switch unreachable from .env.
+//
+// spec:observability-instrumentation/metric-temporality-is-selectable-per-backend/compose-forwards-it-and-dashboards-do-not-pin-it
+func TestTemporalityPreference_ForwardedAndNotPinned(t *testing.T) {
+	t.Parallel()
+	repo := os.DirFS(repoRootFromTest(t))
+
+	compose, err := fs.ReadFile(repo, "docker-compose.quickstart.yml")
+	require.NoError(t, err)
+	assert.Contains(t, string(compose),
+		"OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: ${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE:-}")
+
+	dashboards, err := fs.Glob(repo, "config/observability/*.json")
+	require.NoError(t, err)
+	require.NotEmpty(t, dashboards)
+	for _, dashboard := range dashboards {
+		raw, err := fs.ReadFile(repo, dashboard)
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), `"temporality"`, "%s pins a temporality", dashboard)
+	}
+}

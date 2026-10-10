@@ -329,7 +329,6 @@ The script matches rules by name, so re-running it updates rules instead of dupl
 | EDR detection rule skipped | error | `edr.detection.rule_evaluation_skipped` increased: a rule stopped running on a replica |
 | EDR break-glass sign-in failures | error | More than 25 failed break-glass sign-ins in 5 minutes |
 | EDR hosts offline | warning | More than 10% of enrolled hosts offline for 15 minutes |
-| EDR agents dropping events | warning | Lossy `edr.agent.queue.dropped` increased: an endpoint lost telemetry. Needs agents exporting OTel |
 | EDR event batch set aside | warning | `edr.events.set_aside` increased: a batch was withdrawn before detection ran |
 | EDR maintenance sweep failed | warning | A periodic sweep (`detection.periodic.*` span) failed more than twice in 30 minutes |
 | EDR retention not running | warning | No retention pass in 3 hours. Disable it if every retention window is 0 |
