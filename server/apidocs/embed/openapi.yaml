@@ -233,6 +233,7 @@ paths:
       summary: List hosts
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Host summaries
@@ -249,6 +250,7 @@ paths:
       summary: Process tree for a host
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - $ref: "#/components/parameters/HostID"
         - name: from
@@ -337,6 +339,7 @@ paths:
       summary: Process detail
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - $ref: "#/components/parameters/HostID"
         - name: pid
@@ -367,6 +370,7 @@ paths:
         `host.read`.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Containment states
@@ -393,6 +397,7 @@ paths:
         with no delivery. Requires `host.read`.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: host_id
           in: path
@@ -422,6 +427,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       parameters:
         - name: host_id
           in: path
@@ -498,6 +504,7 @@ paths:
         the empty set no operator has changed.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Reachable-address set
@@ -545,6 +552,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -593,6 +601,7 @@ paths:
       summary: List alerts
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: host_id
           in: query
@@ -659,6 +668,7 @@ paths:
       summary: Alert detail (with event IDs)
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -679,6 +689,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -709,16 +720,18 @@ paths:
       summary: List commands for the authenticated host
       description: |
         Host-token-only. The `host_id` is always the authenticated host's
-        id; any query parameter is ignored. Polling this endpoint also
-        refreshes the host's `last_seen` timestamp.
+        id, whatever the query says. Polling this endpoint also refreshes
+        the host's `last_seen` timestamp.
       security:
         - HostToken: []
       parameters:
         - name: status
           in: query
+          description: Status to list. Defaults to `pending`.
           schema:
             type: string
-            enum: [queued, acked, completed, failed]
+            default: pending
+            enum: [pending, acked, completed, failed, cancelled, expired]
       responses:
         "200":
           description: Command list
@@ -734,6 +747,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -761,6 +775,7 @@ paths:
       summary: Get a single command (admin)
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -821,7 +836,8 @@ paths:
         offline cannot receive a stale action later. Only a `pending`
         command can be cancelled. Cancelling requires the same permission
         as issuing that command type, and records a `command.cancel`
-        audit row. Requires a recently authenticated session.
+        audit row. A browser session must have authenticated recently; a
+        service account needs only the role.
       security:
         - SessionCookie: []
           CSRF: []
@@ -870,6 +886,7 @@ paths:
       summary: List enrollments
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Enrollment rows
@@ -892,6 +909,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       parameters:
         - $ref: "#/components/parameters/HostID"
       requestBody:
@@ -1000,8 +1018,9 @@ paths:
       summary: Update trace sampling settings
       description: |
         Partial update: an omitted field keeps its stored value. Every
-        replica applies the change within 60 seconds. Records a
-        `tracing.settings.updated` audit row.
+        replica applies the change within 60 seconds. A
+        `tracing.settings.updated` audit row is written after the change
+        commits.
       security:
         - SessionCookie: []
           CSRF: []
@@ -1048,8 +1067,8 @@ paths:
         `client_secret` as a form or as JSON; `grant_type`, when present,
         must be `client_credentials`. The access token lasts 15 minutes
         and there is no refresh token: request a new one shortly before
-        it expires or on a `401`. Each client id is limited to 60 requests
-        a minute. Every issuance records a
+        it expires or on a `401`. Each server replica allows a client id
+        60 requests a minute. Every issuance records a
         `service_account.token_issued` audit row.
       security: []
       requestBody:
@@ -1090,7 +1109,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
-          description: "`rate_limited`: more than 60 requests a minute for this client id"
+          description: "`rate_limited`: more than 60 requests a minute for this client id on this replica"
           content:
             application/json:
               schema:
@@ -1110,6 +1129,7 @@ paths:
         byte-identical across requests and safe to ETag.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Navigator layer
@@ -1130,6 +1150,7 @@ paths:
         (generated by `tools/gen-rule-docs`).
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Per-rule documentation
@@ -1174,6 +1195,7 @@ paths:
         answer changes when rule content is reloaded.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -1209,6 +1231,7 @@ paths:
         global exclusion, the only scope currently accepted.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Exclusion list
@@ -1241,6 +1264,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1279,6 +1303,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -1320,6 +1345,7 @@ paths:
         A rule with no row defaults to `alert` at its declared severity.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Rule-setting list
@@ -1352,6 +1378,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1390,6 +1417,7 @@ paths:
         of entries. Version 0 is the empty set no operator has changed.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Watched-path set
@@ -1443,6 +1471,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1523,6 +1552,7 @@ paths:
         repeated subjects and downward by the recorder's documented losses.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: days
           in: query
@@ -1601,6 +1631,7 @@ paths:
         counted more often as a result.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: days
           in: query
@@ -1667,6 +1698,7 @@ paths:
         does not make a deployment appear out of date.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Pack status
@@ -1750,6 +1782,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1815,6 +1848,7 @@ paths:
         would send megabytes. Fetch one document to read its content.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Corpus listing
@@ -1860,6 +1894,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1938,6 +1973,7 @@ paths:
         tool. A caller who must unwrap it first is worse off.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: The rule file, verbatim.
@@ -1973,6 +2009,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -2034,6 +2071,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -2124,9 +2162,10 @@ components:
       scheme: bearer
       description: |
         Access token from `POST /api/oauth/token`, passed as
-        `Authorization: Bearer <access_token>`. Accepted on every
-        operator endpoint in place of the session cookie, with the bound
-        role's permissions. No CSRF token is needed.
+        `Authorization: Bearer <access_token>`. Accepted in place of the
+        session cookie on every operator endpoint that lists it, with the
+        bound role's permissions. No CSRF token is needed. The session
+        endpoints (`/api/session`) need a browser session.
 
   parameters:
     HostID:

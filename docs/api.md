@@ -58,7 +58,7 @@ X-CSRF-Token: <csrf_token>
 
 GET requests only need the cookie. Logout is `DELETE /api/session`.
 
-Endpoints that require the session cookie:
+Operator endpoints, which take the session cookie or a service-account bearer token (below):
 
 - `GET /api/hosts`, `/api/hosts/{host_id}/tree`, `/api/hosts/{host_id}/processes/{pid}`
 - `GET /api/alerts`, `/api/alerts/{id}`; `PUT /api/alerts/{id}`
@@ -71,7 +71,7 @@ Endpoints that require the session cookie:
 
 ### Service-account bearer token (automation)
 
-A service account exchanges its client id and secret for a 15-minute access token at `POST /api/oauth/token` (OAuth 2.0 client credentials), then sends `Authorization: Bearer <access_token>` on any endpoint that takes the session cookie. No CSRF token is needed. See [service-accounts.md](service-accounts.md).
+A service account exchanges its client id and secret for a 15-minute access token at `POST /api/oauth/token` (OAuth 2.0 client credentials), then sends `Authorization: Bearer <access_token>` on the operator endpoints listed above. No CSRF token is needed. `GET` and `DELETE /api/session` manage a browser session and do not accept it. See [service-accounts.md](service-accounts.md).
 
 ### No auth
 
