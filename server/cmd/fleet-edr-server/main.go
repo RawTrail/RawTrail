@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/fleetdm/edr/internal/keyring"
 	"github.com/fleetdm/edr/internal/observability/tracing"
@@ -90,18 +89,10 @@ func main() {
 }
 
 func run() error {
-	// Build the route-tier trace sampler before bootstrap.Init so it can be installed on the TracerProvider at OTel init. The registry
-	// is read live on every span, so registering the policy now (before any context exists) is fine; the poller below later swaps the
-	// ratios from the DB. Wrapped in ParentBased so a sampled parent forces its children sampled (issue #374).
-	samplerRegistry := tracing.NewRegistry()
-	tracingpolicy.Register(samplerRegistry)
-	traceSampler := tracing.NewRouteTierSampler(samplerRegistry)
-
-	ctx, env, err := bootstrap.Init(bootstrap.Options{
-		ServiceName:    serviceName,
-		ServiceVersion: version,
-		TraceSampler:   sdktrace.ParentBased(traceSampler),
-	})
+	// The route-tier trace sampler is built before bootstrap.Init so it is installed on the TracerProvider at OTel init; the settings
+	// sync below later swaps its ratios from the DB.
+	traceSampler := tracingpolicy.NewSampler()
+	ctx, env, err := bootstrap.Init(bootstrap.Options{ServiceName: serviceName, ServiceVersion: version, TraceSampler: traceSampler})
 	if err != nil {
 		return err
 	}
@@ -233,12 +224,8 @@ func run() error {
 
 	go runDetection(ctx, detectionCtx, logger)
 	go runIdentity(ctx, identityCtx, logger)
-	// Prime the sampler from the DB synchronously before serving so request #1 honors any persisted override (e.g. an active
-	// force_full or emergency downsample), not the compile-time defaults; then poll so later changes propagate without a restart
-	// (issue #374). The applied state is a per-replica cache, safe to lose (ADR-0010).
-	samplerReader := observabilityCtx.TraceSamplerSettingsReader()
-	primedSampler := tracing.PrimeSampler(ctx, traceSampler, samplerReader, logger)
-	go tracing.StartSettingsPoller(ctx, traceSampler, samplerReader, logger, primedSampler)
+	// Prime the sampler from the DB before serving, then poll so later changes propagate without a restart (issue #374).
+	tracing.StartSettingsSync(ctx, traceSampler, observabilityCtx.TraceSamplerSettingsReader(), logger)
 	// Converge this replica's detection-config snapshot with mutations made on other replicas (ADR-0010): a peer's exclusion / rule-mode
 	// edit only bumps the shared version counter, so without this poll a non-mutating replica would serve a stale config until restart.
 	// Cancellable independently of ctx, so the join below can stop these loops whether we are shutting down on a signal or

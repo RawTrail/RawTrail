@@ -68,9 +68,7 @@ func TestRegister_detectionBatchIsSampledAsOneUnit(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			reg := tracing.NewRegistry()
-			Register(reg)
-			sampler := tracing.NewRouteTierSampler(reg)
+			sampler := NewSampler()
 			sampler.Apply(tc.highVolumeRatio, 1, false)
 			recorder := tracetest.NewSpanRecorder()
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.ParentBased(sampler)), sdktrace.WithSpanProcessor(recorder))

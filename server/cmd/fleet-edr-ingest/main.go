@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/fleetdm/edr/internal/keyring"
 	"github.com/fleetdm/edr/internal/observability/tracing"
@@ -55,18 +54,10 @@ func main() {
 }
 
 func run() error {
-	// Build the route-tier trace sampler before bootstrap.Init so it is installed on the TracerProvider at OTel init. The ingest binary
-	// serves the highest-volume route (POST /api/events), so capping its trace export is the main win of issue #374. Wrapped in
-	// ParentBased so a sampled parent forces its children sampled.
-	samplerRegistry := tracing.NewRegistry()
-	tracingpolicy.Register(samplerRegistry)
-	traceSampler := tracing.NewRouteTierSampler(samplerRegistry)
-
-	ctx, env, err := bootstrap.Init(bootstrap.Options{
-		ServiceName:    serviceName,
-		ServiceVersion: version,
-		TraceSampler:   sdktrace.ParentBased(traceSampler),
-	})
+	// The ingest binary serves the highest-volume route (POST /api/events), so capping its trace export is the main win of issue #374.
+	// The sampler is built before bootstrap.Init so it is installed on the TracerProvider at OTel init.
+	traceSampler := tracingpolicy.NewSampler()
+	ctx, env, err := bootstrap.Init(bootstrap.Options{ServiceName: serviceName, ServiceVersion: version, TraceSampler: traceSampler})
 	if err != nil {
 		return err
 	}
@@ -136,11 +127,8 @@ func run() error {
 		logger.ErrorContext(ctx, "observability schema", "err", err)
 		return err
 	}
-	// Prime the sampler synchronously before serving so the ingest tier's first request honors any persisted override rather than the
-	// compile-time defaults; then poll for later changes. The applied state is a per-replica cache, safe to lose (ADR-0010).
-	samplerReader := observabilityCtx.TraceSamplerSettingsReader()
-	primedSampler := tracing.PrimeSampler(ctx, traceSampler, samplerReader, logger)
-	go tracing.StartSettingsPoller(ctx, traceSampler, samplerReader, logger, primedSampler)
+	// Prime the sampler from the DB before serving, then poll for later changes.
+	tracing.StartSettingsSync(ctx, traceSampler, observabilityCtx.TraceSamplerSettingsReader(), logger)
 
 	detectionCtx, err := detectionbootstrap.New(detectionbootstrap.Deps{
 		DB:     db,

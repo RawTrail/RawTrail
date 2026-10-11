@@ -21,6 +21,7 @@ import (
 
 	"github.com/fleetdm/edr/internal/logging"
 	"github.com/fleetdm/edr/internal/observability"
+	"github.com/fleetdm/edr/internal/observability/tracing"
 	"github.com/fleetdm/edr/server/config"
 )
 
@@ -58,10 +59,9 @@ type Env struct {
 type Options struct {
 	ServiceName    string
 	ServiceVersion string
-	// TraceSampler, when non-nil, becomes the TracerProvider's head sampler. The HTTP server binaries pass a route-tier sampler here
-	// (wrapped in sdktrace.ParentBased) so trace export volume is capped; binaries that do not classify routes leave it nil and keep
-	// the SDK default (always-on).
-	TraceSampler sdktrace.Sampler
+	// TraceSampler becomes the TracerProvider's head sampler, so trace export volume is capped (issue #374). Init wraps it in
+	// sdktrace.ParentBased, so a sampled parent forces its children sampled.
+	TraceSampler *tracing.RouteTierSampler
 }
 
 // Init runs the daemon prelude. On any error the partial state is torn down before returning so the caller only has to check err.
@@ -80,7 +80,7 @@ func Init(opts Options) (context.Context, *Env, error) {
 		ServiceName:       opts.ServiceName,
 		ServiceVersion:    opts.ServiceVersion,
 		ServiceInstanceID: instanceID(),
-		Sampler:           opts.TraceSampler,
+		Sampler:           sdktrace.ParentBased(opts.TraceSampler),
 	}))
 	if err != nil {
 		cancel()
