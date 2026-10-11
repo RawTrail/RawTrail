@@ -39,6 +39,7 @@ import (
 	"github.com/fleetdm/edr/server/detection/internal/pipeline"
 	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
 	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/fleetdm/edr/server/httpserver"
 	identityapi "github.com/fleetdm/edr/server/identity/api"
 	rulesapi "github.com/fleetdm/edr/server/rules/api"
 	"github.com/fleetdm/edr/server/testdb/full"
@@ -381,6 +382,8 @@ type detectionOpts struct {
 	// most ModeFull tests do.
 	metrics      api.MetricsRecorder
 	ruleProvider interface{ ActiveRules() []rulesapi.Rule }
+	// isDraining is the readiness drain gate cmd/main wires from its DrainState; nil leaves readiness on the DB check alone.
+	isDraining func() bool
 }
 
 // newDetection builds a fresh Detection bootstrap against an isolated
@@ -427,6 +430,7 @@ func newDetectionWithDB(
 		AuthZ:                allowAllAuthZ{},
 		EventLog:             vis.EventLog(),
 		EventArchive:         archive,
+		IsDraining:           opts.isDraining,
 	}
 	d, err := bootstrap.New(deps)
 	require.NoError(t, err)
@@ -3481,6 +3485,32 @@ func TestHealthRoutes_LivezReadyz(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode, "path=%s", path)
 		resp.Body.Close()
 	}
+}
+
+// spec:server-availability/ingest-drains-and-resolves-clients-like-the-server/ingest-readiness-reports-not-ready-once-draining-begins
+//
+// fleet-edr-ingest builds detection in intake mode and wires its DrainState into it, as fleet-edr-server does in full mode (issue
+// #1248). This builds the same intake-mode context with the same gate and checks /readyz flips to 503 once the drain begins.
+func TestHealthRoutes_IntakeModeReadyzDrains(t *testing.T) {
+	t.Parallel()
+	drain := &httpserver.DrainState{}
+	d := newDetection(t, detectionOpts{mode: bootstrap.ModeIntake, isDraining: drain.IsDraining})
+	mux := http.NewServeMux()
+	d.RegisterHealthRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	readyz := func() int {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/readyz", nil)
+		require.NoError(t, err)
+		resp, err := srv.Client().Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	assert.Equal(t, http.StatusOK, readyz(), "ready before the drain")
+	drain.BeginDrain()
+	assert.Equal(t, http.StatusServiceUnavailable, readyz(), "not ready once draining, so the load balancer stops routing here")
 }
 
 // ---- Ingest routes wiring --------------------------------------------------

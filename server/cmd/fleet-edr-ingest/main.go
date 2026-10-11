@@ -3,8 +3,8 @@
 // queue without any processing. A separate fleet-edr-server instance claims
 // queued events and builds process graphs.
 //
-// It reads the server's storage, TLS and auth env vars; processor knobs are
-// ignored, and it does not honour EDR_TRUSTED_PROXIES or EDR_SHUTDOWN_DRAIN.
+// It reads the server's storage, TLS, auth, proxy and shutdown-drain env vars;
+// processor knobs are ignored.
 package main
 
 import (
@@ -103,10 +103,14 @@ func run() error {
 	// Prime the sampler from the DB before serving, then poll for later changes.
 	tracing.StartSettingsSync(ctx, traceSampler, observabilityCtx.TraceSamplerSettingsReader(), logger)
 
+	// drain is the graceful-shutdown signal, as in fleet-edr-server: SIGTERM flips it so /readyz reports 503 and a load balancer stops
+	// routing agent uploads here before RunAndShutdown closes the listener (ADR-0011).
+	drain := &httpserver.DrainState{}
 	detectionCtx, err := detectionbootstrap.New(detectionbootstrap.Deps{
-		DB:     db,
-		Logger: logger,
-		Mode:   detectionbootstrap.ModeIntake,
+		DB:         db,
+		Logger:     logger,
+		Mode:       detectionbootstrap.ModeIntake,
+		IsDraining: drain.IsDraining,
 		Build: detectionbootstrap.BuildInfo{
 			Version:   version,
 			Commit:    commit,
@@ -160,30 +164,13 @@ func run() error {
 	mux.Handle("POST /api/events", hostTokenMW(detectionCtx.Service().IngestHandler()))
 	mux.Handle("POST /api/token/refresh", hostTokenMW(endpointCtx.TokenRefreshHandler()))
 
-	handler := httpserver.Build(mux, httpserver.Options{
-		Logger:      logger,
-		ServiceName: serviceName,
-		TLSEnabled:  cfg.TLSEnabled(),
-	})
-
-	srv := httpserver.NewServer(cfg.ListenAddr, handler)
-	// Honor EDR_TLS_TERMINATED_BY_PROXY here too: config validation allows missing cert files in that mode, so calling
-	// ConfigureTLS with empty paths would fail to load a keypair and brick ingest boot behind a proxy. Leaving TLSConfig nil
-	// makes RunAndShutdown serve plaintext, matching the main server.
-	if cfg.TLSTerminatedByProxy {
-		logger.WarnContext(ctx, "ingest serving plaintext HTTP: EDR_TLS_TERMINATED_BY_PROXY=1 is set; only safe behind a "+
-			"TLS-terminating proxy", "listen_addr", cfg.ListenAddr)
-	} else if err := httpserver.ConfigureTLS(ctx, srv, httpserver.TLSOptions{
-		CertFile: cfg.TLSCertFile,
-		KeyFile:  cfg.TLSKeyFile,
-		Logger:   logger,
-	}); err != nil {
+	srv, err := bootstrap.NewHTTPServer(ctx, cfg, logger, bootstrap.HTTPServerOptions{ServiceName: serviceName, Handler: mux})
+	if err != nil {
 		return err
 	}
 	// The ingest binary serves only the event-intake HTTP surface (no agent control channel), so it passes a nil control mux: no gRPC
-	// multiplexing. It also shuts down immediately on SIGTERM (nil drain, 0 delay); graceful-drain wiring for the ingest tier is a
-	// follow-up to the server's (server-availability arc); nil/0 preserves the prior immediate-shutdown behavior with no regression.
-	return httpserver.RunAndShutdown(ctx, srv, nil, logger, nil, 0)
+	// multiplexing.
+	return httpserver.RunAndShutdown(ctx, srv, nil, logger, drain, cfg.ShutdownDrain)
 }
 
 // openVisibility opens the required ClickHouse event archive (ADR-0015) and builds the visibility context. The ingest tier fans every
