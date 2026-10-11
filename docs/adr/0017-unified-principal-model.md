@@ -65,6 +65,10 @@ The change is scoped to identity and attribution. It deliberately does **not** t
 
 **Expand/contract migration.** Add the principal columns, dual-write both representations, migrate reads, then drop the legacy columns over several releases. The standard zero-downtime path. Rejected by product: the deployment is pre-release with no attribution history worth preserving, so the compatibility layer is pure cost. A hard cutover leaves no `"user:<id>"`-versus-principal duality for future code to navigate, which is the point.
 
+## Amendment (2026-10-11): no tombstone column on principals
+
+The decision above gave each `principals` row a soft-delete tombstone, `disabled_at`, so a removed user or service account would stay attributable. Nothing ever wrote or read it, and it is dropped (issue #1224). An identity's status stays on its own row, where every authentication check reads it: `users.status` for a user and `service_accounts.revoked_at` (and, when it lands, a soft-delete column) for a service account. A second status copy that no check reads invites someone to set it and believe the account is disabled. Attribution needs no tombstone: a `principals` row is never deleted, because foreign keys and the audit trail reference it, so its id and label stay resolvable and the id is never reused.
+
 ## References
 
 - Issue #514 (service-account actions are unattributable) and #518 (service accounts cannot write detection-config: actor required at store layer), the two bugs this change closes

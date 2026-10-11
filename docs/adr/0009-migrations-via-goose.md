@@ -29,6 +29,12 @@ Adopt [pressly/goose](https://github.com/pressly/goose) (`github.com/pressly/goo
 - **Constraint**: the tracking-table name is load-bearing. Renaming `<context>_goose_db_version` strands the applied-version history and goose would re-run every migration. Pick once, never rename.
 - **Concurrency**: `runner.Up` takes no distributed lock. Single-replica boot is safe as-is. The multi-replica rolling-upgrade path wraps the whole boot migration sequence in one MySQL advisory lock at the cmd layer (HA arc), after which goose's tracking table makes every other replica's apply a no-op.
 
+## Amendment (2026-10-11): dropping a column no binary has ever touched
+
+Expand-contract exists so binary N and binary N+1 can run against the same schema during a rolling upgrade. Its contract phase is safe once no running binary reads or writes the column. A column that no released binary has ever read or written is already in that state, so the earlier phases have nothing to do.
+
+Such a column MAY be dropped in a single step. The migration's header comment MUST state the evidence: that the column has no reader or writer in the current tree, and none in any released version. Every other tier-2 change still uses expand-contract. The first use is `principals.disabled_at` (issue #1224), which was created with the principals table and never written or read.
+
 ## Alternatives considered
 
 **golang-migrate/migrate.** Mature, many drivers, single tracking table. Rejected primarily because it is SQL-only: the first data backfill that needs application logic would be forced into a separate one-off binary. Native `embed.FS` support is also thinner than goose's. If goose's maintenance ever flatlines, the fallback is a mechanical rewrite of file headers (`-- +goose Up` to `.up.sql`/`.down.sql`) and an embed-driver swap, so the optionality is cheap.
