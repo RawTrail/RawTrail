@@ -2,9 +2,9 @@
 //
 // Build composes otelhttp (auto-instrumentation and W3C trace context extraction), an
 // X-Request-ID echo layer, a panic-recovery layer, and an access-log layer around the
-// provided mux. Layer order:
+// provided mux. Layer order (bracketed layers are optional):
 //
-//	otelhttp( xRequestIDEcho( accessLog( recover( mux ) ) ) )
+//	otelhttp( [clientIPResolver]( spanClientAddress( xRequestIDEcho( [hsts]( accessLog( recover( mux ) ) ) ) ) ) )
 //
 // The span from otelhttp covers the entire request including the access log overhead, so the
 // span duration matches what shows up in SigNoz. xRequestIDEcho copies the span's trace-id
@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric/noop"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -87,6 +88,7 @@ func Build(handler http.Handler, opts Options) http.Handler {
 		h = hstsHeader()(h)
 	}
 	h = xRequestIDEcho()(h)
+	h = spanClientAddress()(h)
 	// Client-IP resolution wraps xRequestIDEcho so the resolver runs outermost in the application layer (still inside otelhttp's span).
 	// The resolved IP is therefore on ctx by the time accessLog + downstream handlers read it via ClientIP(r). Skipped entirely when no
 	// proxies are configured: the empty trusted list yields the same value httpserver.ClientIP's fallback does, with one fewer per-request
@@ -125,6 +127,18 @@ func hstsHeader() func(http.Handler) http.Handler {
 // xRequestIDEcho sets the X-Request-ID response header to the hex trace-id when a span is active, or to the inbound X-Request-ID
 // header when it is present and no span is running. This header is for humans (curl output, load balancer logs) and does not drive
 // correlation.
+// spanClientAddress overwrites the request span's client.address with the resolved client address. otelhttp fills it at span start
+// from the first X-Forwarded-For entry whenever the header is present, with no notion of a trusted proxy, so without this any client
+// chooses the address its span records. ClientIP believes a forwarded address only from a configured trusted proxy.
+func spanClientAddress() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			trace.SpanFromContext(r.Context()).SetAttributes(semconv.ClientAddress(ClientIP(r)))
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func xRequestIDEcho() func(http.Handler) http.Handler {
 	const header = "X-Request-ID"
 	return func(next http.Handler) http.Handler {

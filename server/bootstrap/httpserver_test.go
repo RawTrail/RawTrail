@@ -58,6 +58,7 @@ func TestNewHTTPServer_Setup(t *testing.T) {
 	t.Parallel()
 	okHandler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 
+	// spec:server-availability/ingest-drains-and-resolves-clients-like-the-server/hsts-is-emitted-behind-a-tls-terminating-proxy
 	t.Run("HSTS behind a TLS-terminating proxy", func(t *testing.T) {
 		t.Parallel()
 		cfg := &config.Config{ListenAddr: "127.0.0.1:0", TLSTerminatedByProxy: true}

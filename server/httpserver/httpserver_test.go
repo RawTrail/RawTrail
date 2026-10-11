@@ -347,3 +347,58 @@ func TestBuild_OtelhttpRecordsNoDuplicateDurationMetric(t *testing.T) { //nolint
 		}
 	}
 }
+
+// spec:server-availability/ingest-drains-and-resolves-clients-like-the-server/a-span-records-the-resolved-client-address
+//
+// otelhttp sets client.address from X-Forwarded-For with no notion of a trusted proxy, so the span must be overwritten with what
+// ClientIP resolved. Each case sends X-Forwarded-For from a loopback peer; only a configured trusted proxy may make it stick.
+func TestBuild_SpanClientAddressIsResolved(t *testing.T) { //nolint:paralleltest // installs/depends on process-global OTel tracer
+	spans := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+	prevProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(prevProvider)
+	})
+
+	cases := []struct {
+		name    string
+		trusted []string
+		want    string
+	}{
+		{"trusted proxy records the forwarded address", []string{"127.0.0.1/32"}, "203.0.113.9"},
+		{"untrusted peer records its own address", []string{"10.0.0.0/8"}, "127.0.0.1"},
+		{"no trusted proxies records the peer", nil, "127.0.0.1"},
+	}
+	for _, tc := range cases { //nolint:paralleltest // subtests share the global tracer provider
+		t.Run(tc.name, func(t *testing.T) {
+			opts := Options{Logger: newLogger(io.Discard), ServiceName: "test"}
+			if tc.trusted != nil {
+				resolver, err := NewClientIPResolver(tc.trusted)
+				require.NoError(t, err)
+				opts.ClientIPResolver = resolver
+			}
+			srv := httptest.NewServer(Build(http.NotFoundHandler(), opts))
+			t.Cleanup(srv.Close)
+
+			before := len(spans.Ended())
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/", nil)
+			require.NoError(t, err)
+			req.Header.Set("X-Forwarded-For", "203.0.113.9")
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			resp.Body.Close()
+
+			ended := spans.Ended()
+			require.Len(t, ended, before+1)
+			var got string
+			for _, kv := range ended[before].Attributes() {
+				if kv.Key == "client.address" {
+					got = kv.Value.AsString()
+				}
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
