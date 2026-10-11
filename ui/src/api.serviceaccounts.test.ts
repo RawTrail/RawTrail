@@ -4,7 +4,6 @@ import {
   createServiceAccount,
   rotateServiceAccount,
   revokeServiceAccount,
-  attachCsrfHeader,
 } from "./api";
 
 interface FakeResponse {
@@ -62,9 +61,7 @@ describe("service-account API client", () => {
     const [target, init] = mock.mock.calls[0] as [URL, RequestInit & { headers: Record<string, string> }];
     expect(target.toString()).toContain("/api/settings/service-accounts");
     expect(init.method).toBe("POST");
-    const expectedCsrf: Record<string, string> = {};
-    attachCsrfHeader(expectedCsrf, "POST");
-    expect(init.headers).toMatchObject(expectedCsrf);
+    expect(init.headers).toMatchObject({ "X-CSRF-Token": "csrf-123" });
     expect(JSON.parse(init.body as string)).toEqual({ name: "b", role: "analyst", expires_in_days: 30 });
   });
 

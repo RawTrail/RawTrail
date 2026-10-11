@@ -10,7 +10,6 @@ import {
   getWatchedPaths,
   replaceWatchedPaths,
   DetectionConfigApiError,
-  attachCsrfHeader,
 } from "./api";
 
 interface FakeResponse {
@@ -316,9 +315,10 @@ describe("detection-config API client", () => {
     const [target, init] = mock.mock.calls[0] as [URL, RequestInit & { headers: Record<string, string> }];
     expect(target.toString()).toContain("/api/v1/detection-config/exclusions");
     expect(init.method).toBe("POST");
-    const expectedCsrf: Record<string, string> = {};
-    attachCsrfHeader(expectedCsrf, "POST");
-    expect(init.headers).toMatchObject(expectedCsrf);
+    expect(init.headers).toMatchObject({ "X-CSRF-Token": "csrf-123" });
+    expect(JSON.parse(init.body as string)).toEqual({
+      rule_id: "suspicious_exec", match_type: "path_glob", value: "*/x/*", reason: "r",
+    });
   });
 
   // The reason rides the URL path, which assertSafeAPIPath validates against a strict whitelist. encodeURIComponent leaves
@@ -364,9 +364,7 @@ describe("detection-config API client", () => {
     expect(target.toString()).toContain("/api/v1/detection-config/watched-paths");
     expect(init.method).toBe("PUT");
     expect(JSON.parse(init.body as string)).toEqual({ paths, reason: "persistence", expected_version: 2 });
-    const expectedCsrf: Record<string, string> = {};
-    attachCsrfHeader(expectedCsrf, "PUT");
-    expect(init.headers).toMatchObject(expectedCsrf);
+    expect(init.headers).toMatchObject({ "X-CSRF-Token": "csrf-123" });
   });
 
   it("replaceWatchedPaths surfaces the server's refusal as a typed error carrying its message", async () => {

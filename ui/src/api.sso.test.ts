@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getSSOConfig, updateSSOConfig, testSSOConnection, attachCsrfHeader } from "./api";
+import { getSSOConfig, updateSSOConfig, testSSOConnection } from "./api";
 
 interface FakeResponse {
   ok: boolean;
@@ -49,11 +49,7 @@ describe("SSO config API client", () => {
     const [target, init] = mock.mock.calls[0] as [URL, RequestInit & { headers: Record<string, string> }];
     expect(target.toString()).toContain("/api/settings/sso");
     expect(init.method).toBe("PUT");
-    // Derive the expected CSRF header via the canonical helper rather than hardcoding the header name.
-    const expectedCsrf: Record<string, string> = {};
-    attachCsrfHeader(expectedCsrf, "PUT");
-    expect(Object.keys(expectedCsrf).length).toBeGreaterThan(0);
-    expect(init.headers).toMatchObject(expectedCsrf);
+    expect(init.headers).toMatchObject({ "X-CSRF-Token": "csrf-token-123" });
     expect(JSON.parse(init.body as string)).toMatchObject({ issuer: "https://idp", default_role: "analyst" });
   });
 

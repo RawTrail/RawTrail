@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createUser, listUsers, setUserRole, setUserStatus, attachCsrfHeader } from "./api";
+import { createUser, listUsers, setUserRole, setUserStatus } from "./api";
 
 interface FakeResponse {
   ok: boolean;
@@ -54,9 +54,7 @@ describe("user-management API client", () => {
     const [target, init] = mock.mock.calls[0] as [URL, RequestInit & { headers: Record<string, string> }];
     expect(target.toString()).toContain("/api/settings/users/7/role");
     expect(init.method).toBe("PUT");
-    const expectedCsrf: Record<string, string> = {};
-    attachCsrfHeader(expectedCsrf, "PUT");
-    expect(init.headers).toMatchObject(expectedCsrf);
+    expect(init.headers).toMatchObject({ "X-CSRF-Token": "csrf-xyz" });
     expect(JSON.parse(init.body as string)).toEqual({ role: "senior_analyst" });
   });
 
@@ -79,9 +77,7 @@ describe("user-management API client", () => {
     const [target, init] = mock.mock.calls[0] as [URL, RequestInit & { headers: Record<string, string> }];
     expect(target.toString()).toContain("/api/settings/users");
     expect(init.method).toBe("POST");
-    const expectedCsrf: Record<string, string> = {};
-    attachCsrfHeader(expectedCsrf, "POST");
-    expect(init.headers).toMatchObject(expectedCsrf);
+    expect(init.headers).toMatchObject({ "X-CSRF-Token": "csrf-xyz" });
     expect(JSON.parse(init.body as string)).toEqual({ email: "Staged@X.com", role: "senior_analyst" });
     expect(out.status).toBe("provisioned");
   });
