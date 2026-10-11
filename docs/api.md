@@ -39,7 +39,7 @@ An agent POSTs `/api/enroll` once with the shared enroll secret and its hardware
 Authorization: Bearer <host_token>
 ```
 
-Tokens are scoped to the host: agent A's token cannot read agent B's commands or post events with `host_id=B`. Revoking an enrollment via the admin UI invalidates the token immediately.
+Tokens are scoped to the host: agent A's token cannot read agent B's commands or post events with `host_id=B`. Revoking an enrollment (`POST /api/enrollments/{host_id}/revoke`) invalidates the host's tokens within a few seconds.
 
 Endpoints that require a host token:
 
@@ -49,7 +49,7 @@ Endpoints that require a host token:
 
 ### Session cookie + CSRF (browsers)
 
-Operators authenticate via OIDC (`GET /api/auth/login` redirects to the configured IdP; the callback at `GET /api/auth/callback` mints the session) or, when the IdP is unreachable, the break-glass surface (`/admin/break-glass` for login, `/admin/break-glass/setup` for the first-boot redemption flow). Both paths set `edr_session` (HttpOnly, Secure, SameSite=Lax) directly; there is no password-based `POST /api/session` endpoint. The UI reads the per-session CSRF token from `GET /api/session` once the cookie is set. Subsequent unsafe requests (`POST`, `PUT`, `DELETE`) carry:
+Operators authenticate via OIDC (`GET /api/auth/login` redirects to the configured IdP; the callback at `GET /api/auth/callback` mints the session) or, when the IdP is unreachable, the break-glass surface (`/admin/break-glass` for login, `/admin/break-glass/setup` for the first-boot redemption flow). Both paths set `edr_session` (HttpOnly, Secure, SameSite=Lax) directly; there is no password-based `POST /api/session` endpoint. The UI reads the per-session CSRF token from `GET /api/session` once the cookie is set. Subsequent unsafe requests (`POST`, `PUT`, `PATCH`, `DELETE`) carry:
 
 ```text
 Cookie: edr_session=<opaque>
@@ -62,10 +62,16 @@ Endpoints that require the session cookie:
 
 - `GET /api/hosts`, `/api/hosts/{host_id}/tree`, `/api/hosts/{host_id}/processes/{pid}`
 - `GET /api/alerts`, `/api/alerts/{id}`; `PUT /api/alerts/{id}`
-- `GET /api/commands/{id}`, `POST /api/commands`
+- `GET /api/commands/{id}`, `POST /api/commands`, `POST /api/commands/{id}/cancel`
 - `GET /api/enrollments`, `POST /api/enrollments/{host_id}/revoke`
+- `GET /api/audit-events`
+- `GET` and `PATCH /api/settings/tracing`
 - `GET /api/attack-coverage` -- ATT&CK Navigator layer JSON describing which techniques the registered rules cover.
 - `GET /api/rules` -- per-rule documentation surfaced by the UI's `/ui/rules/<id>` page; same data feeds [`detection-rules.md`](detection-rules.md).
+
+### Service-account bearer token (automation)
+
+A service account exchanges its client id and secret for a 15-minute access token at `POST /api/oauth/token` (OAuth 2.0 client credentials), then sends `Authorization: Bearer <access_token>` on any endpoint that takes the session cookie. No CSRF token is needed. See [service-accounts.md](service-accounts.md).
 
 ### No auth
 
