@@ -57,26 +57,14 @@ func run() error {
 	// The ingest binary serves the highest-volume route (POST /api/events), so capping its trace export is the main win of issue #374.
 	// The sampler is built before bootstrap.Init so it is installed on the TracerProvider at OTel init.
 	traceSampler := tracingpolicy.NewSampler()
-	ctx, env, err := bootstrap.Init(bootstrap.Options{ServiceName: serviceName, ServiceVersion: version, TraceSampler: traceSampler})
+	ctx, env, db, stop, err := bootstrap.Start(bootstrap.Options{
+		ServiceName: serviceName, ServiceVersion: version, Commit: commit, BuildTime: buildTime, TraceSampler: traceSampler,
+	})
 	if err != nil {
 		return err
 	}
-	defer env.FlushOTel()
-	defer env.Cancel()
+	defer stop()
 	cfg, logger := env.Config, env.Logger
-
-	logger.InfoContext(ctx, "fleet-edr-ingest starting",
-		"addr", cfg.ListenAddr,
-		"version", version,
-		"commit", commit,
-	)
-
-	db, err := bootstrap.OpenDB(ctx, cfg.DSN)
-	if err != nil {
-		logger.ErrorContext(ctx, "open db", "err", err)
-		return err
-	}
-	defer func() { _ = db.Close() }()
 
 	chDB, visibilityCtx, err := openVisibility(ctx, logger, cfg, db)
 	if err != nil {

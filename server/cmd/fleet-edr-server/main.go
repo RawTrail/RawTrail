@@ -92,27 +92,14 @@ func run() error {
 	// The route-tier trace sampler is built before bootstrap.Init so it is installed on the TracerProvider at OTel init; the settings
 	// sync below later swaps its ratios from the DB.
 	traceSampler := tracingpolicy.NewSampler()
-	ctx, env, err := bootstrap.Init(bootstrap.Options{ServiceName: serviceName, ServiceVersion: version, TraceSampler: traceSampler})
+	ctx, env, db, stop, err := bootstrap.Start(bootstrap.Options{
+		ServiceName: serviceName, ServiceVersion: version, Commit: commit, BuildTime: buildTime, TraceSampler: traceSampler,
+	})
 	if err != nil {
 		return err
 	}
-	defer env.FlushOTel()
-	defer env.Cancel()
+	defer stop()
 	cfg, logger := env.Config, env.Logger
-
-	logger.InfoContext(ctx, "fleet-edr-server starting",
-		"addr", cfg.ListenAddr,
-		"version", version,
-		"commit", commit,
-		"build_time", buildTime,
-	)
-
-	db, err := bootstrap.OpenDB(ctx, cfg.DSN)
-	if err != nil {
-		logger.ErrorContext(ctx, "open db", "err", err)
-		return err
-	}
-	defer func() { _ = db.Close() }()
 
 	// ClickHouse is the event store (ADR-0015): the durable archive intake writes to and correlation/evidence reads from.
 	// EDR_CLICKHOUSE_DSN is validated as required in config.Load (no MySQL events fallback after the cutover), so it is non-empty here.

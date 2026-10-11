@@ -17,6 +17,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/jmoiron/sqlx"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/fleetdm/edr/internal/logging"
@@ -59,8 +60,11 @@ type Env struct {
 type Options struct {
 	ServiceName    string
 	ServiceVersion string
-	// TraceSampler becomes the TracerProvider's head sampler, so trace export volume is capped (issue #374). Init wraps it in
-	// sdktrace.ParentBased, so a sampled parent forces its children sampled.
+	// Commit and BuildTime are logged on the start line by Start. They are build metadata set by -ldflags, not telemetry resources.
+	Commit    string
+	BuildTime string
+	// TraceSampler is required: it becomes the TracerProvider's head sampler, so trace export volume is capped (issue #374). Init wraps
+	// it in sdktrace.ParentBased, so a sampled parent forces its children sampled.
 	TraceSampler *tracing.RouteTierSampler
 }
 
@@ -108,6 +112,35 @@ func Init(opts Options) (context.Context, *Env, error) {
 		Logger:    logger,
 		FlushOTel: flush,
 	}, nil
+}
+
+// Start is the prelude both HTTP binaries share: Init, the start line, and the MySQL pool. The returned stop func closes the pool,
+// cancels ctx and flushes OTel, in that order; the caller defers it as soon as Start returns a nil error. On error, whatever Start
+// had already set up is torn down before it returns, so the caller only has to return the error.
+func Start(opts Options) (context.Context, *Env, *sqlx.DB, func(), error) {
+	ctx, env, err := Init(opts)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	env.Logger.InfoContext(ctx, opts.ServiceName+" starting",
+		"addr", env.Config.ListenAddr,
+		"version", opts.ServiceVersion,
+		"commit", opts.Commit,
+		"build_time", opts.BuildTime,
+	)
+	db, err := OpenDB(ctx, env.Config.DSN)
+	if err != nil {
+		env.Logger.ErrorContext(ctx, "open db", "err", err)
+		env.Cancel()
+		env.FlushOTel()
+		return nil, nil, nil, nil, err
+	}
+	stop := func() {
+		_ = db.Close()
+		env.Cancel()
+		env.FlushOTel()
+	}
+	return ctx, env, db, stop, nil
 }
 
 // flushWithTimeout caps OTel flush at OTelFlushTimeout so a dead collector
