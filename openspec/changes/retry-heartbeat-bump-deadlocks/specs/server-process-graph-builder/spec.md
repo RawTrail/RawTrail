@@ -2,7 +2,7 @@
 
 ### Requirement: Heartbeat freshness bumps survive lock contention
 
-The system SHALL retry a heartbeat freshness update that the database aborts as a deadlock victim, so contention with concurrent writes to the same host's process records neither loses the update nor reports it as an error.
+The system SHALL retry a heartbeat freshness update that the database aborts as a deadlock victim, up to a bounded number of attempts, so ordinary contention with concurrent writes to the process records neither loses the update nor reports it as an error. An update still aborted after the last attempt is reported as an error.
 
 #### Scenario: A bump that loses a deadlock is retried and applied
 
