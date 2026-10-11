@@ -2,6 +2,12 @@ package api
 
 import "context"
 
+// PendingCountCap bounds EventLog.CountPending (issue #1218). An exact count of a multi-million-row backlog took 1.8 s on a 5.3M-row
+// queue, against the 2 s budget of the gauge that reads it, so the gauge went blank during exactly the backlog it exists to show. A
+// count stopped at a million took 0.4 s on a 5.5M-row queue. Above the cap the backlog's size stops mattering: the detection-lag
+// histogram is the signal that says how far behind processing is.
+const PendingCountCap = 1_000_000
+
 // EventLog is the durable work queue that decouples ingestion from detection processing. Ingestion appends every accepted event;
 // the detection pipeline claims batches, processes them, and acknowledges them. It is the seam that lets ingestion and processing
 // scale and fail independently (ADR-0015), while preserving the multi-replica claim semantics of ADR-0011.
@@ -97,7 +103,8 @@ type EventLog interface {
 	// value rather than the nack.
 	Nack(ctx context.Context, eventIDs []string, claimStampNs int64, tally []byte) (result NackResult, err error)
 
-	// CountPending counts events that have not been fully processed. Backs the processor-backlog gauge.
+	// CountPending counts events that have not been fully processed, up to PendingCountCap: a backlog at or above the cap reads as
+	// the cap. Backs the processor-backlog gauge.
 	CountPending(ctx context.Context) (int64, error)
 
 	// PruneProcessed removes fully-processed (acked) events from the queue in batches of at most batchSize (a non-positive batchSize

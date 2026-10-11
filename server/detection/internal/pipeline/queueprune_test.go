@@ -94,6 +94,7 @@ type capturingRecorder struct {
 	setAside               []setAsideCall
 	queuePruned            int64
 	materializationRetries int64
+	detectionLags          []time.Duration
 }
 
 func (c *capturingRecorder) EventsIngested(context.Context, string, map[string]int) {}
@@ -103,6 +104,9 @@ func (c *capturingRecorder) RuleEvaluationSkipped(context.Context, string)      
 func (c *capturingRecorder) RuleEvaluationDuration(context.Context, string, time.Duration) {}
 func (c *capturingRecorder) EventsSetAside(_ context.Context, hostID string, n int64) {
 	c.setAside = append(c.setAside, setAsideCall{hostID: hostID, n: n})
+}
+func (c *capturingRecorder) DetectionLag(_ context.Context, d time.Duration) {
+	c.detectionLags = append(c.detectionLags, d)
 }
 func (c *capturingRecorder) EventsHeartbeatDropped(context.Context, string, int)      {}
 func (c *capturingRecorder) AlertCreated(context.Context, string, string)             {}

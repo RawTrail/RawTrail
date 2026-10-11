@@ -304,6 +304,8 @@ Core metrics to chart:
 | `edr.alerts.created` | counter | By `rule_id` + `severity`. Sudden spike warrants a look |
 | `edr.enrolled.hosts` | gauge | Should match your MDM's scoped Mac count |
 | `edr.offline.hosts` | gauge | Hosts whose `last_seen` is older than 5 min. Keep near zero |
+| `edr.detection.lag` | histogram | Seconds from the server receiving an event to detection finishing with it. Watch p95: it is how late alerts arrive. Measured on the server's clock, so an agent uploading events it buffered offline does not count as lag |
+| `edr.events.pending` | gauge | Events queued for detection. Reads 1,000,000 at and above that. Above zero while `edr.detection.lag` records nothing = the processor is stalled |
 | `edr.retention.processes.rows_deleted` | counter | Completed process rows pruned per retention run (hourly). Raw-event pruning is ClickHouse-native TTL, not a server metric |
 | `edr.processes.ttl_reconciled` | counter | TTL-driven synthetic-exit emissions. The counter only increments when the reconciler synthesises an exit (it no-ops when there's nothing stale), so a non-zero rate or spike means the reconciler is firing, typically because a host missed an exec/exit pair. A sustained zero is ambiguous (either no stale processes to reconcile, or the reconciler has wedged); rely on logs/traces or a separate heartbeat to distinguish |
 | `db.sql.latency` | histogram | DB call latency, emitted by the otelsql driver instrumentation (not a bespoke metric). p99 creeping up = DB overloaded or a slow query regressed |
@@ -326,6 +328,8 @@ The script matches rules by name, so re-running it updates rules instead of dupl
 | EDR server not reporting | critical | No `edr.enrolled.hosts` sample for 10 minutes: the server is down or cannot reach the collector |
 | EDR event ingest stopped | critical | Hosts are online but `edr.events.ingested` stayed at zero for 15 minutes |
 | EDR audit write failures | critical | `edr.audit.write_failures` increased: the append-only audit log is missing rows |
+| EDR detection stalled | critical | Events are queued (`edr.events.pending` above zero) but none finished detection for 15 minutes |
+| EDR detection lag high | error | p95 of `edr.detection.lag` above 5 minutes for 10 minutes: alerts are arriving late |
 | EDR detection rule skipped | error | `edr.detection.rule_evaluation_skipped` increased: a rule stopped running on a replica |
 | EDR break-glass sign-in failures | error | More than 25 failed break-glass sign-ins in 5 minutes |
 | EDR hosts offline | warning | More than 10% of enrolled hosts offline for 15 minutes |

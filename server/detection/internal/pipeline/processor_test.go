@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -549,3 +550,47 @@ func (lockLosingCoordinator) DoOnceIfLeader(ctx context.Context, _ string, fn fu
 
 func failPending(log *scriptedEventLog, err error) { log.pendingErr = err }
 func failClaim(log *scriptedEventLog, err error)   { log.claimErr = err }
+
+// spec:observability-instrumentation/pipeline-lag-and-backlog-are-measured/detection-lag-is-recorded-per-processed-event
+//
+// Detection lag is recorded per event, from its ingest time, and only once the batch is acknowledged by this attempt (issue #1218).
+// A batch that is nacked, whose ack fails, or whose claim was lost is processed again later, and recording it now would count the
+// event twice and understate its real wait.
+func TestProcessor_RecordsDetectionLagOnlyAfterASuccessfulAck(t *testing.T) {
+	t.Parallel()
+	const waited = 5 * time.Second
+	batch := func() []visibilityapi.Event {
+		ingested := time.Now().Add(-waited).UnixNano()
+		return []visibilityapi.Event{
+			{EventID: "evt-1", HostID: "host-a", EventType: "exec", IngestedAtNs: ingested},
+			{EventID: "evt-2", HostID: "host-a", EventType: "fork", IngestedAtNs: ingested},
+		}
+	}
+	cases := []struct {
+		name     string
+		log      *scriptedEventLog
+		eval     stubEvaluator
+		wantLags int
+	}{
+		{"an acked batch records one lag per event", &scriptedEventLog{batch: batch()}, stubEvaluator{}, 2},
+		{"a nacked batch records nothing", &scriptedEventLog{batch: batch()}, stubEvaluator{err: errors.New("db down")}, 0},
+		{"a failed ack records nothing", &scriptedEventLog{batch: batch(), ackErr: errors.New("queue unavailable")}, stubEvaluator{}, 0},
+		{"a lost claim records nothing", &scriptedEventLog{batch: batch(), ackNotHeld: true}, stubEvaluator{}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rec := &capturingRecorder{}
+			p := newTestProcessor(t, tc.log, stubBuilder{}, tc.eval, singleCycleOpts(&capturingLogHandler{}))
+			p.SetMetrics(rec)
+
+			p.ProcessOnce(context.Background())
+
+			require.Len(t, rec.detectionLags, tc.wantLags)
+			for _, lag := range rec.detectionLags {
+				assert.GreaterOrEqual(t, lag, waited, "the lag runs from the event's ingest time")
+				assert.Less(t, lag, waited+time.Minute, "and to now, not from some other clock")
+			}
+		})
+	}
+}

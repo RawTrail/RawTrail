@@ -42,6 +42,10 @@ var ruleEvalDurationBuckets = []float64{0.0001, 0.00025, 0.0005, 0.001, 0.0025, 
 
 var httpDurationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10}
 
+// detectionLagBuckets span a healthy pipeline (under a second to a few seconds, one processor poll plus a batch) through an alerting
+// range (minutes) to a stalled one (an hour and more), so a p95 alert threshold anywhere from one to thirty minutes lands on a bound.
+var detectionLagBuckets = []float64{0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 10800}
+
 // knownHTTPMethods bounds the http.request.method label. An unrecognized method (a scanner sending garbage verbs) collapses to
 // "_OTHER" per the OTel HTTP semantic conventions, so a flood of junk methods cannot inflate the metric's cardinality.
 var knownHTTPMethods = map[string]bool{
@@ -55,6 +59,8 @@ var knownHTTPMethods = map[string]bool{
 type GaugeSource interface {
 	EnrolledHosts(ctx context.Context) (int, error)
 	OfflineHosts(ctx context.Context, threshold time.Duration) (int, error)
+	// PendingEvents counts queued events not yet processed, saturating at the queue's cap.
+	PendingEvents(ctx context.Context) (int64, error)
 }
 
 // Recorder is the write surface instrumentation code uses. Every method is safe to call from any goroutine and safe on a nil receiver
@@ -74,10 +80,12 @@ type Recorder struct {
 	ruleEvalSkipped                   metric.Int64Counter
 	httpRequestDuration               metric.Float64Histogram
 	ruleEvaluationDuration            metric.Float64Histogram
+	detectionLag                      metric.Float64Histogram
 	// observable gauges retained only so the GC can't collect them; the callbacks run
 	// against the global meter provider.
 	enrolledGauge metric.Int64ObservableGauge
 	offlineGauge  metric.Int64ObservableGauge
+	pendingGauge  metric.Int64ObservableGauge
 }
 
 // Options tune the Recorder. All fields are optional.
@@ -219,6 +227,18 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 		metric.WithExplicitBucketBoundaries(ruleEvalDurationBuckets...),
 	)
 
+	// The time from the server receiving an event to detection having processed it (issue #1218), the measure an operator is promised
+	// as time to detect. On the server's clock (ingested_at_ns), not the agent's: a laptop uploading a day of offline events is not a
+	// day of lag. Recorded per event when its batch is acknowledged, so a stalled processor records nothing; edr.events.pending is the
+	// signal for that case.
+	r.detectionLag, _ = meter.Float64Histogram(
+		"edr.detection.lag",
+		metric.WithDescription("Seconds from the server receiving an event to detection finishing with it, per event. "+
+			"Alert on a high p95. A stalled processor records nothing here; edr.events.pending shows it instead."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(detectionLagBuckets...),
+	)
+
 	if gauges != nil {
 		threshold := opts.OfflineThreshold
 		r.enrolledGauge, _ = meter.Int64ObservableGauge(
@@ -251,6 +271,23 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 					return nil
 				}
 				obs.Observe(int64(n))
+				return nil
+			}),
+		)
+		r.pendingGauge, _ = meter.Int64ObservableGauge(
+			"edr.events.pending",
+			metric.WithDescription("Queued events waiting for or in detection processing, saturating at 1,000,000. "+
+				"Above zero while edr.detection.lag records nothing means the processor is stalled."),
+			metric.WithUnit(unitEvent),
+			metric.WithInt64Callback(func(ctx context.Context, obs metric.Int64Observer) error {
+				gaugeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				defer cancel()
+				n, err := gauges.PendingEvents(gaugeCtx)
+				if err != nil {
+					slog.Default().WarnContext(ctx, "edr.events.pending gauge callback failed", "err", err)
+					return nil
+				}
+				obs.Observe(n)
 				return nil
 			}),
 		)
@@ -287,6 +324,15 @@ func (r *Recorder) EventsIngested(ctx context.Context, hostID string, byType map
 	for eventType, n := range folded {
 		r.eventsIngested.Add(ctx, int64(n), metric.WithAttributes(attribute.String("host_id", hostID), attribute.String("event_type", eventType)))
 	}
+}
+
+// DetectionLag records how long one event waited between the server receiving it and detection finishing with it. A negative
+// duration, from clock skew between the replica that ingested the event and the one that processed it, is recorded as zero.
+func (r *Recorder) DetectionLag(ctx context.Context, d time.Duration) {
+	if r == nil || r.detectionLag == nil {
+		return
+	}
+	r.detectionLag.Record(ctx, max(d, 0).Seconds())
 }
 
 // EventsSetAside increments the set-aside counter by n for a host. Called by the processor when a nack withdraws events from

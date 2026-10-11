@@ -181,8 +181,8 @@ func (s *Service) CountOfflineHosts(ctx context.Context, threshold time.Duration
 	return s.store.CountOfflineHosts(ctx, threshold)
 }
 
-// CountUnprocessed counts events not yet fully processed: the visibility EventLog work-queue backlog (ADR-0015). Backs the OTel
-// unprocessed-events gauge so SOC dashboards alert on a stuck processor; the queue, not the durable archive, is the backlog.
+// CountUnprocessed counts events not yet fully processed, up to the queue's cap: the visibility EventLog work-queue backlog
+// (ADR-0015). Backs the edr.events.pending gauge; the queue, not the durable archive, is the backlog.
 func (s *Service) CountUnprocessed(ctx context.Context) (int64, error) {
 	return s.eventLog.CountPending(ctx)
 }

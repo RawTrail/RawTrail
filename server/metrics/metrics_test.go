@@ -107,12 +107,14 @@ func attrsMatch(got []attribute.KeyValue, want map[string]any) bool {
 type stubGauges struct {
 	enrolled int
 	offline  int
+	pending  int64
 }
 
 func (s stubGauges) EnrolledHosts(context.Context) (int, error) { return s.enrolled, nil }
 func (s stubGauges) OfflineHosts(context.Context, time.Duration) (int, error) {
 	return s.offline, nil
 }
+func (s stubGauges) PendingEvents(context.Context) (int64, error) { return s.pending, nil }
 
 // spec:server-detection-rules-engine/evaluation-statistics-are-aggregated-in-process-and-written-periodically/evaluation-duration-is-available-as-a-histogram-per-rule
 //
@@ -135,7 +137,7 @@ func (s stubGauges) OfflineHosts(context.Context, time.Duration) (int, error) {
 // trace sample ratio in effect.
 func TestRecorder_RecordsCounters(t *testing.T) {
 	t.Parallel()
-	r, collect := newTestRecorder(t, stubGauges{enrolled: 3, offline: 1}, Options{})
+	r, collect := newTestRecorder(t, stubGauges{enrolled: 3, offline: 1, pending: 42}, Options{})
 	ctx := context.Background()
 
 	r.EventsIngested(ctx, "host-a", map[string]int{"exec": 5})
@@ -194,6 +196,29 @@ func TestRecorder_RecordsCounters(t *testing.T) {
 		map[string]any{"rule_id": "dyld_insert"}))
 	assert.Equal(t, int64(3), findGauge(t, rm, "edr.enrolled.hosts"))
 	assert.Equal(t, int64(1), findGauge(t, rm, "edr.offline.hosts"))
+	assert.Equal(t, int64(42), findGauge(t, rm, "edr.events.pending"))
+}
+
+// spec:observability-instrumentation/pipeline-lag-and-backlog-are-measured/detection-lag-is-recorded-per-processed-event
+//
+// The lag histogram is registered under the name the alert rule reads, in seconds, and a negative lag from clock skew between the
+// ingesting and processing replicas is recorded as zero rather than pulling the distribution below it.
+func TestRecorder_DetectionLag(t *testing.T) {
+	t.Parallel()
+	r, collect := newTestRecorder(t, nil, Options{})
+	ctx := context.Background()
+
+	r.DetectionLag(ctx, 3*time.Second)
+	r.DetectionLag(ctx, -time.Second)
+
+	h, ok := findMetricData[metricdata.Histogram[float64]](collect(), "edr.detection.lag")
+	require.True(t, ok, "edr.detection.lag is registered as a float histogram")
+	require.Len(t, h.DataPoints, 1, "one series: the lag carries no attributes")
+	assert.Equal(t, uint64(2), h.DataPoints[0].Count)
+	assert.InDelta(t, 3.0, h.DataPoints[0].Sum, 1e-9, "seconds, with the skewed sample counted as zero")
+	minimum, ok := h.DataPoints[0].Min.Value()
+	require.True(t, ok)
+	assert.Zero(t, minimum, "a negative lag is clamped to zero")
 }
 
 func TestRecorder_NilGaugesSkipsGauges(t *testing.T) {
@@ -202,6 +227,7 @@ func TestRecorder_NilGaugesSkipsGauges(t *testing.T) {
 	rm := collect()
 	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.enrolled.hosts"))
 	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.offline.hosts"))
+	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.events.pending"))
 }
 
 func TestGauges_UseConfiguredThreshold(t *testing.T) {
@@ -223,6 +249,7 @@ func (g thresholdCapturingGauges) OfflineHosts(_ context.Context, t time.Duratio
 	*g.out = t
 	return 0, nil
 }
+func (g thresholdCapturingGauges) PendingEvents(context.Context) (int64, error) { return 0, nil }
 
 // spec:observability-instrumentation/instrumentation-is-safe-on-a-nil-receiver/call-sites-do-not-guard-the-recorder
 //
@@ -276,6 +303,7 @@ func TestRecorder_FailingGaugeCallbackIsContained(t *testing.T) {
 		"failed gauge callback must observe no value this cycle")
 	assert.Equal(t, int64(7), findGauge(t, rm, "edr.offline.hosts"),
 		"the rest of the gauge collection must still succeed")
+	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.events.pending"), "the pending gauge's failure is contained the same way")
 }
 
 // failingGauges has EnrolledHosts return an error to exercise the per-gauge containment branch; the
@@ -291,6 +319,8 @@ func (g failingGauges) EnrolledHosts(context.Context) (int, error) {
 func (g failingGauges) OfflineHosts(context.Context, time.Duration) (int, error) {
 	return g.offline, nil
 }
+
+func (g failingGauges) PendingEvents(context.Context) (int64, error) { return 0, assert.AnError }
 
 // spec:observability-instrumentation/http-server-request-duration/inbound-requests-are-timed-by-route-method-and-status
 // spec:observability-instrumentation/aggregate-latency-and-alerting-derive-from-metrics-not-sampled-spans/latency-percentiles-are-unaffected-by-the-sample-ratio
