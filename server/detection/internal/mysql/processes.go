@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	driver "github.com/go-sql-driver/mysql"
 
 	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/fleetdm/edr/server/sqlhelpers"
 	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
 )
 
@@ -18,6 +20,14 @@ import (
 // MySQL's limit (3 per pid: two in the CASE, one in the IN list) while collapsing a heartbeat-heavy ingest batch into a handful of
 // statements rather than one UPDATE per heartbeat.
 const snapshotBumpChunkPIDs = 500
+
+// snapshotBumpDeadlockAttempts and snapshotBumpDeadlockStep bound the deadlock retry on a heartbeat bump chunk. The bump runs at ingest,
+// concurrently with other writes to the processes table, and under load it loses InnoDB deadlocks (issue #1243). MySQL rolls the
+// victim statement back whole, so the retry, run once the other transaction has its locks, applies cleanly.
+const (
+	snapshotBumpDeadlockAttempts = 5
+	snapshotBumpDeadlockStep     = 5 * time.Millisecond
+)
 
 // insertProcessColumns and insertProcessPlaceholders pin the 23-column process INSERT shape in one place, shared by the per-event
 // InsertProcess, the batched multi-row INSERT, and the per-row poison fallback (processbatch.go), so the column list and arg order
@@ -143,7 +153,12 @@ func (s *Store) bumpSnapshotLastSeenChunk(ctx context.Context, hostID string, pi
 		args = append(args, pid)
 	}
 	sb.WriteString(")")
-	if _, err := s.db.ExecContext(ctx, sb.String(), args...); err != nil {
+	// A single autocommit statement, so re-running it after a deadlock rollback writes each row once (sqlhelpers.WithDeadlockRetry).
+	err := sqlhelpers.WithDeadlockRetry(ctx, snapshotBumpDeadlockAttempts, snapshotBumpDeadlockStep, func() error {
+		_, err := s.db.ExecContext(ctx, sb.String(), args...)
+		return err
+	})
+	if err != nil {
 		return fmt.Errorf("bump snapshot last_seen chunk (host=%s, %d pids): %w", hostID, len(pids), err)
 	}
 	return nil
