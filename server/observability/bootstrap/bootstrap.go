@@ -91,6 +91,6 @@ func (o *Observability) RegisterAuthedRoutes(mux httpserver.Router) {
 }
 
 // TraceSamplerSettingsReader returns the read accessor the per-replica OTel sampler poller depends on (issue #374). cmd/main passes it
-// to tracing.StartSettingsPoller; the poller depends on the tracing.SettingsReader interface and this returns the concrete store that
+// to tracing.StartSettingsSync; the poller depends on the tracing.SettingsReader interface and this returns the concrete store that
 // satisfies it.
 func (o *Observability) TraceSamplerSettingsReader() tracing.SettingsReader { return o.store }
