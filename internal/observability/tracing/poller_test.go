@@ -74,6 +74,20 @@ func TestPrimeSampler_readErrorKeepsDefaultsAndReturnsNil(t *testing.T) {
 	assert.Equal(t, defaultDesc, s.Description(), "the sampler keeps its compile-time defaults; startup is not blocked")
 }
 
+func TestStartSettingsSync_primesBeforeReturning(t *testing.T) {
+	t.Parallel()
+	s := NewRouteTierSampler(NewRegistry())
+	reader := &fakeReader{settings: &Settings{HighVolumeRatio: 0.5, StandardRatio: 0.6, ForceFull: true}}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	StartSettingsSync(ctx, s, reader, discard)
+
+	// No wait: the persisted settings must already be applied when the call returns, since the caller starts serving next.
+	assert.Contains(t, s.Description(), "highVolume=0.5", "the persisted settings are applied before serving")
+	assert.Contains(t, s.Description(), "forceFull=true")
+}
+
 func TestStartSettingsPoller_stopsOnCancelWithoutRereading(t *testing.T) {
 	t.Parallel()
 	s := NewRouteTierSampler(NewRegistry())

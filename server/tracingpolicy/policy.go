@@ -60,6 +60,14 @@ var highVolumeSpans = []string{
 	detectionapi.BatchSpanName,
 }
 
+// NewSampler returns the route-tier head sampler both HTTP binaries install, with this policy registered. The registry is read live
+// on every span, so building it before any context exists is fine; the settings poller later swaps the ratios from the database.
+func NewSampler() *tracing.RouteTierSampler {
+	reg := tracing.NewRegistry()
+	Register(reg)
+	return tracing.NewRouteTierSampler(reg)
+}
+
 // Register applies the EDR sampling-tier policy to reg. Safe to call with routes a given binary does not serve: an unused registry
 // entry is inert. Routes absent from every list fall to TierFull via Registry.Lookup's zero value.
 func Register(reg *tracing.Registry) {

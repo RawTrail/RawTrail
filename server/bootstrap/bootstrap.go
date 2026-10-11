@@ -17,10 +17,12 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/jmoiron/sqlx"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/fleetdm/edr/internal/logging"
 	"github.com/fleetdm/edr/internal/observability"
+	"github.com/fleetdm/edr/internal/observability/tracing"
 	"github.com/fleetdm/edr/server/config"
 )
 
@@ -58,10 +60,12 @@ type Env struct {
 type Options struct {
 	ServiceName    string
 	ServiceVersion string
-	// TraceSampler, when non-nil, becomes the TracerProvider's head sampler. The HTTP server binaries pass a route-tier sampler here
-	// (wrapped in sdktrace.ParentBased) so trace export volume is capped; binaries that do not classify routes leave it nil and keep
-	// the SDK default (always-on).
-	TraceSampler sdktrace.Sampler
+	// Commit and BuildTime are logged on the start line by Start. They are build metadata set by -ldflags, not telemetry resources.
+	Commit    string
+	BuildTime string
+	// TraceSampler is required: it becomes the TracerProvider's head sampler, so trace export volume is capped (issue #374). Init wraps
+	// it in sdktrace.ParentBased, so a sampled parent forces its children sampled.
+	TraceSampler *tracing.RouteTierSampler
 }
 
 // Init runs the daemon prelude. On any error the partial state is torn down before returning so the caller only has to check err.
@@ -80,7 +84,7 @@ func Init(opts Options) (context.Context, *Env, error) {
 		ServiceName:       opts.ServiceName,
 		ServiceVersion:    opts.ServiceVersion,
 		ServiceInstanceID: instanceID(),
-		Sampler:           opts.TraceSampler,
+		Sampler:           sdktrace.ParentBased(opts.TraceSampler),
 	}))
 	if err != nil {
 		cancel()
@@ -108,6 +112,53 @@ func Init(opts Options) (context.Context, *Env, error) {
 		Logger:    logger,
 		FlushOTel: flush,
 	}, nil
+}
+
+// Start is the prelude both HTTP binaries share: Init, the start line, and the MySQL pool. The returned stop func closes the pool,
+// cancels ctx and flushes OTel, in that order; the caller defers it as soon as Start returns a nil error. On error, whatever Start
+// had already set up is torn down before it returns, so the caller only has to return the error.
+func Start(opts Options) (context.Context, *Env, *sqlx.DB, func(), error) {
+	ctx, env, err := Init(opts)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	db, stop, err := startAfterInit(ctx, env, opts)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return ctx, env, db, stop, nil
+}
+
+// startAfterInit is the part of Start that follows Init: the start line and the MySQL pool. It takes the Env Init built, so a test
+// can drive it without loading config from the process environment. On an open failure it cancels ctx and flushes OTel itself.
+func startAfterInit(ctx context.Context, env *Env, opts Options) (*sqlx.DB, func(), error) {
+	env.Logger.InfoContext(ctx, opts.ServiceName+" starting",
+		"addr", env.Config.ListenAddr,
+		"version", opts.ServiceVersion,
+		"commit", opts.Commit,
+		"build_time", opts.BuildTime,
+	)
+	db, err := OpenDB(ctx, env.Config.DSN)
+	if err != nil {
+		env.Logger.ErrorContext(ctx, "open db", "err", err)
+		env.Cancel()
+		env.FlushOTel()
+		return nil, nil, err
+	}
+	stop := func() {
+		_ = db.Close()
+		env.Cancel()
+		env.FlushOTel()
+	}
+	return db, stop, nil
+}
+
+// Main runs a binary's run func and, if it fails, prints the error to stderr and exits with status 2.
+func Main(run func() error) {
+	if err := run(); err != nil {
+		_, _ = os.Stderr.WriteString("fatal: " + err.Error() + "\n")
+		os.Exit(2)
+	}
 }
 
 // flushWithTimeout caps OTel flush at OTelFlushTimeout so a dead collector

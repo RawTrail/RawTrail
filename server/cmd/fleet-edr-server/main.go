@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/fleetdm/edr/internal/keyring"
 	"github.com/fleetdm/edr/internal/observability/tracing"
@@ -72,56 +71,25 @@ const (
 	// means no two replicas run goose Up at once. It joins the other coordination lock names (edr_retention, edr_process_ttl).
 	migrationLockName = "edr_migrations"
 
-	// HTTP server timeouts. Read 10s covers a slow agent upload; write 30s and idle 60s bound how long a stuck client holds a connection.
-	// Same values as fleet-edr-ingest.
-	httpWriteTimeout = 30 * time.Second
-	httpIdleTimeout  = 60 * time.Second
-
 	// metricsOfflineThreshold is the "how old is too old" cutoff for the edr.offline.hosts gauge. Mirrored as the UI's offline threshold
 	// so what operators see in SigNoz matches what they see on the host page.
 	metricsOfflineThreshold = 5 * time.Minute
 )
 
-func main() {
-	if err := run(); err != nil {
-		_, _ = os.Stderr.WriteString("fatal: " + err.Error() + "\n")
-		os.Exit(2)
-	}
-}
+func main() { bootstrap.Main(run) }
 
 func run() error {
-	// Build the route-tier trace sampler before bootstrap.Init so it can be installed on the TracerProvider at OTel init. The registry
-	// is read live on every span, so registering the policy now (before any context exists) is fine; the poller below later swaps the
-	// ratios from the DB. Wrapped in ParentBased so a sampled parent forces its children sampled (issue #374).
-	samplerRegistry := tracing.NewRegistry()
-	tracingpolicy.Register(samplerRegistry)
-	traceSampler := tracing.NewRouteTierSampler(samplerRegistry)
-
-	ctx, env, err := bootstrap.Init(bootstrap.Options{
-		ServiceName:    serviceName,
-		ServiceVersion: version,
-		TraceSampler:   sdktrace.ParentBased(traceSampler),
+	// The route-tier trace sampler is built before bootstrap.Init so it is installed on the TracerProvider at OTel init; the settings
+	// sync below later swaps its ratios from the DB.
+	traceSampler := tracingpolicy.NewSampler()
+	ctx, env, db, stop, err := bootstrap.Start(bootstrap.Options{
+		ServiceName: serviceName, ServiceVersion: version, Commit: commit, BuildTime: buildTime, TraceSampler: traceSampler,
 	})
 	if err != nil {
 		return err
 	}
-	defer env.FlushOTel()
-	defer env.Cancel()
+	defer stop()
 	cfg, logger := env.Config, env.Logger
-
-	logger.InfoContext(ctx, "fleet-edr-server starting",
-		"addr", cfg.ListenAddr,
-		"version", version,
-		"commit", commit,
-		"build_time", buildTime,
-	)
-
-	db, err := bootstrap.OpenDB(ctx, cfg.DSN)
-	if err != nil {
-		logger.ErrorContext(ctx, "open db", "err", err)
-		return err
-	}
-	defer func() { _ = db.Close() }()
 
 	// ClickHouse is the event store (ADR-0015): the durable archive intake writes to and correlation/evidence reads from.
 	// EDR_CLICKHOUSE_DSN is validated as required in config.Load (no MySQL events fallback after the cutover), so it is non-empty here.
@@ -233,12 +201,8 @@ func run() error {
 
 	go runDetection(ctx, detectionCtx, logger)
 	go runIdentity(ctx, identityCtx, logger)
-	// Prime the sampler from the DB synchronously before serving so request #1 honors any persisted override (e.g. an active
-	// force_full or emergency downsample), not the compile-time defaults; then poll so later changes propagate without a restart
-	// (issue #374). The applied state is a per-replica cache, safe to lose (ADR-0010).
-	samplerReader := observabilityCtx.TraceSamplerSettingsReader()
-	primedSampler := tracing.PrimeSampler(ctx, traceSampler, samplerReader, logger)
-	go tracing.StartSettingsPoller(ctx, traceSampler, samplerReader, logger, primedSampler)
+	// Prime the sampler from the DB before serving, then poll so later changes propagate without a restart (issue #374).
+	tracing.StartSettingsSync(ctx, traceSampler, observabilityCtx.TraceSamplerSettingsReader(), logger)
 	// Converge this replica's detection-config snapshot with mutations made on other replicas (ADR-0010): a peer's exclusion / rule-mode
 	// edit only bumps the shared version counter, so without this poll a non-mutating replica would serve a stale config until restart.
 	// Cancellable independently of ctx, so the join below can stop these loops whether we are shutting down on a signal or
@@ -958,13 +922,7 @@ func newHTTPServer(
 		ClientIPResolver: clientIPResolver,
 		Metrics:          metricsRec,
 	})
-	return &http.Server{
-		Addr:         cfg.ListenAddr,
-		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: httpWriteTimeout,
-		IdleTimeout:  httpIdleTimeout,
-	}
+	return httpserver.NewServer(cfg.ListenAddr, handler)
 }
 
 type muxDeps struct {

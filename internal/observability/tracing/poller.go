@@ -22,9 +22,9 @@ var pollTracer = otel.Tracer("github.com/fleetdm/edr/internal/observability/trac
 
 // PrimeSampler performs one synchronous settings read and applies it to the sampler, so a replica serves with the persisted settings
 // from its very first request rather than the compile-time defaults (which would otherwise apply until the background poller's first
-// read landed). cmd/main calls this BEFORE the server starts serving, then hands the returned value to StartSettingsPoller to seed its
-// change detection. On a read failure it returns nil: the sampler keeps its compile-time defaults and the poller retries on its next
-// tick (so a transient DB blip at boot does not block startup).
+// read landed). StartSettingsSync calls this before the server starts serving, then hands the returned value to StartSettingsPoller to
+// seed its change detection. On a read failure it returns nil: the sampler keeps its compile-time defaults and the poller retries on
+// its next tick (so a transient DB blip at boot does not block startup).
 func PrimeSampler(ctx context.Context, sampler *RouteTierSampler, reader SettingsReader, logger *slog.Logger) *Settings {
 	if logger == nil {
 		logger = slog.Default()
@@ -32,10 +32,19 @@ func PrimeSampler(ctx context.Context, sampler *RouteTierSampler, reader Setting
 	return applyOnce(ctx, sampler, nil, reader, logger)
 }
 
+// StartSettingsSync primes the sampler from the persisted settings synchronously, then polls for later changes on a new goroutine
+// until ctx is cancelled. Call it before the server starts serving, so request #1 honors any persisted override (an active force_full
+// or emergency downsample) rather than the compile-time defaults. The applied state is a per-replica cache, safe to lose (ADR-0010).
+func StartSettingsSync(ctx context.Context, sampler *RouteTierSampler, reader SettingsReader, logger *slog.Logger) {
+	primed := PrimeSampler(ctx, sampler, reader, logger)
+	go StartSettingsPoller(ctx, sampler, reader, logger, primed)
+}
+
 // StartSettingsPoller re-reads the settings on each tick and applies any change, until ctx is cancelled. It does NOT read on startup
 // (that is PrimeSampler's job); the first read happens on the first tick. `last` is the settings already applied by PrimeSampler (pass
 // nil if the caller did not prime); it seeds change detection so the first tick does not re-apply an unchanged row. Intended to run as
-// `go StartSettingsPoller(ctx, sampler, reader, logger, primed)` after a synchronous PrimeSampler; it returns when ctx is cancelled.
+// `go StartSettingsPoller(ctx, sampler, reader, logger, primed)` after a synchronous PrimeSampler, as StartSettingsSync does; it
+// returns when ctx is cancelled.
 func StartSettingsPoller(ctx context.Context, sampler *RouteTierSampler, reader SettingsReader, logger *slog.Logger, last *Settings) {
 	if logger == nil {
 		logger = slog.Default()

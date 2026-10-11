@@ -14,6 +14,26 @@ import (
 // to wait for in-flight requests before we give up and let the process exit.
 const ShutdownTimeout = 15 * time.Second
 
+// HTTP server timeouts shared by fleet-edr-server and fleet-edr-ingest. Read 10s covers an agent's worst-case slow upload of a full
+// batch; write 30s and idle 60s keep long-poll-style commands from getting cut off, but bound how long a stuck client can hold a
+// connection.
+const (
+	readTimeout  = 10 * time.Second
+	writeTimeout = 30 * time.Second
+	idleTimeout  = 60 * time.Second
+)
+
+// NewServer returns an http.Server for addr and handler with the shared timeouts.
+func NewServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
+	}
+}
+
 // RulesJoinTimeout and ResponseJoinTimeout bound the waits for each context's background loops to return, which cmd/main performs
 // after this function returns. They live here, with the rest of the shutdown contract, because what a deployment has to allow is
 // the SUM of every stage: a caller that knows only the drain and ShutdownTimeout allows about two thirds of it (issue #1127).

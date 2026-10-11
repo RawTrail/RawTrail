@@ -160,3 +160,16 @@ func TestRunAndShutdown_DrainThenGracefulShutdown(t *testing.T) {
 	assert.True(t, slowDone.Load(), "in-flight request must complete before shutdown returns")
 	assert.Equal(t, int64(http.StatusOK), slowStatus.Load(), "in-flight request must complete successfully")
 }
+
+// TestNewServer pins the timeouts both HTTP binaries serve with. ReadTimeout and WriteTimeout bound a slow or stuck client, and
+// IdleTimeout bounds a parked keep-alive connection; a zero value for any of them means no limit at all.
+func TestNewServer(t *testing.T) {
+	t.Parallel()
+	handler := http.NotFoundHandler()
+	srv := httpserver.NewServer("127.0.0.1:8088", handler)
+	assert.Equal(t, "127.0.0.1:8088", srv.Addr)
+	assert.NotNil(t, srv.Handler)
+	assert.Equal(t, 10*time.Second, srv.ReadTimeout)
+	assert.Equal(t, 30*time.Second, srv.WriteTimeout)
+	assert.Equal(t, 60*time.Second, srv.IdleTimeout)
+}

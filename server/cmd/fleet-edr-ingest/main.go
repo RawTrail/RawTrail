@@ -12,11 +12,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"time"
 
 	"github.com/jmoiron/sqlx"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/fleetdm/edr/internal/keyring"
 	"github.com/fleetdm/edr/internal/observability/tracing"
@@ -37,55 +34,22 @@ var (
 	buildTime = ""
 )
 
-const (
-	serviceName = "fleet-edr-ingest"
+const serviceName = "fleet-edr-ingest"
 
-	// HTTP server timeouts. Read 10s covers the agent's worst-case slow upload of a full batch; write 30s and idle 60s keep
-	// long-poll-style commands from getting cut off, but bound how long a stuck client can hold a connection. Same defaults as
-	// fleet-edr-server.
-	httpWriteTimeout = 30 * time.Second
-	httpIdleTimeout  = 60 * time.Second
-)
-
-func main() {
-	if err := run(); err != nil {
-		_, _ = os.Stderr.WriteString("fatal: " + err.Error() + "\n")
-		os.Exit(2)
-	}
-}
+func main() { bootstrap.Main(run) }
 
 func run() error {
-	// Build the route-tier trace sampler before bootstrap.Init so it is installed on the TracerProvider at OTel init. The ingest binary
-	// serves the highest-volume route (POST /api/events), so capping its trace export is the main win of issue #374. Wrapped in
-	// ParentBased so a sampled parent forces its children sampled.
-	samplerRegistry := tracing.NewRegistry()
-	tracingpolicy.Register(samplerRegistry)
-	traceSampler := tracing.NewRouteTierSampler(samplerRegistry)
-
-	ctx, env, err := bootstrap.Init(bootstrap.Options{
-		ServiceName:    serviceName,
-		ServiceVersion: version,
-		TraceSampler:   sdktrace.ParentBased(traceSampler),
+	// The ingest binary serves the highest-volume route (POST /api/events), so capping its trace export is the main win of issue #374.
+	// The sampler is built before bootstrap.Init so it is installed on the TracerProvider at OTel init.
+	traceSampler := tracingpolicy.NewSampler()
+	ctx, env, db, stop, err := bootstrap.Start(bootstrap.Options{
+		ServiceName: serviceName, ServiceVersion: version, Commit: commit, BuildTime: buildTime, TraceSampler: traceSampler,
 	})
 	if err != nil {
 		return err
 	}
-	defer env.FlushOTel()
-	defer env.Cancel()
+	defer stop()
 	cfg, logger := env.Config, env.Logger
-
-	logger.InfoContext(ctx, "fleet-edr-ingest starting",
-		"addr", cfg.ListenAddr,
-		"version", version,
-		"commit", commit,
-	)
-
-	db, err := bootstrap.OpenDB(ctx, cfg.DSN)
-	if err != nil {
-		logger.ErrorContext(ctx, "open db", "err", err)
-		return err
-	}
-	defer func() { _ = db.Close() }()
 
 	chDB, visibilityCtx, err := openVisibility(ctx, logger, cfg, db)
 	if err != nil {
@@ -136,11 +100,8 @@ func run() error {
 		logger.ErrorContext(ctx, "observability schema", "err", err)
 		return err
 	}
-	// Prime the sampler synchronously before serving so the ingest tier's first request honors any persisted override rather than the
-	// compile-time defaults; then poll for later changes. The applied state is a per-replica cache, safe to lose (ADR-0010).
-	samplerReader := observabilityCtx.TraceSamplerSettingsReader()
-	primedSampler := tracing.PrimeSampler(ctx, traceSampler, samplerReader, logger)
-	go tracing.StartSettingsPoller(ctx, traceSampler, samplerReader, logger, primedSampler)
+	// Prime the sampler from the DB before serving, then poll for later changes.
+	tracing.StartSettingsSync(ctx, traceSampler, observabilityCtx.TraceSamplerSettingsReader(), logger)
 
 	detectionCtx, err := detectionbootstrap.New(detectionbootstrap.Deps{
 		DB:     db,
@@ -205,13 +166,7 @@ func run() error {
 		TLSEnabled:  cfg.TLSEnabled(),
 	})
 
-	srv := &http.Server{
-		Addr:         cfg.ListenAddr,
-		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: httpWriteTimeout,
-		IdleTimeout:  httpIdleTimeout,
-	}
+	srv := httpserver.NewServer(cfg.ListenAddr, handler)
 	// Honor EDR_TLS_TERMINATED_BY_PROXY here too: config validation allows missing cert files in that mode, so calling
 	// ConfigureTLS with empty paths would fail to load a keypair and brick ingest boot behind a proxy. Leaving TLSConfig nil
 	// makes RunAndShutdown serve plaintext, matching the main server.
