@@ -56,7 +56,8 @@ type Service interface {
 
 // RevokeRequest is an operator's revoke of one host's enrollment. Reason and Actor are the operator-supplied attribution stored on the
 // enrollment row and carried in the audit entry; RemoteAddr is the address the request came from, as the audit trail records it. The
-// authenticated principal comes from the request context, where the authorization gate put it.
+// authenticated principal is read from the request context, where the session or API-auth middleware pinned it; a caller with no actor
+// on its context produces an audit row with no principal.
 type RevokeRequest struct {
 	HostID     string
 	Reason     string

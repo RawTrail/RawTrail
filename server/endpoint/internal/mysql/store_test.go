@@ -64,7 +64,7 @@ func TestRegister_HappyPath(t *testing.T) {
 	assert.False(t, revoked)
 }
 
-// spec:agent-enrollment/revocation-is-enforced-by-a-per-replica-snapshot/re-enrollment-preserves-the-token-epoch
+// spec:agent-enrollment/host-token-revocation-is-enforced-per-replica/re-enrollment-preserves-the-token-epoch
 //
 // TestRegister_ReenrollPreservesEpoch: a re-enroll updates the row in place and MUST NOT reset token_epoch (the old REPLACE INTO did,
 // which let a token stolen before a revoke validate again once the agent re-enrolled). It must, however, still clear revocation so a

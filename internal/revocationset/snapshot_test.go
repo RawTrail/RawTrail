@@ -84,7 +84,7 @@ func TestSnapshot_Refresh(t *testing.T) {
 		assert.Equal(t, 1, s.Size())
 	})
 
-	// spec:agent-enrollment/revocation-is-enforced-by-a-per-replica-snapshot/snapshot-refresh-failure-retains-the-previous-view
+	// spec:agent-enrollment/host-token-revocation-is-enforced-per-replica/snapshot-refresh-failure-retains-the-previous-view
 	t.Run("a failed refresh retains the previous view and reports the failure", func(t *testing.T) {
 		t.Parallel()
 		src := &fakeSource{entries: []Entry{{ID: "revoked", Revoked: true}}}

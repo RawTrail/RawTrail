@@ -142,7 +142,7 @@
     {
       "id": "audit-activity",
       "title": "Audit activity by action",
-      "description": "Total audited operations over the window, highest first. The operator audit trail at a glance: logins, alert triage, command issuance, enrollment revoke/rotate, application-control rule changes. Use it to spot anomalous volume (a burst of enrollment.revoke, an off-hours policy change) worth opening the trace for.",
+      "description": "Total audited operations over the window, highest first. The operator audit trail at a glance: logins, alert triage, command issuance, enrollment revokes, application-control rule changes. Use it to spot anomalous volume (a burst of enrollment.revoke, an off-hours policy change) worth opening the trace for.",
       "panelTypes": "table",
       "yAxisUnit": "none",
       "legendPosition": "bottom",

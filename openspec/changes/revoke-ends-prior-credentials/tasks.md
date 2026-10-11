@@ -4,7 +4,8 @@
 - [x] 1.2 The revoke commits its audit entry to `endpoint_audit_outbox` in the same transaction, and `fleet-edr-server` runs the endpoint audit sweep
 - [x] 1.3 Remove the rotate route, `RotateToken`, `BumpTokenEpoch`, and the `enrollment.rotate_token` authorization and audit actions
 - [x] 1.4 Tests: a token issued before a revoke is refused by verify and refresh after re-enrollment; a refused audit step rolls the revoke back; the delivered audit row carries principal, address, host, actor and reason
-- [x] 1.5 Live: revoke a host on the dev server, let it re-enroll, and confirm the pre-revoke token is refused and the audit row is recorded
+- [x] 1.5 Replace "Revocation is enforced by a per-replica snapshot" with "Host-token revocation is enforced per replica", whose scenarios describe revoke rather than the removed rotate
+- [x] 1.6 Live: revoke a host on the dev server, let it re-enroll, and confirm the pre-revoke token is refused and the audit row is recorded
 
 ## 2. Docs
 

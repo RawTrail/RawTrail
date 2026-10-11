@@ -147,7 +147,7 @@ func TestRefreshToken_RejectsStaleEpochAndGarbage(t *testing.T) {
 	require.ErrorIs(t, err, api.ErrInvalidToken, "a token issued before the revoke must not refresh after the host re-enrolls")
 }
 
-// spec:agent-enrollment/revocation-is-enforced-by-a-per-replica-snapshot/operator-rotate-invalidates-after-the-snapshot-refreshes
+// spec:agent-enrollment/host-token-revocation-is-enforced-per-replica/revoke-invalidates-after-the-snapshot-refreshes
 // spec:agent-enrollment/revoke-ends-prior-credentials/stolen-token-stays-rejected-after-re-enrollment
 //
 // TestRevoke_StolenTokenStaysRejectedAfterReEnroll: a revoke bumps the epoch, so after the snapshot refreshes the pre-revoke token is
@@ -196,6 +196,8 @@ func TestRevoke_InvalidatesAfterSnapshot(t *testing.T) {
 	require.ErrorIs(t, err, api.ErrInvalidToken)
 }
 
+// spec:agent-enrollment/host-token-revocation-is-enforced-per-replica/re-enrolled-token-verifies-at-once-on-the-enrolling-replica
+//
 // TestReEnroll_ClearsStaleSnapshotLocally: after a revoke leaves the snapshot rejecting the old token, a re-enroll yields a token that
 // verifies immediately on this replica WITHOUT a snapshot refresh, because Enroll records the host's post-enrollment state in the local
 // snapshot (the transient-401-after-re-enroll mitigation).

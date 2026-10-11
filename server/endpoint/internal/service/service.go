@@ -314,9 +314,9 @@ func (s *service) Revoke(ctx context.Context, req api.RevokeRequest) error {
 	return nil
 }
 
-// revokeAuditEntry encodes the revoke's audit event, ready to commit with it. The principal is the authenticated actor the authorization
-// gate put on the context; actor and reason are the operator-supplied attribution. An encoding failure fails the revoke rather than
-// being logged past: the point of committing the entry with the change is that neither exists without the other.
+// revokeAuditEntry encodes the revoke's audit event, ready to commit with it. The principal is the authenticated actor the session or
+// API-auth middleware pinned on the context; actor and reason are the operator-supplied attribution. An encoding failure fails the
+// revoke rather than being logged past: the point of committing the entry with the change is that neither exists without the other.
 func revokeAuditEntry(ctx context.Context, req api.RevokeRequest) (auditoutbox.Entry, error) {
 	var principal identityapi.PrincipalRef
 	if a, ok := identityapi.ActorFromContext(ctx); ok {
