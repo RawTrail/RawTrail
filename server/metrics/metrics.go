@@ -258,13 +258,29 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 	return r
 }
 
-// EventsIngested increments the ingest counter by n for a host. Called per-batch by
-// the ingest handler after a successful InsertEvents.
-func (r *Recorder) EventsIngested(ctx context.Context, hostID string, n int) {
+// ingestedEventTypes is the closed set of event_type values schema/events.json defines, which TestIngestedEventTypesMatchSchema
+// pins to the schema. The server does not reject other values, so this set is what keeps the event_type attribute bounded.
+var ingestedEventTypes = map[string]bool{
+	"exec": true, "fork": true, "exit": true, "open": true, "file_rename": true, "file_truncate": true, "file_delete": true,
+	"network_connect": true, "dns_query": true, "application_control_block": true, "application_control_would_block": true,
+	"application_control_undecided": true, "application_control_resync": true, "snapshot_heartbeat": true,
+	"btm_launch_item_add": true, "sensor_provider_transition": true, "sensor_recovery_failed": true, "tcc_modify": true,
+}
+
+// otherEventType is the event_type attribute for any value outside ingestedEventTypes.
+const otherEventType = "other"
+
+// EventsIngested increments the ingest counter by n for one event type on a host. Called by the ingest handler after a batch is
+// accepted, once per event type in it. An event type outside the schema is recorded as "other", so cardinality stays fixed
+// whatever an agent sends.
+func (r *Recorder) EventsIngested(ctx context.Context, hostID, eventType string, n int) {
 	if r == nil || r.eventsIngested == nil || n <= 0 {
 		return
 	}
-	r.eventsIngested.Add(ctx, int64(n), metric.WithAttributes(attribute.String("host_id", hostID)))
+	if !ingestedEventTypes[eventType] {
+		eventType = otherEventType
+	}
+	r.eventsIngested.Add(ctx, int64(n), metric.WithAttributes(attribute.String("host_id", hostID), attribute.String("event_type", eventType)))
 }
 
 // EventsSetAside increments the set-aside counter by n for a host. Called by the processor when a nack withdraws events from

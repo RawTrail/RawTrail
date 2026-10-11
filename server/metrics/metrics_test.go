@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -136,8 +138,8 @@ func TestRecorder_RecordsCounters(t *testing.T) {
 	r, collect := newTestRecorder(t, stubGauges{enrolled: 3, offline: 1}, Options{})
 	ctx := context.Background()
 
-	r.EventsIngested(ctx, "host-a", 5)
-	r.EventsIngested(ctx, "host-b", 2)
+	r.EventsIngested(ctx, "host-a", "exec", 5)
+	r.EventsIngested(ctx, "host-b", "tcc_modify", 2)
 	r.AlertCreated(ctx, "dyld_insert", "high")
 	// ONE call carrying two, not two carrying one. The caller aggregates a batch before recording it, so the count parameter is
 	// the contract; two calls of one would sum to the same total and pass against an implementation that ignored n entirely.
@@ -156,8 +158,8 @@ func TestRecorder_RecordsCounters(t *testing.T) {
 
 	rm := collect()
 
-	assert.Equal(t, int64(5), findSum(t, rm, "edr.events.ingested", map[string]any{"host_id": "host-a"}))
-	assert.Equal(t, int64(2), findSum(t, rm, "edr.events.ingested", map[string]any{"host_id": "host-b"}))
+	assert.Equal(t, int64(5), findSum(t, rm, "edr.events.ingested", map[string]any{"host_id": "host-a", "event_type": "exec"}))
+	assert.Equal(t, int64(2), findSum(t, rm, "edr.events.ingested", map[string]any{"host_id": "host-b", "event_type": "tcc_modify"}))
 	assert.Equal(t, int64(1), findSum(t, rm, "edr.alerts.created", map[string]any{"rule_id": "dyld_insert", "severity": "high"}))
 	// Same attribute shape as edr.alerts.created on purpose: the two series are meant to be compared per rule and severity, which
 	// is the comparison promoting a monitor-mode rule turns on (issue #764). Asserted here because nothing else collects the
@@ -233,7 +235,7 @@ func TestNilRecorder_AllMethodsSafe(t *testing.T) {
 	var r *Recorder
 	ctx := context.Background()
 	assert.NotPanics(t, func() {
-		r.EventsIngested(ctx, "h", 1)
+		r.EventsIngested(ctx, "h", "exec", 1)
 		r.AlertCreated(ctx, "r", "s")
 		r.MonitorMatched(ctx, "r", "s", 1)
 		r.ProcessRetentionRowsDeleted(ctx, 1)
@@ -319,4 +321,62 @@ func TestObserveHTTPRequest(t *testing.T) {
 	assert.Equal(t, uint64(1), findHistogramCount(t, rm, name, map[string]any{
 		"http.request.method": "_OTHER", "http.route": "unmatched", "http.response.status_code": int64(418),
 	}), "unknown method -> _OTHER and empty route -> unmatched (cardinality guard)")
+}
+
+// spec:observability-instrumentation/ingested-events-carry-a-bounded-event-type/ingested-events-are-counted-by-event-type
+// spec:observability-instrumentation/ingested-events-carry-a-bounded-event-type/an-unknown-event-type-is-counted-as-other
+//
+// The event_type attribute keeps a schema type as it is and folds everything else into "other", so an agent sending made-up types
+// cannot grow the series count. Each case records into its own recorder, so the asserted series is the only one present.
+func TestRecorder_EventsIngestedEventType(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		eventType string
+		want      string
+	}{
+		{"schema type kept", "tcc_modify", "tcc_modify"},
+		{"heartbeat kept", "snapshot_heartbeat", "snapshot_heartbeat"},
+		{"unknown type folded", "made_up_type", "other"},
+		{"empty type folded", "", "other"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r, collect := newTestRecorder(t, nil, Options{})
+			r.EventsIngested(context.Background(), "host-a", tc.eventType, 3)
+
+			sum, ok := findMetricData[metricdata.Sum[int64]](collect(), "edr.events.ingested")
+			require.True(t, ok)
+			require.Len(t, sum.DataPoints, 1)
+			eventType, _ := sum.DataPoints[0].Attributes.Value("event_type")
+			assert.Equal(t, tc.want, eventType.AsString())
+			assert.Equal(t, int64(3), sum.DataPoints[0].Value)
+		})
+	}
+}
+
+// spec:observability-instrumentation/ingested-events-carry-a-bounded-event-type/the-bounded-set-matches-the-event-schema
+//
+// ingestedEventTypes is a hand-kept copy of the schema's event_type enum. A type added to the schema without it would be counted as
+// "other", which is the gap issue #1217 exists to close, so the two are compared here.
+func TestIngestedEventTypesMatchSchema(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("../../schema/events.json")
+	require.NoError(t, err)
+	var schema struct {
+		Properties struct {
+			EventType struct {
+				Enum []string `json:"enum"`
+			} `json:"event_type"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &schema))
+	require.NotEmpty(t, schema.Properties.EventType.Enum)
+
+	inCode := make([]string, 0, len(ingestedEventTypes))
+	for eventType := range ingestedEventTypes {
+		inCode = append(inCode, eventType)
+	}
+	assert.ElementsMatch(t, schema.Properties.EventType.Enum, inCode)
 }

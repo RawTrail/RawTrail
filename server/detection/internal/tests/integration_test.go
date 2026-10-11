@@ -279,6 +279,7 @@ type recordingMetrics struct {
 	setAsideHost             string
 	mu                       sync.Mutex
 	eventsIngested           int
+	eventsIngestedByType     map[string]int
 	heartbeatsDropped        int
 	alertsCreated            int
 	monitorMatches           int
@@ -300,10 +301,14 @@ func (m *recordingMetrics) EventsSetAside(_ context.Context, hostID string, n in
 func (m *recordingMetrics) RuleEvaluationSkipped(context.Context, string)                 {}
 func (m *recordingMetrics) RuleEvaluationDuration(context.Context, string, time.Duration) {}
 
-func (m *recordingMetrics) EventsIngested(_ context.Context, _ string, n int) {
+func (m *recordingMetrics) EventsIngested(_ context.Context, _, eventType string, n int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.eventsIngested += n
+	if m.eventsIngestedByType == nil {
+		m.eventsIngestedByType = map[string]int{}
+	}
+	m.eventsIngestedByType[eventType] += n
 }
 func (m *recordingMetrics) EventsHeartbeatDropped(_ context.Context, _ string, n int) {
 	m.mu.Lock()
@@ -2025,6 +2030,28 @@ func TestSetMetrics_PropagatesToEngineAndIntake(t *testing.T) {
 	events, alerts, _ := rec.snapshot()
 	assert.Positive(t, events, "EventsIngested hook fired by intake")
 	assert.Positive(t, alerts, "AlertCreated fired by engine")
+}
+
+// spec:observability-instrumentation/ingested-events-carry-a-bounded-event-type/ingested-events-are-counted-by-event-type
+//
+// The intake handler splits an accepted batch by event type before recording it (issue #1217), so a batch of three types produces
+// one count per type rather than one count for the batch.
+func TestIngest_CountsEventsByType(t *testing.T) {
+	t.Parallel()
+	rec := &recordingMetrics{}
+	d := newDetection(t, detectionOpts{mode: bootstrap.ModeFull, metrics: rec})
+	ctx := t.Context()
+
+	insertEventsViaIngest(ctx, t, d, "host-types", []api.Event{
+		{EventID: "types-net-1", HostID: "host-types", TimestampNs: 1, EventType: "network_connect", Payload: json.RawMessage(`{}`)},
+		{EventID: "types-net-2", HostID: "host-types", TimestampNs: 2, EventType: "network_connect", Payload: json.RawMessage(`{}`)},
+		{EventID: "types-tcc-1", HostID: "host-types", TimestampNs: 3, EventType: "tcc_modify", Payload: json.RawMessage(`{}`)},
+		{EventID: "types-dns-1", HostID: "host-types", TimestampNs: 4, EventType: "dns_query", Payload: json.RawMessage(`{}`)},
+	})
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Equal(t, map[string]int{"network_connect": 2, "tcc_modify": 1, "dns_query": 1}, rec.eventsIngestedByType)
 }
 
 // ---- Graph builder exec/exit paths -----------------------------------------
