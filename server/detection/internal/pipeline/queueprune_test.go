@@ -96,7 +96,7 @@ type capturingRecorder struct {
 	materializationRetries int64
 }
 
-func (c *capturingRecorder) EventsIngested(context.Context, string, int) {}
+func (c *capturingRecorder) EventsIngested(context.Context, string, map[string]int) {}
 
 // Not recorded: nothing in this package evaluates a rule, so a count here would only ever be zero.
 func (c *capturingRecorder) RuleEvaluationSkipped(context.Context, string)                 {}

@@ -116,7 +116,8 @@ type GraphReader interface {
 // MetricsRecorder is the optional OTel hook the engine + intake + pipeline goroutines write to. Nil-safe: cmd/main wires the
 // metrics.Recorder; tests pass nil.
 type MetricsRecorder interface {
-	EventsIngested(ctx context.Context, hostID string, n int)
+	// EventsIngested counts an accepted batch for a host, given as the number of events of each event type in it.
+	EventsIngested(ctx context.Context, hostID string, byType map[string]int)
 	// EventsSetAside counts events the queue withdrew from processing after a batch failed repeatedly. Per host, because the
 	// question is which host lost something (issue #836). WHAT it lost depends on the stage the withdrawal happened at, which
 	// the accompanying log line carries on a consequence attribute: at the detection stage an intact graph with detection

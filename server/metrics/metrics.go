@@ -109,7 +109,7 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 	// paths below no-op, so a Recorder from New is always usable.
 	r.eventsIngested, _ = meter.Int64Counter(
 		"edr.events.ingested",
-		metric.WithDescription("Events accepted by POST /api/events, by host_id."),
+		metric.WithDescription("Events accepted by POST /api/events, by host_id and event_type (a schema event type, or other)."),
 		metric.WithUnit(unitEvent),
 	)
 	r.heartbeatsDropped, _ = meter.Int64Counter(
@@ -258,13 +258,35 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 	return r
 }
 
-// EventsIngested increments the ingest counter by n for a host. Called per-batch by
-// the ingest handler after a successful InsertEvents.
-func (r *Recorder) EventsIngested(ctx context.Context, hostID string, n int) {
-	if r == nil || r.eventsIngested == nil || n <= 0 {
+// ingestedEventTypes is the closed set of event_type values schema/events.json defines, which TestIngestedEventTypesMatchSchema
+// pins to the schema. The server does not reject other values, so this set is what keeps the event_type attribute bounded.
+var ingestedEventTypes = map[string]bool{
+	"exec": true, "fork": true, "exit": true, "open": true, "file_rename": true, "file_truncate": true, "file_delete": true,
+	"network_connect": true, "dns_query": true, "application_control_block": true, "application_control_would_block": true,
+	"application_control_undecided": true, "application_control_resync": true, "snapshot_heartbeat": true,
+	"btm_launch_item_add": true, "sensor_provider_transition": true, "sensor_recovery_failed": true, "tcc_modify": true,
+}
+
+// otherEventType is the event_type attribute for any value outside ingestedEventTypes.
+const otherEventType = "other"
+
+// EventsIngested adds an accepted batch's per-type counts to the ingest counter for a host. Called by the ingest handler once per
+// batch. Every event type outside the schema is folded into "other" before anything is recorded, so cardinality stays fixed and a
+// batch costs at most one counter update per schema type whatever an agent sends.
+func (r *Recorder) EventsIngested(ctx context.Context, hostID string, byType map[string]int) {
+	if r == nil || r.eventsIngested == nil {
 		return
 	}
-	r.eventsIngested.Add(ctx, int64(n), metric.WithAttributes(attribute.String("host_id", hostID)))
+	folded := make(map[string]int, len(byType))
+	for eventType, n := range byType {
+		if !ingestedEventTypes[eventType] {
+			eventType = otherEventType
+		}
+		folded[eventType] += n
+	}
+	for eventType, n := range folded {
+		r.eventsIngested.Add(ctx, int64(n), metric.WithAttributes(attribute.String("host_id", hostID), attribute.String("event_type", eventType)))
+	}
 }
 
 // EventsSetAside increments the set-aside counter by n for a host. Called by the processor when a nack withdraws events from

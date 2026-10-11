@@ -245,7 +245,7 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel
 - **Logs** via `otelslog` with `service.name=fleet-edr-server`.
 - **Metrics**. Counters appear in the backend only after their first non-zero sample, so a fresh deploy won't show, for example, the retention or alert series until those events first occur.
 
-  - `edr.events.ingested` (counter, by `host_id`): events accepted by `POST /api/events`.
+  - `edr.events.ingested` (counter, by `host_id` and `event_type`): events accepted by `POST /api/events`. `event_type` is one of the types in `schema/events.json`, or `other` for anything else. Group by it to see which event types a host sends.
   - `edr.alerts.created` (counter, by `rule_id` + `severity`): alerts raised by detection.
   - `edr.enrolled.hosts` (gauge): current non-revoked enrollments.
   - `edr.offline.hosts` (gauge): hosts unseen longer than the offline threshold (5 min).

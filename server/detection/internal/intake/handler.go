@@ -236,9 +236,10 @@ func (h *Handler) handleIngest(w http.ResponseWriter, r *http.Request) {
 
 	if h.metrics != nil {
 		// edr.events.ingested counts the full accepted batch (heartbeats included) to honor its stable-counter contract
-		// ("incremented by the size of the batch", observability-instrumentation spec). heartbeats_dropped is the not-persisted
-		// subset: every heartbeat in the batch (len(events)-len(toStore)), including malformed/zero-pid ones that produced no bump.
-		h.metrics.EventsIngested(ctx, pinnedHostID, len(events))
+		// ("incremented by the size of the batch", observability-instrumentation spec), split by event type so an operator can see
+		// which types a host sends (issue #1217). heartbeats_dropped is the not-persisted subset: every heartbeat in the batch
+		// (len(events)-len(toStore)), including malformed/zero-pid ones that produced no bump.
+		h.metrics.EventsIngested(ctx, pinnedHostID, countByEventType(events))
 		h.metrics.EventsHeartbeatDropped(ctx, pinnedHostID, len(events)-len(toStore))
 	}
 
@@ -473,4 +474,13 @@ func (h *Handler) handleReadyz(w http.ResponseWriter, r *http.Request) {
 
 func writeErr(ctx context.Context, logger *slog.Logger, w http.ResponseWriter, status int, code string) {
 	httpserver.NoStoreJSON(ctx, logger, w, status, map[string]string{"error": code})
+}
+
+// countByEventType returns how many events of each type a batch holds.
+func countByEventType(events []api.Event) map[string]int {
+	counts := map[string]int{}
+	for _, e := range events {
+		counts[e.EventType]++
+	}
+	return counts
 }
