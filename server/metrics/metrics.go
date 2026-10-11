@@ -109,7 +109,7 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 	// paths below no-op, so a Recorder from New is always usable.
 	r.eventsIngested, _ = meter.Int64Counter(
 		"edr.events.ingested",
-		metric.WithDescription("Events accepted by POST /api/events, by host_id."),
+		metric.WithDescription("Events accepted by POST /api/events, by host_id and event_type (a schema event type, or other)."),
 		metric.WithUnit(unitEvent),
 	)
 	r.heartbeatsDropped, _ = meter.Int64Counter(
