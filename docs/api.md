@@ -71,7 +71,7 @@ Operator endpoints, which take the session cookie or a service-account bearer to
 
 ### Service-account bearer token (automation)
 
-A service account exchanges its client id and secret for a 15-minute access token at `POST /api/oauth/token` (OAuth 2.0 client credentials), then sends `Authorization: Bearer <access_token>` on the operator endpoints listed above. No CSRF token is needed. `GET` and `DELETE /api/session` manage a browser session and do not accept it. See [service-accounts.md](service-accounts.md).
+A service account exchanges its client id and secret for a 15-minute access token at `POST /api/oauth/token` (OAuth 2.0 client credentials), then sends `Authorization: Bearer <access_token>` on any operator endpoint, including the containment, detection-configuration and rule-content routes that [the OpenAPI spec](api/openapi.yaml) documents. No CSRF token is needed. `GET` and `DELETE /api/session` manage a browser session and do not accept it. See [service-accounts.md](service-accounts.md).
 
 ### No auth
 

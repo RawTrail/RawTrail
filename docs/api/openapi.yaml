@@ -3,7 +3,7 @@ info:
   title: Fleet EDR API
   version: "0.2.0"
   description: |
-    HTTP API for Fleet EDR. Three audience tiers:
+    HTTP API for Fleet EDR. Four audiences:
 
     - **Agents** (macOS endpoints) authenticate with a per-host bearer
       token obtained at enrollment. They call `POST /api/enroll`,
@@ -11,8 +11,13 @@ info:
       `PUT /api/commands/{id}` endpoints.
     - **Browsers** (admin UI) authenticate with an `edr_session` cookie
       (HttpOnly, Secure, SameSite=Lax) plus an `X-CSRF-Token` header on
-      unsafe methods. They call the session-protected endpoints.
-    - **Operators** hit `/livez`, `/readyz`, `/health` with no auth.
+      unsafe methods. They call the operator endpoints and `/api/session`.
+    - **Service accounts** (automation) exchange a client id and secret
+      at `POST /api/oauth/token` for a short-lived bearer token. They call
+      the operator endpoints, with no CSRF header; each operation lists
+      `ServiceAccountToken` where it accepts one.
+    - **Load balancers and probes** hit `/livez`, `/readyz`, `/health`
+      with no auth.
 
     For prose context see
     [docs/api.md](https://github.com/getvictor/fleet-edr/blob/main/docs/api.md).
