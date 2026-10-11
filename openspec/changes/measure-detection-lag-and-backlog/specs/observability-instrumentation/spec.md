@@ -17,3 +17,20 @@ The server SHALL record `edr.detection.lag`, a histogram of each event's seconds
 - **WHEN** the pending count is read
 - **THEN** it returns the cap rather than counting the whole backlog
 - **AND** below the cap it is exact and includes events claimed but not yet acknowledged
+
+### Requirement: Stalled and slow detection raise shipped alerts
+
+The project SHALL ship an alert rule that fires at critical severity when events stay queued while no detection lag is recorded for 15 minutes, and one that fires at error severity when the 95th percentile of detection lag stays above 5 minutes for 10 minutes.
+
+#### Scenario: A stalled pipeline raises a critical alert
+
+- **GIVEN** the shipped "EDR detection stalled" rule
+- **WHEN** `edr.events.pending` stays above zero while `edr.detection.lag` records nothing for 15 minutes
+- **THEN** the rule fires at critical severity
+- **AND** it does not fire while the backlog is zero, so an idle pipeline does not page
+
+#### Scenario: Slow detection raises an error alert
+
+- **GIVEN** the shipped "EDR detection lag high" rule
+- **WHEN** the 95th percentile of `edr.detection.lag` stays above 300 seconds for 10 minutes
+- **THEN** the rule fires at error severity

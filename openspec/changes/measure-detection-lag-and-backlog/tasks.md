@@ -7,5 +7,5 @@
 
 ## 2. Alerts and docs
 
-- [x] 2.1 "EDR detection lag high" and "EDR detection stalled" rules under `config/observability/alerts/`
+- [x] 2.1 "EDR detection lag high" and "EDR detection stalled" rules under `config/observability/alerts/`, with tests pinning their queries, thresholds, windows and severities
 - [x] 2.2 The operations and install guides list both metrics and both rules
