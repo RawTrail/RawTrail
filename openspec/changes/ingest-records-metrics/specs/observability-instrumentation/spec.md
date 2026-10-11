@@ -2,7 +2,7 @@
 
 ### Requirement: The ingest service counts the events it accepts
 
-The standalone ingest service SHALL record `edr.events.ingested` and `edr.events.heartbeats_dropped` for every batch it accepts, as the server does. It SHALL NOT report the host-fleet gauges, which describe the whole deployment and are reported by the server.
+The standalone ingest service SHALL record `edr.events.ingested` and `edr.ingest.heartbeats_dropped` for every batch it accepts, as the server does. It SHALL NOT report the host-fleet gauges, which describe the whole deployment and are reported by the server.
 
 #### Scenario: Events accepted by the ingest service are counted
 

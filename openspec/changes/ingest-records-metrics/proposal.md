@@ -1,6 +1,6 @@
 ## Why
 
-`fleet-edr-ingest`, the standalone ingest binary, never built a metrics recorder (issue #1263). Its intake handler therefore counted nothing: in a split deployment, where agents upload to the ingest tier, no replica reported `edr.events.ingested` or `edr.events.heartbeats_dropped`, and the ingest tier reported no HTTP request duration. The `EDR event ingest stopped` alert would fire while ingest was healthy.
+`fleet-edr-ingest`, the standalone ingest binary, never built a metrics recorder (issue #1263). Its intake handler therefore counted nothing: in a split deployment, where agents upload to the ingest tier, no replica reported `edr.events.ingested` or `edr.ingest.heartbeats_dropped`, and the ingest tier reported no HTTP request duration. The `EDR event ingest stopped` alert would fire while ingest was healthy.
 
 ## What changes
 

@@ -208,7 +208,7 @@ type metricsSetter interface {
 }
 
 // wireIngestMetrics builds the ingest tier's recorder and hands it to detection, whose intake handler records edr.events.ingested
-// and edr.events.heartbeats_dropped; the caller also passes it to the HTTP server for request duration. Without it a split
+// and edr.ingest.heartbeats_dropped; the caller also passes it to the HTTP server for request duration. Without it a split
 // deployment never counts the events its ingest tier accepts (issue #1263). No gauge source: the host-fleet gauges describe the
 // whole deployment and fleet-edr-server already reports them, so registering them here too would double every fleet-wide sum.
 func wireIngestMetrics(detection metricsSetter) *metrics.Recorder {
