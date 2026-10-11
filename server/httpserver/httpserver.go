@@ -60,8 +60,9 @@ type Options struct {
 	// = 500ms). A negative value disables the upgrade entirely: Build leaves negatives untouched and accessLog's `slowThreshold > 0` gate
 	// then short-circuits.
 	SlowThreshold time.Duration
-	// TLSEnabled toggles the HSTS response header. Only set this true when the server actually speaks TLS; emitting HSTS over plain HTTP
-	// is a footgun that can make users unreachable if they accidentally deploy the next process without TLS.
+	// TLSEnabled toggles the HSTS response header. Set it when clients reach the service over HTTPS, which includes a listener that
+	// speaks plaintext behind a TLS-terminating proxy (config.Config.ExternalTLS). Never set it for a service clients reach over plain
+	// HTTP: emitting HSTS there can make users unreachable if the next deploy goes out without TLS.
 	TLSEnabled bool
 	// ClientIPResolver, when set, runs as middleware that resolves the trusted client IP once per request and stashes it on ctx so
 	// downstream rate-limit + audit code reads the same value (issue #81). nil disables the middleware: handlers fall back to the direct
@@ -114,7 +115,7 @@ func Build(handler http.Handler, opts Options) http.Handler {
 }
 
 // hstsHeader adds the Strict-Transport-Security header on every response. Two years, including
-// subdomains, matching modern best practice. Only installed when the server speaks TLS.
+// subdomains, matching modern best practice. Only installed when clients reach the service over HTTPS (Options.TLSEnabled).
 func hstsHeader() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
