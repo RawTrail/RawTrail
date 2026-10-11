@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/fleetdm/edr/server/auditoutbox"
 	"github.com/fleetdm/edr/server/endpoint/api"
 	"github.com/fleetdm/edr/server/endpoint/internal/mysql"
 	"github.com/fleetdm/edr/server/endpoint/internal/revocation"
@@ -23,21 +25,24 @@ type noRevocations struct{}
 
 func (noRevocations) RevocationEntries(context.Context) ([]revocation.Entry, error) { return nil, nil }
 
-// TestServiceNew_Panics covers the fail-fast guards: New panics on a missing Store, Signer, Revocations, or empty Secret, and does not
-// panic when all are present.
+// TestServiceNew_Panics covers the fail-fast guards: New panics on a missing Store, Signer, Revocations, AuditOutbox, or empty Secret,
+// and does not panic when all are present.
 func TestServiceNew_Panics(t *testing.T) {
 	t.Parallel()
 	store := &mysql.Store{}
 	signer, err := signedtoken.New(testSigningKey, "v1")
 	require.NoError(t, err)
 	snap := revocation.NewSnapshot(noRevocations{}, nil)
+	outbox := auditoutbox.NewStore(&sqlx.DB{}, mysql.AuditOutboxTable)
 
 	assert.Panics(t, func() { service.New(service.Options{}) }, "nil store")
 	assert.Panics(t, func() { service.New(service.Options{Store: store}) }, "nil signer")
 	assert.Panics(t, func() { service.New(service.Options{Store: store, Signer: signer}) }, "nil revocations")
 	assert.Panics(t, func() { service.New(service.Options{Store: store, Signer: signer, Revocations: snap}) }, "empty secret")
+	assert.Panics(t, func() { service.New(service.Options{Store: store, Signer: signer, Revocations: snap, Secret: "s"}) },
+		"nil audit outbox")
 	assert.NotPanics(t, func() {
-		service.New(service.Options{Store: store, Signer: signer, Revocations: snap, Secret: "s"})
+		service.New(service.Options{Store: store, Signer: signer, Revocations: snap, Secret: "s", AuditOutbox: outbox})
 	})
 }
 
@@ -65,6 +70,7 @@ func newServiceForTest(t *testing.T) (api.Service, *revocation.Snapshot) {
 		Secret:      testSecret,
 		Signer:      signer,
 		Revocations: snap,
+		AuditOutbox: auditoutbox.NewStore(db, mysql.AuditOutboxTable),
 		TokenTTL:    time.Hour,
 		Logger:      slog.Default(),
 	})
@@ -117,9 +123,16 @@ func TestRefreshToken_IssuesFreshVerifiableToken(t *testing.T) {
 	assert.Equal(t, testHostID, hostID)
 }
 
+// revokeForTest revokes testHostID as an operator would.
+func revokeForTest(t *testing.T, svc api.Service) {
+	t.Helper()
+	require.NoError(t, svc.Revoke(t.Context(), api.RevokeRequest{HostID: testHostID, Reason: "incident", Actor: "op"}))
+}
+
 // TestRefreshToken_RejectsStaleEpochAndGarbage covers the refresh-path guards: an unverifiable token is rejected, and (the security
-// fix) a pre-rotate token cannot refresh into a current-epoch token after an operator epoch bump, even though the revocation snapshot
-// here is never refreshed (the refresh path checks the DB epoch directly, closing the snapshot-staleness window).
+// fix) a token issued before a revoke cannot refresh after the host re-enrolls, even though the revocation snapshot here is never
+// refreshed (the refresh path checks the DB epoch directly, closing the snapshot-staleness window). Before issue #1225 the revoke left
+// the epoch alone, so the re-enroll that cleared revoked_at made the stolen token refreshable again.
 func TestRefreshToken_RejectsStaleEpochAndGarbage(t *testing.T) {
 	t.Parallel()
 	svc, _ := newServiceForTest(t)
@@ -128,47 +141,47 @@ func TestRefreshToken_RejectsStaleEpochAndGarbage(t *testing.T) {
 	_, err := svc.RefreshToken(t.Context(), "not.a.token")
 	require.ErrorIs(t, err, api.ErrInvalidToken)
 
-	require.NoError(t, svc.RotateToken(t.Context(), testHostID, "op", "incident"))
+	revokeForTest(t, svc)
+	enrollForTest(t, svc)
 	_, err = svc.RefreshToken(t.Context(), res.HostToken)
-	require.ErrorIs(t, err, api.ErrInvalidToken, "stale-epoch token must not refresh after an epoch bump")
+	require.ErrorIs(t, err, api.ErrInvalidToken, "a token issued before the revoke must not refresh after the host re-enrolls")
 }
 
-// spec:agent-enrollment/revocation-is-enforced-by-a-per-replica-snapshot/operator-rotate-invalidates-after-the-snapshot-refreshes
+// spec:agent-enrollment/host-token-revocation-is-enforced-per-replica/revoke-invalidates-after-the-snapshot-refreshes
+// spec:agent-enrollment/revoke-ends-prior-credentials/stolen-token-stays-rejected-after-re-enrollment
 //
-// TestRotateToken_BumpsEpochAndInvalidates: operator rotate bumps the epoch (no command pushed). After the snapshot refreshes, the
-// pre-rotate token is rejected; a re-enroll mints a fresh token that verifies.
-func TestRotateToken_BumpsEpochAndInvalidates(t *testing.T) {
+// TestRevoke_StolenTokenStaysRejectedAfterReEnroll: a revoke bumps the epoch, so after the snapshot refreshes the pre-revoke token is
+// rejected, a re-enroll mints a fresh token that verifies, and the pre-revoke token stays rejected after that re-enroll.
+func TestRevoke_StolenTokenStaysRejectedAfterReEnroll(t *testing.T) {
 	t.Parallel()
 	svc, snap := newServiceForTest(t)
-	res := enrollForTest(t, svc)
+	stolen := enrollForTest(t, svc)
 	require.NoError(t, snap.Refresh(t.Context()))
-	_, err := svc.VerifyToken(t.Context(), res.HostToken)
+	_, err := svc.VerifyToken(t.Context(), stolen.HostToken)
 	require.NoError(t, err)
 
-	require.NoError(t, svc.RotateToken(t.Context(), testHostID, "victor@example", "incident-2026"))
-
+	revokeForTest(t, svc)
 	require.NoError(t, snap.Refresh(t.Context()))
-	_, err = svc.VerifyToken(t.Context(), res.HostToken)
-	require.ErrorIs(t, err, api.ErrInvalidToken, "pre-rotate token rejected once the epoch bump is visible")
+	_, err = svc.VerifyToken(t.Context(), stolen.HostToken)
+	require.ErrorIs(t, err, api.ErrInvalidToken, "pre-revoke token rejected once the revoke is visible")
 
-	// Re-enroll PRESERVES the bumped epoch (it is not reset to 0), so the fresh token verifies while the pre-rotate token stays
-	// rejected. This is the credential-cycling-survives-re-enroll guarantee: if Register reset the epoch, the stolen pre-rotate token
-	// below would become valid again here, defeating the rotate.
-	res2 := enrollForTest(t, svc)
+	// Re-enroll clears the revocation and PRESERVES the bumped epoch, so the fresh token verifies while the pre-revoke token stays
+	// rejected. If the revoke had not bumped the epoch, the stolen token would be valid again here.
+	reEnrolled := enrollForTest(t, svc)
 	require.NoError(t, snap.Refresh(t.Context()))
-	hostID, err := svc.VerifyToken(t.Context(), res2.HostToken)
+	hostID, err := svc.VerifyToken(t.Context(), reEnrolled.HostToken)
 	require.NoError(t, err, "re-enroll mints a fresh token at the preserved epoch")
 	assert.Equal(t, testHostID, hostID)
 
-	_, err = svc.VerifyToken(t.Context(), res.HostToken)
-	require.ErrorIs(t, err, api.ErrInvalidToken, "the pre-rotate token MUST stay rejected after re-enroll: the epoch bump is monotonic")
+	_, err = svc.VerifyToken(t.Context(), stolen.HostToken)
+	require.ErrorIs(t, err, api.ErrInvalidToken, "the pre-revoke token MUST stay rejected after re-enroll")
 }
 
-// TestRotateToken_NotFound: rotating a host with no enrollment is ErrNotFound.
-func TestRotateToken_NotFound(t *testing.T) {
+// TestRevoke_NotFound: revoking a host with no enrollment is ErrNotFound.
+func TestRevoke_NotFound(t *testing.T) {
 	t.Parallel()
 	svc, _ := newServiceForTest(t)
-	err := svc.RotateToken(t.Context(), "00000000-0000-0000-0000-000000000000", "a", "b")
+	err := svc.Revoke(t.Context(), api.RevokeRequest{HostID: "00000000-0000-0000-0000-000000000000", Reason: "a", Actor: "b"})
 	require.ErrorIs(t, err, api.ErrNotFound)
 }
 
@@ -177,29 +190,31 @@ func TestRevoke_InvalidatesAfterSnapshot(t *testing.T) {
 	t.Parallel()
 	svc, snap := newServiceForTest(t)
 	res := enrollForTest(t, svc)
-	require.NoError(t, svc.Revoke(t.Context(), testHostID, "compromised", "op"))
+	revokeForTest(t, svc)
 	require.NoError(t, snap.Refresh(t.Context()))
 	_, err := svc.VerifyToken(t.Context(), res.HostToken)
 	require.ErrorIs(t, err, api.ErrInvalidToken)
 }
 
-// TestReEnroll_ClearsStaleSnapshotLocally: after an operator epoch bump leaves the snapshot rejecting the old token, a re-enroll yields
-// a token that verifies immediately on this replica WITHOUT a snapshot refresh, because Enroll evicts the host from the local snapshot
-// (the transient-401-after-re-enroll mitigation).
+// spec:agent-enrollment/host-token-revocation-is-enforced-per-replica/re-enrolled-token-verifies-at-once-on-the-enrolling-replica
+//
+// TestReEnroll_ClearsStaleSnapshotLocally: after a revoke leaves the snapshot rejecting the old token, a re-enroll yields a token that
+// verifies immediately on this replica WITHOUT a snapshot refresh, because Enroll records the host's post-enrollment state in the local
+// snapshot (the transient-401-after-re-enroll mitigation).
 func TestReEnroll_ClearsStaleSnapshotLocally(t *testing.T) {
 	t.Parallel()
 	svc, snap := newServiceForTest(t)
 	res := enrollForTest(t, svc)
 	require.NoError(t, snap.Refresh(t.Context()))
 
-	require.NoError(t, svc.RotateToken(t.Context(), testHostID, "op", "incident"))
+	revokeForTest(t, svc)
 	require.NoError(t, snap.Refresh(t.Context()))
 	_, err := svc.VerifyToken(t.Context(), res.HostToken)
-	require.ErrorIs(t, err, api.ErrInvalidToken, "old token rejected after epoch bump")
+	require.ErrorIs(t, err, api.ErrInvalidToken, "old token rejected after the revoke")
 
-	// Re-enroll, then verify with NO intervening snap.Refresh: the new token must pass because Enroll forgot the host locally.
-	res2 := enrollForTest(t, svc)
-	hostID, err := svc.VerifyToken(t.Context(), res2.HostToken)
+	// Re-enroll, then verify with NO intervening snap.Refresh: the new token must pass because Enroll updated the host locally.
+	reEnrolled := enrollForTest(t, svc)
+	hostID, err := svc.VerifyToken(t.Context(), reEnrolled.HostToken)
 	require.NoError(t, err, "re-enrolled token verifies immediately on the enrolling replica")
 	assert.Equal(t, testHostID, hostID)
 }

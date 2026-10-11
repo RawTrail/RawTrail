@@ -12,7 +12,6 @@
     "alert.reopen",
     "enrollment.read",
     "enrollment.revoke",
-    "enrollment.rotate_token",
     "user.read",
     "user.invite",
     "user.manage",

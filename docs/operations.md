@@ -412,10 +412,10 @@ Common causes, in order:
 1. **Endpoint is powered off / asleep.** Nothing to do; the host reconnects on next wake.
 2. **Network-level change.** Moved to a VPN / Wi-Fi with egress filtering. Validate `curl -v https://<edr-server>/livez` from the endpoint.
 3. **Agent crashed.** `sudo launchctl print system/com.fleetdm.edr.agent` shows `state = running`? If not: `sudo launchctl kickstart -k system/com.fleetdm.edr.agent`.
-4. **Enrollment revoked.** Check `POST /api/enrollments/{host_id}/revoke` logs. Re-enroll by re-running the MDM install-script and restarting the daemon.
+4. **Enrollment revoked.** Check the audit log for an `enrollment.revoke` entry. An agent that holds the enroll secret re-enrolls on its own within a minute or two; one that does not needs the MDM install script re-run and the daemon restarted.
 5. **DB clock skew / server down.** `edr.enrolled.hosts` gauge returning -1 means the DB query failed.
 
-If a host has been offline for >30 days and you expect it to be permanently gone (retired laptop), revoke the enrollment from the UI (`Hosts > <host> > Revoke enrollment`) so its host-token can no longer be used.
+If a host has been offline for >30 days and you expect it to be permanently gone (retired laptop), revoke its enrollment with `POST /api/enrollments/{host_id}/revoke` so the host tokens it holds can no longer be used. A revoke does not stop an agent that still holds the enroll secret from enrolling again.
 
 ## Network containment
 

@@ -32,13 +32,9 @@ func (f fakeRefreshService) RecordStatus(context.Context, string, api.StatusRepo
 }
 func (f fakeRefreshService) List(context.Context) ([]api.Enrollment, error)       { panic("not used") }
 func (f fakeRefreshService) Get(context.Context, string) (*api.Enrollment, error) { panic("not used") }
-func (f fakeRefreshService) Revoke(context.Context, string, string, string) error { panic("not used") }
+func (f fakeRefreshService) Revoke(context.Context, api.RevokeRequest) error      { panic("not used") }
 func (f fakeRefreshService) CountActive(context.Context) (int, error)             { panic("not used") }
 func (f fakeRefreshService) ActiveHostIDs(context.Context) ([]string, error)      { panic("not used") }
-func (f fakeRefreshService) RotateToken(context.Context, string, string, string) error {
-	panic("not used")
-}
-
 func serve(t *testing.T, svc api.Service) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/token/refresh", nil)

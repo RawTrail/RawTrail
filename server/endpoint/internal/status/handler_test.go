@@ -32,12 +32,9 @@ func (fakeStatusService) RefreshToken(context.Context, string) (api.RefreshRespo
 }
 func (fakeStatusService) List(context.Context) ([]api.Enrollment, error)       { panic("not used") }
 func (fakeStatusService) Get(context.Context, string) (*api.Enrollment, error) { panic("not used") }
-func (fakeStatusService) Revoke(context.Context, string, string, string) error { panic("not used") }
+func (fakeStatusService) Revoke(context.Context, api.RevokeRequest) error      { panic("not used") }
 func (fakeStatusService) CountActive(context.Context) (int, error)             { panic("not used") }
 func (fakeStatusService) ActiveHostIDs(context.Context) ([]string, error)      { panic("not used") }
-func (fakeStatusService) RotateToken(context.Context, string, string, string) error {
-	panic("not used")
-}
 
 // serve drives the handler with hostID pinned on the context exactly as the host-token middleware would (or absent when hostID == "").
 func serve(t *testing.T, svc api.Service, hostID, body string) *httptest.ResponseRecorder {

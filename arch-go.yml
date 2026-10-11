@@ -41,7 +41,9 @@ dependenciesRules:
         - "**.httpserver"
         - "**.hmactoken"  # shared v1 HMAC token envelope: signedtoken builds its host bearer token on it (extracted so satoken can reuse the same primitive without a cross-context import)
         - "**.revocationset"  # shared per-replica revocation snapshot, which service-account tokens also use (issue #1226)
-        - "**.identity.api"  # identity.api.AuditRecorder for enrollment.revoke audit
+        - "**.identity.api"  # identity.api.AuditEvent, encoded into the enrollment.revoke audit entry
+        # auditoutbox is the shared transactional audit outbox: a revoke commits its audit entry in its own transaction (issue #1225).
+        - "**.auditoutbox"
         - "**.testdb"
 
   # rulecontent context internals (ADR-0021). The eighth context, carved out of rules at issue #766 because rule content acquired

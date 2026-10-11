@@ -10,7 +10,10 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+
 	"github.com/fleetdm/edr/server/attrkeys"
+	"github.com/fleetdm/edr/server/auditoutbox"
 	"github.com/fleetdm/edr/server/endpoint/api"
 	"github.com/fleetdm/edr/server/endpoint/internal/mysql"
 	"github.com/fleetdm/edr/server/endpoint/internal/revocation"
@@ -34,29 +37,33 @@ var hardwareUUIDPattern = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-
 
 // Options bundles every dependency the endpoint service needs.
 type Options struct {
-	// Store, Secret, Signer, Revocations, Logger are required.
+	// Store, Secret, Signer, Revocations, AuditOutbox are required.
 	Store       *mysql.Store
 	Secret      string
 	Signer      *signedtoken.Signer
 	Revocations *revocation.Snapshot
 	Logger      *slog.Logger
 
-	// Audit is the operator-action audit recorder. Nil disables audit emission for credential cycling; tests that don't care pass nil.
-	Audit identityapi.AuditRecorder
+	// AuditOutbox is where a revoke commits its audit entry, in the revoke's own transaction. Required.
+	AuditOutbox *auditoutbox.Store
+	// AuditDrain turns committed entries into audit rows once a revoke commits. Nil only when no audit recorder is wired, in which case
+	// the entry waits in the outbox and DeliverSoon says so.
+	AuditDrain *auditoutbox.Drain
 
 	// TokenTTL is the lifetime of a minted host token. Zero -> defaultTokenTTL (60m).
 	TokenTTL time.Duration
 }
 
 // service implements api.Service. Verification is a local signature check (signer) plus an in-memory revocation lookup (revocations),
-// so the agent hot path never touches the database. The store is used only on the rare paths: enroll, refresh (one read), credential
-// cycling, and operator listings.
+// so the agent hot path never touches the database. The store is used only on the rare paths: enroll, refresh (one read), revoke,
+// and operator listings.
 type service struct {
 	store       *mysql.Store
 	secret      string
 	signer      *signedtoken.Signer
 	revocations *revocation.Snapshot
-	audit       identityapi.AuditRecorder
+	outbox      *auditoutbox.Store
+	drain       *auditoutbox.Drain
 	tokenTTL    time.Duration
 	logger      *slog.Logger
 }
@@ -76,6 +83,9 @@ func New(opts Options) api.Service {
 	if opts.Secret == "" {
 		panic("service.New: Secret is required")
 	}
+	if opts.AuditOutbox == nil {
+		panic("service.New: AuditOutbox is required")
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -89,7 +99,8 @@ func New(opts Options) api.Service {
 		secret:      opts.Secret,
 		signer:      opts.Signer,
 		revocations: opts.Revocations,
-		audit:       opts.Audit,
+		outbox:      opts.AuditOutbox,
+		drain:       opts.AuditDrain,
 		tokenTTL:    ttl,
 		logger:      logger,
 	}
@@ -121,11 +132,11 @@ func (s *service) Enroll(ctx context.Context, req api.EnrollRequest, sourceIP st
 		return api.EnrollResponse{}, fmt.Errorf("register enrollment: %w", err)
 	}
 	// Register preserved the host's token_epoch across a re-enroll (a brand-new host is 0) and cleared any revocation, returning the
-	// epoch we must mint at. Minting at the preserved epoch is what keeps an operator credential cycle effective: a stolen pre-rotate
-	// token stays below the current epoch and is still rejected after the legitimate agent re-enrolls. Record the post-enroll state in
+	// epoch we must mint at. Minting at the preserved epoch is what keeps a revoke effective: a token stolen before the revoke
+	// stays below the current epoch and is still rejected after the legitimate agent re-enrolls. Record the post-enroll state in
 	// this replica's revocation snapshot so the freshly minted token verifies immediately here (instead of being rejected by a stale
 	// snapshot still showing the pre-re-enroll revoked state for up to the refresh interval: the transient-401-after-re-enroll race),
-	// while any pre-rotate token below this epoch stays rejected with no window. Other replicas converge on their next refresh.
+	// while any pre-revoke token below this epoch stays rejected with no window. Other replicas converge on their next refresh.
 	s.revocations.Observe(res.HostID, res.Epoch)
 	now := time.Now().UTC()
 	token, exp, err := s.signer.Mint(res.HostID, res.Epoch, s.tokenTTL, now)
@@ -160,8 +171,8 @@ func (s *service) VerifyToken(_ context.Context, token string) (string, error) {
 func (s *service) RefreshToken(ctx context.Context, token string) (api.RefreshResponse, error) {
 	// Re-verify the presented token (cheap; refresh is not the hot path) so we can compare ITS epoch to the host's current DB epoch.
 	// The host-token middleware gates this route using the per-replica revocation snapshot, which is eventually consistent, so during
-	// the staleness window a pre-rotate (stale-epoch) token can still pass the middleware. Without this check, refresh would then mint
-	// a fresh token at the current (bumped) epoch and let the stale token survive an operator credential cycle. Rejecting a presented
+	// the staleness window a pre-revoke (stale-epoch) token can still pass the middleware. Without this check, refresh would then mint
+	// a fresh token at the current (bumped) epoch and let the stale token survive the revoke. Rejecting a presented
 	// epoch below the current epoch closes that window authoritatively against the DB.
 	claims, err := s.signer.Verify(token, time.Now())
 	if err != nil {
@@ -183,50 +194,6 @@ func (s *service) RefreshToken(ctx context.Context, token string) (api.RefreshRe
 		return api.RefreshResponse{}, fmt.Errorf("mint refresh token: %w", err)
 	}
 	return api.RefreshResponse{HostID: claims.HostID, HostToken: newToken, ExpiresAt: exp}, nil
-}
-
-// RotateToken cycles a host's credentials by bumping its token_epoch, which invalidates every signed token minted at the prior epoch
-// once the revocation snapshot picks up the change. There is no opaque token to rotate and no command to push: the agent recovers by
-// re-enrolling when its refresh (carrying the now-stale epoch) 401s. actor + reason feed the audit row. Returns ErrNotFound when the
-// host has no enrollment.
-func (s *service) RotateToken(ctx context.Context, hostID, actor, reason string) error {
-	if hostID == "" {
-		return fmt.Errorf("rotate token: %w", api.ErrNotFound)
-	}
-	if err := s.store.BumpTokenEpoch(ctx, hostID); err != nil {
-		if errors.Is(err, mysql.ErrNotFound) {
-			return api.ErrNotFound
-		}
-		return fmt.Errorf("rotate token: %w", err)
-	}
-	s.recordRotationAudit(ctx, hostID, actor, reason)
-	return nil
-}
-
-// recordRotationAudit emits one audit row for a credential-cycle. Best-effort: a missed audit row is a follow-up incident, not a reason
-// to fail an HTTP response that already succeeded.
-func (s *service) recordRotationAudit(ctx context.Context, hostID, actor, reason string) {
-	if s.audit == nil {
-		return
-	}
-	payload := map[string]any{}
-	if actor != "" {
-		payload["actor"] = actor
-	}
-	if reason != "" {
-		payload["reason"] = reason
-	}
-	if err := s.audit.Record(ctx, identityapi.AuditEvent{
-		Action:     identityapi.AuditEnrollmentRotateToken,
-		TargetType: "host",
-		TargetID:   hostID,
-		Payload:    payload,
-	}); err != nil {
-		s.logger.WarnContext(ctx, "audit record failed",
-			attrkeys.HostID, hostID,
-			"action", string(identityapi.AuditEnrollmentRotateToken),
-			"err", err)
-	}
 }
 
 // healthyComponents returns the components reporting healthy, which are the ones whose open episodes this snapshot resolves.
@@ -328,15 +295,44 @@ func (s *service) Get(ctx context.Context, hostID string) (*api.Enrollment, erro
 	return &out, nil
 }
 
-func (s *service) Revoke(ctx context.Context, hostID, reason, actor string) error {
-	err := s.store.Revoke(ctx, hostID, reason, actor)
-	if errors.Is(err, sql.ErrNoRows) {
+func (s *service) Revoke(ctx context.Context, req api.RevokeRequest) error {
+	entry, err := revokeAuditEntry(ctx, req)
+	if err != nil {
+		return err
+	}
+	err = s.store.Revoke(ctx, req.HostID, req.Reason, req.Actor, func(q sqlx.ExecerContext) error {
+		return s.outbox.Enqueue(ctx, q, entry)
+	})
+	if errors.Is(err, mysql.ErrNotFound) {
 		return api.ErrNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("revoke enrollment: %w", err)
 	}
+	// After the commit: the entry is not a row to deliver until the revoke it records is durable.
+	s.drain.DeliverSoon(ctx)
 	return nil
+}
+
+// revokeAuditEntry encodes the revoke's audit event, ready to commit with it. The principal is the authenticated actor the session or
+// API-auth middleware pinned on the context; actor and reason are the operator-supplied attribution. An encoding failure fails the
+// revoke rather than being logged past: the point of committing the entry with the change is that neither exists without the other.
+func revokeAuditEntry(ctx context.Context, req api.RevokeRequest) (auditoutbox.Entry, error) {
+	var principal identityapi.PrincipalRef
+	if a, ok := identityapi.ActorFromContext(ctx); ok {
+		principal = a.Principal
+	}
+	return auditoutbox.Encode(identityapi.AuditEvent{
+		Actor:      principal,
+		Action:     identityapi.AuditEnrollmentRevoke,
+		TargetType: "host",
+		TargetID:   req.HostID,
+		RemoteAddr: req.RemoteAddr,
+		Payload:    map[string]any{"actor": req.Actor, "reason": req.Reason},
+		// Carried explicitly: the drain that delivers this entry may be another request's or the sweep's, and it detaches its own trace
+		// so it cannot stamp one request's trace onto another's row.
+		TraceID: identityapi.TraceIDFromContext(ctx),
+	})
 }
 
 func (s *service) CountActive(ctx context.Context) (int, error) {

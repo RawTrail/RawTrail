@@ -95,9 +95,16 @@ func (s *Snapshot) LastRefresh() (time.Time, bool) {
 // next refresh. It sets the entry to {epoch, not revoked}, so a token below that epoch stays rejected with no staleness window
 // while a token at it verifies. A principal at epoch 0 carries no revocation state, so it is dropped from the map. Best-effort and
 // per-replica: a concurrent refresh that read an older row can momentarily disagree, and the next refresh reconciles to the DB.
+//
+// An observation below the epoch the snapshot already holds is ignored. Epochs only rise, so a lower one is stale: an enrollment that
+// read epoch E, delayed past a revoke that committed E+1 and a refresh that loaded it, must not put E back and re-admit the tokens the
+// revoke ended until the next refresh.
 func (s *Snapshot) Observe(id string, epoch int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if known, ok := s.entries[id]; ok && known.Epoch > epoch {
+		return
+	}
 	if epoch <= 0 {
 		delete(s.entries, id)
 		return
