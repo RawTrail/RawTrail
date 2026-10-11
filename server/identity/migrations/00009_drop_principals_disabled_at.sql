@@ -5,8 +5,10 @@
 -- disabling the account and would not. Attribution does not need it either. A principals row is never deleted, because foreign keys
 -- and the audit trail reference it, so its id and label stay resolvable without a tombstone.
 --
--- A drop is a tier-2 change under ADR-0009, which normally needs expand and contract. This one ships in a single step because no
--- binary, this one or any earlier one, reads or writes the column, so a replica still on the previous release is unaffected.
+-- A drop is a tier-2 change under ADR-0009, which normally needs expand and contract. This one ships in a single step under the
+-- ADR's 2026-10-11 amendment: no binary in the current tree or any released version reads or writes the column (it was created with
+-- the table in 00005 and every principals INSERT names its columns without it), so a replica still on the previous release is
+-- unaffected.
 
 -- +goose StatementBegin
 ALTER TABLE principals DROP COLUMN disabled_at;
