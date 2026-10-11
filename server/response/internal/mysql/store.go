@@ -200,9 +200,8 @@ func (s *Store) ListForHost(ctx context.Context, hostID, status string) ([]api.C
 //
 // It is the control gateway's watch query, run every second per connected host, so both halves are one round trip and one index range
 // each: scoping on host_id and status seeks idx_commands_host_status_acked (host_id, status, acked_at), whose third column is what
-// keeps the acknowledged half from scanning every command a fleet has ever stranded. That index supersedes idx_commands_host_status,
-// which is dropped a release later under ADR-0009's expand-contract rule (issue #1082). An empty hostIDs slice returns no rows
-// without touching the database.
+// keeps the acknowledged half from scanning every command a fleet has ever stranded. An empty hostIDs slice returns no rows without
+// touching the database.
 func (s *Store) ListDeliverableForHosts(ctx context.Context, hostIDs []string, ackedAfter,
 	ackedBefore time.Time) ([]api.Command, error) {
 	if len(hostIDs) == 0 {
@@ -382,9 +381,9 @@ func (s *Store) LatestOfType(ctx context.Context, commandType string, hostIDs []
 // The window boundary arrives as `since` rather than being read from a clock here, matching ExpirePendingOlderThan: the store stays
 // clock-free and the caller that owns the policy owns the instant.
 //
-// It reads (host_id, status) off idx_commands_host_status and is bounded by the caller's host list, so it costs an index range per
-// host asked about rather than a scan. Hosts with no expired commands are absent from the result: the caller is looking for
-// findings, and returning a zero for every healthy host would make it filter them back out.
+// It reads (host_id, status) off the prefix of idx_commands_host_status_acked and is bounded by the caller's host list, so it costs
+// an index range per host asked about rather than a scan. Hosts with no expired commands are absent from the result: the caller is
+// looking for findings, and returning a zero for every healthy host would make it filter them back out.
 func (s *Store) UndeliverableByHost(ctx context.Context, hostIDs []string, since time.Time) (map[string]api.Undeliverable, error) {
 	if len(hostIDs) == 0 {
 		return nil, nil
