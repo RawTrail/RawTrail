@@ -124,7 +124,7 @@ func TestRevocationEntries(t *testing.T) {
 	require.NoError(t, err)
 	got := map[string]revocation.Entry{}
 	for _, e := range entries {
-		got[e.HostID] = e
+		got[e.ID] = e
 	}
 	assert.NotContains(t, got, clean, "clean host is not in the snapshot set")
 	assert.Equal(t, int64(1), got[bumped].Epoch)
