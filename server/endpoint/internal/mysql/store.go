@@ -267,7 +267,7 @@ func (s *Store) RevocationEntries(ctx context.Context) ([]revocation.Entry, erro
 	}
 	out := make([]revocation.Entry, len(rows))
 	for i, r := range rows {
-		out[i] = revocation.Entry{HostID: r.HostID, Epoch: r.Epoch, Revoked: r.Revoked != 0}
+		out[i] = revocation.Entry{ID: r.HostID, Epoch: r.Epoch, Revoked: r.Revoked != 0}
 	}
 	return out, nil
 }
