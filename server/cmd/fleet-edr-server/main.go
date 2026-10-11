@@ -71,22 +71,12 @@ const (
 	// means no two replicas run goose Up at once. It joins the other coordination lock names (edr_retention, edr_process_ttl).
 	migrationLockName = "edr_migrations"
 
-	// HTTP server timeouts. Read 10s covers a slow agent upload; write 30s and idle 60s bound how long a stuck client holds a connection.
-	// Same values as fleet-edr-ingest.
-	httpWriteTimeout = 30 * time.Second
-	httpIdleTimeout  = 60 * time.Second
-
 	// metricsOfflineThreshold is the "how old is too old" cutoff for the edr.offline.hosts gauge. Mirrored as the UI's offline threshold
 	// so what operators see in SigNoz matches what they see on the host page.
 	metricsOfflineThreshold = 5 * time.Minute
 )
 
-func main() {
-	if err := run(); err != nil {
-		_, _ = os.Stderr.WriteString("fatal: " + err.Error() + "\n")
-		os.Exit(2)
-	}
-}
+func main() { bootstrap.Main(run) }
 
 func run() error {
 	// The route-tier trace sampler is built before bootstrap.Init so it is installed on the TracerProvider at OTel init; the settings
@@ -932,13 +922,7 @@ func newHTTPServer(
 		ClientIPResolver: clientIPResolver,
 		Metrics:          metricsRec,
 	})
-	return &http.Server{
-		Addr:         cfg.ListenAddr,
-		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: httpWriteTimeout,
-		IdleTimeout:  httpIdleTimeout,
-	}
+	return httpserver.NewServer(cfg.ListenAddr, handler)
 }
 
 type muxDeps struct {

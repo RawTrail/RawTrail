@@ -143,6 +143,14 @@ func Start(opts Options) (context.Context, *Env, *sqlx.DB, func(), error) {
 	return ctx, env, db, stop, nil
 }
 
+// Main runs a binary's run func and, if it fails, prints the error to stderr and exits with status 2.
+func Main(run func() error) {
+	if err := run(); err != nil {
+		_, _ = os.Stderr.WriteString("fatal: " + err.Error() + "\n")
+		os.Exit(2)
+	}
+}
+
 // flushWithTimeout caps OTel flush at OTelFlushTimeout so a dead collector
 // doesn't stall the shutdown path.
 func flushWithTimeout(shutdown func(context.Context) error) {

@@ -12,8 +12,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -36,22 +34,9 @@ var (
 	buildTime = ""
 )
 
-const (
-	serviceName = "fleet-edr-ingest"
+const serviceName = "fleet-edr-ingest"
 
-	// HTTP server timeouts. Read 10s covers the agent's worst-case slow upload of a full batch; write 30s and idle 60s keep
-	// long-poll-style commands from getting cut off, but bound how long a stuck client can hold a connection. Same defaults as
-	// fleet-edr-server.
-	httpWriteTimeout = 30 * time.Second
-	httpIdleTimeout  = 60 * time.Second
-)
-
-func main() {
-	if err := run(); err != nil {
-		_, _ = os.Stderr.WriteString("fatal: " + err.Error() + "\n")
-		os.Exit(2)
-	}
-}
+func main() { bootstrap.Main(run) }
 
 func run() error {
 	// The ingest binary serves the highest-volume route (POST /api/events), so capping its trace export is the main win of issue #374.
@@ -181,13 +166,7 @@ func run() error {
 		TLSEnabled:  cfg.TLSEnabled(),
 	})
 
-	srv := &http.Server{
-		Addr:         cfg.ListenAddr,
-		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: httpWriteTimeout,
-		IdleTimeout:  httpIdleTimeout,
-	}
+	srv := httpserver.NewServer(cfg.ListenAddr, handler)
 	// Honor EDR_TLS_TERMINATED_BY_PROXY here too: config validation allows missing cert files in that mode, so calling
 	// ConfigureTLS with empty paths would fail to load a keypair and brick ingest boot behind a proxy. Leaving TLSConfig nil
 	// makes RunAndShutdown serve plaintext, matching the main server.
