@@ -1045,7 +1045,8 @@ paths:
         replica polls for it every 60 seconds, so it normally applies within
         about a minute. A
         `tracing.settings.updated` audit row is written after the change
-        commits.
+        commits, on a best-effort basis: a failed audit write is logged
+        and the change stands.
       security:
         - SessionCookie: []
           CSRF: []
@@ -1093,8 +1094,9 @@ paths:
         must be `client_credentials`. The access token lasts 15 minutes
         and there is no refresh token: request a new one shortly before
         it expires or on a `401`. Each server replica allows a client id
-        60 requests a minute. Every issuance records a
-        `service_account.token_issued` audit row.
+        60 requests a minute. Each issuance writes a
+        `service_account.token_issued` audit row on a best-effort basis:
+        a failed audit write is logged and the token is still issued.
       security: []
       requestBody:
         required: true
@@ -2286,7 +2288,7 @@ components:
       properties:
         id:
           type: string
-          description: "`usr_<n>` for a user, `svc_<n>` for a service account, `sys` for the system. Empty for a failed sign-in."
+          description: "`usr_<n>` for a user, `svc_<n>` for a service account, `sys` for the system. Empty when the row has no authenticated actor, such as a failed sign-in or a service-account token issuance."
         type:
           type: string
           enum: [user, service_account, system, ""]
