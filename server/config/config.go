@@ -338,7 +338,7 @@ func loadTLSConfig(c *Config, errs *[]error) {
 		return
 	}
 	// Fail fast on unreadable / mismatched cert material so boot exits before bootstrap.New mutates the DB (admin seeding prints
-	// a one-time password the operator can lose to log noise on a misconfigured retry). configureTLS in cmd/main would otherwise
+	// a one-time password the operator can lose to log noise on a misconfigured retry). bootstrap.NewHTTPServer would otherwise
 	// catch this only AFTER ApplySchema + seedAdmin had already run (CodeRabbit review on PR #182).
 	if _, err := tls.LoadX509KeyPair(c.TLSCertFile, c.TLSKeyFile); err != nil {
 		*errs = append(*errs, fmt.Errorf("EDR_TLS_CERT_FILE/EDR_TLS_KEY_FILE unreadable or mismatched: %w", err))

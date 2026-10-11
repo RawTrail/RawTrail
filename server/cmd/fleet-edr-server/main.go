@@ -231,21 +231,10 @@ func run() error {
 		}
 	}()
 
-	// Only construct the resolver when EDR_TRUSTED_PROXIES is non-empty. httpserver.Build skips installing the middleware on a nil
-	// resolver, and httpserver.ClientIP's fallback returns the same peer IP the resolver's empty-list path would return, so this saves
-	// one per-request middleware hop in the default deployment (per Copilot review on PR #113).
-	var clientIPResolver *httpserver.ClientIPResolver
-	if len(cfg.TrustedProxies) > 0 {
-		clientIPResolver, err = httpserver.NewClientIPResolver(cfg.TrustedProxies)
-		if err != nil {
-			logger.ErrorContext(ctx, "EDR_TRUSTED_PROXIES invalid", "err", err)
-			return err
-		}
-		logger.InfoContext(ctx, "trusting X-Forwarded-For from proxies", "trusted", cfg.TrustedProxies)
-	}
-
-	srv := newHTTPServer(cfg, mux, logger, clientIPResolver, metricsRec)
-	if err := configureTLS(ctx, logger, srv, cfg); err != nil {
+	srv, err := bootstrap.NewHTTPServer(ctx, cfg, logger, bootstrap.HTTPServerOptions{
+		ServiceName: serviceName, Handler: mux, Metrics: metricsRec,
+	})
+	if err != nil {
 		return err
 	}
 	// Multiplex the agent control-channel gRPC gateway onto the same listener as the REST/UI surface (issue #477): one port, one
@@ -877,23 +866,6 @@ func redemptionURL(cfg *config.Config, plaintext string) string {
 	return "https://" + host + path + plaintext
 }
 
-func configureTLS(ctx context.Context, logger *slog.Logger, srv *http.Server, cfg *config.Config) error {
-	if cfg.TLSTerminatedByProxy {
-		// Leave srv.TLSConfig nil so RunAndShutdown serves plaintext HTTP. Config validation already guaranteed no cert files are
-		// set in this mode. Warn loudly so an operator who set the flag by accident (no proxy actually in front) sees that the
-		// data plane is plaintext on the bind address.
-		logger.WarnContext(ctx, "serving plaintext HTTP: EDR_TLS_TERMINATED_BY_PROXY=1 is set; this is only safe behind a "+
-			"TLS-terminating proxy (PaaS edge, ALB, nginx). Do not expose this bind address directly to agents or the internet.",
-			"listen_addr", cfg.ListenAddr)
-		return nil
-	}
-	return httpserver.ConfigureTLS(ctx, srv, httpserver.TLSOptions{
-		CertFile: cfg.TLSCertFile,
-		KeyFile:  cfg.TLSKeyFile,
-		Logger:   logger,
-	})
-}
-
 func runDetection(ctx context.Context, detectionCtx *detectionbootstrap.Detection, logger *slog.Logger) {
 	if err := detectionCtx.Run(ctx); err != nil && ctx.Err() == nil {
 		logger.ErrorContext(ctx, "detection run", "err", err)
@@ -904,25 +876,6 @@ func runIdentity(ctx context.Context, identityCtx *identitybootstrap.Identity, l
 	if err := identityCtx.Run(ctx); err != nil && ctx.Err() == nil {
 		logger.ErrorContext(ctx, "identity run", "err", err)
 	}
-}
-
-func newHTTPServer(
-	cfg *config.Config,
-	mux *http.ServeMux,
-	logger *slog.Logger,
-	clientIPResolver *httpserver.ClientIPResolver,
-	metricsRec *metrics.Recorder,
-) *http.Server {
-	handler := httpserver.Build(mux, httpserver.Options{
-		Logger:      logger,
-		ServiceName: serviceName,
-		// HSTS keys on the client-facing scheme: emit it when a front proxy terminates TLS too, since the browser reaches us
-		// over HTTPS. Safe under the accidental-flag case because browsers ignore HSTS received over a direct plain-HTTP hit.
-		TLSEnabled:       cfg.ExternalTLS(),
-		ClientIPResolver: clientIPResolver,
-		Metrics:          metricsRec,
-	})
-	return httpserver.NewServer(cfg.ListenAddr, handler)
 }
 
 type muxDeps struct {

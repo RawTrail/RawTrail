@@ -2,9 +2,9 @@
 //
 // Build composes otelhttp (auto-instrumentation and W3C trace context extraction), an
 // X-Request-ID echo layer, a panic-recovery layer, and an access-log layer around the
-// provided mux. Layer order:
+// provided mux. Layer order (bracketed layers are optional):
 //
-//	otelhttp( xRequestIDEcho( accessLog( recover( mux ) ) ) )
+//	otelhttp( [clientIPResolver]( spanClientAddress( xRequestIDEcho( [hsts]( accessLog( recover( mux ) ) ) ) ) ) )
 //
 // The span from otelhttp covers the entire request including the access log overhead, so the
 // span duration matches what shows up in SigNoz. xRequestIDEcho copies the span's trace-id
@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric/noop"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -59,8 +60,9 @@ type Options struct {
 	// = 500ms). A negative value disables the upgrade entirely: Build leaves negatives untouched and accessLog's `slowThreshold > 0` gate
 	// then short-circuits.
 	SlowThreshold time.Duration
-	// TLSEnabled toggles the HSTS response header. Only set this true when the server actually speaks TLS; emitting HSTS over plain HTTP
-	// is a footgun that can make users unreachable if they accidentally deploy the next process without TLS.
+	// TLSEnabled toggles the HSTS response header. Set it when clients reach the service over HTTPS, which includes a listener that
+	// speaks plaintext behind a TLS-terminating proxy (config.Config.ExternalTLS). Never set it for a service clients reach over plain
+	// HTTP: emitting HSTS there can make users unreachable if the next deploy goes out without TLS.
 	TLSEnabled bool
 	// ClientIPResolver, when set, runs as middleware that resolves the trusted client IP once per request and stashes it on ctx so
 	// downstream rate-limit + audit code reads the same value (issue #81). nil disables the middleware: handlers fall back to the direct
@@ -87,6 +89,7 @@ func Build(handler http.Handler, opts Options) http.Handler {
 		h = hstsHeader()(h)
 	}
 	h = xRequestIDEcho()(h)
+	h = spanClientAddress()(h)
 	// Client-IP resolution wraps xRequestIDEcho so the resolver runs outermost in the application layer (still inside otelhttp's span).
 	// The resolved IP is therefore on ctx by the time accessLog + downstream handlers read it via ClientIP(r). Skipped entirely when no
 	// proxies are configured: the empty trusted list yields the same value httpserver.ClientIP's fallback does, with one fewer per-request
@@ -112,11 +115,23 @@ func Build(handler http.Handler, opts Options) http.Handler {
 }
 
 // hstsHeader adds the Strict-Transport-Security header on every response. Two years, including
-// subdomains, matching modern best practice. Only installed when the server speaks TLS.
+// subdomains, matching modern best practice. Only installed when clients reach the service over HTTPS (Options.TLSEnabled).
 func hstsHeader() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// spanClientAddress overwrites the request span's client.address with the resolved client address. otelhttp fills it at span start
+// from the first X-Forwarded-For entry whenever the header is present, with no notion of a trusted proxy, so without this any client
+// chooses the address its span records. ClientIP believes a forwarded address only from a configured trusted proxy.
+func spanClientAddress() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			trace.SpanFromContext(r.Context()).SetAttributes(semconv.ClientAddress(ClientIP(r)))
 			next.ServeHTTP(w, r)
 		})
 	}
