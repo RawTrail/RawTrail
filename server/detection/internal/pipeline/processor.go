@@ -307,7 +307,7 @@ func (p *Processor) ProcessOnce(ctx context.Context) {
 func (p *Processor) processOnce(ctx context.Context, workerIndex int) int {
 	hosts, err := p.eventLog.PendingHosts(ctx, p.hostCandidates())
 	if err != nil {
-		p.logger.ErrorContext(ctx, "list pending hosts", "err", err)
+		p.logStoreFailure(ctx, "list pending hosts", err)
 		return 0
 	}
 	if len(hosts) == 0 {
@@ -370,7 +370,7 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 	claimAndBuild := func(lockedCtx context.Context) error {
 		claimed, stamp, err := p.eventLog.ClaimForHost(lockedCtx, host, p.batch)
 		if err != nil {
-			p.logger.ErrorContext(lockedCtx, "claim events", "host_id", host, "err", err)
+			p.logStoreFailure(ctx, "claim events", err, "host_id", host)
 			return nil
 		}
 		if len(claimed) == 0 {
@@ -390,7 +390,7 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 			// attempt never saw (issue #893).
 			nacked, nackErr := p.eventLog.Nack(lockedCtx, eventIDsOf(claimed), stamp, nil)
 			if nackErr != nil {
-				p.logger.ErrorContext(lockedCtx, "nack events after builder failure", "err", nackErr)
+				p.logStoreFailure(ctx, "nack events after builder failure", nackErr)
 			}
 			p.reportLostClaim(lockedCtx, nackErr, nacked.Held, host, len(claimed))
 			p.reportSetAside(lockedCtx, host, nacked.SetAside, stageBuilder, err)
@@ -413,7 +413,7 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 			if errors.Is(err, leader.ErrLockLost) {
 				msg = "lost host claim lock mid-batch; events stay in flight for redelivery"
 			}
-			p.logger.ErrorContext(ctx, msg, "host_id", host, "err", err)
+			p.logStoreFailure(ctx, msg, err, "host_id", host)
 			return 0, false
 		}
 		if !ran {
@@ -482,6 +482,18 @@ func (p *Processor) underHostLock(ctx context.Context, host string, fn func(cont
 	return out, err
 }
 
+// logStoreFailure logs a failed queue, lock or store call at ERROR, except the failure the worker's own shutdown causes. Stopping the
+// server cancels ctx, which aborts whatever query each worker has in flight, and that is the expected end of a stop rather than a
+// database failure, so it is logged at DEBUG (issue #1258). A cancellation while ctx is still live, such as a lost host lock
+// cancelling the locked section, stays an ERROR. ctx is the worker's context, not a locked section's: the two carry the same span.
+func (p *Processor) logStoreFailure(ctx context.Context, msg string, err error, attrs ...any) {
+	level := slog.LevelError
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		level = slog.LevelDebug
+	}
+	p.logger.Log(ctx, level, msg, append(attrs, "err", err)...)
+}
+
 // eventIDsOf projects a claimed batch to the identities Ack and Nack take, so neither the locked region nor the post-lock path has to
 // keep a parallel slice in step with events.
 func eventIDsOf(events []visibilityapi.Event) []string {
@@ -518,7 +530,7 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 				return innerErr
 			})
 			if nackErr != nil {
-				p.logger.ErrorContext(ctx, "nack events after detection failure", "err", nackErr)
+				p.logStoreFailure(ctx, "nack events after detection failure", nackErr)
 			}
 			p.reportLostClaim(ctx, nackErr, nacked.Held, hostOf(events), len(eventIDs))
 			p.reportSetAside(ctx, hostOf(events), nacked.SetAside, stageDetection, err)
@@ -576,7 +588,7 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 		// The batch processed but the queue was not durably advanced (the rows stay leased until the claim lease expires).
 		// Returning 0 stops the drain loop so the worker waits for the next tick rather than treating this as a full-batch
 		// drain and immediately re-claiming, which would spread a transient ack outage into a tight re-processing loop.
-		p.logger.ErrorContext(ctx, "ack events", "err", err)
+		p.logStoreFailure(ctx, "ack events", err)
 		return 0
 	}
 	if !held {
@@ -632,7 +644,7 @@ func (p *Processor) recordMonitorMatches(ctx context.Context, tally rulesapi.Mon
 		return
 	}
 	if err := p.monitorMatches.RecordMonitorMatches(ctx, tally); err != nil {
-		p.logger.ErrorContext(ctx, "record monitor matches", "err", err, "entries", len(tally))
+		p.logStoreFailure(ctx, "record monitor matches", err, "entries", len(tally))
 	}
 }
 
