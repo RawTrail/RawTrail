@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
+	"github.com/fleetdm/edr/server/auditoutbox"
 	"github.com/fleetdm/edr/server/endpoint/api"
 	"github.com/fleetdm/edr/server/endpoint/internal/enroll"
 	"github.com/fleetdm/edr/server/endpoint/internal/middleware"
@@ -31,7 +32,7 @@ import (
 const hostTokenKeyID = "v1"
 
 // DefaultRevocationRefreshInterval is how often each replica reloads the revocation snapshot from the database. It bounds the
-// worst-case staleness of a revocation / credential-cycle across replicas. 5s keeps a kill switch effectively immediate without
+// worst-case staleness of a revocation across replicas. 5s keeps a kill switch effectively immediate without
 // hammering the DB (one small query per replica per interval).
 const DefaultRevocationRefreshInterval = 5 * time.Second
 
@@ -47,9 +48,13 @@ type Deps struct {
 	// label) invalidates every outstanding token: a fleet-wide re-enroll.
 	HostTokenSigningKey []byte
 
-	// Audit is the operator-action recorder. Optional: nil disables audit emission for enrollment.revoke + enrollment.rotate_token.
-	// cmd/main wires identityCtx.AuditRecorder().
+	// Audit is the operator-action recorder. Optional: a revoke still commits its audit entry without one, and the entry then waits in
+	// the outbox undelivered rather than being discarded. cmd/main wires identityCtx.AuditRecorder().
 	Audit identityapi.AuditRecorder
+
+	// AuditSweepInterval is how often this context's audit outbox sweep delivers entries a request could not. Zero or negative means
+	// auditoutbox.DefaultSweepInterval. Tests shorten it to watch a sweep deliver.
+	AuditSweepInterval time.Duration
 
 	// AuthZ is the authorization chokepoint every privileged operator
 	// route gates on. Required. cmd/main wires identityCtx.AuthZ().
@@ -75,6 +80,9 @@ type Endpoint struct {
 	// handing out the whole store.
 	store  *mysql.Store
 	logger *slog.Logger
+	// auditDrain turns the audit entries a revoke commits into audit rows (issue #1225). Nil when no recorder is wired.
+	auditDrain         *auditoutbox.Drain
+	auditSweepInterval time.Duration
 }
 
 // New wires the endpoint context. Does NOT apply the schema (call ApplySchema for that). Returns an error if Deps is missing required
@@ -103,18 +111,25 @@ func New(deps Deps) (*Endpoint, error) {
 	}
 	store := mysql.NewStore(deps.DB)
 	snapshot := revocation.NewSnapshot(store, logger)
+	outbox := auditoutbox.NewStore(deps.DB, mysql.AuditOutboxTable)
+	var auditDrain *auditoutbox.Drain
+	if deps.Audit != nil {
+		if auditDrain, err = auditoutbox.NewDrain(outbox, deps.Audit, "enrollment actions", logger); err != nil {
+			return nil, fmt.Errorf("endpoint bootstrap: audit drain: %w", err)
+		}
+	}
 	svc := service.New(service.Options{
 		Store:       store,
 		Secret:      deps.EnrollSecret,
 		Signer:      signer,
 		Revocations: snapshot,
-		Audit:       deps.Audit,
+		AuditOutbox: outbox,
+		AuditDrain:  auditDrain,
 		TokenTTL:    deps.HostTokenLifetime,
 		Logger:      logger,
 	})
 
 	opH := operator.New(svc, deps.AuthZ, logger)
-	opH.SetAudit(deps.Audit)
 	return &Endpoint{
 		svc:   svc,
 		store: store,
@@ -129,6 +144,9 @@ func New(deps Deps) (*Endpoint, error) {
 		snapshot:    snapshot,
 		db:          deps.DB,
 		logger:      logger,
+
+		auditDrain:         auditDrain,
+		auditSweepInterval: deps.AuditSweepInterval,
 	}, nil
 }
 
@@ -186,4 +204,16 @@ func (e *Endpoint) RegisterPublicRoutes(mux *http.ServeMux) {
 // in identity Session + CSRF middleware before mounting.
 func (e *Endpoint) RegisterAuthedRoutes(mux httpserver.Router) {
 	e.operatorH.RegisterRoutes(mux)
+}
+
+// RunAuditSweep delivers the audit entries a revoke committed but whose request could not write out, until ctx is cancelled. It returns
+// at once when no recorder is wired.
+//
+// Run wherever the operator routes might have been mounted by any replica, because entries outlive the wiring that wrote them: a sweep
+// over an empty table costs one query a minute.
+func (e *Endpoint) RunAuditSweep(ctx context.Context) {
+	if e.auditDrain == nil {
+		return
+	}
+	e.auditDrain.SweepLoop(ctx, e.auditSweepInterval)
 }

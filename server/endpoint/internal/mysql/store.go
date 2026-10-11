@@ -67,10 +67,10 @@ type RegisterResult struct {
 
 // Register upserts the enrollment row keyed by host_id: a brand-new host inserts a fresh row at token_epoch 0; a re-enroll updates the
 // metadata IN PLACE. token_epoch is deliberately NOT in the UPDATE list, so it is PRESERVED across a re-enroll. That is load-bearing for
-// credential cycling: an operator epoch bump (BumpTokenEpoch) must survive the agent's automatic re-enroll, or a stolen pre-rotate token
-// would become valid again the moment the host re-enrolls (the re-enroll would otherwise reset the epoch back to 0). Revocation is
-// cleared so a host that proves the enroll secret is admitted afresh. The enrollments table holds the *current* enrollment state only;
-// revocation/audit history lives in structured logs (enroll handler + operator revoke).
+// revocation: the epoch bump a revoke makes must survive the agent's automatic re-enroll, or a token stolen before the revoke would
+// become valid again the moment the host re-enrolls (the re-enroll would otherwise reset the epoch back to 0). Revocation is cleared so
+// a host that proves the enroll secret is admitted afresh. The enrollments table holds the *current* enrollment state only; revocation
+// history lives in the audit trail and structured logs.
 //
 // enrolled_at comes from the database clock, the clock every command's created_at comes from, because the watched-path catch-up
 // (issue #998) orders the two: a command queued before a host's latest enrollment may not have survived the reinstall behind it, and
@@ -174,53 +174,49 @@ func (s *Store) Get(ctx context.Context, hostID string) (*Enrollment, error) {
 	return &e, nil
 }
 
-// Revoke marks a host's enrollment as revoked. Idempotent: calling Revoke a second time preserves the original revoked_at +
-// revoke_reason + revoked_by. Returns sql.ErrNoRows if the host_id is not in the table at all.
-func (s *Store) Revoke(ctx context.Context, hostID, reason, actor string) error {
-	// Verify the row exists first so "not found" and "already revoked" are distinguishable in
-	// RowsAffected: MySQL's affected-rows counter excludes no-op updates.
-	var exists bool
-	err := s.db.GetContext(ctx, &exists, `SELECT 1 FROM enrollments WHERE host_id = ?`, hostID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return sql.ErrNoRows
-	}
-	if err != nil {
-		return fmt.Errorf("revoke lookup: %w", err)
-	}
+// AuditOutboxTable is this context's audit outbox. An operator action commits its audit entry into it, in the transaction that makes
+// the change (issue #1225), and the shared drain in server/auditoutbox turns the entries into audit rows.
+const AuditOutboxTable = "endpoint_audit_outbox"
 
-	// Only set the columns when they are still null. COALESCE preserves the original revoke_reason/revoked_by across subsequent revoke
-	// calls, so the first revoker's audit trail is the source of truth.
-	_, err = s.db.ExecContext(ctx, `
+// Revoke marks a host's enrollment revoked AND bumps its token_epoch, then runs audit in the same transaction so the revoke and the
+// entry recording it commit together or not at all. Returns ErrNotFound when the host has no enrollment row.
+//
+// The epoch bump is what makes a revoke stick (issue #1225). The agent re-enrolls with the fleet-wide enroll secret as soon as its token
+// is refused, and Register clears revoked_at while preserving token_epoch. Without the bump, a token copied off the host before the
+// revoke would be valid again after that re-enroll, and the refresh path would keep renewing it.
+//
+// Repeating a revoke bumps the epoch again, which is harmless, and preserves the first revoker's revoked_at, reason and actor: COALESCE
+// only fills columns that are still NULL. The epoch changes on every call, so RowsAffected is 1 for any existing row and 0 only for an
+// unknown host.
+func (s *Store) Revoke(ctx context.Context, hostID, reason, actor string, audit func(q sqlx.ExecerContext) error) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin revoke transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE enrollments
 		SET revoked_at    = COALESCE(revoked_at, ?),
 		    revoke_reason = COALESCE(revoke_reason, ?),
-		    revoked_by    = COALESCE(revoked_by, ?)
+		    revoked_by    = COALESCE(revoked_by, ?),
+		    token_epoch   = token_epoch + 1
 		WHERE host_id = ?
 	`, time.Now().UTC(), reason, actor, hostID)
 	if err != nil {
 		return fmt.Errorf("revoke enrollment: %w", err)
 	}
-	return nil
-}
-
-// BumpTokenEpoch increments a host's token_epoch by one, invalidating every signed token minted at the prior epoch. This is the
-// operator-driven "cycle this host's credentials" action under the self-validating-token model: there is no opaque token to rotate, so
-// revocation of the current credential is expressed as an epoch bump that the per-replica revocation snapshot then enforces. The agent
-// recovers by re-enrolling (its refresh, carrying the now-stale epoch, 401s). Returns ErrNotFound when the host has no enrollment row.
-func (s *Store) BumpTokenEpoch(ctx context.Context, hostID string) error {
-	if hostID == "" {
-		return errors.New("BumpTokenEpoch: hostID is required")
-	}
-	res, err := s.db.ExecContext(ctx, `UPDATE enrollments SET token_epoch = token_epoch + 1 WHERE host_id = ?`, hostID)
-	if err != nil {
-		return fmt.Errorf("bump token epoch: %w", err)
-	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("bump token epoch rows affected: %w", err)
+		return fmt.Errorf("revoke enrollment rows affected: %w", err)
 	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	if err := audit(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit revoke transaction: %w", err)
 	}
 	return nil
 }

@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -352,7 +353,10 @@ func setupReplicaWith(t *testing.T, db *sqlx.DB, cfg setupConfig) *Stack {
 	responseDone := make(chan struct{})
 	go func() {
 		defer close(responseDone)
-		responseCtx.Run(ctx)
+		var wg sync.WaitGroup
+		wg.Go(func() { responseCtx.Run(ctx) })
+		wg.Go(func() { endpointCtx.RunAuditSweep(ctx) })
+		wg.Wait()
 	}()
 	t.Cleanup(func() {
 		cancel()

@@ -3,6 +3,7 @@ package mysql_test
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -35,6 +36,9 @@ func newTestStoreWithDB(t *testing.T) (*mysql.Store, *sqlx.DB) {
 	return mysql.NewStore(db), db
 }
 
+// noAudit is the audit step of a revoke for store tests that are not about the audit entry.
+func noAudit(sqlx.ExecerContext) error { return nil }
+
 func register(t *testing.T, s *mysql.Store, hostID string) {
 	t.Helper()
 	_, err := s.Register(t.Context(), mysql.RegisterRequest{
@@ -63,15 +67,14 @@ func TestRegister_HappyPath(t *testing.T) {
 // spec:agent-enrollment/revocation-is-enforced-by-a-per-replica-snapshot/re-enrollment-preserves-the-token-epoch
 //
 // TestRegister_ReenrollPreservesEpoch: a re-enroll updates the row in place and MUST NOT reset token_epoch (the old REPLACE INTO did,
-// which let a stolen pre-rotate token validate again once the agent re-enrolled). It must, however, still clear revocation so a
+// which let a token stolen before a revoke validate again once the agent re-enrolled). It must, however, still clear revocation so a
 // re-enrolled host is active again.
 func TestRegister_ReenrollPreservesEpoch(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	ctx := t.Context()
 	register(t, s, testUUID)
-	require.NoError(t, s.BumpTokenEpoch(ctx, testUUID))
-	require.NoError(t, s.Revoke(ctx, testUUID, "x", "y"))
+	require.NoError(t, s.Revoke(ctx, testUUID, "x", "y", noAudit))
 
 	res, err := s.Register(ctx, mysql.RegisterRequest{
 		HostID: testUUID, Hostname: "h-reimaged", AgentVersion: "v", OSVersion: "o", SourceIP: "127.0.0.2",
@@ -85,18 +88,51 @@ func TestRegister_ReenrollPreservesEpoch(t *testing.T) {
 	assert.False(t, revoked, "re-enroll clears revoked_at")
 }
 
-func TestBumpTokenEpoch(t *testing.T) {
+// TestRevoke_BumpsEpochEveryTime: every revoke bumps token_epoch, a repeat included, so a token minted before any of them stays below the
+// host's epoch after the agent re-enrolls (issue #1225).
+func TestRevoke_BumpsEpochEveryTime(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	ctx := t.Context()
 	register(t, s, testUUID)
-	require.NoError(t, s.BumpTokenEpoch(ctx, testUUID))
-	require.NoError(t, s.BumpTokenEpoch(ctx, testUUID))
-	epoch, _, err := s.TokenStatus(ctx, testUUID)
+	require.NoError(t, s.Revoke(ctx, testUUID, "compromised", "op", noAudit))
+	require.NoError(t, s.Revoke(ctx, testUUID, "again", "op", noAudit))
+	epoch, revoked, err := s.TokenStatus(ctx, testUUID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), epoch)
+	assert.True(t, revoked)
+}
 
-	assert.ErrorIs(t, s.BumpTokenEpoch(ctx, "00000000-0000-0000-0000-000000000000"), mysql.ErrNotFound)
+// spec:agent-enrollment/revoke-ends-prior-credentials/revoke-audit-entry-commits-with-the-revoke
+//
+// TestRevoke_AuditInTheSameTransaction: the audit step runs on the revoke's own transaction, so an entry it writes commits with the
+// revoke, and a failing audit step leaves neither the revoke nor the epoch bump behind.
+func TestRevoke_AuditInTheSameTransaction(t *testing.T) {
+	t.Parallel()
+	s, db := newTestStoreWithDB(t)
+	ctx := t.Context()
+	register(t, s, testUUID)
+
+	auditFailure := errors.New("audit entry refused")
+	err := s.Revoke(ctx, testUUID, "compromised", "op", func(sqlx.ExecerContext) error { return auditFailure })
+	require.ErrorIs(t, err, auditFailure)
+	epoch, revoked, err := s.TokenStatus(ctx, testUUID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), epoch, "a refused audit entry rolls the epoch bump back")
+	assert.False(t, revoked, "a refused audit entry rolls the revoke back")
+
+	// The audit step writes through the transaction it is handed: its row is visible once Revoke returns, and only then.
+	require.NoError(t, s.Revoke(ctx, testUUID, "compromised", "op", func(q sqlx.ExecerContext) error {
+		var outside int
+		require.NoError(t, db.GetContext(ctx, &outside, `SELECT COUNT(*) FROM enrollments WHERE host_id = ? AND revoked_at IS NOT NULL`,
+			testUUID))
+		assert.Zero(t, outside, "the revoke is not visible outside its transaction before it commits")
+		_, err := q.ExecContext(ctx, `INSERT INTO `+mysql.AuditOutboxTable+` (kind, payload) VALUES ('test', '{}')`)
+		return err
+	}))
+	var entries int
+	require.NoError(t, db.GetContext(ctx, &entries, `SELECT COUNT(*) FROM `+mysql.AuditOutboxTable))
+	assert.Equal(t, 1, entries)
 }
 
 func TestTokenStatus_NotFound(t *testing.T) {
@@ -117,8 +153,10 @@ func TestRevocationEntries(t *testing.T) {
 	register(t, s, clean)
 	register(t, s, bumped)
 	register(t, s, revoked)
-	require.NoError(t, s.BumpTokenEpoch(ctx, bumped))
-	require.NoError(t, s.Revoke(ctx, revoked, "compromised", "op"))
+	// A revoked host that re-enrolled is no longer revoked but keeps the bumped epoch.
+	require.NoError(t, s.Revoke(ctx, bumped, "compromised", "op", noAudit))
+	register(t, s, bumped)
+	require.NoError(t, s.Revoke(ctx, revoked, "compromised", "op", noAudit))
 
 	entries, err := s.RevocationEntries(ctx)
 	require.NoError(t, err)
@@ -165,7 +203,7 @@ func TestCountActive_ActiveHostIDs(t *testing.T) {
 	gone := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 	register(t, s, active)
 	register(t, s, gone)
-	require.NoError(t, s.Revoke(ctx, gone, "x", "y"))
+	require.NoError(t, s.Revoke(ctx, gone, "x", "y", noAudit))
 
 	n, err := s.CountActive(ctx)
 	require.NoError(t, err)
@@ -181,7 +219,7 @@ func TestRevoke_IdempotentAndUnknown(t *testing.T) {
 	ctx := t.Context()
 	register(t, s, testUUID)
 
-	require.NoError(t, s.Revoke(ctx, testUUID, "compromised", "jane@customer.com"))
+	require.NoError(t, s.Revoke(ctx, testUUID, "compromised", "jane@customer.com", noAudit))
 	_, revoked, err := s.TokenStatus(ctx, testUUID)
 	require.NoError(t, err)
 	assert.True(t, revoked)
@@ -189,13 +227,13 @@ func TestRevoke_IdempotentAndUnknown(t *testing.T) {
 	// Second revoke is idempotent and preserves the first actor/reason.
 	before, err := s.Get(ctx, testUUID)
 	require.NoError(t, err)
-	require.NoError(t, s.Revoke(ctx, testUUID, "different-reason", "someoneElse"))
+	require.NoError(t, s.Revoke(ctx, testUUID, "different-reason", "someoneElse", noAudit))
 	after, err := s.Get(ctx, testUUID)
 	require.NoError(t, err)
 	assert.Equal(t, before.RevokeReason, after.RevokeReason)
 	assert.Equal(t, before.RevokedBy, after.RevokedBy)
 
-	assert.ErrorIs(t, s.Revoke(ctx, "00000000-0000-0000-0000-000000000000", "x", "y"), sql.ErrNoRows)
+	assert.ErrorIs(t, s.Revoke(ctx, "00000000-0000-0000-0000-000000000000", "x", "y", noAudit), mysql.ErrNotFound)
 }
 
 // ActiveEnrollments reads only non-revoked enrollments, with the time each last enrolled. That time is on the database clock, the clock
@@ -206,7 +244,7 @@ func TestActiveEnrollments(t *testing.T) {
 	ctx := t.Context()
 	register(t, s, "11111111-1111-4111-8111-111111111111")
 	register(t, s, "22222222-2222-4222-8222-222222222222")
-	require.NoError(t, s.Revoke(ctx, "22222222-2222-4222-8222-222222222222", "retired", "op"))
+	require.NoError(t, s.Revoke(ctx, "22222222-2222-4222-8222-222222222222", "retired", "op", noAudit))
 
 	got, err := s.ActiveEnrollments(ctx)
 	require.NoError(t, err)

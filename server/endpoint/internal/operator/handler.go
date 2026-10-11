@@ -35,7 +35,6 @@ const revokeBodyCap = 64 << 10
 type Handler struct {
 	svc    api.Service
 	authz  identityapi.AuthZ
-	audit  identityapi.AuditRecorder
 	logger *slog.Logger
 }
 
@@ -54,15 +53,10 @@ func New(svc api.Service, authz identityapi.AuthZ, logger *slog.Logger) *Handler
 	return &Handler{svc: svc, authz: authz, logger: logger}
 }
 
-// SetAudit installs the operator audit recorder. Optional: when not
-// set, revoke still applies but no audit row is written.
-func (h *Handler) SetAudit(rec identityapi.AuditRecorder) { h.audit = rec }
-
 // RegisterRoutes wires the operator routes on the given mux.
 func (h *Handler) RegisterRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/enrollments", h.handleList)
 	mux.HandleFunc("POST /api/enrollments/{host_id}/revoke", h.handleRevoke)
-	mux.HandleFunc("POST /api/enrollments/{host_id}/rotate", h.handleRotate)
 }
 
 func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +104,7 @@ func (h *Handler) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.svc.Revoke(ctx, hostID, body.Reason, body.Actor)
+	err := h.svc.Revoke(ctx, api.RevokeRequest{HostID: hostID, Reason: body.Reason, Actor: body.Actor, RemoteAddr: httpserver.ClientIP(r)})
 	switch {
 	case errors.Is(err, api.ErrNotFound):
 		writeErr(ctx, h.logger, w, http.StatusNotFound, "not_found")
@@ -133,98 +127,6 @@ func (h *Handler) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		attrkeys.HostID, hostID,
 	)
 
-	h.recordRevokeAudit(r, hostID, body)
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// recordRevokeAudit emits one audit row for the just-committed enrollment revoke. body.Actor / body.Reason are operator-supplied
-// attribution strings carried in the payload; the session userID is the authenticated identity that signed the request. Soft-fail on
-// audit error.
-func (h *Handler) recordRevokeAudit(r *http.Request, hostID string, body revokeRequest) {
-	if h.audit == nil {
-		return
-	}
-	ctx := r.Context()
-	var actor identityapi.PrincipalRef
-	if a, ok := identityapi.ActorFromContext(ctx); ok {
-		actor = a.Principal
-	}
-	if err := h.audit.Record(ctx, identityapi.AuditEvent{
-		Actor:      actor,
-		Action:     identityapi.AuditEnrollmentRevoke,
-		TargetType: "host",
-		TargetID:   hostID,
-		RemoteAddr: httpserver.ClientIP(r),
-		Payload: map[string]any{
-			"actor":  body.Actor,
-			"reason": body.Reason,
-		},
-	}); err != nil {
-		h.logger.WarnContext(ctx, "audit record",
-			"err", err, "action", string(identityapi.AuditEnrollmentRevoke),
-			attrkeys.HostID, hostID,
-		)
-	}
-}
-
-// rotateRequest is the body shape accepted by POST /api/enrollments/{host_id}/rotate. Actor + Reason are required so the audit row
-// records the operator who triggered the rotation and why; making both required avoids silent rotations that audit reviewers can't
-// attribute later.
-type rotateRequest struct {
-	Actor  string `json:"actor"`
-	Reason string `json:"reason"`
-}
-
-func (h *Handler) handleRotate(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	hostID := r.PathValue("host_id")
-	if hostID == "" {
-		writeErr(ctx, h.logger, w, http.StatusBadRequest, "missing host_id")
-		return
-	}
-	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionEnrollmentRotateToken, identityapi.Resource{Type: "enrollment", ID: hostID}) {
-		return
-	}
-
-	var body rotateRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, revokeBodyCap)).Decode(&body); err != nil {
-		writeErr(ctx, h.logger, w, http.StatusBadRequest, "bad_body")
-		return
-	}
-	body.Actor = strings.TrimSpace(body.Actor)
-	body.Reason = strings.TrimSpace(body.Reason)
-	if body.Actor == "" || body.Reason == "" {
-		writeErr(ctx, h.logger, w, http.StatusBadRequest, "actor and reason are required")
-		return
-	}
-
-	err := h.svc.RotateToken(ctx, hostID, body.Actor, body.Reason)
-	switch {
-	case errors.Is(err, api.ErrNotFound):
-		writeErr(ctx, h.logger, w, http.StatusNotFound, "not_found")
-		return
-	case err != nil:
-		h.logger.ErrorContext(ctx, "rotate enrollment", "err", err)
-		writeErr(ctx, h.logger, w, http.StatusInternalServerError, "internal")
-		return
-	}
-
-	// Span attributes mirror the audit row payload so SigNoz dashboards
-	// can pivot from the trace to the audit event by trace_id.
-	trace.SpanFromContext(ctx).SetAttributes(
-		attribute.String(attrkeys.AdminAction, "rotate_token"),
-		attribute.String(attrkeys.AdminActor, body.Actor),
-		attribute.String(attrkeys.AdminReason, body.Reason),
-		attribute.String(attrkeys.HostID, hostID),
-	)
-	h.logger.InfoContext(ctx, "host token rotated",
-		attrkeys.AdminAction, "rotate_token",
-		attrkeys.AdminActor, body.Actor,
-		attrkeys.AdminReason, body.Reason,
-		attrkeys.HostID, hostID,
-	)
-	// The epoch bump invalidates the host's current token once every replica's revocation snapshot catches up; there is no token or
-	// command to hand back, so a 204 with an empty body is the whole result. The agent recovers by re-enrolling when its refresh 401s.
 	w.WriteHeader(http.StatusNoContent)
 }
 

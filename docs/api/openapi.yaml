@@ -831,10 +831,13 @@ paths:
       tags: [Admin]
       summary: Revoke a host enrollment
       description: |
-        After revocation the host's token stops working on all
-        host-token endpoints. A revoked host cannot re-enroll without
-        admin approval (reusing the same hardware UUID still returns
-        403).
+        Ends every host token issued to the host before the revoke. Each
+        replica refuses those tokens within a few seconds, on every
+        host-token endpoint and on token refresh, and keeps refusing them
+        after the host re-enrolls. The agent re-enrolls automatically
+        when it holds the enroll secret, so a revoke forces new
+        credentials but does not keep the host out. Requires a recently
+        authenticated session.
       security:
         - SessionCookie: []
           CSRF: []
@@ -846,12 +849,19 @@ paths:
           application/json:
             schema:
               type: object
+              required: [reason, actor]
               properties:
-                reason: {type: string}
-                actor: {type: string}
+                reason:
+                  type: string
+                  description: Why the host is revoked. Stored on the enrollment and recorded in the audit log.
+                actor:
+                  type: string
+                  description: Who is revoking it. Stored on the enrollment and recorded in the audit log.
       responses:
         "204":
           description: Revoked
+        "400":
+          description: "`reason` or `actor` is missing or blank"
         "404":
           description: Host not found
 

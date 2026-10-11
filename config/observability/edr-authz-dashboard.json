@@ -34,7 +34,7 @@
     {
       "id": "audit-by-decision",
       "title": "Audit events by decision",
-      "description": "Every audited action grouped by its decision: allow (granted), deny (authz chokepoint refused), error (auth/OIDC failure), unspecified (context-free rows like enrollment.rotate_token or logout that carry no allow/deny). A baseline of allow plus occasional unspecified is healthy; any sustained deny or error series is the thing to chase.",
+      "description": "Every audited action grouped by its decision: allow (granted), deny (authz chokepoint refused), error (auth/OIDC failure), unspecified (context-free rows like logout that carry no allow/deny). A baseline of allow plus occasional unspecified is healthy; any sustained deny or error series is the thing to chase.",
       "panelTypes": "graph",
       "yAxisUnit": "cps",
       "legendPosition": "bottom",

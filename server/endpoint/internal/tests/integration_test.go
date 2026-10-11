@@ -46,7 +46,7 @@ const (
 )
 
 // newEndpoint wires endpoint.bootstrap.New against a fresh test DB. Returns the *Endpoint handle so tests can hit Service() directly
-// or register routes onto a test mux. Tests that need direct DB access (e.g. rotation_test.go's ageToken) reach for newEndpointWithDB.
+// or register routes onto a test mux. Tests that need direct DB access (e.g. status_test.go) reach for newEndpointWithDB.
 func newEndpoint(t *testing.T, opts ...func(*bootstrap.Deps)) *bootstrap.Endpoint {
 	t.Helper()
 	ep, _ := newEndpointWithDB(t, opts...)
@@ -136,7 +136,7 @@ func TestEnrollVerifyListRevoke(t *testing.T) {
 	assert.True(t, res.EnrolledAt.Equal(enrollments[0].EnrolledAt),
 		"the enrollment time is the one Enroll returned, read back from the row: %v != %v", res.EnrolledAt, enrollments[0].EnrolledAt)
 
-	require.NoError(t, ep.Service().Revoke(ctx, testHardwareUUID, "qa cleanup", "operator@example.com"))
+	require.NoError(t, ep.Service().Revoke(ctx, api.RevokeRequest{HostID: testHardwareUUID, Reason: "qa cleanup", Actor: "operator@example.com"}))
 
 	// Revocation is enforced via the per-replica snapshot (a server refreshes it on a ticker bounded by
 	// DefaultRevocationRefreshInterval). Refresh it synchronously here so the assertion is deterministic.
@@ -206,7 +206,7 @@ func TestEnroll_InvalidHardwareUUID(t *testing.T) {
 func TestRevoke_NotFound(t *testing.T) {
 	t.Parallel()
 	ep := newEndpoint(t)
-	err := ep.Service().Revoke(t.Context(), "00000000-0000-0000-0000-000000000000", "x", "y")
+	err := ep.Service().Revoke(t.Context(), api.RevokeRequest{HostID: "00000000-0000-0000-0000-000000000000", Reason: "x", Actor: "y"})
 	require.ErrorIs(t, err, api.ErrNotFound)
 }
 
@@ -281,7 +281,7 @@ func TestHostTokenMiddleware_PinsHostID(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
-	require.NoError(t, ep.Service().Revoke(ctx, testHardwareUUID, "qa", "op"))
+	require.NoError(t, ep.Service().Revoke(ctx, api.RevokeRequest{HostID: testHardwareUUID, Reason: "qa", Actor: "op"}))
 	require.NoError(t, ep.RevocationSnapshot().Refresh(ctx))
 
 	t.Run("revoked token rejected", func(t *testing.T) {

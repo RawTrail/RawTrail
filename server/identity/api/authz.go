@@ -49,9 +49,8 @@ const (
 	ActionAlertReopen      Action = "alert.reopen"
 
 	// Enrollment management.
-	ActionEnrollmentRead        Action = "enrollment.read"
-	ActionEnrollmentRevoke      Action = "enrollment.revoke"
-	ActionEnrollmentRotateToken Action = "enrollment.rotate_token"
+	ActionEnrollmentRead   Action = "enrollment.read"
+	ActionEnrollmentRevoke Action = "enrollment.revoke"
 
 	// User management. ActionUserRead/Invite were wired up in wave 1 as part of the break-glass flow; the constants existed so the action
 	// registry + Rego policy stayed coherent. ActionUserManage (issue #135) gates the wave-2 admin surface that lists operators and
@@ -137,7 +136,7 @@ func RegisteredActions() []Action {
 		ActionHostIsolate, ActionHostKillProcess, ActionHostRunScript,
 		ActionAlertRead, ActionAlertComment, ActionAlertAcknowledge,
 		ActionAlertResolve, ActionAlertReopen,
-		ActionEnrollmentRead, ActionEnrollmentRevoke, ActionEnrollmentRotateToken,
+		ActionEnrollmentRead, ActionEnrollmentRevoke,
 		ActionUserRead, ActionUserInvite, ActionUserManage,
 		ActionSSOManage,
 		ActionWebhookManage,

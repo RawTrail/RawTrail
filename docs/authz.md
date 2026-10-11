@@ -11,7 +11,7 @@ Five built-in roles ship with the server. Their grants are the source of truth i
 | Role | Reads | Writes / Destructive |
 | --- | --- | --- |
 | `super_admin` | everything | everything (`*` wildcard) |
-| `admin` | host, process, alert, policy, enrollment, user | host.{isolate, kill_process, run_script}, alert lifecycle (acknowledge, resolve, reopen, comment), policy CRUD, enrollment.{revoke, rotate_token}, user.invite |
+| `admin` | host, process, alert, policy, enrollment, user | host.{isolate, kill_process, run_script}, alert lifecycle (acknowledge, resolve, reopen, comment), policy CRUD, enrollment.revoke, user.invite |
 | `senior_analyst` | host, process, alert | host.{isolate, kill_process, run_script}, alert lifecycle (acknowledge, resolve, reopen, comment) |
 | `analyst` | host, process, alert | alert.comment |
 | `auditor` | host, process, alert, audit | (none) |
