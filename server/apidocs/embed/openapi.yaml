@@ -883,7 +883,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: "`not_cancellable`: an agent already picked the command up, or it already finished"
+          description: "`not_cancellable`: the command is no longer pending (acknowledged, finished, or already cancelled or expired)"
           content:
             application/json:
               schema:
@@ -2593,7 +2593,9 @@ components:
           description: |
             `pending` until an agent picks the command up (`acked`), then
             `completed` or `failed`. An operator can cancel a pending
-            command (`cancelled`); one never delivered becomes `expired`.
+            command (`cancelled`), and one that waits past its delivery
+            window becomes `expired`. Neither proves the command never ran:
+            a late acknowledgement moves either to `acked`.
           enum: [pending, acked, completed, failed, cancelled, expired]
         created_at: {type: string, format: date-time}
         acked_at: {type: string, format: date-time}
