@@ -1,9 +1,10 @@
 # HTTP API
 
-Fleet EDR exposes a single HTTP API surface split across three audience tiers:
+Fleet EDR exposes a single HTTP API surface split across four audiences:
 
 - **Agents** on macOS endpoints post telemetry and poll for commands. They authenticate with a per-host bearer token.
 - **Browsers** (the admin UI) authenticate with a session cookie + CSRF token. Everything the UI does is reachable as a JSON API from the same endpoints.
+- **Service accounts** (automation) authenticate with a short-lived bearer token from `POST /api/oauth/token` and call the same operator endpoints.
 - **Operators / load balancers** hit `/livez`, `/readyz`, `/health` unauthenticated.
 
 The machine-consumable spec is [`api/openapi.yaml`](api/openapi.yaml). The OpenAPI 3.1 file is the source of truth: this doc is the human overview.
@@ -27,7 +28,7 @@ All endpoints are rooted at `/api/` except the health probes and the UI. There i
 
 ## Content type
 
-Request bodies are `application/json; charset=utf-8`. Response bodies, when present, use the same type; several endpoints return `204 No Content` with an empty body. Compressed request bodies are not currently supported: do not set `Content-Encoding: gzip`.
+Request bodies are `application/json; charset=utf-8`, except that `POST /api/oauth/token` also accepts `application/x-www-form-urlencoded`, as OAuth clients send by default. Response bodies, when present, use the same type; several endpoints return `204 No Content` with an empty body. Compressed request bodies are not currently supported: do not set `Content-Encoding: gzip`.
 
 ## Auth models
 

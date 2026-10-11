@@ -837,12 +837,16 @@ paths:
       tags: [Commands]
       summary: Cancel a pending command (admin)
       description: |
-        Withdraws a command no agent has picked up yet, so a host that is
-        offline cannot receive a stale action later. Only a `pending`
-        command can be cancelled. Cancelling requires the same permission
-        as issuing that command type, and records a `command.cancel`
-        audit row. A browser session must have authenticated recently; a
-        service account needs only the role.
+        Withdraws a `kill_process` or `run_script` command no agent has
+        acknowledged yet, so a host that is offline cannot receive a stale
+        action later. Cancelling is best effort: an agent that already
+        received the command may still run it, and its late
+        acknowledgement moves the command from `cancelled` to `acked`.
+        Keep watching the command's status before concluding it never
+        ran. Cancelling requires the same permission as issuing that
+        command type, and records a `command.cancel` audit row. A browser
+        session must have authenticated recently; a service account needs
+        only the role.
       security:
         - SessionCookie: []
           CSRF: []
@@ -865,7 +869,7 @@ paths:
                     type: string
                     enum: [cancelled]
         "400":
-          description: "`invalid_command_id`: the id is not an integer"
+          description: "`invalid_command_id` (the id is not an integer) or `unsupported_command_type` (the command is not `kill_process` or `run_script`)"
           content:
             application/json:
               schema:
@@ -1038,7 +1042,8 @@ paths:
       summary: Update trace sampling settings
       description: |
         Partial update: an omitted field keeps its stored value. Every
-        replica applies the change within 60 seconds. A
+        replica polls for it every 60 seconds, so it normally applies within
+        about a minute. A
         `tracing.settings.updated` audit row is written after the change
         commits.
       security:
