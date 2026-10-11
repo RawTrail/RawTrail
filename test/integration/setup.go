@@ -281,6 +281,7 @@ func setupReplicaWith(t *testing.T, db *sqlx.DB, cfg setupConfig) *Stack {
 		Logger:              logger,
 		EnrollSecret:        EnrollSecret,
 		EnrollRatePerMinute: 1000,
+		Audit:               identityCtx.AuditRecorder(),
 		AuthZ:               identityCtx.AuthZ(),
 		HostTokenSigningKey: signingKey, // any fixed >=32-byte key; the cross-context tests only need enroll/verify to round-trip
 	})

@@ -854,9 +854,13 @@ paths:
               properties:
                 reason:
                   type: string
+                  minLength: 1
+                  pattern: '\S'
                   description: Why the host is revoked. Stored on the enrollment and recorded in the audit log.
                 actor:
                   type: string
+                  minLength: 1
+                  pattern: '\S'
                   description: Who is revoking it. Stored on the enrollment and recorded in the audit log.
       responses:
         "204":
