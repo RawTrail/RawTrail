@@ -122,6 +122,16 @@ func Start(opts Options) (context.Context, *Env, *sqlx.DB, func(), error) {
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	db, stop, err := startAfterInit(ctx, env, opts)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return ctx, env, db, stop, nil
+}
+
+// startAfterInit is the part of Start that follows Init: the start line and the MySQL pool. It takes the Env Init built, so a test
+// can drive it without loading config from the process environment. On an open failure it cancels ctx and flushes OTel itself.
+func startAfterInit(ctx context.Context, env *Env, opts Options) (*sqlx.DB, func(), error) {
 	env.Logger.InfoContext(ctx, opts.ServiceName+" starting",
 		"addr", env.Config.ListenAddr,
 		"version", opts.ServiceVersion,
@@ -133,14 +143,14 @@ func Start(opts Options) (context.Context, *Env, *sqlx.DB, func(), error) {
 		env.Logger.ErrorContext(ctx, "open db", "err", err)
 		env.Cancel()
 		env.FlushOTel()
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 	stop := func() {
 		_ = db.Close()
 		env.Cancel()
 		env.FlushOTel()
 	}
-	return ctx, env, db, stop, nil
+	return db, stop, nil
 }
 
 // Main runs a binary's run func and, if it fails, prints the error to stderr and exits with status 2.
