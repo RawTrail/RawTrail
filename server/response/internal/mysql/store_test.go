@@ -404,17 +404,7 @@ func TestListDeliverableForHostsIncludesUnreported(t *testing.T) {
 			`SELECT id FROM commands WHERE host_id IN (?) AND (status = ? OR (status = ? AND acked_at > ? AND acked_at <= ?))`,
 			[]string{"host-a"}, api.StatusPending, api.StatusAcked, time.Now().Add(-time.Hour), time.Now())
 		require.NoError(t, err)
-		var plan []map[string]any
-		rows, err := db.QueryxContext(ctx, "EXPLAIN "+db.Rebind(query), args...)
-		require.NoError(t, err)
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			row := map[string]any{}
-			require.NoError(t, rows.MapScan(row))
-			plan = append(plan, row)
-		}
-		require.NoError(t, rows.Err())
-		require.NotEmpty(t, plan)
+		plan := explain(t, db, query, args...)
 		// possible_keys rather than key: the optimizer picks between the host-scoped indexes on cost, and on a table this size that
 		// choice is arbitrary. What this pins is the schema, that an index applies to this predicate at all, which is what keeps the
 		// acknowledged half from being a filter over every command a fleet has ever stranded.
@@ -436,6 +426,45 @@ func TestListDeliverableForHostsIncludesUnreported(t *testing.T) {
 		require.NoError(t, cols.Err())
 		assert.Equal(t, []string{"host_id", "status", "acked_at"}, columns, "the window is an index range, not a filter")
 	})
+}
+
+// The contract half of the #1062 index change: the two-column index is gone, and the expired-command read that used to name it is
+// still an index range, now off the leading (host_id, status) of the wider index.
+func TestCommandsHostStatusIndexDropped(t *testing.T) {
+	t.Parallel()
+	_, db := newTestStoreWithDB(t)
+	ctx := t.Context()
+
+	var dropped int
+	require.NoError(t, db.GetContext(ctx, &dropped,
+		`SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'commands'
+		 AND index_name = 'idx_commands_host_status'`))
+	assert.Zero(t, dropped, "idx_commands_host_status is the leftmost prefix of idx_commands_host_status_acked and is dropped")
+
+	query, args, err := sqlx.In(`SELECT host_id FROM commands WHERE host_id IN (?) AND status = ? AND completed_at >= ?`,
+		[]string{"host-a"}, api.StatusExpired, time.Now().Add(-api.UndeliverableWindow))
+	require.NoError(t, err)
+	plan := explain(t, db, query, args...)
+	assert.Contains(t, asString(plan[0]["possible_keys"]), "idx_commands_host_status_acked",
+		"the expired-command read is servable by the wider index, plan: %v", plan)
+	assert.NotEqual(t, "ALL", asString(plan[0]["type"]), "no full scan, plan: %v", plan)
+}
+
+// explain returns the EXPLAIN rows for a ?-placeholder query, failing the test if there are none.
+func explain(t *testing.T, db *sqlx.DB, query string, args ...any) []map[string]any {
+	t.Helper()
+	rows, err := db.QueryxContext(t.Context(), "EXPLAIN "+db.Rebind(query), args...)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+	var plan []map[string]any
+	for rows.Next() {
+		row := map[string]any{}
+		require.NoError(t, rows.MapScan(row))
+		plan = append(plan, row)
+	}
+	require.NoError(t, rows.Err())
+	require.NotEmpty(t, plan)
+	return plan
 }
 
 // asString renders a MySQL EXPLAIN cell, which arrives as []byte or nil.
