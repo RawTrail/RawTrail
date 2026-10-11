@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/fleetdm/edr/server/coordination/leader"
 	rulesapi "github.com/fleetdm/edr/server/rules/api"
 	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
 )
@@ -51,6 +52,19 @@ type scriptedEventLog struct {
 	nackTallies [][]byte
 	// carried is what this fake is keeping for the batch, standing in for the queue column the real store writes.
 	carried []byte
+	// pendingErr and claimErr make PendingHosts and ClaimForHost fail. beforeFail runs first, so a test can cancel the worker's
+	// context while the query is in flight, which is how a shutdown reaches them (issue #1258).
+	pendingErr error
+	claimErr   error
+	beforeFail func()
+}
+
+// fail returns err after running beforeFail, if any.
+func (s *scriptedEventLog) fail(err error) error {
+	if s.beforeFail != nil {
+		s.beforeFail()
+	}
+	return err
 }
 
 // scriptedClaimStamp is the stamp the scripted claim hands out. Non-zero so a test can tell it apart from an unset field.
@@ -58,6 +72,9 @@ const scriptedClaimStamp = int64(1_700_000_000_000_000_000)
 
 func (s *scriptedEventLog) Append(context.Context, []visibilityapi.Event) error { return nil }
 func (s *scriptedEventLog) PendingHosts(context.Context, int) ([]string, error) {
+	if s.pendingErr != nil {
+		return nil, s.fail(s.pendingErr)
+	}
 	if len(s.batch) == 0 || s.claimed {
 		return nil, nil
 	}
@@ -66,6 +83,9 @@ func (s *scriptedEventLog) PendingHosts(context.Context, int) ([]string, error) 
 
 func (s *scriptedEventLog) ClaimForHost(_ context.Context, hostID string, _ int) ([]visibilityapi.Event, int64, error) {
 	s.claimReq = append(s.claimReq, hostID)
+	if s.claimErr != nil {
+		return nil, 0, s.fail(s.claimErr)
+	}
 	if s.claimed {
 		return nil, 0, nil
 	}
@@ -464,3 +484,68 @@ func TestProcessor_FailedGraphReadIsNackedNotAcked(t *testing.T) {
 	assert.Zero(t, rec.materializationRetries,
 		"a dependency outage is not a materialization race, and must not inflate the counter that tracks one")
 }
+
+// spec:observability-instrumentation/processor-shutdown-is-not-logged-as-an-error/a-query-cancelled-by-shutdown-is-debug-logged
+// spec:observability-instrumentation/processor-shutdown-is-not-logged-as-an-error/a-cancellation-while-the-worker-is-live-stays-an-error
+// spec:observability-instrumentation/processor-shutdown-is-not-logged-as-an-error/a-real-failure-during-shutdown-stays-an-error
+//
+// Stopping the server cancels each worker's in-flight query, and the processor used to log that at ERROR like a database failure
+// (issue #1258). Both sites the shutdown hit are covered: the pending-hosts read, and the claim inside the host-lock closure, which
+// logs against the worker's context rather than the locked section's.
+func TestProcessor_ShutdownCancellationLogLevel(t *testing.T) {
+	t.Parallel()
+
+	queryCanceled := fmt.Errorf("claim select: %w", context.Canceled)
+	connectionRefused := errors.New("dial tcp 127.0.0.1:3306: connect: connection refused")
+	cases := []struct {
+		name     string
+		failure  func(*scriptedEventLog, error)
+		message  string
+		err      error
+		shutdown bool
+		want     slog.Level
+	}{
+		{"pending hosts cancelled by shutdown", failPending, "list pending hosts", queryCanceled, true, slog.LevelDebug},
+		{"claim cancelled by shutdown", failClaim, "claim events", queryCanceled, true, slog.LevelDebug},
+		{"pending hosts cancelled while the worker is live", failPending, "list pending hosts", queryCanceled, false, slog.LevelError},
+		{"claim cancelled by a lost host lock", failClaim, "claim events", queryCanceled, false, slog.LevelError},
+		{"real failure during shutdown", failClaim, "claim events", connectionRefused, true, slog.LevelError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			log := &scriptedEventLog{batch: oneEventBatch()}
+			tc.failure(log, tc.err)
+			if tc.shutdown {
+				log.beforeFail = cancel
+			}
+			handler := &capturingLogHandler{}
+			opts := singleCycleOpts(handler)
+			opts.Coordinator = lockLosingCoordinator{}
+			p := newTestProcessor(t, log, stubBuilder{}, stubEvaluator{}, opts)
+
+			p.ProcessOnce(ctx)
+
+			lvl, ok := handler.levelOf(tc.message)
+			require.True(t, ok, "the failure must still be logged")
+			assert.Equal(t, tc.want, lvl)
+		})
+	}
+}
+
+// lockLosingCoordinator runs the claim section under a context it has already cancelled, as the real coordinator does when the lock
+// keep-alive fails and it relinquishes the lease. The worker's own context stays live, so a claim failing as cancelled here is not a
+// shutdown, and logging it against the locked section's context would wrongly read it as one.
+type lockLosingCoordinator struct{ stubCoordinator }
+
+func (lockLosingCoordinator) DoOnceIfLeader(ctx context.Context, _ string, fn func(context.Context) error) (bool, error) {
+	leaseCtx, relinquish := context.WithCancel(ctx)
+	relinquish()
+	_ = fn(leaseCtx)
+	return true, leader.ErrLockLost
+}
+
+func failPending(log *scriptedEventLog, err error) { log.pendingErr = err }
+func failClaim(log *scriptedEventLog, err error)   { log.claimErr = err }
