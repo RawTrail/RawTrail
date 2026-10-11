@@ -239,9 +239,7 @@ func (h *Handler) handleIngest(w http.ResponseWriter, r *http.Request) {
 		// ("incremented by the size of the batch", observability-instrumentation spec), split by event type so an operator can see
 		// which types a host sends (issue #1217). heartbeats_dropped is the not-persisted subset: every heartbeat in the batch
 		// (len(events)-len(toStore)), including malformed/zero-pid ones that produced no bump.
-		for eventType, n := range countByEventType(events) {
-			h.metrics.EventsIngested(ctx, pinnedHostID, eventType, n)
-		}
+		h.metrics.EventsIngested(ctx, pinnedHostID, countByEventType(events))
 		h.metrics.EventsHeartbeatDropped(ctx, pinnedHostID, len(events)-len(toStore))
 	}
 

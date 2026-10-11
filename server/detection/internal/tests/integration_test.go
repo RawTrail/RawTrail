@@ -301,14 +301,16 @@ func (m *recordingMetrics) EventsSetAside(_ context.Context, hostID string, n in
 func (m *recordingMetrics) RuleEvaluationSkipped(context.Context, string)                 {}
 func (m *recordingMetrics) RuleEvaluationDuration(context.Context, string, time.Duration) {}
 
-func (m *recordingMetrics) EventsIngested(_ context.Context, _, eventType string, n int) {
+func (m *recordingMetrics) EventsIngested(_ context.Context, _ string, byType map[string]int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.eventsIngested += n
 	if m.eventsIngestedByType == nil {
 		m.eventsIngestedByType = map[string]int{}
 	}
-	m.eventsIngestedByType[eventType] += n
+	for eventType, n := range byType {
+		m.eventsIngested += n
+		m.eventsIngestedByType[eventType] += n
+	}
 }
 func (m *recordingMetrics) EventsHeartbeatDropped(_ context.Context, _ string, n int) {
 	m.mu.Lock()

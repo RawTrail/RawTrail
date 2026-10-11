@@ -270,17 +270,23 @@ var ingestedEventTypes = map[string]bool{
 // otherEventType is the event_type attribute for any value outside ingestedEventTypes.
 const otherEventType = "other"
 
-// EventsIngested increments the ingest counter by n for one event type on a host. Called by the ingest handler after a batch is
-// accepted, once per event type in it. An event type outside the schema is recorded as "other", so cardinality stays fixed
-// whatever an agent sends.
-func (r *Recorder) EventsIngested(ctx context.Context, hostID, eventType string, n int) {
-	if r == nil || r.eventsIngested == nil || n <= 0 {
+// EventsIngested adds an accepted batch's per-type counts to the ingest counter for a host. Called by the ingest handler once per
+// batch. Every event type outside the schema is folded into "other" before anything is recorded, so cardinality stays fixed and a
+// batch costs at most one counter update per schema type whatever an agent sends.
+func (r *Recorder) EventsIngested(ctx context.Context, hostID string, byType map[string]int) {
+	if r == nil || r.eventsIngested == nil {
 		return
 	}
-	if !ingestedEventTypes[eventType] {
-		eventType = otherEventType
+	folded := make(map[string]int, len(byType))
+	for eventType, n := range byType {
+		if !ingestedEventTypes[eventType] {
+			eventType = otherEventType
+		}
+		folded[eventType] += n
 	}
-	r.eventsIngested.Add(ctx, int64(n), metric.WithAttributes(attribute.String("host_id", hostID), attribute.String("event_type", eventType)))
+	for eventType, n := range folded {
+		r.eventsIngested.Add(ctx, int64(n), metric.WithAttributes(attribute.String("host_id", hostID), attribute.String("event_type", eventType)))
+	}
 }
 
 // EventsSetAside increments the set-aside counter by n for a host. Called by the processor when a nack withdraws events from

@@ -138,8 +138,8 @@ func TestRecorder_RecordsCounters(t *testing.T) {
 	r, collect := newTestRecorder(t, stubGauges{enrolled: 3, offline: 1}, Options{})
 	ctx := context.Background()
 
-	r.EventsIngested(ctx, "host-a", "exec", 5)
-	r.EventsIngested(ctx, "host-b", "tcc_modify", 2)
+	r.EventsIngested(ctx, "host-a", map[string]int{"exec": 5})
+	r.EventsIngested(ctx, "host-b", map[string]int{"tcc_modify": 2})
 	r.AlertCreated(ctx, "dyld_insert", "high")
 	// ONE call carrying two, not two carrying one. The caller aggregates a batch before recording it, so the count parameter is
 	// the contract; two calls of one would sum to the same total and pass against an implementation that ignored n entirely.
@@ -235,7 +235,7 @@ func TestNilRecorder_AllMethodsSafe(t *testing.T) {
 	var r *Recorder
 	ctx := context.Background()
 	assert.NotPanics(t, func() {
-		r.EventsIngested(ctx, "h", "exec", 1)
+		r.EventsIngested(ctx, "h", map[string]int{"exec": 1})
 		r.AlertCreated(ctx, "r", "s")
 		r.MonitorMatched(ctx, "r", "s", 1)
 		r.ProcessRetentionRowsDeleted(ctx, 1)
@@ -326,34 +326,24 @@ func TestObserveHTTPRequest(t *testing.T) {
 // spec:observability-instrumentation/ingested-events-carry-a-bounded-event-type/ingested-events-are-counted-by-event-type
 // spec:observability-instrumentation/ingested-events-carry-a-bounded-event-type/an-unknown-event-type-is-counted-as-other
 //
-// The event_type attribute keeps a schema type as it is and folds everything else into "other", so an agent sending made-up types
-// cannot grow the series count. Each case records into its own recorder, so the asserted series is the only one present.
+// The event_type attribute keeps a schema type as it is and folds everything else into "other" before recording, so an agent sending
+// made-up types can neither grow the series count nor cost more than one counter update per schema type in a batch.
 func TestRecorder_EventsIngestedEventType(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name      string
-		eventType string
-		want      string
-	}{
-		{"schema type kept", "tcc_modify", "tcc_modify"},
-		{"heartbeat kept", "snapshot_heartbeat", "snapshot_heartbeat"},
-		{"unknown type folded", "made_up_type", "other"},
-		{"empty type folded", "", "other"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			r, collect := newTestRecorder(t, nil, Options{})
-			r.EventsIngested(context.Background(), "host-a", tc.eventType, 3)
+	r, collect := newTestRecorder(t, nil, Options{})
+	r.EventsIngested(context.Background(), "host-a", map[string]int{
+		"tcc_modify": 2, "snapshot_heartbeat": 1, "made_up_type": 3, "another_made_up_type": 4, "": 1,
+	})
 
-			sum, ok := findMetricData[metricdata.Sum[int64]](collect(), "edr.events.ingested")
-			require.True(t, ok)
-			require.Len(t, sum.DataPoints, 1)
-			eventType, _ := sum.DataPoints[0].Attributes.Value("event_type")
-			assert.Equal(t, tc.want, eventType.AsString())
-			assert.Equal(t, int64(3), sum.DataPoints[0].Value)
-		})
+	sum, ok := findMetricData[metricdata.Sum[int64]](collect(), "edr.events.ingested")
+	require.True(t, ok)
+	got := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		eventType, _ := dp.Attributes.Value("event_type")
+		got[eventType.AsString()] = dp.Value
 	}
+	assert.Equal(t, map[string]int64{"tcc_modify": 2, "snapshot_heartbeat": 1, "other": 8}, got,
+		"three unknown types, the empty one included, land in one other series")
 }
 
 // spec:observability-instrumentation/ingested-events-carry-a-bounded-event-type/the-bounded-set-matches-the-event-schema
