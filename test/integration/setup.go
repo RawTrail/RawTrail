@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -280,6 +281,7 @@ func setupReplicaWith(t *testing.T, db *sqlx.DB, cfg setupConfig) *Stack {
 		Logger:              logger,
 		EnrollSecret:        EnrollSecret,
 		EnrollRatePerMinute: 1000,
+		Audit:               identityCtx.AuditRecorder(),
 		AuthZ:               identityCtx.AuthZ(),
 		HostTokenSigningKey: signingKey, // any fixed >=32-byte key; the cross-context tests only need enroll/verify to round-trip
 	})
@@ -352,7 +354,10 @@ func setupReplicaWith(t *testing.T, db *sqlx.DB, cfg setupConfig) *Stack {
 	responseDone := make(chan struct{})
 	go func() {
 		defer close(responseDone)
-		responseCtx.Run(ctx)
+		var wg sync.WaitGroup
+		wg.Go(func() { responseCtx.Run(ctx) })
+		wg.Go(func() { endpointCtx.RunAuditSweep(ctx) })
+		wg.Wait()
 	}()
 	t.Cleanup(func() {
 		cancel()

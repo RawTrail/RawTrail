@@ -34,7 +34,7 @@
     {
       "id": "audit-by-decision",
       "title": "Audit events by decision",
-      "description": "Every audited action grouped by its decision: allow (granted), deny (authz chokepoint refused), error (auth/OIDC failure), unspecified (context-free rows like enrollment.rotate_token or logout that carry no allow/deny). A baseline of allow plus occasional unspecified is healthy; any sustained deny or error series is the thing to chase.",
+      "description": "Every audited action grouped by its decision: allow (granted), deny (authz chokepoint refused), error (auth/OIDC failure), unspecified (context-free rows like logout that carry no allow/deny). A baseline of allow plus occasional unspecified is healthy; any sustained deny or error series is the thing to chase.",
       "panelTypes": "graph",
       "yAxisUnit": "cps",
       "legendPosition": "bottom",
@@ -142,7 +142,7 @@
     {
       "id": "audit-activity",
       "title": "Audit activity by action",
-      "description": "Total audited operations over the window, highest first. The operator audit trail at a glance: logins, alert triage, command issuance, enrollment revoke/rotate, application-control rule changes. Use it to spot anomalous volume (a burst of enrollment.revoke, an off-hours policy change) worth opening the trace for.",
+      "description": "Total audited operations over the window, highest first. The operator audit trail at a glance: logins, alert triage, command issuance, enrollment revokes, application-control rule changes. Use it to spot anomalous volume (a burst of enrollment.revoke, an off-hours policy change) worth opening the trace for.",
       "panelTypes": "table",
       "yAxisUnit": "none",
       "legendPosition": "bottom",

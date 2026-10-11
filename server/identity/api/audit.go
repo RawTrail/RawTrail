@@ -60,12 +60,9 @@ const (
 	// review asks about, and the set's own row only shows where it ended up.
 	AuditContainmentReachableUpdate AuditAction = "containment.reachable_update"
 
-	// Enrollment lifecycle (endpoint context). Constants follow the <resource>.<verb> convention documented at the top of this file:
-	// rotate_token reads as "rotate the host token of the enrollment." Under the self-validating-token model this is an operator-driven
-	// epoch bump (no agent command is dispatched); the affected agent recovers when its refresh carrying the now-stale epoch 401s and it
-	// re-enrolls.
-	AuditEnrollmentRevoke      AuditAction = "enrollment.revoke"
-	AuditEnrollmentRotateToken AuditAction = "enrollment.rotate_token"
+	// Enrollment lifecycle (endpoint context). A revoke marks the enrollment revoked and bumps the host's token epoch; the agent recovers
+	// by re-enrolling, and a token issued before the revoke stays rejected.
+	AuditEnrollmentRevoke AuditAction = "enrollment.revoke"
 
 	// Break-glass flow. Action names match the spec scenario language verbatim: dashboards filter on the literal strings,
 	// so any rename is a contract break. The flow is distinct from auth.login.* because the recovery path needs a dedicated row category

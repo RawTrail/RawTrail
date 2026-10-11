@@ -42,16 +42,13 @@ func (f fakeService) List(context.Context) ([]api.Enrollment, error) {
 func (f fakeService) Get(context.Context, string) (*api.Enrollment, error) {
 	panic("not implemented in fakeService")
 }
-func (f fakeService) Revoke(context.Context, string, string, string) error {
+func (f fakeService) Revoke(context.Context, api.RevokeRequest) error {
 	panic("not implemented in fakeService")
 }
 func (f fakeService) CountActive(context.Context) (int, error) {
 	panic("not implemented in fakeService")
 }
 func (f fakeService) ActiveHostIDs(context.Context) ([]string, error) {
-	panic("not implemented in fakeService")
-}
-func (f fakeService) RotateToken(context.Context, string, string, string) error {
 	panic("not implemented in fakeService")
 }
 func (f fakeService) RefreshToken(context.Context, string) (api.RefreshResponse, error) {

@@ -84,7 +84,7 @@ func TestSnapshot_Refresh(t *testing.T) {
 		assert.Equal(t, 1, s.Size())
 	})
 
-	// spec:agent-enrollment/revocation-is-enforced-by-a-per-replica-snapshot/snapshot-refresh-failure-retains-the-previous-view
+	// spec:agent-enrollment/host-token-revocation-is-enforced-per-replica/snapshot-refresh-failure-retains-the-previous-view
 	t.Run("a failed refresh retains the previous view and reports the failure", func(t *testing.T) {
 		t.Parallel()
 		src := &fakeSource{entries: []Entry{{ID: "revoked", Revoked: true}}}
@@ -123,6 +123,17 @@ func TestSnapshot_Observe(t *testing.T) {
 		assert.True(t, s.Allowed("h", 2), "the current-epoch token verifies immediately")
 		assert.False(t, s.Allowed("h", 1), "a token below the epoch stays rejected with no window")
 		assert.Equal(t, 1, s.Size(), "the principal is kept so the older token keeps failing")
+	})
+
+	t.Run("a stale observation does not lower a refreshed epoch", func(t *testing.T) {
+		t.Parallel()
+		// An enrollment read epoch 1, then a revoke committed epoch 2 and a refresh loaded it before the enrollment observed.
+		s := newTestSnapshot(&fakeSource{entries: []Entry{{ID: "h", Epoch: 2, Revoked: true}}})
+		require.NoError(t, s.Refresh(t.Context()))
+		s.Observe("h", 1)
+		assert.False(t, s.Allowed("h", 1), "the token the revoke ended stays rejected")
+		s.Observe("h", 0)
+		assert.False(t, s.Allowed("h", 0), "an epoch-0 observation is stale too and does not clear the entry")
 	})
 }
 

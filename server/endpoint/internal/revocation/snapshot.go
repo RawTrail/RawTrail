@@ -38,7 +38,7 @@ type Source = revocationset.Source
 
 // Snapshot is a refreshable, concurrent-read view of host revocation state. The service calls Observe on a successful (re-)enrollment
 // with the epoch the row now carries: the host's row was reset to not revoked, but its token_epoch is PRESERVED across a re-enroll so
-// an operator credential cycle survives, and a token below that epoch stays rejected.
+// a revoke survives it, and a token below that epoch stays rejected.
 type Snapshot = revocationset.Snapshot
 
 // NewSnapshot constructs a snapshot over src. It starts empty (allows everything) until the first Refresh; callers should Refresh once

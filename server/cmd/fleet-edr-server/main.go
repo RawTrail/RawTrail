@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -249,8 +250,9 @@ func run() error {
 	defer gwCancel() // controlChannel.Stop cancels this on shutdown; the defer is a belt-and-suspenders guard against a context leak
 	go gw.Run(gwCtx)
 	// The response context's background loops: re-queueing hosts' containment states their latest command did not deliver (issue
-	// #948), and delivering the audit entries a containment change committed but whose request could not write out (issue #1070).
-	// What either misses during shutdown is made up by the next replica's.
+	// #948), and delivering the audit entries a containment change committed but whose request could not write out (issue #1070). The
+	// endpoint context's audit sweep rides along, delivering the entries an enrollment revoke committed (issue #1225). What any of them
+	// misses during shutdown is made up by the next replica's.
 	//
 	// Cancelled and joined by a defer registered here, for the reason the backfill goroutine above carries: defers run
 	// last-registered-first and `db.Close()` is registered before this, so a loop riding the process context alone would still be
@@ -263,7 +265,10 @@ func run() error {
 	responseDone := make(chan struct{})
 	go func() {
 		defer close(responseDone)
-		responseCtx.Run(responseLoopCtx)
+		var wg sync.WaitGroup
+		wg.Go(func() { responseCtx.Run(responseLoopCtx) })
+		wg.Go(func() { endpointCtx.RunAuditSweep(responseLoopCtx) })
+		wg.Wait()
 	}()
 	defer func() {
 		stopResponseLoops()

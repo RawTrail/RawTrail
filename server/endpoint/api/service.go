@@ -37,10 +37,10 @@ type Service interface {
 	// host_id has no enrollment.
 	Get(ctx context.Context, hostID string) (*Enrollment, error)
 
-	// Revoke marks an enrollment revoked. actor is the operator who performed the revocation (typically email or "user:<id>"). Idempotent:
-	// revoking an already-revoked row preserves the original revoked_at + reason + actor (first-revoker wins). Returns ErrNotFound when
-	// the host_id is not in the table at all.
-	Revoke(ctx context.Context, hostID, reason, actor string) error
+	// Revoke ends every credential the host holds: it marks the enrollment revoked and bumps the host's token epoch, so a token issued
+	// before the revoke stays rejected after the agent re-enrolls with the enroll secret. The audit entry commits with the revoke. A
+	// repeat revoke preserves the original revoked_at, reason and actor. Returns ErrNotFound when the host_id has no enrollment.
+	Revoke(ctx context.Context, req RevokeRequest) error
 
 	// CountActive returns the count of non-revoked enrollments. Used
 	// by metrics (the EnrolledHosts gauge in cmd/main).
@@ -52,10 +52,15 @@ type Service interface {
 
 	// ActiveEnrollments returns each non-revoked host_id with the time it last enrolled, on the database clock, in stable order.
 	ActiveEnrollments(ctx context.Context) ([]ActiveEnrollment, error)
+}
 
-	// RotateToken cycles a host's credentials by bumping its token_epoch, invalidating every signed token minted at the prior epoch once
-	// the revocation snapshot picks up the change. There is no opaque token to rotate and no command to push: the agent recovers by
-	// re-enrolling when its refresh (carrying the now-stale epoch) 401s. actor + reason are the operator-supplied attribution carried
-	// into the audit row. Returns ErrNotFound when the host_id has no enrollment.
-	RotateToken(ctx context.Context, hostID, actor, reason string) error
+// RevokeRequest is an operator's revoke of one host's enrollment. Reason and Actor are the operator-supplied attribution stored on the
+// enrollment row and carried in the audit entry; RemoteAddr is the address the request came from, as the audit trail records it. The
+// authenticated principal is read from the request context, where the session or API-auth middleware pinned it; a caller with no actor
+// on its context produces an audit row with no principal.
+type RevokeRequest struct {
+	HostID     string
+	Reason     string
+	Actor      string
+	RemoteAddr string
 }

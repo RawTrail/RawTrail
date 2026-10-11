@@ -69,7 +69,7 @@ func TestTokenRefresh_HTTP(t *testing.T) {
 	assert.Equal(t, testHardwareUUID, hostID)
 
 	// After revoke + snapshot refresh, the refresh endpoint rejects with 401.
-	require.NoError(t, ep.Service().Revoke(ctx, testHardwareUUID, "compromised", "op"))
+	require.NoError(t, ep.Service().Revoke(ctx, api.RevokeRequest{HostID: testHardwareUUID, Reason: "compromised", Actor: "op"}))
 	require.NoError(t, ep.RevocationSnapshot().Refresh(ctx))
 	resp = postRefresh(t, ctx, srv, refreshed.HostToken)
 	resp.Body.Close()
