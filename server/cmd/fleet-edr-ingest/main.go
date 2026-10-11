@@ -19,10 +19,12 @@ import (
 	"github.com/fleetdm/edr/internal/observability/tracing"
 	"github.com/fleetdm/edr/server/bootstrap"
 	"github.com/fleetdm/edr/server/config"
+	detectionapi "github.com/fleetdm/edr/server/detection/api"
 	detectionbootstrap "github.com/fleetdm/edr/server/detection/bootstrap"
 	endpointbootstrap "github.com/fleetdm/edr/server/endpoint/bootstrap"
 	"github.com/fleetdm/edr/server/httpserver"
 	identitybootstrap "github.com/fleetdm/edr/server/identity/bootstrap"
+	"github.com/fleetdm/edr/server/metrics"
 	observabilitybootstrap "github.com/fleetdm/edr/server/observability/bootstrap"
 	"github.com/fleetdm/edr/server/tracingpolicy"
 	visibilitybootstrap "github.com/fleetdm/edr/server/visibility/bootstrap"
@@ -127,6 +129,7 @@ func run() error {
 		logger.ErrorContext(ctx, "detection schema", "err", err)
 		return err
 	}
+	metricsRec := wireIngestMetrics(detectionCtx)
 
 	endpointCtx, err := endpointbootstrap.New(endpointbootstrap.Deps{
 		DB:                  db,
@@ -164,7 +167,9 @@ func run() error {
 	mux.Handle("POST /api/events", hostTokenMW(detectionCtx.Service().IngestHandler()))
 	mux.Handle("POST /api/token/refresh", hostTokenMW(endpointCtx.TokenRefreshHandler()))
 
-	srv, err := bootstrap.NewHTTPServer(ctx, cfg, logger, bootstrap.HTTPServerOptions{ServiceName: serviceName, Handler: mux})
+	srv, err := bootstrap.NewHTTPServer(ctx, cfg, logger, bootstrap.HTTPServerOptions{
+		ServiceName: serviceName, Handler: mux, Metrics: metricsRec,
+	})
 	if err != nil {
 		return err
 	}
@@ -195,4 +200,19 @@ func openVisibility(ctx context.Context, logger *slog.Logger, cfg *config.Config
 		return nil, nil, err
 	}
 	return chDB, visibilityCtx, nil
+}
+
+// metricsSetter is the part of the detection context wireIngestMetrics needs.
+type metricsSetter interface {
+	SetMetrics(detectionapi.MetricsRecorder)
+}
+
+// wireIngestMetrics builds the ingest tier's recorder and hands it to detection, whose intake handler records edr.events.ingested
+// and edr.events.heartbeats_dropped; the caller also passes it to the HTTP server for request duration. Without it a split
+// deployment never counts the events its ingest tier accepts (issue #1263). No gauge source: the host-fleet gauges describe the
+// whole deployment and fleet-edr-server already reports them, so registering them here too would double every fleet-wide sum.
+func wireIngestMetrics(detection metricsSetter) *metrics.Recorder {
+	rec := metrics.New(nil, metrics.Options{})
+	detection.SetMetrics(rec)
+	return rec
 }
