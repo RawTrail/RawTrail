@@ -836,8 +836,9 @@ paths:
         host-token endpoint and on token refresh, and keeps refusing them
         after the host re-enrolls. The agent re-enrolls automatically
         when it holds the enroll secret, so a revoke forces new
-        credentials but does not keep the host out. Requires a recently
-        authenticated session.
+        credentials but does not keep the host out. Requires
+        `enrollment.revoke`; a browser session must also have
+        authenticated recently.
       security:
         - SessionCookie: []
           CSRF: []

@@ -124,6 +124,17 @@ func TestSnapshot_Observe(t *testing.T) {
 		assert.False(t, s.Allowed("h", 1), "a token below the epoch stays rejected with no window")
 		assert.Equal(t, 1, s.Size(), "the principal is kept so the older token keeps failing")
 	})
+
+	t.Run("a stale observation does not lower a refreshed epoch", func(t *testing.T) {
+		t.Parallel()
+		// An enrollment read epoch 1, then a revoke committed epoch 2 and a refresh loaded it before the enrollment observed.
+		s := newTestSnapshot(&fakeSource{entries: []Entry{{ID: "h", Epoch: 2, Revoked: true}}})
+		require.NoError(t, s.Refresh(t.Context()))
+		s.Observe("h", 1)
+		assert.False(t, s.Allowed("h", 1), "the token the revoke ended stays rejected")
+		s.Observe("h", 0)
+		assert.False(t, s.Allowed("h", 0), "an epoch-0 observation is stale too and does not clear the entry")
+	})
 }
 
 func TestSnapshot_Run(t *testing.T) {
