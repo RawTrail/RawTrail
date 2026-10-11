@@ -14,7 +14,7 @@ import (
 	"github.com/fleetdm/edr/server/httpserver"
 )
 
-// spec:server-availability/ingest-drains-and-resolves-clients-like-the-server/a-forwarded-client-address-is-believed-only-from-a-trusted-proxy
+// spec:server-availability/ingest-drains-and-resolves-clients-like-the-server/a-forwarded-address-is-believed-only-from-a-trusted-proxy
 //
 // TestNewHTTPServer_ClientAddress pins the X-Forwarded-For handling both HTTP binaries get from NewHTTPServer (issue #1248): a
 // forwarded address is believed only when the peer is a configured trusted proxy. Believing it from anyone would let any client
