@@ -21,8 +21,8 @@ const (
 )
 
 // Principal id prefixes. The local part after the prefix is the owning subtype row's autoincrement key (usr_<users.id> /
-// svc_<service_accounts.id>), which is stable and never reused: a removed subtype row leaves a tombstoned principals row behind and the
-// autoincrement key is never reissued. Only UserID below parses the local part; everything else treats the id as opaque.
+// svc_<service_accounts.id>), which is stable and never reused: a principals row is never deleted, since foreign keys and the audit
+// trail reference it, and the autoincrement key is never reissued. Only UserID below parses the local part; everything else treats the id as opaque.
 const (
 	principalUserPrefix           = "usr_"
 	principalServiceAccountPrefix = "svc_"
