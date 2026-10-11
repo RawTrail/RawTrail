@@ -3,7 +3,7 @@ info:
   title: Fleet EDR API
   version: "0.2.0"
   description: |
-    HTTP API for Fleet EDR. Three audience tiers:
+    HTTP API for Fleet EDR. Four audiences:
 
     - **Agents** (macOS endpoints) authenticate with a per-host bearer
       token obtained at enrollment. They call `POST /api/enroll`,
@@ -11,8 +11,13 @@ info:
       `PUT /api/commands/{id}` endpoints.
     - **Browsers** (admin UI) authenticate with an `edr_session` cookie
       (HttpOnly, Secure, SameSite=Lax) plus an `X-CSRF-Token` header on
-      unsafe methods. They call the session-protected endpoints.
-    - **Operators** hit `/livez`, `/readyz`, `/health` with no auth.
+      unsafe methods. They call the operator endpoints and `/api/session`.
+    - **Service accounts** (automation) exchange a client id and secret
+      at `POST /api/oauth/token` for a short-lived bearer token. They call
+      the operator endpoints, with no CSRF header; each operation lists
+      `ServiceAccountToken` where it accepts one.
+    - **Load balancers and probes** hit `/livez`, `/readyz`, `/health`
+      with no auth.
 
     For prose context see
     [docs/api.md](https://github.com/getvictor/fleet-edr/blob/main/docs/api.md).
@@ -39,6 +44,8 @@ tags:
     description: Command queue (UI + Agent)
   - name: Admin
     description: Enrollment + policy management (UI, admin-only)
+  - name: Service accounts
+    description: Non-human API clients and their access tokens
   - name: Rule authoring
     description: |
       The rule documents a deployment loads, as opposed to the per-rule
@@ -231,6 +238,7 @@ paths:
       summary: List hosts
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Host summaries
@@ -247,6 +255,7 @@ paths:
       summary: Process tree for a host
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - $ref: "#/components/parameters/HostID"
         - name: from
@@ -335,6 +344,7 @@ paths:
       summary: Process detail
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - $ref: "#/components/parameters/HostID"
         - name: pid
@@ -365,6 +375,7 @@ paths:
         `host.read`.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Containment states
@@ -391,6 +402,7 @@ paths:
         with no delivery. Requires `host.read`.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: host_id
           in: path
@@ -420,6 +432,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       parameters:
         - name: host_id
           in: path
@@ -496,6 +509,7 @@ paths:
         the empty set no operator has changed.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Reachable-address set
@@ -543,6 +557,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -591,6 +606,7 @@ paths:
       summary: List alerts
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: host_id
           in: query
@@ -657,6 +673,7 @@ paths:
       summary: Alert detail (with event IDs)
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -677,6 +694,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -707,16 +725,18 @@ paths:
       summary: List commands for the authenticated host
       description: |
         Host-token-only. The `host_id` is always the authenticated host's
-        id; any query parameter is ignored. Polling this endpoint also
-        refreshes the host's `last_seen` timestamp.
+        id, whatever the query says. Polling this endpoint also refreshes
+        the host's `last_seen` timestamp.
       security:
         - HostToken: []
       parameters:
         - name: status
           in: query
+          description: Status to list. Defaults to `pending`.
           schema:
             type: string
-            enum: [queued, acked, completed, failed]
+            default: pending
+            enum: [pending, acked, completed, failed, cancelled, expired]
       responses:
         "200":
           description: Command list
@@ -732,6 +752,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -759,6 +780,7 @@ paths:
       summary: Get a single command (admin)
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -810,12 +832,70 @@ paths:
         "404":
           description: Command not found (or not owned by authenticated host)
 
+  /api/commands/{id}/cancel:
+    post:
+      tags: [Commands]
+      summary: Cancel a pending command (admin)
+      description: |
+        Withdraws a `kill_process` or `run_script` command no agent has
+        acknowledged yet, so a host that is offline cannot receive a stale
+        action later. Cancelling is best effort: an agent that already
+        received the command may still run it, and its late
+        acknowledgement moves the command from `cancelled` to `acked`.
+        Keep watching the command's status before concluding it never
+        ran. Cancelling requires the same permission as issuing that
+        command type, and records a `command.cancel` audit row. A browser
+        session must have authenticated recently; a service account needs
+        only the role.
+      security:
+        - SessionCookie: []
+          CSRF: []
+        - ServiceAccountToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [cancelled]
+        "400":
+          description: "`invalid_command_id` (the id is not an integer) or `unsupported_command_type` (the command is not `kill_process` or `run_script`)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller lacks the permission to issue this command type
+        "404":
+          description: "`not_found`: no such command"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`not_cancellable`: the command is no longer pending (acknowledged, finished, or already cancelled or expired)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/enrollments:
     get:
       tags: [Admin]
       summary: List enrollments
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Enrollment rows
@@ -842,6 +922,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       parameters:
         - $ref: "#/components/parameters/HostID"
       requestBody:
@@ -870,6 +951,197 @@ paths:
         "404":
           description: Host not found
 
+  /api/audit-events:
+    get:
+      tags: [Admin]
+      summary: List audit events
+      description: |
+        Returns audit rows newest first. Every filter is optional. Page
+        back through history by passing the smallest `id` of the previous
+        page as `before_id`. Requires `audit.read` (super_admin and
+        auditor).
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - name: action
+          in: query
+          description: Exact action, for example `enrollment.revoke`.
+          schema: {type: string}
+        - name: target_type
+          in: query
+          schema: {type: string}
+        - name: target_id
+          in: query
+          schema: {type: string}
+        - name: user_id
+          in: query
+          description: Numeric user id of the acting user.
+          schema: {type: integer, format: int64}
+        - name: since
+          in: query
+          description: Inclusive lower bound on `occurred_at`, RFC 3339.
+          schema: {type: string, format: date-time}
+        - name: until
+          in: query
+          description: Exclusive upper bound on `occurred_at`, RFC 3339.
+          schema: {type: string, format: date-time}
+        - name: limit
+          in: query
+          description: Page size. Values above 500, and an omitted limit, return 500.
+          schema: {type: integer, minimum: 1}
+        - name: before_id
+          in: query
+          description: Return only rows with an `id` below this one.
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        "200":
+          description: Audit rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    # The key is always present, but an empty page is marshalled as JSON null, so the array is nullable.
+                    type: [array, "null"]
+                    items:
+                      $ref: "#/components/schemas/AuditEvent"
+        "400":
+          description: "A malformed filter: `bad_user_id`, `bad_since`, `bad_until`, `bad_limit` or `bad_before_id`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller lacks audit.read
+
+  /api/settings/tracing:
+    get:
+      tags: [Admin]
+      summary: Read trace sampling settings
+      description: |
+        The per-tier trace sampling ratios and the incident `force_full`
+        switch every replica applies. Requires `tracing.manage` (admin and
+        super_admin).
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      responses:
+        "200":
+          description: Current settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TracingSettings"
+        "403":
+          description: Caller lacks tracing.manage
+    patch:
+      tags: [Admin]
+      summary: Update trace sampling settings
+      description: |
+        Partial update: an omitted field keeps its stored value. Every
+        replica polls for it every 60 seconds, so it normally applies within
+        about a minute. A
+        `tracing.settings.updated` audit row is written after the change
+        commits, on a best-effort basis: a failed audit write is logged
+        and the change stands.
+      security:
+        - SessionCookie: []
+          CSRF: []
+        - ServiceAccountToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                high_volume_ratio: {type: number, minimum: 0, maximum: 1}
+                standard_ratio: {type: number, minimum: 0, maximum: 1}
+                force_full: {type: boolean}
+      responses:
+        "200":
+          description: The settings as stored after the update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TracingSettings"
+        "400":
+          description: "`invalid_json` (including an unknown field) or `ratio_out_of_range`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller lacks tracing.manage
+        "409":
+          description: "`version_conflict`: another update landed first; retry"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/oauth/token:
+    post:
+      tags: [Service accounts]
+      summary: Exchange service-account credentials for an access token
+      description: |
+        OAuth 2.0 client credentials grant. Send `client_id` and
+        `client_secret` as a form or as JSON; `grant_type`, when present,
+        must be `client_credentials`. The access token lasts 15 minutes
+        and there is no refresh token: request a new one shortly before
+        it expires or on a `401`. Each server replica allows a client id
+        60 requests a minute. Each issuance writes a
+        `service_account.token_issued` audit row on a best-effort basis:
+        a failed audit write is logged and the token is still issued.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/ClientCredentials"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientCredentials"
+      responses:
+        "200":
+          description: Access token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, token_type, expires_in]
+                properties:
+                  access_token: {type: string}
+                  token_type:
+                    type: string
+                    enum: [Bearer]
+                  expires_in:
+                    type: integer
+                    description: Seconds until the token expires.
+        "400":
+          description: "`invalid_request`: missing credentials, an oversized client id, or another grant type"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: "`invalid_client`: unknown client, wrong secret, or a revoked or expired service account"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: "`rate_limited`: more than 60 requests a minute for this client id on this replica"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/attack-coverage:
     get:
       tags: [Admin]
@@ -884,6 +1156,7 @@ paths:
         byte-identical across requests and safe to ETag.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Navigator layer
@@ -904,6 +1177,7 @@ paths:
         (generated by `tools/gen-rule-docs`).
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Per-rule documentation
@@ -948,6 +1222,7 @@ paths:
         answer changes when rule content is reloaded.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -983,6 +1258,7 @@ paths:
         global exclusion, the only scope currently accepted.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Exclusion list
@@ -1015,6 +1291,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1053,6 +1330,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       parameters:
         - name: id
           in: path
@@ -1094,6 +1372,7 @@ paths:
         A rule with no row defaults to `alert` at its declared severity.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Rule-setting list
@@ -1126,6 +1405,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1164,6 +1444,7 @@ paths:
         of entries. Version 0 is the empty set no operator has changed.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Watched-path set
@@ -1217,6 +1498,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1297,6 +1579,7 @@ paths:
         repeated subjects and downward by the recorder's documented losses.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: days
           in: query
@@ -1375,6 +1658,7 @@ paths:
         counted more often as a result.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       parameters:
         - name: days
           in: query
@@ -1441,6 +1725,7 @@ paths:
         does not make a deployment appear out of date.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Pack status
@@ -1524,6 +1809,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1589,6 +1875,7 @@ paths:
         would send megabytes. Fetch one document to read its content.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: Corpus listing
@@ -1634,6 +1921,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1712,6 +2000,7 @@ paths:
         tool. A caller who must unwrap it first is worse off.
       security:
         - SessionCookie: []
+        - ServiceAccountToken: []
       responses:
         "200":
           description: The rule file, verbatim.
@@ -1747,6 +2036,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1808,6 +2098,7 @@ paths:
       security:
         - SessionCookie: []
           CSRF: []
+        - ServiceAccountToken: []
       requestBody:
         required: true
         content:
@@ -1890,9 +2181,18 @@ components:
       in: header
       name: X-CSRF-Token
       description: |
-        Required on unsafe methods (`POST`, `PUT`, `DELETE`) for
+        Required on unsafe methods (`POST`, `PUT`, `PATCH`, `DELETE`) for
         session-cookie-authenticated endpoints. Value comes from
         `GET /api/session`'s `csrf_token` field.
+    ServiceAccountToken:
+      type: http
+      scheme: bearer
+      description: |
+        Access token from `POST /api/oauth/token`, passed as
+        `Authorization: Bearer <access_token>`. Accepted in place of the
+        session cookie on every operator endpoint that lists it, with the
+        bound role's permissions. No CSRF token is needed. The session
+        endpoints (`/api/session`) need a browser session.
 
   parameters:
     HostID:
@@ -1981,6 +2281,77 @@ components:
       required: [error]
       properties:
         error: {type: string}
+
+    PrincipalRef:
+      type: object
+      required: [id, type, label]
+      properties:
+        id:
+          type: string
+          description: "`usr_<n>` for a user, `svc_<n>` for a service account, `sys` for the system. Empty when the row has no authenticated actor, such as a failed sign-in or a service-account token issuance."
+        type:
+          type: string
+          enum: [user, service_account, system, ""]
+        label:
+          type: string
+          description: Email, service-account name or `system` when the row was written, or the identifier a failed sign-in used.
+
+    AuditEvent:
+      type: object
+      required: [id, occurred_at, actor, action]
+      properties:
+        id: {type: integer, format: int64}
+        occurred_at: {type: string, format: date-time}
+        actor:
+          $ref: "#/components/schemas/PrincipalRef"
+        user_id:
+          type: integer
+          format: int64
+          description: Numeric user id when the actor is a user.
+        user_email:
+          type: string
+          description: Same value as `actor.label`, kept for older clients.
+        action:
+          type: string
+          description: What happened, for example `enrollment.revoke` or `command.issue`.
+        target_type: {type: string}
+        target_id: {type: string}
+        trace_id:
+          type: string
+          description: Trace of the request that made the change, for drilling into telemetry.
+        remote_addr: {type: string}
+        payload:
+          type: object
+          additionalProperties: true
+          description: Action-specific detail, such as the operator-supplied reason.
+
+    TracingSettings:
+      type: object
+      required: [high_volume_ratio, standard_ratio, force_full]
+      properties:
+        high_volume_ratio:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Share of high-volume agent traffic traced.
+        standard_ratio:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Share of operator read traffic traced.
+        force_full:
+          type: boolean
+          description: Trace every request regardless of the ratios, for an incident window.
+
+    ClientCredentials:
+      type: object
+      required: [client_id, client_secret]
+      properties:
+        grant_type:
+          type: string
+          enum: [client_credentials]
+        client_id: {type: string, maxLength: 64}
+        client_secret: {type: string}
 
     EventEnvelope:
       type: object
@@ -2219,7 +2590,13 @@ components:
           additionalProperties: true
         status:
           type: string
-          enum: [queued, acked, completed, failed]
+          description: |
+            `pending` until an agent picks the command up (`acked`), then
+            `completed` or `failed`. An operator can cancel a pending
+            command (`cancelled`), and one that waits past its delivery
+            window becomes `expired`. Neither proves the command never ran:
+            a late acknowledgement moves either to `acked`.
+          enum: [pending, acked, completed, failed, cancelled, expired]
         created_at: {type: string, format: date-time}
         acked_at: {type: string, format: date-time}
         completed_at: {type: string, format: date-time}
