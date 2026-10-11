@@ -603,7 +603,21 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 		return 0
 	}
 	p.recordMonitorMatches(ctx, tally)
+	p.recordDetectionLag(ctx, events)
 	return len(events)
+}
+
+// recordDetectionLag records each event's time from ingest to now, once its batch is acknowledged (issue #1218). After the
+// acknowledgement for the reason recordMonitorMatches gives: a batch that is nacked and replayed would otherwise be recorded once per
+// attempt, and its earlier attempts' lags would understate the wait the event actually had.
+func (p *Processor) recordDetectionLag(ctx context.Context, events []visibilityapi.Event) {
+	if p.metrics == nil {
+		return
+	}
+	now := time.Now().UnixNano()
+	for _, e := range events {
+		p.metrics.DetectionLag(ctx, time.Duration(now-e.IngestedAtNs))
+	}
 }
 
 // recordMonitorMatches persists and counts a batch's monitor-mode matches, on whichever transition ends the batch's life.

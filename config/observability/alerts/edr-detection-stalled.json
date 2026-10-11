@@ -1,0 +1,145 @@
+{
+  "alert": "EDR detection stalled",
+  "alertType": "METRIC_BASED_ALERT",
+  "description": "Events are queued for detection but none finished processing for 15 minutes: the processor is stuck or not running. The formula fires only while the backlog is above zero, so an idle pipeline does not page. A missing lag sample counts as zero, which also covers delta export, where an idle histogram sends nothing.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 60,
+            "signal": "metrics",
+            "source": "",
+            "aggregations": [
+              {
+                "metricName": "edr.detection.lag.count",
+                "temporality": "",
+                "timeAggregation": "rate",
+                "spaceAggregation": "sum"
+              }
+            ],
+            "disabled": true,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+            },
+            "order": [
+              {
+                "key": {
+                  "name": "__result",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 10000,
+            "legend": ""
+          }
+        },
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "B",
+            "stepInterval": 60,
+            "signal": "metrics",
+            "source": "",
+            "aggregations": [
+              {
+                "metricName": "edr.events.pending",
+                "temporality": "",
+                "timeAggregation": "latest",
+                "spaceAggregation": "max"
+              }
+            ],
+            "disabled": true,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+            },
+            "order": [
+              {
+                "key": {
+                  "name": "__result",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 10000,
+            "legend": ""
+          }
+        },
+        {
+          "type": "builder_formula",
+          "spec": {
+            "name": "F1",
+            "expression": "A == 0 ? B : 0",
+            "disabled": false,
+            "order": [
+              {
+                "key": {
+                  "name": "__result",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "selectedQueryName": "F1",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "critical",
+          "target": 0,
+          "targetUnit": "",
+          "recoveryTarget": null,
+          "matchType": "all_the_times",
+          "op": "above",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "critical",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "edr.events.pending stayed above zero while edr.detection.lag recorded nothing for 15 minutes. Check the server logs for processor errors (claim events, ack events, graph builder failure) and the database.",
+    "summary": "EDR detection stalled with {{$value}} events queued"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "15m",
+      "frequency": "1m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "renotify": {
+      "enabled": true,
+      "interval": "4h",
+      "alertStates": ["firing"]
+    },
+    "usePolicy": true
+  }
+}

@@ -611,14 +611,22 @@ func (s *Store) Nack(
 	return api.NackResult{SetAside: setAside, Held: true, CarriedTally: carried}, nil
 }
 
-// CountPending counts events still waiting to be processed or in flight (processed 0 or 2). Backs the processor-backlog gauge.
+// CountPending counts events still waiting to be processed or in flight (processed 0 or 2), up to api.PendingCountCap. Backs the
+// processor-backlog gauge.
 //
 // Set-aside rows (3) are excluded deliberately. They are not waiting for anything, so counting them would leave the backlog gauge
 // permanently elevated by a number that never drains, which is the shape an operator reads as a processor falling behind. The
 // separate edr.events.set_aside counter is what reports them.
 func (s *Store) CountPending(ctx context.Context) (int64, error) {
+	return s.countPendingUpTo(ctx, api.PendingCountCap)
+}
+
+// countPendingUpTo is CountPending with the cap as a parameter, so a test can reach it without a million rows. The LIMIT inside the
+// derived table is what bounds the work: MySQL stops reading the index after limit matches.
+func (s *Store) countPendingUpTo(ctx context.Context, limit int64) (int64, error) {
 	var count int64
-	if err := s.db.GetContext(ctx, &count, "SELECT COUNT(*) FROM event_queue WHERE processed IN (0, 2)"); err != nil {
+	if err := s.db.GetContext(ctx, &count,
+		"SELECT COUNT(*) FROM (SELECT 1 FROM event_queue WHERE processed IN (0, 2) LIMIT ?) pending", limit); err != nil {
 		return 0, fmt.Errorf("count pending: %w", err)
 	}
 	return count, nil

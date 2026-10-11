@@ -49,4 +49,5 @@ func TestWireIngestMetrics(t *testing.T) { //nolint:paralleltest // installs the
 	assert.True(t, names["edr.events.ingested"], "accepted events are counted; collected %v", names)
 	assert.False(t, names["edr.enrolled.hosts"], "no enrolled-hosts gauge from the ingest tier")
 	assert.False(t, names["edr.offline.hosts"], "no offline-hosts gauge from the ingest tier")
+	assert.False(t, names["edr.events.pending"], "no backlog gauge from the ingest tier: the server reports the shared queue")
 }

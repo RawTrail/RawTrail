@@ -1,0 +1,90 @@
+{
+  "alert": "EDR detection lag high",
+  "alertType": "METRIC_BASED_ALERT",
+  "description": "The 95th percentile of the time from the server receiving an event to detection finishing with it has stayed above 5 minutes for 10 minutes, so alerts are arriving late. The lag is measured on the server's clock, so an agent uploading events it buffered offline does not count as lag.",
+  "ruleType": "threshold_rule",
+  "condition": {
+    "compositeQuery": {
+      "queries": [
+        {
+          "type": "builder_query",
+          "spec": {
+            "name": "A",
+            "stepInterval": 60,
+            "signal": "metrics",
+            "source": "",
+            "aggregations": [
+              {
+                "metricName": "edr.detection.lag.bucket",
+                "temporality": "",
+                "timeAggregation": "",
+                "spaceAggregation": "p95"
+              }
+            ],
+            "disabled": false,
+            "filter": {
+              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+            },
+            "order": [
+              {
+                "key": {
+                  "name": "__result",
+                  "signal": "",
+                  "fieldContext": "",
+                  "fieldDataType": ""
+                },
+                "direction": "desc"
+              }
+            ],
+            "limit": 100,
+            "legend": ""
+          }
+        }
+      ],
+      "panelType": "graph",
+      "queryType": "builder"
+    },
+    "selectedQueryName": "A",
+    "thresholds": {
+      "kind": "basic",
+      "spec": [
+        {
+          "name": "error",
+          "target": 300,
+          "targetUnit": "s",
+          "recoveryTarget": null,
+          "matchType": "all_the_times",
+          "op": "above",
+          "channels": null
+        }
+      ]
+    }
+  },
+  "labels": {
+    "service": "fleet-edr-server",
+    "severity": "error",
+    "team": "edr"
+  },
+  "annotations": {
+    "description": "p95 of edr.detection.lag is above 5 minutes. Check edr.events.pending for a growing backlog, detection.batch.process spans for slow batches, and edr.detection.rule_evaluation.duration for a slow rule.",
+    "summary": "EDR detection is {{$value}} seconds behind at p95"
+  },
+  "disabled": false,
+  "version": "v5",
+  "evaluation": {
+    "kind": "rolling",
+    "spec": {
+      "evalWindow": "10m",
+      "frequency": "1m"
+    }
+  },
+  "schemaVersion": "v2alpha1",
+  "notificationSettings": {
+    "renotify": {
+      "enabled": true,
+      "interval": "1h",
+      "alertStates": ["firing"]
+    },
+    "usePolicy": true
+  }
+}

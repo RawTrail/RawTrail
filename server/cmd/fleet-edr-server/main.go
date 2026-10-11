@@ -58,6 +58,10 @@ func (g serverGaugeSource) OfflineHosts(ctx context.Context, threshold time.Dura
 	return g.detectionSvc.CountOfflineHosts(ctx, threshold)
 }
 
+func (g serverGaugeSource) PendingEvents(ctx context.Context) (int64, error) {
+	return g.detectionSvc.CountUnprocessed(ctx)
+}
+
 var (
 	version   = "dev"
 	commit    = "unknown"

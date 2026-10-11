@@ -288,6 +288,7 @@ type recordingMetrics struct {
 	processRowsDeleted       int64
 	alertRowsDeleted         int64
 	monitorRecordRowsDeleted int64
+	detectionLags            int
 }
 
 func (m *recordingMetrics) EventsSetAside(_ context.Context, hostID string, n int64) {
@@ -312,6 +313,11 @@ func (m *recordingMetrics) EventsIngested(_ context.Context, _ string, byType ma
 		m.eventsIngested += n
 		m.eventsIngestedByType[eventType] += n
 	}
+}
+func (m *recordingMetrics) DetectionLag(context.Context, time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.detectionLags++
 }
 func (m *recordingMetrics) EventsHeartbeatDropped(_ context.Context, _ string, n int) {
 	m.mu.Lock()
@@ -2036,6 +2042,12 @@ func TestSetMetrics_PropagatesToEngineAndIntake(t *testing.T) {
 	events, alerts, _ := rec.snapshot()
 	assert.Positive(t, events, "EventsIngested hook fired by intake")
 	assert.Positive(t, alerts, "AlertCreated fired by engine")
+	// The lag is recorded after the acknowledgement, which follows the alert, so it needs its own wait.
+	require.Eventually(t, func() bool {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		return rec.detectionLags > 0
+	}, 5*time.Second, 50*time.Millisecond, "DetectionLag fired by the processor once the batch was acknowledged")
 }
 
 // spec:observability-instrumentation/ingested-events-carry-a-bounded-event-type/ingested-events-are-counted-by-event-type

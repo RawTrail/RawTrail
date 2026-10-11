@@ -94,7 +94,8 @@ func TestSigNozAlertRules_WatchMetricsTheirServiceEmits(t *testing.T) {
 					if !strings.HasPrefix(aggregation.MetricName, "edr.") {
 						continue // a trace count, or a metric from the shared instrumentation (db.sql.*, http.server.*)
 					}
-					assert.Contains(t, serviceMetrics, aggregation.MetricName, "%s does not emit the metric this rule watches", service[1])
+					assert.Contains(t, serviceMetrics, histogramBase(aggregation.MetricName),
+						"%s does not emit the metric this rule watches", service[1])
 				}
 			}
 		})
@@ -102,6 +103,20 @@ func TestSigNozAlertRules_WatchMetricsTheirServiceEmits(t *testing.T) {
 }
 
 // emittedMetricNames collects every edr.* metric name written as a string literal under roots, outside tests.
+// histogramSeries are the suffixes SigNoz appends to an OTel histogram's name: a rule reads edr.detection.lag.bucket for a
+// percentile and edr.detection.lag.count for a rate, while the code registers edr.detection.lag.
+var histogramSeries = []string{".bucket", ".count", ".sum", ".min", ".max"}
+
+// histogramBase returns the registered name behind a SigNoz histogram series, or name unchanged when it carries no such suffix.
+func histogramBase(name string) string {
+	for _, suffix := range histogramSeries {
+		if base, ok := strings.CutSuffix(name, suffix); ok {
+			return base
+		}
+	}
+	return name
+}
+
 func emittedMetricNames(t *testing.T, repo fs.FS, roots []string) map[string]bool {
 	t.Helper()
 	names := make(map[string]bool)
