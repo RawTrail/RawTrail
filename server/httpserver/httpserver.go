@@ -125,9 +125,6 @@ func hstsHeader() func(http.Handler) http.Handler {
 	}
 }
 
-// xRequestIDEcho sets the X-Request-ID response header to the hex trace-id when a span is active, or to the inbound X-Request-ID
-// header when it is present and no span is running. This header is for humans (curl output, load balancer logs) and does not drive
-// correlation.
 // spanClientAddress overwrites the request span's client.address with the resolved client address. otelhttp fills it at span start
 // from the first X-Forwarded-For entry whenever the header is present, with no notion of a trusted proxy, so without this any client
 // chooses the address its span records. ClientIP believes a forwarded address only from a configured trusted proxy.
@@ -140,6 +137,9 @@ func spanClientAddress() func(http.Handler) http.Handler {
 	}
 }
 
+// xRequestIDEcho sets the X-Request-ID response header to the hex trace-id when a span is active, or to the inbound X-Request-ID
+// header when it is present and no span is running. This header is for humans (curl output, load balancer logs) and does not drive
+// correlation.
 func xRequestIDEcho() func(http.Handler) http.Handler {
 	const header = "X-Request-ID"
 	return func(next http.Handler) http.Handler {

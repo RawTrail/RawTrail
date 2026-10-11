@@ -466,8 +466,8 @@ func TestDefaultOIDCScopes(t *testing.T) {
 
 // TestLoad_TLSCertFailFast pins the fail-fast behaviour added in response to a CodeRabbit review on PR #182: bad cert paths
 // must surface during config.Load, before any caller mutates DB state (schema apply, admin seeding). Without this, a typoed
-// EDR_TLS_CERT_FILE used to escape Config validation and only failed inside configureTLS, long after the first-boot admin
-// password had been printed to the log.
+// EDR_TLS_CERT_FILE used to escape Config validation and only failed when the HTTP server loaded the keypair, long after the
+// first-boot admin password had been printed to the log.
 func TestLoad_TLSCertFailFast(t *testing.T) {
 	t.Parallel()
 	certFile, keyFile := writeTestCert(t)
