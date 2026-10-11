@@ -86,9 +86,11 @@ export default defineConfig([
     // logic, which is exactly the path that put a CSRF regression
     // into auth.ts's break-glass surface. api.ts itself is the
     // single canonical site, so it's the only file allowed to
-    // mention the literal.
+    // mention the literal. Tests are exempt: they pin the header the
+    // server actually reads, and an expectation derived by calling
+    // attachCsrfHeader passes whatever that function sends.
     files: ["src/**/*.{ts,tsx}"],
-    ignores: ["src/api.ts"],
+    ignores: ["src/api.ts", "src/**/*.{test,spec}.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [
         "error",
