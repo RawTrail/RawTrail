@@ -224,13 +224,15 @@ func (h *Handler) handleIngest(w http.ResponseWriter, r *http.Request) {
 	// event_id (ReplacingMergeTree on the archive, INSERT IGNORE on the queue), so the agent's retry of a 200-less batch is safe. We
 	// return 200 only after BOTH succeed.
 	if err := h.eventArchive.Insert(ctx, toStore); err != nil {
-		h.logger.ErrorContext(ctx, "archive insert error", "err", err)
-		writeErr(ctx, h.logger, w, http.StatusInternalServerError, "internal")
+		if !h.logStoreFailure(ctx, "archive insert error", err) {
+			writeErr(ctx, h.logger, w, http.StatusInternalServerError, "internal")
+		}
 		return
 	}
 	if err := h.eventLog.Append(ctx, toStore); err != nil {
-		h.logger.ErrorContext(ctx, "eventlog append error", "err", err)
-		writeErr(ctx, h.logger, w, http.StatusInternalServerError, "internal")
+		if !h.logStoreFailure(ctx, "eventlog append error", err) {
+			writeErr(ctx, h.logger, w, http.StatusInternalServerError, "internal")
+		}
 		return
 	}
 
@@ -248,14 +250,14 @@ func (h *Handler) handleIngest(w http.ResponseWriter, r *http.Request) {
 	// here is re-applied by the next one, well within the 6h TTL. Never fail the batch over a liveness bump.
 	if len(heartbeats) > 0 {
 		if err := h.store.BumpSnapshotLastSeenBatch(ctx, pinnedHostID, heartbeats); err != nil {
-			h.logger.ErrorContext(ctx, "heartbeat freshness bump", "err", err)
+			h.logStoreFailure(ctx, "heartbeat freshness bump", err)
 		}
 	}
 
 	// UpsertHosts sees the full batch (heartbeats included) so per-host last_seen / event_count advance for a near-idle host whose
 	// only traffic is heartbeats, exactly as before this change.
 	if err := h.store.UpsertHosts(ctx, events); err != nil {
-		h.logger.ErrorContext(ctx, "upsert hosts", "err", err)
+		h.logStoreFailure(ctx, "upsert hosts", err)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -470,6 +472,19 @@ func (h *Handler) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		UptimeSeconds: int64(time.Since(h.startTime).Seconds()),
 		Checks:        checks,
 	})
+}
+
+// logStoreFailure logs a failed ingest write at ERROR and reports false, except a write the agent's own disconnect cancelled, which it
+// logs at INFO and reports true (issue #1291). That one is not a server fault: the batch was not acknowledged, so the agent still
+// holds it in its durable queue and sends it again, and nobody is left to read a response, so the caller writes none. A cancellation
+// while the request is still live is not a disconnect and stays an ERROR.
+func (h *Handler) logStoreFailure(ctx context.Context, msg string, err error) (clientGone bool) {
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		h.logger.InfoContext(ctx, msg+": the agent disconnected, so it will resend the batch", "err", err)
+		return true
+	}
+	h.logger.ErrorContext(ctx, msg, "err", err)
+	return false
 }
 
 func writeErr(ctx context.Context, logger *slog.Logger, w http.ResponseWriter, status int, code string) {

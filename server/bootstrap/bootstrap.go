@@ -114,8 +114,8 @@ func Init(opts Options) (context.Context, *Env, error) {
 	}, nil
 }
 
-// Start is the prelude both HTTP binaries share: Init, the start line, and the MySQL pool. The returned stop func closes the pool,
-// cancels ctx and flushes OTel, in that order; the caller defers it as soon as Start returns a nil error. On error, whatever Start
+// Start is the prelude both HTTP binaries share: Init, the start line, and the MySQL pool. The returned stop func cancels ctx,
+// flushes OTel and closes the pool, in that order; the caller defers it as soon as Start returns a nil error. On error, whatever Start
 // had already set up is torn down before it returns, so the caller only has to return the error.
 func Start(opts Options) (context.Context, *Env, *sqlx.DB, func(), error) {
 	ctx, env, err := Init(opts)
@@ -145,10 +145,13 @@ func startAfterInit(ctx context.Context, env *Env, opts Options) (*sqlx.DB, func
 		env.FlushOTel()
 		return nil, nil, err
 	}
+	// The flush comes before the close: shutting OTel down collects every observable gauge one last time, and three of them count rows
+	// in MySQL, so a closed pool would lose their final export and log a WARN for each (issue #1274). The cancel stays ahead of the flush so
+	// what the shutdown logs is still exported; the gauges are collected under the flush's own context, not ctx.
 	stop := func() {
-		_ = db.Close()
 		env.Cancel()
 		env.FlushOTel()
+		_ = db.Close()
 	}
 	return db, stop, nil
 }
