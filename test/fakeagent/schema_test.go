@@ -217,6 +217,45 @@ func TestEventSchema_LineageFields(t *testing.T) {
 	}
 }
 
+// TestEventSchema_AgentSessionEnv pins the agent session markers on the exec payload (issue #1278): the allowlisted names validate,
+// and any other name, a non-string value, an empty object or an oversized value is refused. The schema is the published contract
+// that the extension sends nothing but the allowlist.
+//
+// spec:endpoint-event-collection/agent-session-markers-capture/a-credential-never-leaves-the-host
+func TestEventSchema_AgentSessionEnv(t *testing.T) {
+	t.Parallel()
+	sch := compileEnvelopeSchema(t)
+
+	const execBase = `{"pid":4242,"ppid":2736,"path":"/bin/zsh","args":["/bin/zsh","-c","ls"],"cwd":"/Users/dev/project","uid":501,"gid":20,"env":`
+	const markers = `{"CLAUDE_CODE_SESSION_ID":"0b7c8e5e-3f4a-4c1e-9d2b-6a1f2e3d4c5b","CLAUDE_PID":"2736","CLAUDECODE":"1",` +
+		`"CLAUDE_CODE_CHILD_SESSION":"1","CLAUDE_CODE_ENTRYPOINT":"cli","CLAUDE_CODE_SESSION_ATTENDED":"1","AI_AGENT":"claude-code_2-1-296_agent"}`
+
+	cases := []struct {
+		name string
+		env  string
+		want string // empty means the payload must validate
+	}{
+		{name: "every allowlisted marker", env: markers},
+		{name: "messaging token", env: `{"CLAUDECODE":"1","CLAUDE_CODE_MESSAGING_TOKEN":"secret"}`, want: "CLAUDE_CODE_MESSAGING_TOKEN"},
+		{name: "prefix of an allowlisted name", env: `{"CLAUDE_CODE_SESSION":"x"}`, want: "CLAUDE_CODE_SESSION"},
+		{name: "numeric value", env: `{"CLAUDE_PID":2736}`, want: "CLAUDE_PID"},
+		{name: "empty object", env: `{}`, want: "env"},
+		{name: "value over the cap", env: `{"AI_AGENT":"` + strings.Repeat("a", 257) + `"}`, want: "AI_AGENT"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateEnvelope(t, sch, envelopeJSON(t, "exec", execBase+tc.env+"}"))
+			if tc.want == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
 // TestEventSchema_ShippedScenarioEnvelopesValidate runs the envelopes this package actually emits through the schema. The fixtures
 // above pin the contract; this pins the emitter to it, which is the half that catches drift introduced by a change to buildPayload
 // rather than to the schema.

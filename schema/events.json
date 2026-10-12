@@ -152,6 +152,11 @@
         "instigator_code_signing": { "$ref": "#/definitions/code_signing" }
       }
     },
+    "agent_session_env_value": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "An agent session marker's value. The extension drops a value longer than 256 UTF-8 bytes rather than truncate it. maxLength counts characters, so it is the looser bound a schema can express; the byte cap is the extension's."
+    },
     "exec_payload": {
       "type": "object",
       "required": ["pid", "ppid", "path", "args", "cwd", "uid", "gid"],
@@ -181,6 +186,13 @@
         "group_id": { "type": "integer", "description": "Optional. POSIX process group id. Survives daemonizing by double fork, nohup, or disown; replaced by setsid." },
         "tty": { "type": "string", "description": "Optional. Controlling terminal device path. Absent when the process has no controlling terminal." },
         "start_time_ns": { "type": "integer", "minimum": 0, "description": "Optional. When the process was created (its fork), in Unix nanoseconds. Unchanged by exec. Startup snapshot rows carry it from the process table." },
+        "env": {
+          "type": "object",
+          "description": "Optional. AI agent session markers from the process's environment. Only the variables listed here are ever sent, matched on the full name: the rest of the environment holds credentials and never leaves the host. CLAUDE_CODE_SESSION_ID equals the name of the Claude Code session's transcript file. Absent when the process carries no marker.",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": { "CLAUDE_CODE_SESSION_ID": { "$ref": "#/definitions/agent_session_env_value" }, "CLAUDE_PID": { "$ref": "#/definitions/agent_session_env_value" }, "CLAUDECODE": { "$ref": "#/definitions/agent_session_env_value" }, "CLAUDE_CODE_CHILD_SESSION": { "$ref": "#/definitions/agent_session_env_value" }, "CLAUDE_CODE_ENTRYPOINT": { "$ref": "#/definitions/agent_session_env_value" }, "CLAUDE_CODE_SESSION_ATTENDED": { "$ref": "#/definitions/agent_session_env_value" }, "AI_AGENT": { "$ref": "#/definitions/agent_session_env_value" } }
+        },
         "create_time_ns": {
           "type": "integer",
           "minimum": 0,

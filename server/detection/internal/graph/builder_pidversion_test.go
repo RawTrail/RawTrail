@@ -69,3 +69,31 @@ func TestExecForkPayload_PIDVersionRoundTrip(t *testing.T) {
 		assert.Equal(rt, in.PIDVersion, out.PIDVersion)
 	})
 }
+
+// TestExecPayload_AgentSessionEnvRoundTrip pins the agent session markers (issue #1278) on the server's exec payload: any marker
+// map round-trips exactly, and an absent one stays absent rather than becoming an empty object.
+//
+// spec:endpoint-event-collection/agent-session-markers-capture/a-process-without-markers-keeps-its-shape
+func TestExecPayload_AgentSessionEnvRoundTrip(t *testing.T) {
+	t.Parallel()
+	names := []string{
+		"CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
+		"CLAUDE_CODE_SESSION_ATTENDED", "AI_AGENT",
+	}
+	rapid.Check(t, func(rt *rapid.T) {
+		in := execPayload{PID: rapid.IntRange(1, 1<<20).Draw(rt, "pid"), Path: "/bin/zsh"}
+		if rapid.Bool().Draw(rt, "has_env") {
+			in.Env = rapid.MapOfN(rapid.SampledFrom(names), rapid.StringN(0, 256, -1), 1, len(names)).Draw(rt, "env")
+		}
+		b, err := json.Marshal(in)
+		require.NoError(rt, err)
+		if in.Env == nil {
+			assert.NotContains(rt, string(b), `"env"`)
+		} else {
+			assert.Contains(rt, string(b), `"env":{`)
+		}
+		var out execPayload
+		require.NoError(rt, json.Unmarshal(b, &out))
+		assert.Equal(rt, in, out)
+	})
+}

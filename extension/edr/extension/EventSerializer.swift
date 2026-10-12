@@ -40,6 +40,10 @@ struct ExecPayload: Codable, Sendable {
     let pidVersion: UInt32?
     /// Lineage identity, encoded flat beside the fields above (issue #1277).
     let lineage: ProcessLineage
+    /// AI agent session markers from the process's environment, only the names in `agentSessionEnvAllowlist` (issue #1278).
+    /// The full environment holds credentials and is never sent. The encoder omits the key when the process carries no
+    /// marker, which is the common case.
+    let env: [String: String]?
     /// True only for synthetic exec events emitted by the ESF startup snapshot pass
     /// (issue #11). The custom encoder below OMITS the key entirely when false, so
     /// the wire shape for live execs stays byte-identical to the pre-#11 format.
@@ -54,6 +58,7 @@ struct ExecPayload: Codable, Sendable {
         case sha256
         case cdhash
         case pidVersion = "pidversion"
+        case env
         case snapshot
     }
 
@@ -63,6 +68,7 @@ struct ExecPayload: Codable, Sendable {
         cdhash: String? = nil,
         pidVersion: UInt32? = nil,
         lineage: ProcessLineage = ProcessLineage(),
+        env: [String: String]? = nil,
         snapshot: Bool = false
     ) {
         self.pid = pid
@@ -77,6 +83,7 @@ struct ExecPayload: Codable, Sendable {
         self.cdhash = cdhash
         self.pidVersion = pidVersion
         self.lineage = lineage
+        self.env = env
         self.snapshot = snapshot
     }
 
@@ -97,6 +104,7 @@ struct ExecPayload: Codable, Sendable {
         cdhash = try container.decodeIfPresent(String.self, forKey: .cdhash)
         pidVersion = try container.decodeIfPresent(UInt32.self, forKey: .pidVersion)
         lineage = try ProcessLineage(from: decoder)
+        env = try container.decodeIfPresent([String: String].self, forKey: .env)
         snapshot = try container.decodeIfPresent(Bool.self, forKey: .snapshot) ?? false
     }
 
@@ -115,6 +123,7 @@ struct ExecPayload: Codable, Sendable {
         try container.encodeIfPresent(pidVersion, forKey: .pidVersion)
         // Same encoder, so the lineage keys land in this payload's object rather than a nested one.
         try lineage.encode(to: encoder)
+        try container.encodeIfPresent(env, forKey: .env)
         // Only emit snapshot when true: keeps the live-exec wire shape stable
         // and avoids tripping the server detection-engine bytes.Contains gate
         // on a `"snapshot":false` payload (false events would correctly be
