@@ -221,6 +221,15 @@ paths:
                 $ref: "#/components/schemas/SessionResponse"
         "401":
           description: Not logged in
+        "403":
+          description: |
+            The request carried a service-account bearer token. This route
+            needs a browser session cookie; the body's `error` is
+            `session_required`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     delete:
       tags: [Session]
       summary: Log out

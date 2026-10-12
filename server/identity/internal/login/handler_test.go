@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -127,6 +128,56 @@ func TestGet_MissingCookieReturns401(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+}
+
+// bearerAuth stands in for the service-account authenticator: every bearer token resolves to one service-account actor.
+type bearerAuth struct{}
+
+func (bearerAuth) Authenticate(string, time.Time) (*api.Actor, bool) {
+	return &api.Actor{Principal: api.ServiceAccountPrincipal(7, "ci-bot")}, true
+}
+
+// TestGet_WithoutSession covers the two ways GET /api/session can run with no session on the context: a caller with a valid
+// service-account token (its fault, 403) and a mount that skipped the auth middleware (ours, 500).
+func TestGet_WithoutSession(t *testing.T) {
+	t.Parallel()
+	db := testdb.Open(t)
+	require.NoError(t, testkit.ApplySchema(t.Context(), db))
+	svc := service.New(users.New(db), sessions.New(db, sessions.Options{}), rbac.New(db), nil, slog.Default())
+	h := login.New(svc, login.Options{Logger: slog.Default()})
+	authed := http.NewServeMux()
+	h.RegisterAuthedRoutes(authed)
+	sessionMW := middleware.Session(svc, slog.Default())
+	csrfMW := middleware.CSRF(slog.Default())
+
+	cases := []struct {
+		name     string
+		handler  http.Handler
+		wantCode int
+		wantErr  string
+	}{
+		// spec:ui-authentication-session/the-session-probe-refuses-a-service-account-token/service-account-token-on-the-session-probe
+		{"service-account bearer token", middleware.APIAuth(bearerAuth{}, sessionMW, csrfMW, slog.Default())(authed),
+			http.StatusForbidden, "session_required"},
+		{"route mounted without auth middleware", authed, http.StatusInternalServerError, "session_misconfigured"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(tc.handler)
+			t.Cleanup(srv.Close)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/api/session", nil)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer service-account-access-token")
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			assert.Equal(t, tc.wantCode, resp.StatusCode)
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			assert.Equal(t, map[string]any{"error": tc.wantErr}, body, "no session, CSRF token or permission set is returned")
+		})
+	}
 }
 
 // spec:ui-authentication-session/logout-invalidates-the-session-and-clears-the-cookie/logout-while-logged-in
