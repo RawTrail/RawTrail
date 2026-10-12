@@ -68,6 +68,33 @@ func TestBuildForest_LinksByCreator(t *testing.T) {
 			parent: 30,
 		},
 		{
+			name: "an identity held by a process that exited before the fork falls back to the newest row holding the pid",
+			page: []api.Process{
+				{ID: 5, PID: 500, PPID: 1, ForkTimeNs: 50, ExitTimeNs: new(int64(60)), PIDVersion: new(uint32(7301))},
+				reuser,
+			},
+			child:  api.Process{ID: 20, PID: 600, PPID: 500, ForkTimeNs: 950, ParentPIDVersion: new(uint32(7301))},
+			parent: 30,
+		},
+		{
+			name: "of two rows sharing an identity across a reboot, the one alive at the fork",
+			page: []api.Process{
+				creator,
+				{ID: 40, PID: 500, PPID: 1, ForkTimeNs: 2000, PIDVersion: new(uint32(7301))},
+			},
+			child:  api.Process{ID: 20, PID: 600, PPID: 500, ForkTimeNs: 950, ParentPIDVersion: new(uint32(7301))},
+			parent: 10,
+		},
+		{
+			name: "of two open rows sharing an identity, the later fork",
+			page: []api.Process{
+				creator,
+				{ID: 45, PID: 500, PPID: 1, ForkTimeNs: 800, PIDVersion: new(uint32(7301))},
+			},
+			child:  api.Process{ID: 20, PID: 600, PPID: 500, ForkTimeNs: 950, ParentPIDVersion: new(uint32(7301))},
+			parent: 45,
+		},
+		{
 			name:   "a row without lineage keeps the newest row holding the pid",
 			page:   []api.Process{creator, reuser},
 			child:  api.Process{ID: 20, PID: 600, PPID: 500, ForkTimeNs: 950},
@@ -94,7 +121,8 @@ func TestBuildForest_LinksByCreator(t *testing.T) {
 // named, or at the top when that row is not on the page. The page draws pid reuse freely, with a decoy ppid on every linked row, so
 // the newest-row-per-number rule would answer differently whenever it got the chance.
 //
-// Links point at lower ids, as the graph builder's do: a creator's row exists before the link to it is resolved.
+// Links point at lower ids that forked earlier, as the graph builder's do: a creator's row exists, and had forked, before the link to
+// it is resolved.
 func TestBuildForest_ExactEdgesProperty(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(rt *rapid.T) {
@@ -105,7 +133,7 @@ func TestBuildForest_ExactEdgesProperty(t *testing.T) {
 			id := int64(i + 1)
 			is := strconv.Itoa(i)
 			p := api.Process{
-				ID: id, PID: rapid.IntRange(500, 504).Draw(rt, "pid"+is), ForkTimeNs: rapid.Int64Range(0, 1000).Draw(rt, "fork"+is),
+				ID: id, PID: rapid.IntRange(500, 504).Draw(rt, "pid"+is), ForkTimeNs: int64(i) * 10,
 				PIDVersion: new(uint32(7000 + i)),
 			}
 			switch kind := rapid.SampledFrom([]string{"creator", "off-page", "identity", "root"}).Draw(rt, "kind"+is); {

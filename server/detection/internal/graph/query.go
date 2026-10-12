@@ -181,12 +181,22 @@ func (q *Query) withPinnedChain(
 	return procs, resolved, nil
 }
 
-// parentProcess returns the row cur's parent edge names. The creator row the graph builder resolved is read by id (issue #1280), and
-// nil when retention has pruned it, which makes cur the top of the chain rather than an invitation to guess by number. A row without
-// one falls back to the generation of ppid running at cur's fork.
+// parentProcess returns the row cur's parent edge names, by the same evidence buildForest uses (issue #1280). The creator row the
+// graph builder resolved is read by id, and is nil when retention has pruned it, which makes cur the top of the chain rather than an
+// invitation to guess by number. Without one, the exact (ppid, parent_pidversion) is taken when that row had forked by cur's fork and
+// was alive then; otherwise the generation of ppid running at cur's fork.
 func (q *Query) parentProcess(ctx context.Context, hostID string, cur *api.Process) (*api.Process, error) {
 	if cur.ParentProcessID != nil {
 		return q.store.GetProcessByID(ctx, hostID, *cur.ParentProcessID)
+	}
+	if cur.ParentPIDVersion != nil {
+		exact, err := q.store.GetProcessByPIDVersion(ctx, hostID, cur.PPID, *cur.ParentPIDVersion, cur.ForkTimeNs)
+		if err != nil {
+			return nil, err
+		}
+		if exact != nil && exact.ForkTimeNs <= cur.ForkTimeNs && aliveAt(*exact, cur.ForkTimeNs) {
+			return exact, nil
+		}
 	}
 	return q.store.GetProcessByPID(ctx, hostID, cur.PPID, cur.ForkTimeNs)
 }
@@ -446,12 +456,12 @@ func buildForest(procs []api.Process, resolved map[int64]int64) []api.ProcessNod
 }
 
 // forestIndex holds the lookup tables buildForest needs: nodes keyed by the unique Process.ID (so PID reuse within a time range doesn't
-// collapse rows), and the latest-forked row per OS PID and per (PID, kernel generation), so the parent lookup finds the current
-// generation rather than a historical one with the same number.
+// collapse rows), the latest-forked row per OS PID, so the parent lookup by number finds the current generation rather than a
+// historical one, and every row per (PID, kernel generation), which a page spanning a reboot can hold more than once.
 type forestIndex struct {
 	nodes      map[int64]*api.ProcessNode
-	byPID      map[int]int64
-	byIdentity map[pidIdentity]int64
+	byPID      map[int]*api.Process
+	byIdentity map[pidIdentity][]*api.Process
 }
 
 // pidIdentity is a process as the kernel names it within one boot: its pid and generation.
@@ -464,38 +474,48 @@ type pidIdentity struct {
 func indexProcesses(procs []api.Process) forestIndex {
 	idx := forestIndex{
 		nodes:      make(map[int64]*api.ProcessNode, len(procs)),
-		byPID:      make(map[int]int64, len(procs)),
-		byIdentity: make(map[pidIdentity]int64, len(procs)),
+		byPID:      make(map[int]*api.Process, len(procs)),
+		byIdentity: make(map[pidIdentity][]*api.Process, len(procs)),
 	}
 	for i := range procs {
 		p := &procs[i]
 		idx.nodes[p.ID] = &api.ProcessNode{Process: *p}
-		keepLatestFork(idx.nodes, idx.byPID, p.PID, p)
+		if existing, ok := idx.byPID[p.PID]; !ok || p.ForkTimeNs > existing.ForkTimeNs {
+			idx.byPID[p.PID] = p
+		}
 		if p.PIDVersion != nil {
-			keepLatestFork(idx.nodes, idx.byIdentity, pidIdentity{pid: p.PID, pidversion: *p.PIDVersion}, p)
+			key := pidIdentity{pid: p.PID, pidversion: *p.PIDVersion}
+			idx.byIdentity[key] = append(idx.byIdentity[key], p)
 		}
 	}
 	return idx
 }
 
-// keepLatestFork points key at p unless it already names a row that forked at or after p.
-func keepLatestFork[K comparable](nodes map[int64]*api.ProcessNode, latest map[K]int64, key K, p *api.Process) {
-	existing, ok := latest[key]
-	if !ok {
-		latest[key] = p.ID
-		return
+// byExactIdentity returns the row holding (pid, pidversion) that had forked by atNs and was alive then, the latest such fork, which is
+// the bound the graph builder's ResolveParent applies. pidversion restarts at each boot, so the identity alone can name a process
+// from another boot on the same page.
+func (idx forestIndex) byExactIdentity(key pidIdentity, atNs int64) (int64, bool) {
+	var best *api.Process
+	for _, p := range idx.byIdentity[key] {
+		if p.ForkTimeNs > atNs || !aliveAt(*p, atNs) {
+			continue
+		}
+		if best == nil || p.ForkTimeNs > best.ForkTimeNs {
+			best = p
+		}
 	}
-	if prev, prevOK := nodes[existing]; prevOK && p.ForkTimeNs > prev.ForkTimeNs {
-		latest[key] = p.ID
+	if best == nil {
+		return 0, false
 	}
+	return best.ID, true
 }
 
 // parentRowOf returns the row id p's parent edge points at, strongest evidence first (issue #1280):
 //
 //  1. The creator row the graph builder resolved, parent_process_id. When that row is not on the page the process is a root here,
 //     never matched by number instead: the number may name a later process that reused it.
-//  2. The exact (ppid, parent_pidversion) on the page, for a link the builder could not resolve because the parent's row arrived
-//     after the child's.
+//  2. The exact (ppid, parent_pidversion) on the page, bounded as byExactIdentity says, for a link the builder could not resolve
+//     because the parent's row arrived after the child's.
 //  3. The latest row holding ppid, the only evidence an older agent's rows carry.
 //
 // The returned id may not be on the page; buildForest then makes p a root.
@@ -504,12 +524,14 @@ func (idx forestIndex) parentRowOf(p *api.Process) (int64, bool) {
 		return *p.ParentProcessID, true
 	}
 	if p.ParentPIDVersion != nil {
-		if id, ok := idx.byIdentity[pidIdentity{pid: p.PPID, pidversion: *p.ParentPIDVersion}]; ok {
+		if id, ok := idx.byExactIdentity(pidIdentity{pid: p.PPID, pidversion: *p.ParentPIDVersion}, p.ForkTimeNs); ok {
 			return id, true
 		}
 	}
-	id, ok := idx.byPID[p.PPID]
-	return id, ok
+	if parent, ok := idx.byPID[p.PPID]; ok {
+		return parent.ID, true
+	}
+	return 0, false
 }
 
 // aggregateSiblings collapses repeated identical-path leaf siblings under each parent into a single aggregated node (issue #416),

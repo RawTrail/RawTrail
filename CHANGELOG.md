@@ -19,6 +19,7 @@ Notable changes to Fleet EDR, newest first. This project follows [Semantic Versi
 
 ### Fixed
 
+- **The process tree no longer misplaces a process whose parent's pid was reused.** The server now records which process created each one, so a child appears under its real parent rather than a later process with the same pid, and a daemon stays under the process that launched it after launchd adopts it. This needs an agent from this release; older agents' processes are placed as before.
 - **Routine events no longer log as faults.** A clean server stop no longer logs three gauge warnings and now exports their final values. An agent that disconnects mid-upload, as on a restart or sleep, is logged at INFO rather than ERROR; the agent resends the batch.
 
 ## [0.7.0] (2026-10-05)

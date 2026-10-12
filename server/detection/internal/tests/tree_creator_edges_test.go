@@ -56,6 +56,13 @@ func creatorRows(t *testing.T, store *mysql.Store, host string) map[string]int64
 	insert("python3", api.Process{PID: 500, PPID: 1, Path: "/usr/bin/python3", ForkTimeNs: 1600, PIDVersion: new(uint32(7351))}, "")
 	insert("child", api.Process{PID: 600, PPID: 500, Path: "/bin/ls", ForkTimeNs: 1650, PIDVersion: new(uint32(7360)),
 		ParentPIDVersion: new(uint32(7301))}, "zsh")
+	// A child of zsh whose fork the builder could not link, because zsh's row arrived after it, names zsh by generation alone.
+	insert("unlinked", api.Process{PID: 610, PPID: 500, Path: "/bin/cat", ForkTimeNs: 1660, ParentPIDVersion: new(uint32(7301))}, "")
+	// pid 700 ran /usr/sbin/old from 100; a later boot's process holds 700 with generation 9000 from 5000. A child forked at 1000
+	// names 9000, which no process alive at its fork held.
+	insert("old700", api.Process{PID: 700, PPID: 1, Path: "/usr/sbin/old", ForkTimeNs: 100, PIDVersion: new(uint32(8000))}, "")
+	insert("later700", api.Process{PID: 700, PPID: 1, Path: "/usr/sbin/later", ForkTimeNs: 5000, PIDVersion: new(uint32(9000))}, "")
+	insert("stale", api.Process{PID: 710, PPID: 700, Path: "/bin/echo", ForkTimeNs: 1000, ParentPIDVersion: new(uint32(9000))}, "")
 	insert("bash", api.Process{PID: 4600, PPID: 1, Path: "/bin/bash", ForkTimeNs: 2000}, "")
 	insert("subshell", api.Process{PID: 4650, PPID: 4600, Path: "/bin/bash", ForkTimeNs: 2010, ExitTimeNs: exited(2030)}, "bash")
 	daemon := api.Process{PID: 4700, PPID: 4650, Path: "/bin/sleep", ForkTimeNs: 2020}
@@ -82,6 +89,7 @@ func TestTreeCreatorEdges_ForestAndAncestorWalk(t *testing.T) {
 		require.NoError(t, err)
 		parents := treeParents(tree.Roots)
 		assert.Equal(t, ids["zsh"], parents[ids["child"]], "not python3, the newest row holding pid 500")
+		assert.Equal(t, ids["zsh"], parents[ids["unlinked"]], "by its exact generation")
 		assert.Equal(t, ids["subshell"], parents[ids["daemon"]], "not the process that reused pid 4650")
 		assert.Equal(t, ids["bash"], parents[ids["subshell"]])
 	})
@@ -95,6 +103,16 @@ func TestTreeCreatorEdges_ForestAndAncestorWalk(t *testing.T) {
 		assert.Equal(t, ids["zsh"], parents[ids["child"]], "the walk reads the creator by id, not pid 500 at the child's fork")
 		_, python3Read := parents[ids["python3"]]
 		assert.False(t, python3Read, "python3 is not on the chain")
+
+		unlinkedTree, err := q.BuildTree(t.Context(), host, creatorWindow, 1, true, ids["unlinked"])
+		require.NoError(t, err)
+		assert.Equal(t, ids["zsh"], treeParents(unlinkedTree.Roots)[ids["unlinked"]],
+			"without a creator link the walk takes the exact generation, not pid 500 at the fork")
+
+		staleTree, err := q.BuildTree(t.Context(), host, creatorWindow, 1, true, ids["stale"])
+		require.NoError(t, err)
+		assert.NotEqual(t, ids["later700"], treeParents(staleTree.Roots)[ids["stale"]],
+			"a generation held only by a process that forked after the child is not its parent")
 
 		daemonTree, err := q.BuildTree(t.Context(), host, creatorWindow, 1, true, ids["daemon"])
 		require.NoError(t, err)

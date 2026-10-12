@@ -2,7 +2,7 @@
 
 ### Requirement: Process forest links by creator
 
-The process forest SHALL link a process to its creator row, and SHALL return it as a root when that row is not in the result. A process without one SHALL link to the row in the result with its exact `(ppid, parent_pidversion)`, else to the newest row holding its `ppid`. A pinned process's ancestor walk SHALL follow creator rows, ending where one is not stored. A chain's descendants SHALL exclude a child whose creator row is another process.
+The process forest SHALL link a process to its creator row, and SHALL return it as a root when that row is not in the result. A process without one SHALL link to the row in the result with its exact `(ppid, parent_pidversion)` that was alive at its fork, else to the newest row holding its `ppid`. A pinned process's ancestor walk SHALL follow the same evidence, ending where a creator is not stored. A chain's descendants SHALL exclude a child whose creator row is another process.
 
 #### Scenario: The creator row beats a reused pid
 
@@ -21,6 +21,7 @@ The process forest SHALL link a process to its creator row, and SHALL return it 
 - **GIVEN** a process with no creator row whose `(ppid, parent_pidversion)` names a row in the result, and a later process holding that pid
 - **WHEN** the forest is built
 - **THEN** the process hangs under the row of that generation
+- **AND** a row holding that identity that forked after the process, or had exited before it, is not its parent
 
 #### Scenario: The ancestor walk follows creators through a double fork
 
