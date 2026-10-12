@@ -4,7 +4,7 @@ The process tree infers a parent from `ppid` plus time, which misattributes unde
 
 This change stores those fields. Resolving `parent_process_id` from them, binding exits by `pidversion`, and reading the tree by exact edges follow in later PRs of #1280.
 
-## What Changes
+## What changes
 
 - Migration 00018 adds `parent_process_id`, `parent_pidversion`, `original_ppid`, `responsible_pid`, `responsible_pidversion`, `session_id`, `group_id`, `tty`, `start_time_ns`, `cwd` and `reparented` to `processes`, as one instant ALTER.
 - A forked row stores the fork's `parent_pidversion`. An exec stores its lineage on the row it images and marks `reparented` when launchd adopted the process. An exec never changes the row's `ppid` or `parent_pidversion`, because it names the current parent, not the creator.
