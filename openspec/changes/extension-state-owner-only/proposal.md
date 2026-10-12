@@ -4,8 +4,8 @@ The extensions persist the documents pushed to them under `/var/db/com.fleetdm.e
 
 ## What Changes
 
-- The state directory is owner-only (0700) and each persisted file is owner-only (0600). Only root reads them: both extensions and the agent run as root.
-- A directory left open by an earlier install is tightened by the next write. That step is best effort, because a failed write would lose the document across a restart while a listable directory exposes only file names. The file mode is not best effort.
+- Each document is written to a temporary file created owner-only (0600), flushed, and renamed over the destination, so it is never readable by another user, even for a moment. The state directory is owner-only (0700). Only root reads them: both extensions and the agent run as root.
+- A directory left open by an earlier install is tightened by the next write, so older files beside it stop being readable. That step is best effort, because failing the write over it would lose the document across a restart, and the document itself is already protected.
 
 ## Impact
 
