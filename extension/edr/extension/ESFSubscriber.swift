@@ -377,13 +377,15 @@ final class ESFSubscriber: Sendable {
             ppid: ppid,
             path: path,
             args: args,
-            cwd: "", // es_process_t has no cwd member on macOS 26 SDK
+            // The working directory is on the exec event itself, not on es_process_t.
+            cwd: esTokenString(exec.cwd.pointee.path),
             uid: uid,
             gid: gid,
             codeSigning: codeSigning,
             sha256: sha256,
             cdhash: cdhash,
-            pidVersion: pidVersion
+            pidVersion: pidVersion,
+            lineage: processLineage(of: target, parent: process.parent_audit_token)
         )
 
         if let data = serializer.serialize(eventType: "exec", payload: payload, kernelTimeNs: kernelEventTimeNs(msg.time)) {
@@ -397,8 +399,12 @@ final class ESFSubscriber: Sendable {
         let parentPid = audit_token_to_pid(msg.process.pointee.audit_token)
         // Child's kernel PID generation, stored on the new generation for identity-based flow correlation (issue #403).
         let childPidVersion = UInt32(bitPattern: audit_token_to_pidversion(msg.event.fork.child.pointee.audit_token))
+        // The forking process's own generation: the exact creator, which later reparenting of the child cannot change (#1277).
+        let parentPidVersion = UInt32(bitPattern: audit_token_to_pidversion(msg.process.pointee.audit_token))
 
-        let payload = ForkPayload(childPid: childPid, parentPid: parentPid, pidVersion: childPidVersion)
+        let payload = ForkPayload(
+            childPid: childPid, parentPid: parentPid, pidVersion: childPidVersion, parentPidVersion: parentPidVersion
+        )
 
         if let data = serializer.serialize(eventType: "fork", payload: payload, kernelTimeNs: kernelEventTimeNs(msg.time)) {
             logger.debug("fork parent=\(parentPid) child=\(childPid)")
@@ -416,6 +422,21 @@ final class ESFSubscriber: Sendable {
             logger.debug("exit pid=\(pid) code=\(exitCode)")
             onEvent?(data)
         }
+    }
+
+    /// Reads the exec target's lineage identity (issue #1277). `parent` is the audit token the payload's `ppid` came from, so
+    /// `parent_pidversion` always describes the same process as `ppid`.
+    private func processLineage(of target: es_process_t, parent: audit_token_t) -> ProcessLineage {
+        ProcessLineage(
+            originalPpid: target.original_ppid,
+            parentPidVersion: UInt32(bitPattern: audit_token_to_pidversion(parent)),
+            responsiblePid: audit_token_to_pid(target.responsible_audit_token),
+            responsiblePidVersion: UInt32(bitPattern: audit_token_to_pidversion(target.responsible_audit_token)),
+            sessionID: target.session_id,
+            groupID: target.group_id,
+            tty: target.tty.map { esTokenString($0.pointee.path) },
+            startTimeNs: unixNanoseconds(target.start_time)
+        )
     }
 
     private func extractArgs(from exec: inout es_event_exec_t) -> [String] {

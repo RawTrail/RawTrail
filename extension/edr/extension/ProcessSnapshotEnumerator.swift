@@ -67,6 +67,9 @@ enum ProcessSnapshotEnumerator {
                 gid: info.gid,
                 codeSigning: SnapshotSigning.live(pid: info.pid, startTime: info.startTime, path: path),
                 sha256: nil,
+                // A snapshot row has no fork event behind it, so its start time is the only record of when it began, and its
+                // process group lets it join a tool call that was already running when the extension started (#1277).
+                lineage: ProcessLineage(groupID: info.groupID, startTimeNs: unixNanoseconds(info.startTime)),
                 snapshot: true
             )
             emit(payload)
@@ -134,6 +137,7 @@ private struct ProcIdentity {
     let ppid: pid_t
     let uid: uid_t
     let gid: gid_t
+    let groupID: pid_t
     /// startTime is when the process started, which SnapshotSigning checks so a reused pid is not given another process's
     /// signature.
     let startTime: timeval
@@ -141,6 +145,7 @@ private struct ProcIdentity {
     init(_ kp: kinfo_proc) {
         self.pid = kp.kp_proc.p_pid
         self.ppid = kp.kp_eproc.e_ppid
+        self.groupID = kp.kp_eproc.e_pgid
         self.uid = kp.kp_eproc.e_ucred.cr_uid
         self.gid = kp.kp_eproc.e_ucred.cr_ngroups > 0 ? kp.kp_eproc.e_ucred.cr_groups.0 : 0
         self.startTime = kp.kp_proc.p_un.__p_starttime

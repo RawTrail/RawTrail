@@ -178,6 +178,45 @@ func TestEventSchema_UndeclaredPayloadFieldIsAccepted(t *testing.T) {
 	assert.NoError(t, validateEnvelope(t, sch, envelopeJSON(t, "exec", payload)))
 }
 
+// TestEventSchema_LineageFields pins the lineage identity the extension adds to exec and fork payloads (issue #1277): a payload
+// carrying every field validates, and a mistyped value is refused rather than slipping through as an undeclared key would.
+//
+// spec:endpoint-event-collection/process-lineage-identity-capture/an-exec-carries-its-grouping-identity
+func TestEventSchema_LineageFields(t *testing.T) {
+	t.Parallel()
+	sch := compileEnvelopeSchema(t)
+
+	const execLineage = `{"pid":2316,"ppid":1,"path":"/bin/sleep","args":["/bin/sleep","74"],"cwd":"/private/tmp","uid":501,"gid":20,` +
+		`"pidversion":5445,"original_ppid":2315,"parent_pidversion":7,"responsible_pid":2288,"responsible_pidversion":5391,` +
+		`"session_id":2316,"group_id":2316,"tty":"/dev/ttys004","start_time_ns":1791030436491552000}`
+
+	cases := []struct {
+		name      string
+		eventType string
+		payload   string
+		want      string // empty means the payload must validate
+	}{
+		{name: "exec carrying every lineage field", eventType: "exec", payload: execLineage},
+		{name: "fork carrying the creator's generation", eventType: "fork", payload: `{"child_pid":2316,"parent_pid":2315,"pidversion":5444,"parent_pidversion":5443}`},
+		{name: "negative start time", eventType: "exec", payload: strings.Replace(execLineage, "1791030436491552000", "-1", 1), want: "start_time_ns"},
+		{name: "string process group", eventType: "exec", payload: strings.Replace(execLineage, `"group_id":2316`, `"group_id":"2316"`, 1), want: "group_id"},
+		{name: "numeric tty", eventType: "exec", payload: strings.Replace(execLineage, `"/dev/ttys004"`, `4`, 1), want: "tty"},
+		{name: "negative fork parent generation", eventType: "fork", payload: `{"child_pid":2316,"parent_pid":2315,"parent_pidversion":-1}`, want: "parent_pidversion"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateEnvelope(t, sch, envelopeJSON(t, tc.eventType, tc.payload))
+			if tc.want == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
 // TestEventSchema_ShippedScenarioEnvelopesValidate runs the envelopes this package actually emits through the schema. The fixtures
 // above pin the contract; this pins the emitter to it, which is the half that catches drift introduced by a change to buildPayload
 // rather than to the schema.

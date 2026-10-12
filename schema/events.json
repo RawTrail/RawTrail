@@ -163,7 +163,7 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "cwd": { "type": "string" },
+        "cwd": { "type": "string", "description": "Working directory at exec. Empty on startup snapshot rows, which cannot read it." },
         "uid": { "type": "integer" },
         "gid": { "type": "integer" },
         "code_signing": { "$ref": "#/definitions/code_signing" },
@@ -173,6 +173,14 @@
           "minimum": 0,
           "description": "Optional. Kernel PID generation (audit_token_to_pidversion) of the exec'd process, read from its audit token. Lets the server correlate flows to the exact process generation independently of PID reuse. Absent on agents that predate this field."
         },
+        "original_ppid": { "type": "integer", "description": "Optional. Parent pid at process creation. Unchanged when the process is reparented, so a double-forked daemon whose ppid is 1 (launchd) still names its creator. A pid only: the creator's generation is the fork event's parent_pidversion." },
+        "parent_pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of the parent that ppid names (the current parent, launchd for a daemonized process), so ppid identifies one exact process." },
+        "responsible_pid": { "type": "integer", "description": "Optional. The process macOS holds responsible for this one. For a launchd-spawned XPC service, the app that requested it. For any process started from a terminal, the terminal app." },
+        "responsible_pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of responsible_pid." },
+        "session_id": { "type": "integer", "description": "Optional. POSIX session id (the session leader's pid)." },
+        "group_id": { "type": "integer", "description": "Optional. POSIX process group id. Survives daemonizing by double fork, nohup, or disown; replaced by setsid." },
+        "tty": { "type": "string", "description": "Optional. Controlling terminal device path. Absent when the process has no controlling terminal." },
+        "start_time_ns": { "type": "integer", "minimum": 0, "description": "Optional. When the process was created (its fork), in Unix nanoseconds. Unchanged by exec. Startup snapshot rows carry it from the process table." },
         "create_time_ns": {
           "type": "integer",
           "minimum": 0,
@@ -203,6 +211,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Optional. Kernel PID generation (audit_token_to_pidversion) of the CHILD process, read from its audit token. Stored on the new process generation so flows can correlate by exact identity. Absent on agents that predate this field."
+        },
+        "parent_pidversion": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional. Kernel PID generation of the forking process. With parent_pid it names the child's creator exactly, and it does not change when the child is later reparented."
         }
       }
     },

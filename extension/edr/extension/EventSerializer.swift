@@ -38,6 +38,8 @@ struct ExecPayload: Codable, Sendable {
     /// target's audit token); lets the server pin process identity across PID reuse (issue #403). The encoder omits the key
     /// when nil (e.g. a snapshot row constructed without a token) so the legacy wire shape is unchanged.
     let pidVersion: UInt32?
+    /// Lineage identity, encoded flat beside the fields above (issue #1277).
+    let lineage: ProcessLineage
     /// True only for synthetic exec events emitted by the ESF startup snapshot pass
     /// (issue #11). The custom encoder below OMITS the key entirely when false, so
     /// the wire shape for live execs stays byte-identical to the pre-#11 format.
@@ -60,6 +62,7 @@ struct ExecPayload: Codable, Sendable {
         uid: uid_t, gid: gid_t, codeSigning: CodeSigning?, sha256: String?,
         cdhash: String? = nil,
         pidVersion: UInt32? = nil,
+        lineage: ProcessLineage = ProcessLineage(),
         snapshot: Bool = false
     ) {
         self.pid = pid
@@ -73,6 +76,7 @@ struct ExecPayload: Codable, Sendable {
         self.sha256 = sha256
         self.cdhash = cdhash
         self.pidVersion = pidVersion
+        self.lineage = lineage
         self.snapshot = snapshot
     }
 
@@ -92,6 +96,7 @@ struct ExecPayload: Codable, Sendable {
         sha256 = try container.decodeIfPresent(String.self, forKey: .sha256)
         cdhash = try container.decodeIfPresent(String.self, forKey: .cdhash)
         pidVersion = try container.decodeIfPresent(UInt32.self, forKey: .pidVersion)
+        lineage = try ProcessLineage(from: decoder)
         snapshot = try container.decodeIfPresent(Bool.self, forKey: .snapshot) ?? false
     }
 
@@ -108,6 +113,8 @@ struct ExecPayload: Codable, Sendable {
         try container.encodeIfPresent(sha256, forKey: .sha256)
         try container.encodeIfPresent(cdhash, forKey: .cdhash)
         try container.encodeIfPresent(pidVersion, forKey: .pidVersion)
+        // Same encoder, so the lineage keys land in this payload's object rather than a nested one.
+        try lineage.encode(to: encoder)
         // Only emit snapshot when true: keeps the live-exec wire shape stable
         // and avoids tripping the server detection-engine bytes.Contains gate
         // on a `"snapshot":false` payload (false events would correctly be
@@ -124,11 +131,22 @@ struct ForkPayload: Codable, Sendable {
     /// Kernel PID generation (audit_token_to_pidversion) of the CHILD process, stored on the new generation so flows
     /// correlate to it by exact identity (issue #403). The synthesized encoder omits the key when nil.
     let pidVersion: UInt32?
+    /// Kernel PID generation of the forking process (issue #1277). With `parentPid` it names the child's creator exactly,
+    /// and unlike the exec event's parent it never changes when the child is later reparented to launchd.
+    let parentPidVersion: UInt32?
 
     enum CodingKeys: String, CodingKey {
         case childPid = "child_pid"
         case parentPid = "parent_pid"
         case pidVersion = "pidversion"
+        case parentPidVersion = "parent_pidversion"
+    }
+
+    init(childPid: pid_t, parentPid: pid_t, pidVersion: UInt32?, parentPidVersion: UInt32? = nil) {
+        self.childPid = childPid
+        self.parentPid = parentPid
+        self.pidVersion = pidVersion
+        self.parentPidVersion = parentPidVersion
     }
 }
 
@@ -446,6 +464,14 @@ final class EventSerializer: Sendable {
 func kernelEventTimeNs(_ time: timespec) -> UInt64 {
     UInt64(time.tv_sec) * nanosecondsPerSecond + UInt64(time.tv_nsec)
 }
+
+/// unixNanoseconds converts a kernel `timeval` (a process start time, which ES and `kinfo_proc` both report at microsecond
+/// resolution) into the wire's nanosecond units.
+func unixNanoseconds(_ time: timeval) -> UInt64 {
+    UInt64(time.tv_sec) * nanosecondsPerSecond + UInt64(time.tv_usec) * nanosecondsPerMicrosecond
+}
+
+private let nanosecondsPerMicrosecond: UInt64 = 1_000
 
 /// nanosecondsPerSecond converts the seconds half of a timespec into the envelope's nanosecond units.
 private let nanosecondsPerSecond: UInt64 = 1_000_000_000
