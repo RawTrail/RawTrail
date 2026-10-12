@@ -112,6 +112,7 @@ let package = Package(
                 "extension/CDHashHex.swift",
                 "shared/BlockNotificationContract.swift",
                 "extension/EventSerializer.swift",
+                "extension/ProcessLineage.swift",
                 "extension/FileHashCache.swift",
                 "extension/SigningInfoFallback.swift",
                 // SnapshotSigning.swift reads a running process's signature for the startup snapshot. Security and Darwin only.
