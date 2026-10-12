@@ -29,25 +29,40 @@ const (
 	snapshotBumpDeadlockStep     = 5 * time.Millisecond
 )
 
-// insertProcessColumns and insertProcessPlaceholders pin the 23-column process INSERT shape in one place, shared by the per-event
-// InsertProcess, the batched multi-row INSERT, and the per-row poison fallback (processbatch.go), so the column list and arg order
-// can never drift between the per-event and set-based write paths.
+// processLineageColumns are the lineage columns (migration 00018) in the order every write and read of them uses: the parent link,
+// then api.ExecLineage. The exec-reported part, from original_ppid on, is execLineageColumns.
+const (
+	processLineageColumns = `parent_process_id, parent_pidversion, ` + execLineageColumns
+	execLineageColumns    = `original_ppid, responsible_pid, responsible_pidversion, session_id, group_id, tty, start_time_ns, cwd,
+		reparented`
+)
+
+// insertProcessColumns and insertProcessPlaceholders pin the 34-column process INSERT shape in one place, shared by the per-event
+// InsertProcess, the re-exec INSERT, the batched multi-row INSERT, and the per-row poison fallback (processbatch.go), so the column
+// list and arg order can never drift between the per-event and set-based write paths.
 const insertProcessColumns = `INSERT INTO processes
 		(host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 		 fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 		 exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		 is_snapshot, last_seen_ns, source_event_id, exec_event_id)`
+		 is_snapshot, last_seen_ns, source_event_id, exec_event_id, ` + processLineageColumns + `)`
 
-const insertProcessPlaceholders = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertProcessPlaceholders = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-// appendInsertProcessArgs appends the 23 INSERT bind values for p in insertProcessColumns order.
+// appendInsertProcessArgs appends the 34 INSERT bind values for p in insertProcessColumns order.
 func appendInsertProcessArgs(args []any, p api.Process) []any {
-	return append(args,
+	args = append(args,
 		p.HostID, p.PID, p.PPID, p.Path, p.Args, p.UID, p.GID,
 		p.CodeSigning, p.SHA256, p.CDHash, p.PIDVersion, p.ForkTimeNs, p.ForkIngestedAtNs, p.ExecTimeNs, p.ExitTimeNs,
 		p.ExitIngestedAtNs, p.ExitReason, p.ExitCode, p.PreviousExecID,
-		p.IsSnapshot, p.LastSeenNs, p.SourceEventID, p.ExecEventID,
+		p.IsSnapshot, p.LastSeenNs, p.SourceEventID, p.ExecEventID, p.ParentProcessID, p.ParentPIDVersion,
 	)
+	return appendExecLineageArgs(args, p.ExecLineage)
+}
+
+// appendExecLineageArgs appends the bind values for l in execLineageColumns order.
+func appendExecLineageArgs(args []any, l api.ExecLineage) []any {
+	return append(args, l.OriginalPPID, l.ResponsiblePID, l.ResponsiblePIDVersion, l.SessionID, l.GroupID, l.TTY, l.StartTimeNs,
+		l.CWD, l.Reparented)
 }
 
 // InsertProcess inserts a new process record (typically from a fork event). The caller is expected to pass the ingest timestamp of
@@ -188,6 +203,10 @@ type ProcessExecUpdate struct {
 	// ExecEventID is the event_id of the exec event applying this update. Stamped on the row so a re-claim of the same exec is
 	// recognized as already-applied (migration 00011), avoiding the case-b to case-c re-exec misroute.
 	ExecEventID *string
+	// Lineage is what the exec reports about the process's identity (issue #1280). It replaces the row's values outright: the
+	// fork that created the row carries none of them. The parent link is not part of it, because an exec names the current parent,
+	// which is launchd for a daemon, not the creator the fork recorded.
+	Lineage api.ExecLineage
 }
 
 // UpdateProcessExec updates an existing process record with exec-time
@@ -195,11 +214,13 @@ type ProcessExecUpdate struct {
 func (s *Store) UpdateProcessExec(ctx context.Context, u ProcessExecUpdate) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE processes SET path = ?, args = ?, uid = ?, gid = ?, code_signing = ?, sha256 = ?, cdhash = ?, exec_time_ns = ?,
-		                    pidversion = COALESCE(?, pidversion), exec_event_id = ?
+		                    pidversion = COALESCE(?, pidversion), exec_event_id = ?,
+		                    original_ppid = ?, responsible_pid = ?, responsible_pidversion = ?, session_id = ?, group_id = ?,
+		                    tty = ?, start_time_ns = ?, cwd = ?, reparented = ?
 		WHERE host_id = ? AND pid = ? AND exit_time_ns IS NULL
 		ORDER BY fork_time_ns DESC, id DESC LIMIT 1`,
-		u.Path, u.Args, u.UID, u.GID, u.CodeSigning, u.SHA256, u.CDHash, u.ExecTimeNs, u.PIDVersion, u.ExecEventID,
-		u.HostID, u.PID,
+		append(appendExecLineageArgs([]any{u.Path, u.Args, u.UID, u.GID, u.CodeSigning, u.SHA256, u.CDHash, u.ExecTimeNs,
+			u.PIDVersion, u.ExecEventID}, u.Lineage), u.HostID, u.PID)...,
 	)
 	return err
 }
@@ -334,17 +355,7 @@ func (s *Store) ReExec(
 		newRow.PreviousExecID = nil
 	}
 
-	ins, err := tx.ExecContext(ctx, `
-		INSERT INTO processes
-			(host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-			 fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-			 exit_ingested_at_ns, exit_code, previous_exec_id, source_event_id, exec_event_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		newRow.HostID, newRow.PID, newRow.PPID, newRow.Path, newRow.Args, newRow.UID, newRow.GID,
-		newRow.CodeSigning, newRow.SHA256, newRow.CDHash, newRow.PIDVersion, newRow.ForkTimeNs, newRow.ForkIngestedAtNs,
-		newRow.ExecTimeNs, newRow.ExitTimeNs, newRow.ExitIngestedAtNs, newRow.ExitCode,
-		newRow.PreviousExecID, newRow.SourceEventID, newRow.ExecEventID,
-	)
+	ins, err := tx.ExecContext(ctx, insertProcessColumns+" VALUES "+insertProcessPlaceholders, appendInsertProcessArgs(nil, newRow)...)
 	if err != nil {
 		return 0, false, fmt.Errorf("insert new re-exec generation: %w", err)
 	}
@@ -774,10 +785,7 @@ func (s *Store) EventAlreadyApplied(ctx context.Context, hostID string, pid int,
 func (s *Store) GetProcessByPID(ctx context.Context, hostID string, pid int, atTimeNs int64) (*api.Process, error) {
 	var proc api.Process
 	err := s.db.GetContext(ctx, &proc, `
-		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns, source_event_id, exec_event_id, exit_event_id
+		SELECT `+processBatchSelectColumns+`
 		FROM processes
 		WHERE host_id = ? AND pid = ? AND fork_time_ns <= ?
 		  AND (exit_time_ns IS NULL OR exit_time_ns >= ?)

@@ -213,6 +213,9 @@ type forkPayload struct {
 	// the new generation so network/DNS flows correlate to it by exact identity rather than a fork-to-exit window. Nil for
 	// agents that predate this field (issue #403).
 	PIDVersion *uint32 `json:"pidversion"`
+	// ParentPIDVersion is the FORKING process's generation, which with ParentPID names the child's creator exactly. Later
+	// reparenting cannot change it, unlike the ppid an exec reports. Nil for agents that predate it (issue #1277).
+	ParentPIDVersion *uint32 `json:"parent_pidversion"`
 }
 
 func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event) error {
@@ -260,6 +263,7 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 		SHA256:           parentImage.SHA256,
 		CDHash:           parentImage.CDHash,
 		PIDVersion:       p.PIDVersion,
+		ParentPIDVersion: p.ParentPIDVersion,
 		ForkTimeNs:       evt.TimestampNs,
 		ForkIngestedAtNs: &forkIngested,
 		SourceEventID:    &sourceEventID,
@@ -288,10 +292,28 @@ type execPayload struct {
 	// Env holds the AI agent session markers the extension read from the process environment, only its allowlisted names
 	// (issue #1278). Absent for a process that carries none. Ingest stamps the agent session from it in #1281.
 	Env map[string]string `json:"env,omitempty"`
+	// ParentPIDVersion is the generation of the parent PPID names: the CURRENT parent, launchd (1) for a daemonized process, not
+	// the creator. The two together identify that parent exactly (issue #1277).
+	ParentPIDVersion *uint32 `json:"parent_pidversion,omitempty"`
+	// ExecLineage carries the rest of the lineage fields the exec reports, under their wire names. Read it through lineage(),
+	// which derives Reparented and drops an empty cwd.
+	api.ExecLineage
 	// Snapshot is true for synthetic exec events emitted by the ESF startup baseline pass (issue #11). The graph builder uses this
 	// to avoid clobbering a richer live-event row with a sparse synthetic one when the snapshot pass and an early-startup live exec
 	// both arrive for the same PID.
 	Snapshot bool `json:"snapshot"`
+}
+
+// lineage is the exec's lineage as the row stores it (issue #1280). Reparented is derived here rather than trusted from the wire: the
+// process was adopted by launchd when its current parent is 1 and its creator was another process. An empty cwd, which agents that
+// predate the field send, is stored as unknown.
+func (p execPayload) lineage() api.ExecLineage {
+	l := p.ExecLineage
+	l.Reparented = p.PPID == 1 && l.OriginalPPID != nil && *l.OriginalPPID > 1
+	if l.CWD != nil && *l.CWD == "" {
+		l.CWD = nil
+	}
+	return l
 }
 
 func (b *Builder) handleExec(ctx context.Context, w processStore, evt api.Event) error {
@@ -351,6 +373,7 @@ func (b *Builder) handleExec(ctx context.Context, w processStore, evt api.Event)
 			CodeSigning: p.CodeSigning, SHA256: p.SHA256, CDHash: p.CDHash,
 			PIDVersion:  p.PIDVersion,
 			ExecEventID: &execEventID,
+			Lineage:     p.lineage(),
 		})
 	}
 	return b.insertReExec(ctx, w, evt, p, current)
@@ -366,17 +389,20 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 	forkIngested := evt.IngestedAtNs
 	sourceEventID := evt.EventID
 	row := api.Process{
-		HostID:           evt.HostID,
-		PID:              p.PID,
-		PPID:             ppid,
-		Path:             p.Path,
-		Args:             p.Args,
-		UID:              p.UID,
-		GID:              p.GID,
-		CodeSigning:      p.CodeSigning,
-		SHA256:           p.SHA256,
-		CDHash:           p.CDHash,
-		PIDVersion:       p.PIDVersion,
+		HostID:      evt.HostID,
+		PID:         p.PID,
+		PPID:        ppid,
+		Path:        p.Path,
+		Args:        p.Args,
+		UID:         p.UID,
+		GID:         p.GID,
+		CodeSigning: p.CodeSigning,
+		SHA256:      p.SHA256,
+		CDHash:      p.CDHash,
+		PIDVersion:  p.PIDVersion,
+		// With no fork seen, the parent this row can name is the one the exec reports, so ppid and its generation stay a pair.
+		ParentPIDVersion: p.ParentPIDVersion,
+		ExecLineage:      p.lineage(),
 		ForkTimeNs:       evt.TimestampNs,
 		ForkIngestedAtNs: &forkIngested,
 		ExecTimeNs:       &evt.TimestampNs,
@@ -447,7 +473,12 @@ func (b *Builder) insertReExec(ctx context.Context, w processStore, evt api.Even
 		// reuse because a recycled pid arrives with a distant generation. Nulling would instead drop the pin entirely, leaving the
 		// UI to send a pid-only kill the agent does not check at all. Same rule as the first-exec-after-fork path, which spells it
 		// COALESCE(?, pidversion) in SQL and mirrors it in the batch session.
-		PIDVersion:       cmp.Or(p.PIDVersion, prior.PIDVersion),
+		PIDVersion: cmp.Or(p.PIDVersion, prior.PIDVersion),
+		// The parent link belongs to the process, not the image, so the new generation keeps the one its fork recorded, the same
+		// way it keeps PPID. The rest of the lineage is what this exec reports.
+		ParentProcessID:  prior.ParentProcessID,
+		ParentPIDVersion: prior.ParentPIDVersion,
+		ExecLineage:      p.lineage(),
 		ForkTimeNs:       prior.ForkTimeNs, // chain preserves the original fork time
 		ForkIngestedAtNs: prior.ForkIngestedAtNs,
 		ExecTimeNs:       &evt.TimestampNs,

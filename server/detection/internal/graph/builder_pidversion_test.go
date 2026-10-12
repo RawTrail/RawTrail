@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
+
+	"github.com/fleetdm/edr/server/detection/api"
 )
 
 // TestExecForkPayload_PIDVersionRoundTrip is the wire-field round-trip for the optional pidversion added to the exec and fork
@@ -30,27 +32,6 @@ func TestExecForkPayload_PIDVersionRoundTrip(t *testing.T) {
 		var out forkPayload
 		require.NoError(t, json.Unmarshal(b, &out))
 		assert.Equal(t, in, out)
-	})
-
-	// The lineage fields (issue #1277) reach the server before the builder stores them (#1280). Until then they must decode to
-	// exactly what the same payload without them decodes to, so an agent that sends them builds the same process rows.
-	//
-	// spec:endpoint-event-collection/process-lineage-identity-capture/an-event-without-lineage-keeps-its-shape
-	t.Run("lineage fields leave the decoded payloads unchanged", func(t *testing.T) {
-		t.Parallel()
-		const lineage = `"original_ppid":2315,"parent_pidversion":7,"responsible_pid":2288,"responsible_pidversion":5391,` +
-			`"session_id":2316,"group_id":2316,"tty":"/dev/ttys004","start_time_ns":1791030436491552000`
-		const execBase = `"pid":2316,"ppid":1,"path":"/bin/sleep","args":["/bin/sleep"],"cwd":"/private/tmp","uid":501,"gid":20,"pidversion":5445`
-
-		var plainExec, lineageExec execPayload
-		require.NoError(t, json.Unmarshal([]byte(`{`+execBase+`}`), &plainExec))
-		require.NoError(t, json.Unmarshal([]byte(`{`+execBase+`,`+lineage+`}`), &lineageExec))
-		assert.Equal(t, plainExec, lineageExec)
-
-		var plainFork, lineageFork forkPayload
-		require.NoError(t, json.Unmarshal([]byte(`{"child_pid":2316,"parent_pid":2315,"pidversion":5444}`), &plainFork))
-		require.NoError(t, json.Unmarshal([]byte(`{"child_pid":2316,"parent_pid":2315,"pidversion":5444,"parent_pidversion":5443}`), &lineageFork))
-		assert.Equal(t, plainFork, lineageFork)
 	})
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -123,4 +104,125 @@ func TestExitPayload_PIDVersionRoundTrip(t *testing.T) {
 		require.NoError(rt, json.Unmarshal(b, &out))
 		assert.Equal(rt, in, out)
 	})
+}
+
+// TestExecForkPayload_LineageRoundTrip pins the lineage fields the extension sends (issue #1277) on the server's exec and fork
+// payloads (issue #1280): any combination round-trips exactly under the wire keys, and an absent field stays absent.
+//
+// spec:server-process-graph-builder/process-lineage-persistence/a-legacy-event-leaves-the-lineage-unset
+func TestExecForkPayload_LineageRoundTrip(t *testing.T) {
+	t.Parallel()
+	optUint32 := func(rt *rapid.T, label string) *uint32 {
+		if rapid.Bool().Draw(rt, "has_"+label) {
+			return new(rapid.Uint32().Draw(rt, label))
+		}
+		return nil
+	}
+	optInt := func(rt *rapid.T, label string) *int {
+		if rapid.Bool().Draw(rt, "has_"+label) {
+			return new(rapid.IntRange(0, 1<<20).Draw(rt, label))
+		}
+		return nil
+	}
+	optString := func(rt *rapid.T, label string) *string {
+		if rapid.Bool().Draw(rt, "has_"+label) {
+			return new(rapid.StringMatching(`/[a-z0-9 /]{1,24}`).Draw(rt, label))
+		}
+		return nil
+	}
+
+	t.Run("exec", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(rt *rapid.T) {
+			in := execPayload{PID: rapid.IntRange(1, 1<<20).Draw(rt, "pid"), PPID: rapid.IntRange(0, 1<<20).Draw(rt, "ppid"), Path: "/bin/sh"}
+			in.ParentPIDVersion = optUint32(rt, "parent_pidversion")
+			in.OriginalPPID = optInt(rt, "original_ppid")
+			in.ResponsiblePID = optInt(rt, "responsible_pid")
+			in.ResponsiblePIDVersion = optUint32(rt, "responsible_pidversion")
+			in.SessionID = optInt(rt, "session_id")
+			in.GroupID = optInt(rt, "group_id")
+			in.TTY = optString(rt, "tty")
+			if rapid.Bool().Draw(rt, "has_start_time_ns") {
+				in.StartTimeNs = new(rapid.Int64Min(0).Draw(rt, "start_time_ns"))
+			}
+			in.CWD = optString(rt, "cwd")
+
+			b, err := json.Marshal(in)
+			require.NoError(rt, err)
+			if in.OriginalPPID != nil {
+				assert.Contains(rt, string(b), `"original_ppid":`)
+			}
+			var out execPayload
+			require.NoError(rt, json.Unmarshal(b, &out))
+			assert.Equal(rt, in, out)
+		})
+	})
+
+	t.Run("fork", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(rt *rapid.T) {
+			in := forkPayload{ChildPID: rapid.IntRange(1, 1<<20).Draw(rt, "child"), ParentPID: rapid.IntRange(1, 1<<20).Draw(rt, "parent")}
+			in.PIDVersion = optUint32(rt, "pidversion")
+			in.ParentPIDVersion = optUint32(rt, "parent_pidversion")
+			b, err := json.Marshal(in)
+			require.NoError(rt, err)
+			var out forkPayload
+			require.NoError(rt, json.Unmarshal(b, &out))
+			assert.Equal(rt, in, out)
+		})
+	})
+
+	// The exact wire shape the extension sends, so a renamed tag cannot round-trip silently.
+	t.Run("extension wire keys", func(t *testing.T) {
+		t.Parallel()
+		var exec execPayload
+		require.NoError(t, json.Unmarshal([]byte(`{"pid":2316,"ppid":1,"path":"/bin/sleep","args":[],"cwd":"/private/tmp","uid":501,`+
+			`"gid":20,"pidversion":5445,"original_ppid":2315,"parent_pidversion":7,"responsible_pid":2288,"responsible_pidversion":5391,`+
+			`"session_id":2316,"group_id":2316,"tty":"/dev/ttys004","start_time_ns":1791030436491552000}`), &exec))
+		assert.Equal(t, execPayload{
+			PID: 2316, PPID: 1, Path: "/bin/sleep", Args: []byte(`[]`), UID: new(501), GID: new(20), PIDVersion: new(uint32(5445)),
+			ParentPIDVersion: new(uint32(7)),
+			ExecLineage: api.ExecLineage{
+				OriginalPPID: new(2315), ResponsiblePID: new(2288), ResponsiblePIDVersion: new(uint32(5391)), SessionID: new(2316),
+				GroupID: new(2316), TTY: new("/dev/ttys004"), StartTimeNs: new(int64(1791030436491552000)), CWD: new("/private/tmp"),
+			},
+		}, exec)
+
+		var fork forkPayload
+		require.NoError(t, json.Unmarshal([]byte(`{"child_pid":2316,"parent_pid":2315,"pidversion":5444,"parent_pidversion":5443}`), &fork))
+		assert.Equal(t, forkPayload{ChildPID: 2316, ParentPID: 2315, PIDVersion: new(uint32(5444)), ParentPIDVersion: new(uint32(5443))}, fork)
+	})
+}
+
+// TestExecPayload_Lineage pins how an exec's reported lineage becomes the stored one (issue #1280): reparented is derived from the
+// current parent and the creator, never taken from the wire, and an empty cwd from an agent that predates the field is unknown.
+//
+// spec:server-process-graph-builder/process-lineage-persistence/a-daemonized-process-is-marked-reparented
+func TestExecPayload_Lineage(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name           string
+		payload        string
+		wantReparented bool
+		wantCWD        *string
+	}{
+		{
+			name: "daemon adopted by launchd", payload: `{"pid":9,"ppid":1,"original_ppid":3186,"cwd":"/tmp"}`,
+			wantReparented: true, wantCWD: new("/tmp"),
+		},
+		{name: "ordinary child", payload: `{"pid":9,"ppid":3186,"original_ppid":3186,"cwd":"/tmp"}`, wantCWD: new("/tmp")},
+		{name: "launched by launchd itself", payload: `{"pid":9,"ppid":1,"original_ppid":1}`},
+		{name: "older agent without original_ppid", payload: `{"pid":9,"ppid":1,"cwd":""}`},
+		{name: "wire claim of reparented is ignored", payload: `{"pid":9,"ppid":3186,"original_ppid":3186,"reparented":true}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var p execPayload
+			require.NoError(t, json.Unmarshal([]byte(tc.payload), &p))
+			got := p.lineage()
+			assert.Equal(t, tc.wantReparented, got.Reparented)
+			assert.Equal(t, tc.wantCWD, got.CWD)
+		})
+	}
 }
