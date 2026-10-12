@@ -241,10 +241,11 @@ final class FileTamperSubscriber: Sendable {
             return
         }
         let pid = audit_token_to_pid(msg.process.pointee.audit_token)
+        let pidVersion = UInt32(bitPattern: audit_token_to_pidversion(msg.process.pointee.audit_token))
         // Synthetic write-mode flags (O_WRONLY|O_CREAT|O_TRUNC): the inverted target muting already scoped this client to
         // content-modifying events on sensitive paths, and the server's sudoers_tamper rule gates on the access-mode bits.
         // Reusing the `open` event type keeps the wire format + the rule unchanged.
-        let payload = OpenPayload(pid: pid, path: path, flags: Int(O_WRONLY | O_CREAT | O_TRUNC))
+        let payload = OpenPayload(pid: pid, pidVersion: pidVersion, path: path, flags: Int(O_WRONLY | O_CREAT | O_TRUNC))
         if let data = serializer.serialize(eventType: "open", payload: payload, kernelTimeNs: kernelEventTimeNs(msg.time)) {
             // path is .private: exec/file paths can carry usernames or project tokens, and the "no PII in logs" guideline
             // applies on this hot path. The full path still flows to the server in the event payload for the rule.
@@ -273,7 +274,8 @@ final class FileTamperSubscriber: Sendable {
             return
         }
         let pid = audit_token_to_pid(msg.process.pointee.audit_token)
-        let payload = FileRenamePayload(pid: pid, sourcePath: source, path: destination)
+        let pidVersion = UInt32(bitPattern: audit_token_to_pidversion(msg.process.pointee.audit_token))
+        let payload = FileRenamePayload(pid: pid, pidVersion: pidVersion, sourcePath: source, path: destination)
         if let data = serializer.serialize(eventType: "file_rename", payload: payload, kernelTimeNs: kernelEventTimeNs(msg.time)) {
             // Both paths are .private for the same reason the CREATE/WRITE path's is: a file path can carry a username or a
             // project token, and the full values still reach the server in the payload.
@@ -313,12 +315,13 @@ final class FileTamperSubscriber: Sendable {
             return
         }
         let pid = audit_token_to_pid(msg.process.pointee.audit_token)
+        let pidVersion = UInt32(bitPattern: audit_token_to_pidversion(msg.process.pointee.audit_token))
         let data: Data?
         if eventType == "file_delete" {
-            data = serializer.serialize(eventType: eventType, payload: FileDeletePayload(pid: pid, path: path),
+            data = serializer.serialize(eventType: eventType, payload: FileDeletePayload(pid: pid, pidVersion: pidVersion, path: path),
                                         kernelTimeNs: kernelEventTimeNs(msg.time))
         } else {
-            data = serializer.serialize(eventType: eventType, payload: FileTruncatePayload(pid: pid, path: path),
+            data = serializer.serialize(eventType: eventType, payload: FileTruncatePayload(pid: pid, pidVersion: pidVersion, path: path),
                                         kernelTimeNs: kernelEventTimeNs(msg.time))
         }
         if let data {

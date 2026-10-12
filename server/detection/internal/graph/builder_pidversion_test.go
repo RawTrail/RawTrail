@@ -97,3 +97,30 @@ func TestExecPayload_AgentSessionEnvRoundTrip(t *testing.T) {
 		assert.Equal(rt, in, out)
 	})
 }
+
+// TestExitPayload_PIDVersionRoundTrip pins the exiting process's generation on the server's exit payload (issue #1279): any value
+// round-trips exactly under the pidversion key, and an absent one stays absent.
+//
+// spec:endpoint-event-collection/exit-and-file-event-process-generation/an-exit-names-the-generation-that-exited
+func TestExitPayload_PIDVersionRoundTrip(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(rt *rapid.T) {
+		in := exitPayload{
+			PID:      rapid.IntRange(1, 1<<20).Draw(rt, "pid"),
+			ExitCode: rapid.IntRange(-1, 255).Draw(rt, "exit_code"),
+		}
+		if rapid.Bool().Draw(rt, "has_pidversion") {
+			in.PIDVersion = new(rapid.Uint32().Draw(rt, "pidversion"))
+		}
+		b, err := json.Marshal(in)
+		require.NoError(rt, err)
+		if in.PIDVersion == nil {
+			assert.NotContains(rt, string(b), `"pidversion"`)
+		} else {
+			assert.Contains(rt, string(b), `"pidversion":`)
+		}
+		var out exitPayload
+		require.NoError(rt, json.Unmarshal(b, &out))
+		assert.Equal(rt, in, out)
+	})
+}

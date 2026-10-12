@@ -217,6 +217,34 @@ func TestEventSchema_LineageFields(t *testing.T) {
 	}
 }
 
+// TestEventSchema_ActorPidVersion pins the acting process's generation on exit and file payloads (issue #1279): each payload
+// validates with it, and a negative or string value is refused.
+//
+// spec:endpoint-event-collection/exit-and-file-event-process-generation/a-file-event-names-the-generation-that-acted
+func TestEventSchema_ActorPidVersion(t *testing.T) {
+	t.Parallel()
+	sch := compileEnvelopeSchema(t)
+
+	payloads := map[string]string{
+		"exit":          `{"pid":4242,"exit_code":0,"pidversion":5445}`,
+		"open":          `{"pid":4242,"path":"/etc/sudoers","flags":1,"pidversion":5445}`,
+		"file_rename":   `{"pid":4242,"source_path":"/tmp/x","path":"/etc/sudoers","pidversion":5445}`,
+		"file_truncate": `{"pid":4242,"path":"/etc/sudoers","pidversion":5445}`,
+		"file_delete":   `{"pid":4242,"path":"/etc/sudoers","pidversion":5445}`,
+	}
+	for eventType, payload := range payloads {
+		t.Run(eventType, func(t *testing.T) {
+			t.Parallel()
+			require.NoError(t, validateEnvelope(t, sch, envelopeJSON(t, eventType, payload)))
+			for _, bad := range []string{`-1`, `"5445"`} {
+				err := validateEnvelope(t, sch, envelopeJSON(t, eventType, strings.Replace(payload, `5445`, bad, 1)))
+				require.Error(t, err, "pidversion %s must be refused", bad)
+				assert.Contains(t, err.Error(), "pidversion")
+			}
+		})
+	}
+}
+
 // TestEventSchema_AgentSessionEnv pins the agent session markers on the exec payload (issue #1278): the allowlisted names validate,
 // and any other name, a non-string value, an empty object or an oversized value is refused. The schema is the published contract
 // that the extension sends nothing but the allowlist.

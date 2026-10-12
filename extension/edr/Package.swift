@@ -112,6 +112,7 @@ let package = Package(
                 "extension/CDHashHex.swift",
                 "shared/BlockNotificationContract.swift",
                 "extension/EventSerializer.swift",
+                "extension/FileEventPayloads.swift",
                 "extension/ProcessLineage.swift",
                 "extension/AgentSessionEnv.swift",
                 "extension/FileHashCache.swift",
