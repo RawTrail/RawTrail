@@ -378,7 +378,7 @@ final class ESFSubscriber: Sendable {
             path: path,
             args: args,
             // The working directory is on the exec event itself, not on es_process_t.
-            cwd: String(cString: exec.cwd.pointee.path.data),
+            cwd: esTokenString(exec.cwd.pointee.path),
             uid: uid,
             gid: gid,
             codeSigning: codeSigning,
@@ -434,7 +434,7 @@ final class ESFSubscriber: Sendable {
             responsiblePidVersion: UInt32(bitPattern: audit_token_to_pidversion(target.responsible_audit_token)),
             sessionID: target.session_id,
             groupID: target.group_id,
-            tty: target.tty.map { String(cString: $0.pointee.path.data) },
+            tty: target.tty.map { esTokenString($0.pointee.path) },
             startTimeNs: unixNanoseconds(target.start_time)
         )
     }
