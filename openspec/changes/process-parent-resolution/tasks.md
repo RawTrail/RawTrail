@@ -11,4 +11,4 @@
 
 ## 3. Later
 
-- [ ] 3.1 Build the tree and walk ancestors by `parent_process_id` (#1280, next PR).
+- [x] 3.1 Build the tree and walk ancestors by `parent_process_id` (#1280, next PR).

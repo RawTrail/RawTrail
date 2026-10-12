@@ -109,8 +109,9 @@ const maxPinnedChainDepth = 64
 // withPinnedChain returns procs with the pinned process and its ancestors added, plus the parent edge it resolved for each step so
 // the forest can link them by identity rather than by process number. Both are empty when nothing is pinned.
 //
-// Each parent is resolved with q.store.GetProcessByPID, which is the ONE lookup in this codebase that answers "which generation of
-// this pid was running at that instant". Its ordering is the product of issues #714, #723, #724 and #799, and its own comment warns
+// Each parent is the creator row the graph builder resolved, when there is one (see parentProcess). Otherwise it is resolved with
+// q.store.GetProcessByPID, which is the ONE lookup in this codebase that answers "which generation of this pid was running at that
+// instant". Its ordering is the product of issues #714, #723, #724 and #799, and its own comment warns
 // that a second copy of it would drift; this walk therefore asks it rather than joining on ppid itself. The cost is one query per
 // level, which is bounded by the depth of a process tree rather than by how busy the host is.
 //
@@ -157,7 +158,7 @@ func (q *Query) withPinnedChain(
 			resolved[cur.ID] = 0
 			return procs, resolved, nil
 		}
-		parent, perr := q.store.GetProcessByPID(ctx, hostID, cur.PPID, cur.ForkTimeNs)
+		parent, perr := q.parentProcess(ctx, hostID, cur)
 		if perr != nil {
 			return nil, resolved, perr
 		}
@@ -178,6 +179,16 @@ func (q *Query) withPinnedChain(
 		cur = parent
 	}
 	return procs, resolved, nil
+}
+
+// parentProcess returns the row cur's parent edge names. The creator row the graph builder resolved is read by id (issue #1280), and
+// nil when retention has pruned it, which makes cur the top of the chain rather than an invitation to guess by number. A row without
+// one falls back to the generation of ppid running at cur's fork.
+func (q *Query) parentProcess(ctx context.Context, hostID string, cur *api.Process) (*api.Process, error) {
+	if cur.ParentProcessID != nil {
+		return q.store.GetProcessByID(ctx, hostID, *cur.ParentProcessID)
+	}
+	return q.store.GetProcessByPID(ctx, hostID, cur.PPID, cur.ForkTimeNs)
 }
 
 // pinnedProcess finds the pinned row among those already read, and reads it by id only when it is not there. The common case, an
@@ -385,15 +396,17 @@ func (q *Query) ListHosts(ctx context.Context) ([]api.HostSummary, error) {
 	return q.store.ListHosts(ctx)
 }
 
-// buildForest constructs a tree from a flat list of processes by matching ppid -> pid. Uses Process.ID as map key to handle PID reuse
-// correctly, and builds parent-child links via pointers before converting to value tree so grandchildren aren't lost.
+// buildForest constructs a tree from a flat list of processes, linking each to its parent by the strongest evidence it has (see
+// parentRowOf). Uses Process.ID as map key to handle PID reuse correctly, and builds parent-child links via pointers before converting
+// to value tree so grandchildren aren't lost.
 func buildForest(procs []api.Process, resolved map[int64]int64) []api.ProcessNode {
-	nodeMap, pidToID := indexProcesses(procs)
+	idx := indexProcesses(procs)
+	nodeMap := idx.nodes
 
 	childIDs := make(map[int64][]int64) // parentID -> child IDs
 	var rootIDs []int64
 	for _, node := range nodeMap {
-		// A parent resolved by the caller wins over matching on the process number. pidToID keeps the NEWEST row per number, which
+		// A parent resolved by the caller wins over matching on the process number. byPID keeps the NEWEST row per number, which
 		// is the right guess when the only evidence is the page, and the wrong answer when the number has been reused: a child
 		// whose parent generation was fetched deliberately would be hung under whichever later generation happens to share the
 		// number, and the correct ancestor left dangling as a root. That is a worse answer than the one this change set out to fix,
@@ -405,7 +418,7 @@ func buildForest(procs []api.Process, resolved map[int64]int64) []api.ProcessNod
 		// and the forest emits none of them, losing the pinned process from a read that completed successfully (#1138 review).
 		parentDBID, parentFound := resolved[node.ID]
 		if !parentFound {
-			parentDBID, parentFound = pidToID[node.PPID]
+			parentDBID, parentFound = idx.parentRowOf(&node.Process)
 		}
 		if parentFound {
 			if _, ok := nodeMap[parentDBID]; ok && parentDBID != node.ID {
@@ -432,27 +445,71 @@ func buildForest(procs []api.Process, resolved map[int64]int64) []api.ProcessNod
 	return roots
 }
 
-// indexProcesses builds the two lookup tables buildForest needs: nodeMap keyed by the unique Process.ID (so PID reuse within a time
-// range doesn't collapse rows) and pidToID pointing each OS PID at the row ID of its latest fork (so the parent-lookup phase finds
-// the current generation, not a historical one with the same PID). Extracted from buildForest so that function stays below the
-// cognitive-complexity cap.
-func indexProcesses(procs []api.Process) (map[int64]*api.ProcessNode, map[int]int64) {
-	nodeMap := make(map[int64]*api.ProcessNode, len(procs))
-	pidToID := make(map[int]int64, len(procs))
+// forestIndex holds the lookup tables buildForest needs: nodes keyed by the unique Process.ID (so PID reuse within a time range doesn't
+// collapse rows), and the latest-forked row per OS PID and per (PID, kernel generation), so the parent lookup finds the current
+// generation rather than a historical one with the same number.
+type forestIndex struct {
+	nodes      map[int64]*api.ProcessNode
+	byPID      map[int]int64
+	byIdentity map[pidIdentity]int64
+}
+
+// pidIdentity is a process as the kernel names it within one boot: its pid and generation.
+type pidIdentity struct {
+	pid        int
+	pidversion uint32
+}
+
+// indexProcesses builds the forestIndex. Extracted from buildForest so that function stays below the cognitive-complexity cap.
+func indexProcesses(procs []api.Process) forestIndex {
+	idx := forestIndex{
+		nodes:      make(map[int64]*api.ProcessNode, len(procs)),
+		byPID:      make(map[int]int64, len(procs)),
+		byIdentity: make(map[pidIdentity]int64, len(procs)),
+	}
 	for i := range procs {
 		p := &procs[i]
-		nodeMap[p.ID] = &api.ProcessNode{Process: *p}
-		existing, ok := pidToID[p.PID]
-		if !ok {
-			pidToID[p.PID] = p.ID
-			continue
-		}
-		prev, prevOK := nodeMap[existing]
-		if prevOK && p.ForkTimeNs > prev.ForkTimeNs {
-			pidToID[p.PID] = p.ID
+		idx.nodes[p.ID] = &api.ProcessNode{Process: *p}
+		keepLatestFork(idx.nodes, idx.byPID, p.PID, p)
+		if p.PIDVersion != nil {
+			keepLatestFork(idx.nodes, idx.byIdentity, pidIdentity{pid: p.PID, pidversion: *p.PIDVersion}, p)
 		}
 	}
-	return nodeMap, pidToID
+	return idx
+}
+
+// keepLatestFork points key at p unless it already names a row that forked at or after p.
+func keepLatestFork[K comparable](nodes map[int64]*api.ProcessNode, latest map[K]int64, key K, p *api.Process) {
+	existing, ok := latest[key]
+	if !ok {
+		latest[key] = p.ID
+		return
+	}
+	if prev, prevOK := nodes[existing]; prevOK && p.ForkTimeNs > prev.ForkTimeNs {
+		latest[key] = p.ID
+	}
+}
+
+// parentRowOf returns the row id p's parent edge points at, strongest evidence first (issue #1280):
+//
+//  1. The creator row the graph builder resolved, parent_process_id. When that row is not on the page the process is a root here,
+//     never matched by number instead: the number may name a later process that reused it.
+//  2. The exact (ppid, parent_pidversion) on the page, for a link the builder could not resolve because the parent's row arrived
+//     after the child's.
+//  3. The latest row holding ppid, the only evidence an older agent's rows carry.
+//
+// The returned id may not be on the page; buildForest then makes p a root.
+func (idx forestIndex) parentRowOf(p *api.Process) (int64, bool) {
+	if p.ParentProcessID != nil {
+		return *p.ParentProcessID, true
+	}
+	if p.ParentPIDVersion != nil {
+		if id, ok := idx.byIdentity[pidIdentity{pid: p.PPID, pidversion: *p.ParentPIDVersion}]; ok {
+			return id, true
+		}
+	}
+	id, ok := idx.byPID[p.PPID]
+	return id, ok
 }
 
 // aggregateSiblings collapses repeated identical-path leaf siblings under each parent into a single aggregated node (issue #416),

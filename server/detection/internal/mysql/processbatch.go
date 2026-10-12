@@ -12,11 +12,16 @@ import (
 )
 
 // processBatchSelectColumns is the full process-row projection, shared by the bulk preload here and the single-row reads in
-// processes.go so the in-memory batch overlay sees byte-identical rows to the per-event path.
-const processBatchSelectColumns = `id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
+// processes.go so the in-memory batch overlay sees byte-identical rows to the per-event path. It is processReadColumns plus the
+// event ids the builder's idempotency guard reads (migration 00011).
+const processBatchSelectColumns = processReadColumns + `, source_event_id, exec_event_id, exit_event_id`
+
+// processReadColumns is the projection the tree and process-detail reads return: every column a reader shows, including the lineage
+// (issue #1280) the tree links by.
+const processReadColumns = `id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 	fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 	exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-	is_snapshot, last_seen_ns, source_event_id, exec_event_id, exit_event_id, ` + processLineageColumns
+	is_snapshot, last_seen_ns, ` + processLineageColumns
 
 // loadKeyChunk caps the (host_id, pid) pairs folded into one preload statement. The row-constructor IN list binds two
 // placeholders per key, so 1000 keys stay well under MySQL's placeholder ceiling while collapsing the per-event SELECTs into a
