@@ -26,6 +26,11 @@ final class AgentSessionEnvTests: XCTestCase {
         ]
     }
 
+    /// Feeds `entries` to the filter as the raw bytes es_exec_env hands it.
+    private func markers(in entries: [String]) -> [String: String]? {
+        agentSessionEnv(from: entries.map(\.utf8))
+    }
+
     private func execPayload(env: [String: String]?) -> ExecPayload {
         ExecPayload(
             pid: 4242, ppid: 2736, path: "/bin/zsh", args: ["/bin/zsh", "-c", "ls"], cwd: "/Users/dev/project", uid: 501, gid: 20,
@@ -41,7 +46,7 @@ final class AgentSessionEnvTests: XCTestCase {
 
     // spec:endpoint-event-collection/agent-session-markers-capture/an-agent-spawned-process-carries-its-session
     func testAgentShellKeepsEveryAllowlistedMarker() throws {
-        let markers = try XCTUnwrap(agentSessionEnv(from: agentShellEnvironment))
+        let markers = try XCTUnwrap(markers(in: agentShellEnvironment))
 
         XCTAssertEqual(markers, [
             "CLAUDE_CODE_SESSION_ID": sessionID,
@@ -60,7 +65,7 @@ final class AgentSessionEnvTests: XCTestCase {
     //
     // CLAUDE_CODE_MESSAGING_TOKEN shares the CLAUDE_CODE_ prefix with the session id, so a prefix match would ship it.
     func testCredentialSharingTheMarkerPrefixIsDropped() throws {
-        let markers = try XCTUnwrap(agentSessionEnv(from: agentShellEnvironment))
+        let markers = try XCTUnwrap(markers(in: agentShellEnvironment))
         let wire = try XCTUnwrap(String(data: try JSONEncoder().encode(execPayload(env: markers)), encoding: .utf8))
 
         XCTAssertNil(markers["CLAUDE_CODE_MESSAGING_TOKEN"])
@@ -71,7 +76,7 @@ final class AgentSessionEnvTests: XCTestCase {
 
     // A name that only starts or ends with an allowlisted one is a different variable.
     func testNameMustMatchInFull() {
-        XCTAssertNil(agentSessionEnv(from: ["CLAUDE_CODE_SESSION_ID_EXTRA=x", "XCLAUDECODE=1", "CLAUDE=1", "AI_AGENT_TOKEN=x"]))
+        XCTAssertNil(markers(in: ["CLAUDE_CODE_SESSION_ID_EXTRA=x", "XCLAUDECODE=1", "CLAUDE=1", "AI_AGENT_TOKEN=x"]))
     }
 
     // spec:endpoint-event-collection/agent-session-markers-capture/an-oversized-marker-is-dropped
@@ -79,7 +84,7 @@ final class AgentSessionEnvTests: XCTestCase {
         let atCap = String(repeating: "a", count: agentSessionEnvMaxValueBytes)
         let overCap = String(repeating: "b", count: agentSessionEnvMaxValueBytes + 1)
 
-        let markers = agentSessionEnv(from: ["AI_AGENT=\(atCap)", "CLAUDE_CODE_SESSION_ID=\(overCap)"])
+        let markers = markers(in: ["AI_AGENT=\(atCap)", "CLAUDE_CODE_SESSION_ID=\(overCap)"])
 
         XCTAssertEqual(markers, ["AI_AGENT": atCap])
     }
@@ -87,22 +92,34 @@ final class AgentSessionEnvTests: XCTestCase {
     // The cap counts UTF-8 bytes, so a value of few but wide characters cannot slip past it.
     func testCapCountsBytesNotCharacters() {
         let wide = String(repeating: "é", count: agentSessionEnvMaxValueBytes / 2 + 1)
-        XCTAssertNil(agentSessionEnv(from: ["AI_AGENT=\(wide)"]))
+        XCTAssertNil(markers(in: ["AI_AGENT=\(wide)"]))
     }
 
     // getenv returns the first of two entries with one name, so the marker matches what the process itself reads.
     func testFirstEntryOfARepeatedNameWins() {
-        XCTAssertEqual(agentSessionEnv(from: ["CLAUDECODE=1", "CLAUDECODE=0"]), ["CLAUDECODE": "1"])
+        XCTAssertEqual(markers(in: ["CLAUDECODE=1", "CLAUDECODE=0"]), ["CLAUDECODE": "1"])
+    }
+
+    // The process reads the first entry, so an oversized first value must not let a later, shorter one stand in for it.
+    func testOversizedFirstEntryIsNotReplacedByALaterOne() {
+        let overCap = String(repeating: "b", count: agentSessionEnvMaxValueBytes + 1)
+        XCTAssertNil(markers(in: ["CLAUDE_CODE_SESSION_ID=\(overCap)", "CLAUDE_CODE_SESSION_ID=forged"]))
+    }
+
+    // A value that is not UTF-8 cannot be sent as a JSON string, so it is dropped, and still counts as the first entry.
+    func testValueThatIsNotUTF8IsDropped() {
+        let invalid: [UInt8] = Array("CLAUDECODE=".utf8) + [0xFF, 0xFE]
+        XCTAssertNil(agentSessionEnv(from: [invalid, Array("CLAUDECODE=1".utf8)]))
     }
 
     // A value may itself contain "="; only the first one separates the name.
     func testValueKeepsLaterEqualsSigns() {
-        XCTAssertEqual(agentSessionEnv(from: ["AI_AGENT=a=b", "CLAUDECODE"]), ["AI_AGENT": "a=b"])
+        XCTAssertEqual(markers(in: ["AI_AGENT=a=b", "CLAUDECODE"]), ["AI_AGENT": "a=b"])
     }
 
     // spec:endpoint-event-collection/agent-session-markers-capture/a-process-without-markers-keeps-its-shape
     func testProcessWithoutMarkersOmitsEnv() throws {
-        let markers = agentSessionEnv(from: ["PATH=/usr/bin", "CLAUDE_CODE_MESSAGING_TOKEN=secret-token-value"])
+        let markers = markers(in: ["PATH=/usr/bin", "CLAUDE_CODE_MESSAGING_TOKEN=secret-token-value"])
         XCTAssertNil(markers)
 
         let object = try jsonObject(execPayload(env: markers))

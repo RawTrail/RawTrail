@@ -155,7 +155,7 @@
     "agent_session_env_value": {
       "type": "string",
       "maxLength": 256,
-      "description": "An agent session marker's value. The extension drops a value longer than 256 UTF-8 bytes rather than truncate it."
+      "description": "An agent session marker's value. The extension drops a value longer than 256 UTF-8 bytes rather than truncate it. maxLength counts characters, so it is the looser bound a schema can express; the byte cap is the extension's."
     },
     "exec_payload": {
       "type": "object",

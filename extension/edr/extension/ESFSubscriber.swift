@@ -440,10 +440,13 @@ final class ESFSubscriber: Sendable {
         )
     }
 
-    /// The exec'd process's agent session markers (issue #1278). Only allowlisted names leave `agentSessionEnv`; every other
-    /// variable, credentials included, is read here and dropped.
+    /// The exec'd process's agent session markers (issue #1278). The entries are views of the message's own buffers, valid for
+    /// this callback; `agentSessionEnv` copies out only the allowlisted markers.
     private func extractAgentSessionEnv(from exec: inout es_event_exec_t) -> [String: String]? {
-        let entries = (0..<es_exec_env_count(&exec)).map { esTokenString(es_exec_env(&exec, $0)) }
+        let entries = (0..<es_exec_env_count(&exec)).map { index in
+            let token = es_exec_env(&exec, index)
+            return UnsafeRawBufferPointer(start: token.data, count: token.length)
+        }
         return agentSessionEnv(from: entries)
     }
 

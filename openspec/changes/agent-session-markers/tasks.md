@@ -7,7 +7,7 @@
 
 - [x] 2.1 Document `env` in `schema/events.json`, closed to the allowlisted names.
 - [x] 2.2 Swift tests pin the allowlist match, the messaging-token negative case, the value cap and the omission.
-- [x] 2.3 A server test pins that an exec carrying `env` decodes to exactly what it decodes to without it.
+- [x] 2.3 The server exec payload models `env`, and a property test pins that any marker map round-trips and an absent one stays absent.
 
 ## 3. QA
 

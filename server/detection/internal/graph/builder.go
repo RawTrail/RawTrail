@@ -285,6 +285,9 @@ type execPayload struct {
 	// image now running, which is also what the agent's kill-time registry holds. Nil for agents that predate this field
 	// (issue #403).
 	PIDVersion *uint32 `json:"pidversion"`
+	// Env holds the AI agent session markers the extension read from the process environment, only its allowlisted names
+	// (issue #1278). Absent for a process that carries none. Ingest stamps the agent session from it in #1281.
+	Env map[string]string `json:"env,omitempty"`
 	// Snapshot is true for synthetic exec events emitted by the ESF startup baseline pass (issue #11). The graph builder uses this
 	// to avoid clobbering a richer live-event row with a sparse synthetic one when the snapshot pass and an early-startup live exec
 	// both arrive for the same PID.

@@ -24,17 +24,27 @@ let agentSessionEnvAllowlist: Set<String> = [
 /// join the process to the wrong session. Every observed marker is under 64 bytes.
 let agentSessionEnvMaxValueBytes = 256
 
-/// The allowlisted markers among `entries`, which are `NAME=value` strings as `es_exec_env` returns them, or nil when there
-/// are none, so a process without markers keeps the exec payload's existing shape. When a name repeats, the first entry
-/// wins, as it does for `getenv`.
-func agentSessionEnv<Entries: Sequence>(from entries: Entries) -> [String: String]? where Entries.Element == String {
+/// Longest allowlisted name, in bytes. An entry whose name is longer cannot match, so it is skipped without building a string.
+private let agentSessionEnvMaxNameBytes = agentSessionEnvAllowlist.map(\.utf8.count).max() ?? 0
+
+/// The allowlisted markers among `entries`, which are the raw `NAME=value` bytes `es_exec_env` returns, or nil when there are
+/// none, so a process without markers keeps the exec payload's existing shape. Strings are built only for a short name and an
+/// accepted value, so the rest of the environment, credentials included, is never copied. When a name repeats, the first
+/// entry wins, as it does for `getenv`, even when that first value is dropped for its length or encoding.
+func agentSessionEnv<Entries: Sequence>(from entries: Entries) -> [String: String]?
+where Entries.Element: Collection, Entries.Element.Element == UInt8 {
     var markers: [String: String] = [:]
+    var seen: Set<String> = []
     for entry in entries {
-        guard let separator = entry.firstIndex(of: "=") else { continue }
-        let name = String(entry[..<separator])
-        guard agentSessionEnvAllowlist.contains(name), markers[name] == nil else { continue }
-        let value = String(entry[entry.index(after: separator)...])
-        guard value.utf8.count <= agentSessionEnvMaxValueBytes else { continue }
+        guard let separator = entry.firstIndex(of: UInt8(ascii: "=")),
+              entry.distance(from: entry.startIndex, to: separator) <= agentSessionEnvMaxNameBytes,
+              let name = String(bytes: entry[..<separator], encoding: .utf8),
+              agentSessionEnvAllowlist.contains(name),
+              seen.insert(name).inserted else { continue }
+        let valueBytes = entry[entry.index(after: separator)...]
+        guard valueBytes.count <= agentSessionEnvMaxValueBytes, let value = String(bytes: valueBytes, encoding: .utf8) else {
+            continue
+        }
         markers[name] = value
     }
     return markers.isEmpty ? nil : markers

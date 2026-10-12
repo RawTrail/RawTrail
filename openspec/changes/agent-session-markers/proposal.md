@@ -8,7 +8,7 @@ The spike in #1276 showed that the markers survive `nohup`, double forks, `disow
 
 - `exec` payloads carry an optional `env` object holding only the allowlisted agent session markers, matched on the full variable name: `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID`, `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_SESSION_ATTENDED` and `AI_AGENT`.
 - A value longer than 256 UTF-8 bytes is dropped, not truncated, because a truncated session id would join the wrong session.
-- `env` is omitted when no marker is present, so the common exec shape is unchanged. The server ignores it until #1281 stamps agent sessions at ingest.
+- `env` is omitted when no marker is present, so the common exec shape is unchanged. The server decodes it and does not use it until #1281 stamps agent sessions at ingest.
 
 ## Impact
 
