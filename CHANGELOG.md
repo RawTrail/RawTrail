@@ -17,6 +17,10 @@ Notable changes to Fleet EDR, newest first. This project follows [Semantic Versi
 
 - **Much lower trace volume.** Detection batches are now sampled with agent ingest traffic, and database queries outside a request or batch no longer produce spans. One host exported about 500,000 spans an hour, almost all from this background work. Metrics are unchanged.
 
+### Fixed
+
+- **Routine events no longer log as faults.** A clean server stop no longer logs three gauge warnings and now exports their final values. An agent that disconnects mid-upload, as on a restart or sleep, is logged at INFO rather than ERROR; the agent resends the batch.
+
 ## [0.7.0] (2026-10-05)
 
 ### Upgrade notes (action required)

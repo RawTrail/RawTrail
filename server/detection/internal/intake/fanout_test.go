@@ -1,8 +1,11 @@
 package intake
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -176,4 +179,78 @@ func TestHandleIngest_FanOut(t *testing.T) {
 		assert.NotEqual(t, agentSpoofed, got, "the agent-supplied ingested_at_ns must be overwritten")
 		assert.GreaterOrEqual(t, got, before, "ingested_at_ns is stamped from the server clock at ingest")
 	})
+}
+
+// TestHandleIngest_StoreFailureLogging pins how a failed fan-out write is logged and answered (issue #1291). A write the agent's own
+// disconnect cancelled is INFO with no response, because the agent resends the unacknowledged batch and nobody is left to read one.
+// Every other failure is an ERROR and a 500, including a cancellation while the request is still live.
+func TestHandleIngest_StoreFailureLogging(t *testing.T) {
+	t.Parallel()
+	const body = `[{"event_id":"e-fork","host_id":"host-a","timestamp_ns":1000,"event_type":"fork","payload":{"child_pid":42,"parent_pid":1}}]`
+	cases := []struct {
+		name          string
+		archiveErr    error
+		appendErr     error
+		disconnected  bool
+		wantLevel     string
+		wantMsg       string
+		wantResponded bool
+	}{
+		{
+			name:         "spec:observability-instrumentation/ingest-disconnects-are-not-errors/a-disconnect-is-info-logged",
+			appendErr:    context.Canceled,
+			disconnected: true,
+			wantLevel:    "level=INFO",
+			wantMsg:      "eventlog append error: the agent disconnected",
+		},
+		{
+			name:         "archive insert cancelled by a disconnect is info-logged",
+			archiveErr:   fmt.Errorf("insert: %w", context.Canceled),
+			disconnected: true,
+			wantLevel:    "level=INFO",
+			wantMsg:      "archive insert error: the agent disconnected",
+		},
+		{
+			name:          "spec:observability-instrumentation/ingest-disconnects-are-not-errors/a-live-cancellation-stays-an-error",
+			appendErr:     context.Canceled,
+			wantLevel:     "level=ERROR",
+			wantMsg:       `msg="eventlog append error"`,
+			wantResponded: true,
+		},
+		{
+			name:          "spec:observability-instrumentation/ingest-disconnects-are-not-errors/a-write-failure-stays-an-error",
+			appendErr:     errors.New("queue down"),
+			disconnected:  true,
+			wantLevel:     "level=ERROR",
+			wantMsg:       `msg="eventlog append error"`,
+			wantResponded: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			h := New(nil, logger, BuildInfo{}, &fakeEventLog{appendErr: tc.appendErr}, &fakeEventArchive{insertErr: tc.archiveErr})
+
+			ctx, cancel := context.WithCancel(endpointapi.WithHostID(context.Background(), "host-a"))
+			defer cancel()
+			if tc.disconnected {
+				cancel()
+			}
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/events", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+			h.IngestHandler().ServeHTTP(rec, req)
+
+			assert.Contains(t, logs.String(), tc.wantLevel)
+			assert.Contains(t, logs.String(), tc.wantMsg)
+			if tc.wantResponded {
+				assert.Equal(t, http.StatusInternalServerError, rec.Code)
+				return
+			}
+			assert.NotContains(t, logs.String(), "level=ERROR", "a disconnect is not a server fault")
+			assert.Zero(t, rec.Body.Len(), "nobody is left to read a response, so none is written")
+			assert.Empty(t, rec.Header().Get("Content-Type"), "no error response is started")
+		})
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -17,8 +18,8 @@ import (
 )
 
 // TestStartAfterInit drives the part of the startup prelude that follows Init. The stop func must release everything it set up, in
-// order: close the pool, cancel the context, flush OTel. A failed MySQL open must cancel and flush itself, because the caller only
-// returns the error.
+// order: cancel the context, flush OTel, close the pool. The flush must find the pool open, because shutting OTel down collects the
+// gauges that query MySQL (issue #1274). A failed MySQL open must cancel and flush itself, because the caller only returns the error.
 func TestStartAfterInit(t *testing.T) {
 	t.Parallel()
 	dsn := os.Getenv("EDR_TEST_DSN") //nolint:forbidigo // approved test-DB boundary; see issue #172
@@ -26,7 +27,7 @@ func TestStartAfterInit(t *testing.T) {
 		t.Skip("EDR_TEST_DSN not set")
 	}
 	// teardown records each teardown step, so a test can assert what ran and in what order. The pool has no hook of its own, so the
-	// cancel step records "close" first when the pool it was given is already closed by then.
+	// cancel and flush steps each record "close" first when the pool they were given is already closed by then.
 	type teardown struct {
 		steps []string
 		pool  *sqlx.DB
@@ -36,22 +37,27 @@ func TestStartAfterInit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 		rec := &teardown{}
+		record := func(step string) {
+			closed := slices.Contains(rec.steps, "close")
+			if !closed && rec.pool != nil && rec.pool.PingContext(context.Background()) != nil {
+				rec.steps = append(rec.steps, "close")
+			}
+			rec.steps = append(rec.steps, step)
+		}
 		return ctx, &Env{
 			Cancel: func() {
-				if rec.pool != nil && rec.pool.PingContext(context.Background()) != nil {
-					rec.steps = append(rec.steps, "close")
-				}
-				rec.steps = append(rec.steps, "cancel")
+				record("cancel")
 				cancel()
 			},
 			Config:    &config.Config{DSN: dsn},
 			Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
-			FlushOTel: func() { rec.steps = append(rec.steps, "flush") },
+			FlushOTel: func() { record("flush") },
 		}, rec
 	}
 	opts := Options{ServiceName: "fleet-edr-start-test"}
 
-	t.Run("stop closes the pool, then cancels and flushes", func(t *testing.T) {
+	// spec:observability-instrumentation/shutdown-exports-the-final-gauge-values/the-final-collection-reaches-the-data-store
+	t.Run("stop cancels and flushes, then closes the pool", func(t *testing.T) {
 		t.Parallel()
 		ctx, env, rec := newEnv(dsn)
 		db, stop, err := startAfterInit(ctx, env, opts)
@@ -62,7 +68,7 @@ func TestStartAfterInit(t *testing.T) {
 
 		stop()
 
-		assert.Equal(t, []string{"close", "cancel", "flush"}, rec.steps)
+		assert.Equal(t, []string{"cancel", "flush"}, rec.steps, "the flush must run while the pool is still open")
 		require.Error(t, ctx.Err(), "stop must cancel the context")
 		assert.ErrorContains(t, db.PingContext(context.Background()), "database is closed", "stop must close the pool")
 	})
