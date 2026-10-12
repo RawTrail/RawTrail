@@ -175,13 +175,13 @@
         "sha256": { "type": "string" },
         "pidversion": {
           "type": "integer",
-          "minimum": 0,
+          "minimum": 0, "maximum": 4294967295,
           "description": "Optional. Kernel PID generation (audit_token_to_pidversion) of the exec'd process, read from its audit token. Lets the server correlate flows to the exact process generation independently of PID reuse. Absent on agents that predate this field."
         },
         "original_ppid": { "type": "integer", "description": "Optional. Parent pid at process creation. Unchanged when the process is reparented, so a double-forked daemon whose ppid is 1 (launchd) still names its creator. A pid only: the creator's generation is the fork event's parent_pidversion." },
-        "parent_pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of the parent that ppid names (the current parent, launchd for a daemonized process), so ppid identifies one exact process." },
+        "parent_pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Optional. Kernel PID generation of the parent that ppid names (the current parent, launchd for a daemonized process), so ppid identifies one exact process." },
         "responsible_pid": { "type": "integer", "description": "Optional. The process macOS holds responsible for this one. For a launchd-spawned XPC service, the app that requested it. For any process started from a terminal, the terminal app." },
-        "responsible_pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of responsible_pid." },
+        "responsible_pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Optional. Kernel PID generation of responsible_pid." },
         "session_id": { "type": "integer", "description": "Optional. POSIX session id (the session leader's pid)." },
         "group_id": { "type": "integer", "description": "Optional. POSIX process group id. Survives daemonizing by double fork, nohup, or disown; replaced by setsid." },
         "tty": { "type": "string", "description": "Optional. Controlling terminal device path. Absent when the process has no controlling terminal." },
@@ -221,12 +221,12 @@
         "parent_pid": { "type": "integer" },
         "pidversion": {
           "type": "integer",
-          "minimum": 0,
+          "minimum": 0, "maximum": 4294967295,
           "description": "Optional. Kernel PID generation (audit_token_to_pidversion) of the CHILD process, read from its audit token. Stored on the new process generation so flows can correlate by exact identity. Absent on agents that predate this field."
         },
         "parent_pidversion": {
           "type": "integer",
-          "minimum": 0,
+          "minimum": 0, "maximum": 4294967295,
           "description": "Optional. Kernel PID generation of the forking process. With parent_pid it names the child's creator exactly, and it does not change when the child is later reparented."
         }
       }
@@ -236,7 +236,7 @@
       "required": ["pid", "exit_code"],
       "properties": {
         "pid": { "type": "integer" },
-        "pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of the exiting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
+        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Optional. Kernel PID generation of the exiting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
         "exit_code": { "type": "integer" },
         "exit_reason": {
           "type": "string",
@@ -255,7 +255,7 @@
       "required": ["pid", "path", "flags"],
       "properties": {
         "pid": { "type": "integer" },
-        "pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of the acting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
+        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Optional. Kernel PID generation of the acting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
         "path": { "type": "string" },
         "flags": { "type": "integer" }
       }
@@ -265,7 +265,7 @@
       "required": ["pid", "source_path", "path"],
       "properties": {
         "pid": { "type": "integer" },
-        "pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of the acting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
+        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Optional. Kernel PID generation of the acting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
         "source_path": {
           "type": "string",
           "description": "Absolute path the file was renamed FROM. Required: a rename is the only watched operation that can make a file become sudo policy without any write to the destination, and the source is what distinguishes a promotion from a scratch path elsewhere from a move within the watched directory."
@@ -281,7 +281,7 @@
       "required": ["pid", "path"],
       "properties": {
         "pid": { "type": "integer" },
-        "pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of the acting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
+        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Optional. Kernel PID generation of the acting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
         "path": {
           "type": "string",
           "description": "Absolute path whose contents were discarded. Emitted for truncate(2)/ftruncate(2) and for an open(2) carrying O_TRUNC, which are different kernel paths reaching the same outcome: the file still exists and its contents are gone."
@@ -293,7 +293,7 @@
       "required": ["pid", "path"],
       "properties": {
         "pid": { "type": "integer" },
-        "pidversion": { "type": "integer", "minimum": 0, "description": "Optional. Kernel PID generation of the acting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
+        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Optional. Kernel PID generation of the acting process: the value its most recent exec event carried (its fork event, if it never exec'd), so the event joins the exact process row under pid reuse." },
         "path": {
           "type": "string",
           "description": "Absolute path that was unlinked."
@@ -316,7 +316,7 @@
         "remote_hostname": { "type": "string" },
         "pidversion": {
           "type": "integer",
-          "minimum": 0,
+          "minimum": 0, "maximum": 4294967295,
           "description": "Optional. Kernel PID generation (audit_token_to_pidversion) of the source process, read from the flow's audit token. Lets the server correlate the flow to the exact process generation independently of PID reuse. Absent on agents that predate this field or when the flow carried no usable audit token."
         },
         "coalesced_count": {
@@ -347,7 +347,7 @@
         "protocol": { "type": "string", "enum": ["udp", "tcp"] },
         "pidversion": {
           "type": "integer",
-          "minimum": 0,
+          "minimum": 0, "maximum": 4294967295,
           "description": "Optional. Kernel PID generation (audit_token_to_pidversion) of the querying process, read from the flow's audit token. Lets the server correlate the query to the exact process generation independently of PID reuse. Absent on agents that predate this field or when the flow carried no usable audit token."
         },
         "coalesced_count": {

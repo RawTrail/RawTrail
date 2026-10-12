@@ -236,7 +236,7 @@ func TestEventSchema_ActorPidVersion(t *testing.T) {
 		t.Run(eventType, func(t *testing.T) {
 			t.Parallel()
 			require.NoError(t, validateEnvelope(t, sch, envelopeJSON(t, eventType, payload)))
-			for _, bad := range []string{`-1`, `"5445"`} {
+			for _, bad := range []string{`-1`, `"5445"`, `4294967296`} {
 				err := validateEnvelope(t, sch, envelopeJSON(t, eventType, strings.Replace(payload, `5445`, bad, 1)))
 				require.Error(t, err, "pidversion %s must be refused", bad)
 				assert.Contains(t, err.Error(), "pidversion")
