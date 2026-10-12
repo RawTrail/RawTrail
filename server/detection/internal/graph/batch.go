@@ -313,6 +313,7 @@ func (s *batchSession) UpdateProcessExec(_ context.Context, u mysql.ProcessExecU
 		r.proc.PIDVersion = u.PIDVersion
 	}
 	r.proc.ExecEventID = u.ExecEventID
+	r.proc.ExecLineage = u.Lineage
 	markDirty(r)
 	return nil
 }
@@ -478,6 +479,7 @@ func rowUpdate(p api.Process) mysql.ProcessRowUpdate {
 		ExitCode:         p.ExitCode,
 		ExitEventID:      p.ExitEventID,
 		LastSeenNs:       p.LastSeenNs,
+		Lineage:          p.ExecLineage,
 	}
 }
 

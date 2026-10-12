@@ -53,7 +53,9 @@ type normRow struct {
 	ExitCode         *int
 	IsSnapshot       bool
 	LastSeenNs       *int64
-	PrevRank         int // canonical rank of the previous_exec row, or -1
+	ParentPIDVersion *uint32
+	api.ExecLineage
+	PrevRank int // canonical rank of the previous_exec row, or -1
 }
 
 // dumpNormalizedForest reads every process row for hostID and returns it in a canonical, id-independent order. Rows are sorted by a
@@ -66,7 +68,8 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns
+		       is_snapshot, last_seen_ns, parent_pidversion, original_ppid, responsible_pid, responsible_pidversion, session_id,
+		       group_id, tty, start_time_ns, cwd, reparented
 		FROM processes WHERE host_id = ?`, hostID))
 
 	sorted := slices.Clone(rows)
@@ -95,6 +98,7 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 			ExecTimeNs: r.ExecTimeNs, ExitTimeNs: r.ExitTimeNs, ExitIngestedAtNs: r.ExitIngestedAtNs,
 			ExitReason: r.ExitReason, ExitCode: r.ExitCode,
 			IsSnapshot: r.IsSnapshot, LastSeenNs: r.LastSeenNs,
+			ParentPIDVersion: r.ParentPIDVersion, ExecLineage: r.ExecLineage,
 			PrevRank: prev,
 		}
 	}

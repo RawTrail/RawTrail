@@ -16,18 +16,18 @@ import (
 const processBatchSelectColumns = `id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 	fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 	exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-	is_snapshot, last_seen_ns, source_event_id, exec_event_id, exit_event_id`
+	is_snapshot, last_seen_ns, source_event_id, exec_event_id, exit_event_id, ` + processLineageColumns
 
 // loadKeyChunk caps the (host_id, pid) pairs folded into one preload statement. The row-constructor IN list binds two
 // placeholders per key, so 1000 keys stay well under MySQL's placeholder ceiling while collapsing the per-event SELECTs into a
 // handful of statements.
 const loadKeyChunk = 1000
 
-// processUpdateChunk caps the rows folded into one set-based UPDATE. Each row binds 16 CASE values plus one IN-list id (17
-// placeholders), so a few hundred per chunk keeps the statement well bounded.
+// processUpdateChunk caps the rows folded into one set-based UPDATE. Each row binds an id and a value for each of the 25 CASE
+// columns plus one IN-list id (51 placeholders), so a few hundred per chunk keeps the statement well bounded.
 const processUpdateChunk = 200
 
-// insertRowChunk caps the rows folded into one multi-row INSERT. Each row binds 23 placeholders, so this keeps the statement under
+// insertRowChunk caps the rows folded into one multi-row INSERT. Each row binds 34 placeholders, so this keeps the statement under
 // MySQL's ~65k placeholder ceiling even if the configured processing batch grows well beyond today's default; the preload and
 // update paths are chunked for the same reason.
 const insertRowChunk = 1000
@@ -95,7 +95,8 @@ type NewProcessRow struct {
 // ProcessRowUpdate is the final state of a preloaded row the batch fold mutated (an exit, an exec patch, a PID-reuse close, a
 // re-exec close, or a freshness bump). The flush writes the full mutable column set to the row's final value, so a column the fold
 // left untouched is rewritten to its existing value (a no-op) rather than tracked per-column. Immutable columns (host_id, pid,
-// ppid, fork_time_ns, fork_ingested_at_ns, previous_exec_id, is_snapshot) are never in this set.
+// ppid, fork_time_ns, fork_ingested_at_ns, previous_exec_id, is_snapshot, parent_process_id, parent_pidversion) are never in this
+// set.
 type ProcessRowUpdate struct {
 	ID               int64
 	Path             string
@@ -114,6 +115,8 @@ type ProcessRowUpdate struct {
 	ExitCode         *int
 	ExitEventID      *string
 	LastSeenNs       *int64
+	// Lineage is the exec-reported lineage (issue #1280), which a first exec after fork writes onto the fork's row.
+	Lineage api.ExecLineage
 }
 
 // ProcessBatchPlan is the set of writes the graph builder's in-memory fold produced for one batch: new rows to insert (in creation
@@ -324,6 +327,8 @@ var mutableUpdateColumns = []string{
 	"path", "args", "uid", "gid", "code_signing", "sha256", "cdhash",
 	"exec_time_ns", "pidversion", "exec_event_id", "exit_time_ns", "exit_ingested_at_ns", "exit_reason", "exit_code",
 	"exit_event_id", "last_seen_ns",
+	"original_ppid", "responsible_pid", "responsible_pidversion", "session_id", "group_id", "tty", "start_time_ns", "cwd",
+	"reparented",
 }
 
 func updateRowsChunk(ctx context.Context, ext sqlx.ExtContext, updates []ProcessRowUpdate) error {
@@ -397,6 +402,24 @@ func updateColumnValue(col string, u ProcessRowUpdate) any {
 		return u.ExitEventID
 	case "last_seen_ns":
 		return u.LastSeenNs
+	case "original_ppid":
+		return u.Lineage.OriginalPPID
+	case "responsible_pid":
+		return u.Lineage.ResponsiblePID
+	case "responsible_pidversion":
+		return u.Lineage.ResponsiblePIDVersion
+	case "session_id":
+		return u.Lineage.SessionID
+	case "group_id":
+		return u.Lineage.GroupID
+	case "tty":
+		return u.Lineage.TTY
+	case "start_time_ns":
+		return u.Lineage.StartTimeNs
+	case "cwd":
+		return u.Lineage.CWD
+	case "reparented":
+		return u.Lineage.Reparented
 	default:
 		panic("mysql: unknown mutable update column " + col) // unreachable: driven by mutableUpdateColumns
 	}

@@ -113,10 +113,41 @@ type Process struct {
 	// new row), so source_event_id cannot cover it; the builder reads this to recognize a re-applied exec and avoid the case-b to
 	// case-c re-exec misroute on re-processing. NULL until an exec has been applied (or for pre-00011 rows).
 	ExecEventID *string `db:"exec_event_id" json:"exec_event_id,omitempty"`
+	// ParentProcessID is the id of the row for the process that created this one, resolved from the fork event's exact (parent_pid,
+	// parent_pidversion) (issue #1280). NULL when the creator was never seen, for rows from agents without the lineage fields, and
+	// for rows written before migration 00018. It may name a row retention has since pruned.
+	ParentProcessID *int64 `db:"parent_process_id" json:"parent_process_id,omitempty"`
+	// ParentPIDVersion is the kernel PID generation of the parent ppid names: the creator's generation on a forked row, and the
+	// current parent's on a row first seen at exec. With ppid it identifies that parent exactly even before its row exists.
+	ParentPIDVersion *uint32 `db:"parent_pidversion" json:"parent_pidversion,omitempty"`
+	ExecLineage
 	// ExitEventID is the event_id of the observed exit event that closed this row. The exit close is an in-place UPDATE of the
 	// most-recent-live row, so a re-processed exit would otherwise close a newer generation of a reused pid; the builder reads this to
 	// recognize a re-applied exit and skip it (migration 00011). NULL for live rows and for synthetic closes (pid_reuse, TTL).
 	ExitEventID *string `db:"exit_event_id" json:"exit_event_id,omitempty"`
+}
+
+// ExecLineage is the lineage identity an exec event reports for its process (issue #1280). Every field is optional: agents without
+// the lineage fields, startup snapshot rows, and rows written before migration 00018 leave them unset. The JSON keys match the exec
+// event's wire names, so the graph builder decodes the payload straight into this struct.
+type ExecLineage struct {
+	// OriginalPPID is the pid of the process that created this one. Unlike ppid on an exec event, it survives reparenting.
+	OriginalPPID *int `db:"original_ppid" json:"original_ppid,omitempty"`
+	// ResponsiblePID and ResponsiblePIDVersion name the process macOS holds responsible: for an XPC service, the app that
+	// requested it; for anything started in a terminal, the terminal app.
+	ResponsiblePID        *int    `db:"responsible_pid" json:"responsible_pid,omitempty"`
+	ResponsiblePIDVersion *uint32 `db:"responsible_pidversion" json:"responsible_pidversion,omitempty"`
+	// SessionID and GroupID are the POSIX session and process group. The group survives daemonizing; only setsid replaces it.
+	SessionID *int `db:"session_id" json:"session_id,omitempty"`
+	GroupID   *int `db:"group_id" json:"group_id,omitempty"`
+	// TTY is the controlling terminal's device path, absent for a process without one.
+	TTY *string `db:"tty" json:"tty,omitempty"`
+	// StartTimeNs is when the process was created (its fork), in Unix nanoseconds.
+	StartTimeNs *int64 `db:"start_time_ns" json:"start_time_ns,omitempty"`
+	// CWD is the working directory at exec.
+	CWD *string `db:"cwd" json:"cwd,omitempty"`
+	// Reparented is true when launchd adopted the process: its exec reported ppid 1 and an original_ppid of another process.
+	Reparented bool `db:"reparented" json:"reparented,omitempty"`
 }
 
 // ExitReason values for Process.ExitReason.
