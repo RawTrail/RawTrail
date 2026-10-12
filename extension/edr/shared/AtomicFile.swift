@@ -21,7 +21,7 @@ enum AtomicFile {
         let url = URL(fileURLWithPath: path)
         let directory = url.deletingLastPathComponent()
         let fileManager = FileManager.default
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: directoryMode])
         if let mode = (try? fileManager.attributesOfItem(atPath: directory.path))?[.posixPermissions] as? NSNumber,
            mode.intValue & 0o077 != 0 {
             try? fileManager.setAttributes([.posixPermissions: directoryMode], ofItemAtPath: directory.path)
