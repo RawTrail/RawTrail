@@ -36,7 +36,9 @@ type pendingExit struct {
 	exitIngestedAtNs int64
 	exitCode         int
 	exitReason       string
-	expiresAt        time.Time
+	// pidVersion is the exiting generation, when the exit carried it. A snapshot exec of a newer generation does not take the exit.
+	pidVersion *uint32
+	expiresAt  time.Time
 }
 
 // Builder incrementally materializes fork/exec/exit events into the
@@ -76,12 +78,18 @@ func (b *Builder) bufferPendingExit(hostID string, pid int, pe pendingExit) {
 // consumePendingExit looks up a buffered exit for (hostID, pid). Returns the exit and removes it from the buffer when found and not
 // expired. Returns ok=false when missing or expired. Expired entries are purged lazily here AND by sweepPendingExits at batch
 // boundaries; both paths matter because not every snapshot exec arrives with the same lifecycle.
-func (b *Builder) consumePendingExit(hostID string, pid int) (pendingExit, bool) {
+//
+// pidversion is the snapshot exec's generation. An exit from an older generation is a process that ended before this one reused the
+// pid, so it stays buffered rather than marking the newer process exited (issue #1280).
+func (b *Builder) consumePendingExit(hostID string, pid int, pidversion *uint32) (pendingExit, bool) {
 	key := pendingExitKey{hostID: hostID, pid: pid}
 	b.pendingExitsMu.Lock()
 	defer b.pendingExitsMu.Unlock()
 	pe, ok := b.pendingExits[key]
 	if !ok {
+		return pendingExit{}, false
+	}
+	if pe.pidVersion != nil && pidversion != nil && *pe.pidVersion < *pidversion {
 		return pendingExit{}, false
 	}
 	delete(b.pendingExits, key)
@@ -251,6 +259,10 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 	if err != nil {
 		b.logger.WarnContext(ctx, "failed to get parent image", "host_id", evt.HostID, "parent_pid", p.ParentPID, "err", err)
 	}
+	parentID, err := resolveCreator(ctx, w, evt, p.ParentPID, p.ParentPIDVersion)
+	if err != nil {
+		return err
+	}
 
 	forkIngested := evt.IngestedAtNs
 	sourceEventID := evt.EventID
@@ -263,12 +275,22 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 		SHA256:           parentImage.SHA256,
 		CDHash:           parentImage.CDHash,
 		PIDVersion:       p.PIDVersion,
+		ParentProcessID:  parentID,
 		ParentPIDVersion: p.ParentPIDVersion,
 		ForkTimeNs:       evt.TimestampNs,
 		ForkIngestedAtNs: &forkIngested,
 		SourceEventID:    &sourceEventID,
 	})
 	return err
+}
+
+// resolveCreator returns the row id of the process (pid, pidversion) that created the event's process at the event's time, or nil
+// when the agent sent no generation, in which case readers keep the ppid rule (issue #1280).
+func resolveCreator(ctx context.Context, w processStore, evt api.Event, pid int, pidversion *uint32) (*int64, error) {
+	if pidversion == nil {
+		return nil, nil
+	}
+	return w.ResolveParent(ctx, evt.HostID, pid, *pidversion, evt.TimestampNs)
 }
 
 type execPayload struct {
@@ -386,6 +408,16 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 	if p.PPID != 0 {
 		ppid = p.PPID
 	}
+	lineage := p.lineage()
+	// With no fork seen, the creator is known only when the parent the exec reports is still it. A reparented process names launchd
+	// there, and its creator's generation is not on the exec, so the link stays unset rather than guessed from a pid.
+	var parentID *int64
+	if !lineage.Reparented {
+		var err error
+		if parentID, err = resolveCreator(ctx, w, evt, p.PPID, p.ParentPIDVersion); err != nil {
+			return err
+		}
+	}
 	forkIngested := evt.IngestedAtNs
 	sourceEventID := evt.EventID
 	row := api.Process{
@@ -401,8 +433,9 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 		CDHash:      p.CDHash,
 		PIDVersion:  p.PIDVersion,
 		// With no fork seen, the parent this row can name is the one the exec reports, so ppid and its generation stay a pair.
+		ParentProcessID:  parentID,
 		ParentPIDVersion: p.ParentPIDVersion,
-		ExecLineage:      p.lineage(),
+		ExecLineage:      lineage,
 		ForkTimeNs:       evt.TimestampNs,
 		ForkIngestedAtNs: &forkIngested,
 		ExecTimeNs:       &evt.TimestampNs,
@@ -432,7 +465,7 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 	// do given the snapshot exec carries no real fork time. last_seen_ns mirrors the same
 	// timestamp so the row doesn't look "fresh" to the TTL reconciler.
 	if p.Snapshot {
-		if pe, ok := b.consumePendingExit(evt.HostID, p.PID); ok {
+		if pe, ok := b.consumePendingExit(evt.HostID, p.PID, p.PIDVersion); ok {
 			row.ForkTimeNs = pe.exitTimeNs
 			row.ExecTimeNs = &pe.exitTimeNs
 			row.LastSeenNs = &pe.exitTimeNs
@@ -510,8 +543,8 @@ func pickPPID(prior, fromEvent int) int {
 
 type exitPayload struct {
 	PID int `json:"pid"`
-	// PIDVersion is the exiting process's kernel PID generation, when the agent provided it (issue #1279). Binding the exit to
-	// the exact process row by it lands in #1280; until then the exit still binds by pid.
+	// PIDVersion is the exiting process's kernel PID generation, when the agent provided it (issue #1279). It binds the exit to
+	// that generation's row, never a newer one (issue #1280).
 	PIDVersion *uint32 `json:"pidversion,omitempty"`
 	ExitCode   int     `json:"exit_code"`
 	ExitReason string  `json:"exit_reason,omitempty"`
@@ -549,6 +582,7 @@ func (b *Builder) handleExit(ctx context.Context, w processStore, evt api.Event)
 		ExitCode:         p.ExitCode,
 		Reason:           reason,
 		ExitEventID:      evt.EventID,
+		PIDVersion:       p.PIDVersion,
 	})
 	if err != nil {
 		return err
@@ -573,6 +607,7 @@ func (b *Builder) handleExit(ctx context.Context, w processStore, evt api.Event)
 				exitIngestedAtNs: evt.IngestedAtNs,
 				exitCode:         p.ExitCode,
 				exitReason:       reason,
+				pidVersion:       p.PIDVersion,
 			})
 		}
 	}

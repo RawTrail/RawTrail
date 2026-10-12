@@ -87,9 +87,13 @@ func (s *Store) loadProcessesChunk(ctx context.Context, keys []HostPID) ([]api.P
 // to a prior generation that was ALSO created in this batch (an index into the plan's NewRows slice); it is -1 when there is no
 // same-batch predecessor, in which case Proc.PreviousExecID already holds the real id of a preloaded predecessor (or nil). The
 // split exists because a same-batch predecessor has no id until it is inserted, so the flush resolves the link after assigning ids.
+//
+// ParentNewIndex does the same for the creator link (issue #1280): the index of a row created in this batch that Proc's creator
+// resolved to, with Proc.ParentProcessID nil, or -1 when ParentProcessID already holds a real id (or nil).
 type NewProcessRow struct {
-	Proc         api.Process
-	PrevNewIndex int
+	Proc           api.Process
+	PrevNewIndex   int
+	ParentNewIndex int
 }
 
 // ProcessRowUpdate is the final state of a preloaded row the batch fold mutated (an exit, an exec patch, a PID-reuse close, a
@@ -230,6 +234,80 @@ func (s *Store) insertNewRowsBatched(ctx context.Context, ext sqlx.ExtContext, r
 			return err
 		}
 	}
+	return linkSameBatchParents(ctx, ext, rows)
+}
+
+// linkSameBatchParents sets parent_process_id on new rows whose creator was also created in this batch, after the multi-row INSERT
+// has given both their ids. A child forked by a process the same batch created is the common case, so resolving these links one row
+// at a time, as the rarer re-exec links are, would undo the batching. Each new row is found again by its (host_id, pid,
+// source_event_id), which is unique because every write path stamps the event that created the row and a replayed event creates
+// nothing.
+func linkSameBatchParents(ctx context.Context, ext sqlx.ExtContext, rows []NewProcessRow) error {
+	var children []int
+	for i, r := range rows {
+		if r.ParentNewIndex >= 0 {
+			children = append(children, i)
+		}
+	}
+	for start := 0; start < len(children); start += processUpdateChunk {
+		if err := linkParentsChunk(ctx, ext, rows, children[start:min(start+processUpdateChunk, len(children))]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// newRowKey is the identity linkSameBatchParents finds a just-inserted row by.
+type newRowKey struct {
+	hostID        string
+	pid           int
+	sourceEventID string
+}
+
+func rowKeyOf(p api.Process) newRowKey {
+	return newRowKey{hostID: p.HostID, pid: p.PID, sourceEventID: *p.SourceEventID}
+}
+
+func linkParentsChunk(ctx context.Context, ext sqlx.ExtContext, rows []NewProcessRow, children []int) error {
+	var sb strings.Builder
+	args := make([]any, 0, len(children)*6)
+	sb.WriteString("SELECT id, host_id, pid, source_event_id FROM processes WHERE (host_id, pid, source_event_id) IN (")
+	for i, c := range children {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString("(?, ?, ?), (?, ?, ?)")
+		child, parent := rowKeyOf(rows[c].Proc), rowKeyOf(rows[rows[c].ParentNewIndex].Proc)
+		args = append(args, child.hostID, child.pid, child.sourceEventID, parent.hostID, parent.pid, parent.sourceEventID)
+	}
+	sb.WriteString(")")
+	var found []struct {
+		ID            int64  `db:"id"`
+		HostID        string `db:"host_id"`
+		PID           int    `db:"pid"`
+		SourceEventID string `db:"source_event_id"`
+	}
+	if err := sqlx.SelectContext(ctx, ext, &found, sb.String(), args...); err != nil {
+		return fmt.Errorf("find %d same-batch parent links: %w", len(children), err)
+	}
+	ids := make(map[newRowKey]int64, len(found))
+	for _, f := range found {
+		ids[newRowKey{hostID: f.HostID, pid: f.PID, sourceEventID: f.SourceEventID}] = f.ID
+	}
+	sb.Reset()
+	args = args[:0]
+	sb.WriteString("UPDATE processes SET parent_process_id = CASE id")
+	for _, c := range children {
+		args = append(args, ids[rowKeyOf(rows[c].Proc)], ids[rowKeyOf(rows[rows[c].ParentNewIndex].Proc)])
+		sb.WriteString(" WHEN ? THEN ?")
+	}
+	sb.WriteString(" END WHERE id IN (?" + strings.Repeat(", ?", len(children)-1) + ")")
+	for _, c := range children {
+		args = append(args, ids[rowKeyOf(rows[c].Proc)])
+	}
+	if _, err := ext.ExecContext(ctx, sb.String(), args...); err != nil {
+		return fmt.Errorf("link %d same-batch parents: %w", len(children), err)
+	}
 	return nil
 }
 
@@ -278,6 +356,13 @@ func insertNewRowsLinked(ctx context.Context, ext sqlx.ExtContext, rows []NewPro
 				r.Proc.PreviousExecID = &prevID
 			} else if dropPoison {
 				r.Proc.PreviousExecID = nil
+			}
+		}
+		// The creator link resolves the same way: a creator always precedes its child in creation order, and a dropped one leaves
+		// the link nil, which ParentProcessID already is for a same-batch link.
+		if r.ParentNewIndex >= 0 {
+			if parentID := ids[r.ParentNewIndex]; parentID != 0 {
+				r.Proc.ParentProcessID = &parentID
 			}
 		}
 		id, err := insertOneProcessRow(ctx, ext, r.Proc)

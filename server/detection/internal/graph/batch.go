@@ -8,14 +8,14 @@ import (
 	"github.com/fleetdm/edr/server/detection/internal/mysql"
 )
 
-// processStore is the read/write surface the builder's per-event handlers issue against while folding a batch. Two implementations
-// satisfy it: *mysql.Store (the per-event path, one round-trip per call, retained as the differential-test reference) and
-// *batchSession (the production path, which resolves reads against an in-memory overlay of one bulk preload and defers all writes to
-// a single set-based flush). Because the handlers are written against this interface, the exact same handler code drives both, which
-// is what lets the differential property test assert the two produce identical process forests.
+// processStore is the read/write surface the builder's per-event handlers issue against while folding a batch. *batchSession
+// implements it, resolving reads against an in-memory overlay of one bulk preload and deferring all writes to a single set-based
+// flush. Most of its methods mirror the *mysql.Store method of the same name, and each says which SQL it reproduces. The differential
+// property test checks that the batching is invisible: one batch builds the same forest as one event per batch.
 type processStore interface {
 	GetProcessByPID(ctx context.Context, hostID string, pid int, atTimeNs int64) (*api.Process, error)
 	GetParentImage(ctx context.Context, hostID string, pid int, atTimeNs int64) (mysql.ParentImage, error)
+	ResolveParent(ctx context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*int64, error)
 	EventAlreadyApplied(ctx context.Context, hostID string, pid int, eventID string) (bool, error)
 	InsertProcess(ctx context.Context, p api.Process) (int64, error)
 	UpdateProcessExec(ctx context.Context, u mysql.ProcessExecUpdate) error
@@ -151,15 +151,7 @@ func matchesEventID(field *string, eventID string) bool {
 // stamping and synthesized pid-reuse closes make unreliable. Do not "fix" the inconsistency with GetProcessByPID above by adding the
 // exit test here; the store's GetParentImage docstring carries the measurement that rejected it.
 func (s *batchSession) GetParentImage(_ context.Context, hostID string, pid int, atTimeNs int64) (mysql.ParentImage, error) {
-	var best *procRow
-	for _, r := range s.byKey[mysql.HostPID{HostID: hostID, PID: pid}] {
-		if r.proc.ForkTimeNs > atTimeNs {
-			continue
-		}
-		if best == nil || imageRankGreater(r, best, atTimeNs) {
-			best = r
-		}
-	}
+	best := s.imageInForce(hostID, pid, atTimeNs)
 	if best == nil {
 		return mysql.ParentImage{}, nil
 	}
@@ -172,6 +164,63 @@ func (s *batchSession) GetParentImage(_ context.Context, hostID string, pid int,
 	// Scoped through the store's own rule, not a second copy of it: the ordering's last resort can select an image whose exec is
 	// still in the future, and its signature is not evidence of what this child was running.
 	return image.IdentityInForceAt(best.proc.ExecTimeNs, atTimeNs), nil
+}
+
+// imageInForce returns the row of (host, pid) whose image was in force at atTimeNs by imageRankGreater, among those forked by then, or
+// nil when none had forked yet.
+func (s *batchSession) imageInForce(hostID string, pid int, atTimeNs int64) *procRow {
+	var best *procRow
+	for _, r := range s.byKey[mysql.HostPID{HostID: hostID, PID: pid}] {
+		if r.proc.ForkTimeNs > atTimeNs {
+			continue
+		}
+		if best == nil || imageRankGreater(r, best, atTimeNs) {
+			best = r
+		}
+	}
+	return best
+}
+
+// ResolveParent returns the id of the row for the process that created a child, given the creator's pid and kernel generation as the
+// child's fork reported them and the child's fork time atNs, or nil when no row can be named (issue #1280). The id is provisional
+// (negative) for a row created in this batch; plan turns that into the row's ParentNewIndex. Every fold runs through this overlay,
+// so the store has no SQL twin of it.
+//
+// The exact (pid, pidversion) row wins. pidversion only increases within one boot and restarts at zero on the next one, so the match
+// is bounded to rows that had forked by atNs and never trusted across time on the generation alone.
+//
+// Two shapes leave no exact row: a first exec after fork rewrites the fork row's pidversion in place, so a child the parent forked
+// before that exec names a generation no row holds any more, and a dropped exec leaves the row one generation behind. Both fall back
+// to the image in force at atNs, the row GetParentImage reads, admitted by fallbackParentAdmits. A row from an agent that sent no
+// pidversion is admitted too, which is how a child links to a parent recorded by an older agent.
+func (s *batchSession) ResolveParent(_ context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*int64, error) {
+	var exact *procRow
+	for _, r := range s.byKey[mysql.HostPID{HostID: hostID, PID: pid}] {
+		if r.proc.PIDVersion == nil || *r.proc.PIDVersion != pidversion || r.proc.ForkTimeNs > atNs {
+			continue
+		}
+		if exact == nil || rankGreater(r, exact) {
+			exact = r
+		}
+	}
+	if exact != nil {
+		id := exact.proc.ID
+		return &id, nil
+	}
+	r := s.imageInForce(hostID, pid, atNs)
+	if r == nil || !fallbackParentAdmits(r.proc, pidversion, atNs) {
+		return nil, nil
+	}
+	id := r.proc.ID
+	return &id, nil
+}
+
+// fallbackParentAdmits reports whether the row the time rule picked for a creator can be the generation the child named. It can when
+// the row carries no generation, when its generation is not newer than the named one (a dropped exec), or when its exec came after
+// the child's fork, so the generation the fork named was the one that exec replaced in place. A newer generation applied by then is
+// a later process on a reused pid.
+func fallbackParentAdmits(row api.Process, pidversion uint32, atNs int64) bool {
+	return row.PIDVersion == nil || *row.PIDVersion <= pidversion || (row.ExecTimeNs != nil && *row.ExecTimeNs > atNs)
 }
 
 // imageRankGreater reports whether a is the better answer than b for "what was this PID running at atTimeNs", mirroring the store's
@@ -252,21 +301,48 @@ func (s *batchSession) mostRecentLive(hostID string, pid int) *procRow {
 	return best
 }
 
-// mostRecentLiveForkedAtOrBefore is mostRecentLive restricted to rows that forked at or before atNs, the target of the exit UPDATE. An
-// exit cannot close a process that forked after it; the bound is a no-op in single-pass ingest (the live row always forked before its
-// exit) but on re-processing (migration 00011) it stops a replayed exit from closing a LATER generation of a reused pid that the
-// preload already holds. Mirrors the store's WHERE fork_time_ns <= exitTimeNs.
-func (s *batchSession) mostRecentLiveForkedAtOrBefore(hostID string, pid int, atNs int64) *procRow {
+// exitTarget is the row the exit UPDATE closes: the most recent non-exited row that forked at or before atNs. An exit cannot close a
+// process that forked after it; the bound is a no-op in single-pass ingest (the live row always forked before its exit) but on
+// re-processing (migration 00011) it stops a replayed exit from closing a LATER generation of a reused pid that the preload already
+// holds. Mirrors the store's WHERE fork_time_ns <= exitTimeNs.
+//
+// An exit that carries its generation never closes a newer one and prefers the exact one, then the most recent older row, with
+// unversioned rows last, mirroring the store's ORDER BY pidversion = ? DESC (issue #1280).
+func (s *batchSession) exitTarget(hostID string, pid int, atNs int64, pidversion *uint32) *procRow {
 	var best *procRow
 	for _, r := range s.byKey[mysql.HostPID{HostID: hostID, PID: pid}] {
 		if r.proc.ExitTimeNs != nil || r.proc.ForkTimeNs > atNs {
 			continue
 		}
-		if best == nil || rankGreater(r, best) {
+		if pidversion != nil && r.proc.PIDVersion != nil && *r.proc.PIDVersion > *pidversion {
+			continue
+		}
+		if best == nil || exitRankGreater(r, best, pidversion) {
 			best = r
 		}
 	}
 	return best
+}
+
+// exitRankGreater orders exit candidates as the store does: the exact generation, then a row older than it, then an unversioned row,
+// and rankGreater within each group. With no generation on the exit every row is in one group.
+func exitRankGreater(a, b *procRow, pidversion *uint32) bool {
+	if ga, gb := exitMatchGroup(a, pidversion), exitMatchGroup(b, pidversion); ga != gb {
+		return ga > gb
+	}
+	return rankGreater(a, b)
+}
+
+// exitMatchGroup is the SQL `pidversion = ?` sort key: 2 for true, 1 for false, 0 for NULL (DESC puts NULL last).
+func exitMatchGroup(r *procRow, pidversion *uint32) int {
+	switch {
+	case pidversion == nil || r.proc.PIDVersion == nil:
+		return 0
+	case *r.proc.PIDVersion == *pidversion:
+		return 2
+	default:
+		return 1
+	}
 }
 
 // insertRow appends a new row to the overlay with a provisional id and the auto-increment-mirroring sequence, indexing it for reads.
@@ -323,7 +399,7 @@ func (s *batchSession) UpdateProcessExit(_ context.Context, u mysql.ProcessExitU
 	if reason == "" {
 		reason = api.ExitReasonEvent // mirrors the store's normalisation
 	}
-	r := s.mostRecentLiveForkedAtOrBefore(u.HostID, u.PID, u.ExitTimeNs)
+	r := s.exitTarget(u.HostID, u.PID, u.ExitTimeNs, u.PIDVersion)
 	if r == nil {
 		return 0, nil
 	}
@@ -448,7 +524,13 @@ func (s *batchSession) BackfillSnapshotSigning(_ context.Context, hostID string,
 func (s *batchSession) plan() mysql.ProcessBatchPlan {
 	var p mysql.ProcessBatchPlan
 	for _, r := range s.newRows {
-		p.NewRows = append(p.NewRows, mysql.NewProcessRow{Proc: r.proc, PrevNewIndex: r.prevNew})
+		row := mysql.NewProcessRow{Proc: r.proc, PrevNewIndex: r.prevNew, ParentNewIndex: -1}
+		// A creator created in this batch has only a provisional id, which the flush resolves once the creator is inserted.
+		if id := r.proc.ParentProcessID; id != nil && *id < 0 {
+			row.ParentNewIndex = s.findByID(*id).creIdx
+			row.Proc.ParentProcessID = nil
+		}
+		p.NewRows = append(p.NewRows, row)
 	}
 	for _, r := range s.rows {
 		if r.loaded && r.dirty {
@@ -484,10 +566,12 @@ func rowUpdate(p api.Process) mysql.ProcessRowUpdate {
 }
 
 // pidEnvelope is the minimal payload shape the preloader reads to discover which (host_id, pid) lineages a batch touches, without
-// the full per-event decode the handlers do. A fork touches both its child and parent pid (the parent for path inheritance); every
-// other handled event touches its own pid.
+// the full per-event decode the handlers do. A fork touches both its child and parent pid (the parent for path inheritance and the
+// creator link), an exec its own pid and its ppid (the creator link of a process first seen at exec); every other handled event
+// touches its own pid.
 type pidEnvelope struct {
 	PID       int `json:"pid"`
+	PPID      int `json:"ppid"`
 	ChildPID  int `json:"child_pid"`
 	ParentPID int `json:"parent_pid"`
 }
@@ -522,6 +606,9 @@ func collectKeys(events []api.Event) []mysql.HostPID {
 			continue
 		}
 		add(evt.HostID, p.PID)
+		if evt.EventType == "exec" {
+			add(evt.HostID, p.PPID)
+		}
 	}
 	return keys
 }

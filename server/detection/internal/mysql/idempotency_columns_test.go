@@ -168,3 +168,55 @@ func TestStore_ReExec_StampsEventIDs(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, applied)
 }
+
+// TestStore_UpdateProcessExit_ByGeneration pins the exit binding by kernel generation (issue #1280), which the batch overlay's
+// exitTarget mirrors: the exact generation first, then the most recent older row, then an unversioned one, never a newer one. An exit
+// without a generation keeps the pid-only rule.
+func TestStore_UpdateProcessExit_ByGeneration(t *testing.T) {
+	t.Parallel()
+	type seed struct {
+		name   string
+		ver    *uint32
+		forkNs int64
+	}
+	unversioned := seed{"unversioned", nil, 250}
+	older := seed{"older", new(uint32(7300)), 200}
+	exact := seed{"exact", new(uint32(7350)), 150}
+	newer := seed{"newer", new(uint32(7400)), 300}
+	cases := []struct {
+		name    string
+		rows    []seed
+		exitVer *uint32
+		closed  string // the seed the exit closes, or "" for none
+	}{
+		{"the exact generation beats an older row that forked later", []seed{older, exact, newer}, new(uint32(7350)), "exact"},
+		{"an older row when the exact one is missing", []seed{older, newer}, new(uint32(7350)), "older"},
+		{"an older row beats an unversioned one", []seed{unversioned, older}, new(uint32(7350)), "older"},
+		{"an unversioned row when it is the only one", []seed{unversioned}, new(uint32(7350)), "unversioned"},
+		{"never a newer generation", []seed{newer}, new(uint32(7350)), ""},
+		{"an exit without a generation closes the newest fork", []seed{older, newer}, nil, "newer"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := newTestStore(t)
+			ctx := t.Context()
+			ids := map[string]int64{}
+			for _, r := range tc.rows {
+				id, err := s.InsertProcess(ctx, api.Process{HostID: "h", PID: 30, ForkTimeNs: r.forkNs, PIDVersion: r.ver})
+				require.NoError(t, err)
+				ids[r.name] = id
+			}
+			affected, err := s.UpdateProcessExit(ctx, mysql.ProcessExitUpdate{
+				HostID: "h", PID: 30, ExitTimeNs: 400, ExitIngestedAtNs: 401, ExitEventID: "exit-gen", PIDVersion: tc.exitVer,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, map[bool]int64{true: 1, false: 0}[tc.closed != ""], affected)
+			for name, id := range ids {
+				row, err := s.GetProcessByID(ctx, "h", id)
+				require.NoError(t, err)
+				assert.Equal(t, name == tc.closed, row.ExitTimeNs != nil, "row %s", name)
+			}
+		})
+	}
+}
