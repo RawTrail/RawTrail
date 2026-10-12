@@ -478,9 +478,12 @@ func pickPPID(prior, fromEvent int) int {
 }
 
 type exitPayload struct {
-	PID        int    `json:"pid"`
-	ExitCode   int    `json:"exit_code"`
-	ExitReason string `json:"exit_reason,omitempty"`
+	PID int `json:"pid"`
+	// PIDVersion is the exiting process's kernel PID generation, when the agent provided it (issue #1279). Binding the exit to
+	// the exact process row by it lands in #1280; until then the exit still binds by pid.
+	PIDVersion *uint32 `json:"pidversion,omitempty"`
+	ExitCode   int     `json:"exit_code"`
+	ExitReason string  `json:"exit_reason,omitempty"`
 }
 
 func (b *Builder) handleExit(ctx context.Context, w processStore, evt api.Event) error {

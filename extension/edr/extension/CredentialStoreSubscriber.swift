@@ -154,7 +154,10 @@ final class CredentialStoreSubscriber: Sendable {
             return
         }
         let pid = audit_token_to_pid(opener.audit_token)
-        let payload = OpenPayload(pid: pid, path: path, flags: CredentialStores.openFlags(fflag: msg.event.open.fflag))
+        let payload = OpenPayload(
+            pid: pid, pidVersion: UInt32(bitPattern: audit_token_to_pidversion(opener.audit_token)), path: path,
+            flags: CredentialStores.openFlags(fflag: msg.event.open.fflag)
+        )
         if let data = serializer.serialize(eventType: "open", payload: payload, kernelTimeNs: kernelEventTimeNs(msg.time)) {
             logger.debug("credential-store open pid=\(pid, privacy: .public) path=\(path, privacy: .private)")
             onEvent?(data)

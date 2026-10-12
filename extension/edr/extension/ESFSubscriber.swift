@@ -417,7 +417,8 @@ final class ESFSubscriber: Sendable {
         let pid = audit_token_to_pid(msg.process.pointee.audit_token)
         let exitCode = msg.event.exit.stat
 
-        let payload = ExitPayload(pid: pid, exitCode: Int(exitCode))
+        let pidVersion = UInt32(bitPattern: audit_token_to_pidversion(msg.process.pointee.audit_token))
+        let payload = ExitPayload(pid: pid, pidVersion: pidVersion, exitCode: Int(exitCode))
 
         if let data = serializer.serialize(eventType: "exit", payload: payload, kernelTimeNs: kernelEventTimeNs(msg.time)) {
             logger.debug("exit pid=\(pid) code=\(exitCode)")
