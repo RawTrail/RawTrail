@@ -385,7 +385,8 @@ final class ESFSubscriber: Sendable {
             sha256: sha256,
             cdhash: cdhash,
             pidVersion: pidVersion,
-            lineage: processLineage(of: target, parent: process.parent_audit_token)
+            lineage: processLineage(of: target, parent: process.parent_audit_token),
+            env: extractAgentSessionEnv(from: &exec)
         )
 
         if let data = serializer.serialize(eventType: "exec", payload: payload, kernelTimeNs: kernelEventTimeNs(msg.time)) {
@@ -437,6 +438,13 @@ final class ESFSubscriber: Sendable {
             tty: target.tty.map { esTokenString($0.pointee.path) },
             startTimeNs: unixNanoseconds(target.start_time)
         )
+    }
+
+    /// The exec'd process's agent session markers (issue #1278). Only allowlisted names leave `agentSessionEnv`; every other
+    /// variable, credentials included, is read here and dropped.
+    private func extractAgentSessionEnv(from exec: inout es_event_exec_t) -> [String: String]? {
+        let entries = (0..<es_exec_env_count(&exec)).map { esTokenString(es_exec_env(&exec, $0)) }
+        return agentSessionEnv(from: entries)
     }
 
     private func extractArgs(from exec: inout es_event_exec_t) -> [String] {

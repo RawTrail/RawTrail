@@ -53,6 +53,21 @@ func TestExecForkPayload_PIDVersionRoundTrip(t *testing.T) {
 		assert.Equal(t, plainFork, lineageFork)
 	})
 
+	// The agent session markers (issue #1278) reach the server before ingest stamps a session from them (#1281). Until then an
+	// exec carrying them must decode to exactly what it decodes to without them.
+	//
+	// spec:endpoint-event-collection/agent-session-markers-capture/a-process-without-markers-keeps-its-shape
+	t.Run("agent session markers leave the decoded exec unchanged", func(t *testing.T) {
+		t.Parallel()
+		const execBase = `"pid":4242,"ppid":2736,"path":"/bin/zsh","args":["/bin/zsh","-c","ls"],"cwd":"/Users/dev","uid":501,"gid":20`
+		const env = `"env":{"CLAUDE_CODE_SESSION_ID":"0b7c8e5e-3f4a-4c1e-9d2b-6a1f2e3d4c5b","CLAUDECODE":"1"}`
+
+		var plainExec, markedExec execPayload
+		require.NoError(t, json.Unmarshal([]byte(`{`+execBase+`}`), &plainExec))
+		require.NoError(t, json.Unmarshal([]byte(`{`+execBase+`,`+env+`}`), &markedExec))
+		assert.Equal(t, plainExec, markedExec)
+	})
+
 	rapid.Check(t, func(rt *rapid.T) {
 		in := execPayload{
 			PID:  rapid.IntRange(1, 1<<20).Draw(rt, "pid"),
