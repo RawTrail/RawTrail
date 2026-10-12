@@ -4,10 +4,10 @@ The lineage columns stored by `process-lineage-rows` leave `parent_process_id` u
 
 ## What changes
 
-- A fork that carries `parent_pidversion` links its row to the exact `(parent_pid, parent_pidversion)` row. When no row holds that generation, because the parent's first exec rewrote it or an exec was dropped, the link falls back to the parent's row in force at the fork, unless that row is a newer generation. `pidversion` restarts at each boot, so every match is bounded by time.
+- A fork that carries `parent_pidversion` links its row to the exact `(parent_pid, parent_pidversion)` row. When no row holds that generation, because the parent's first exec rewrote it or an exec was dropped, the link falls back to the parent's row in force at the fork, unless that row is a newer generation. `pidversion` restarts at each boot, so every match is bounded by time: the row must have forked by the child's fork and still be alive then. An exit the TTL reconciler synthesized does not count, because it closes a long-running process with no evidence that it ended.
 - A process first seen at exec links to the parent its exec names, unless launchd adopted it, whose creator the exec does not identify.
 - A re-exec keeps the link. A parent created in the same batch is linked after the batched insert, so the flush stays set-based.
-- An exit that carries `pidversion` closes its own generation's row, or an older or unversioned one, and never a newer one. A buffered exit is not taken by a snapshot of a newer generation.
+- An exit that carries `pidversion` closes its own generation's row, or an older or unversioned one, and never a newer one. A buffered exit is not taken by a snapshot of a newer generation, or of a process that started after the exit.
 - Events from older agents keep today's behavior.
 
 ## Impact

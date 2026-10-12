@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/fleetdm/edr/server/detection/internal/graph"
 )
 
 // forkAt returns the single row for pid whose fork_time_ns is forkTs and that never exec'd.
@@ -64,21 +65,31 @@ func laterParent() []api.Event {
 	}
 }
 
-// spec:server-process-graph-builder/process-creator-resolution/the-exact-generation-wins-over-a-reused-pid
+// spec:server-process-graph-builder/process-creator-resolution/a-reused-pid-s-earlier-process-keeps-its-child
 // spec:server-process-graph-builder/process-creator-resolution/a-newer-generation-is-not-a-creator
+// spec:server-process-graph-builder/process-creator-resolution/a-generation-from-an-earlier-boot-is-not-a-creator
 // spec:server-process-graph-builder/process-creator-resolution/a-child-forked-before-its-parent-s-first-exec-links-to-that-row
 func TestParentLink_ResolvesTheCreatorGeneration(t *testing.T) {
 	t.Parallel()
 
-	t.Run("the exact generation wins over a reused pid", func(t *testing.T) {
+	t.Run("a reused pid's earlier process keeps its child", func(t *testing.T) {
 		t.Parallel()
-		// The child's fork is stamped after the later process forked, so the time rule alone would pick the later process.
 		rows := processInBatches(t, append(earlierParent(), laterParent()...), []api.Event{
-			lineageEvt("f-child", "fork", 1650, `{"child_pid":600,"parent_pid":500,"pidversion":7360,"parent_pidversion":7301}`),
+			lineageEvt("f-child", "fork", 1400, `{"child_pid":600,"parent_pid":500,"pidversion":7302,"parent_pidversion":7301}`),
 		})
-		parent := parentOf(t, rows, forkAt(t, rows, 600, 1650))
+		parent := parentOf(t, rows, forkAt(t, rows, 600, 1400))
 		assert.Equal(t, "/bin/zsh", parent.Path)
 		assert.Equal(t, new(uint32(7301)), parent.PIDVersion)
+	})
+
+	t.Run("the exact generation wins while two processes hold the pid", func(t *testing.T) {
+		t.Parallel()
+		// The later process was recorded first, so the earlier one's fork did not close it, and the earlier one's exit has not
+		// arrived. Both rows are open at the child's fork; the time rule alone would pick the later one, whose exec is still ahead.
+		rows := processInBatches(t, laterParent(), earlierParent()[:1], []api.Event{
+			lineageEvt("f-child", "fork", 1650, `{"child_pid":600,"parent_pid":500,"pidversion":7360,"parent_pidversion":7300}`),
+		})
+		assert.Equal(t, int64(1000), parentOf(t, rows, forkAt(t, rows, 600, 1650)).ForkTimeNs)
 	})
 
 	t.Run("a newer generation is not a creator", func(t *testing.T) {
@@ -121,6 +132,29 @@ func TestParentLink_ResolvesTheCreatorGeneration(t *testing.T) {
 		assert.Equal(t, "/bin/zsh", parentOf(t, rows, forkAt(t, rows, 600, 1200)).Path)
 	})
 
+	t.Run("a generation from an earlier boot is not a creator", func(t *testing.T) {
+		t.Parallel()
+		// Before the reboot, pid 500 exec'd as 7300. After it, pid 500 forks as 7300 again (which closes the old row as a reused
+		// pid) and execs as 7301; a child it forked between the two names 7300, which only the old row still holds.
+		rows := processInBatches(t, []api.Event{
+			lineageEvt("f-old", "fork", 100, `{"child_pid":500,"parent_pid":1,"pidversion":7290,"parent_pidversion":1}`),
+			lineageEvt("e-old", "exec", 150, `{"pid":500,"ppid":1,"path":"/usr/sbin/cron","pidversion":7300,"parent_pidversion":1}`),
+			lineageEvt("f-now", "fork", 5000, `{"child_pid":500,"parent_pid":1,"pidversion":7300,"parent_pidversion":1}`),
+			lineageEvt("e-now", "exec", 5100, `{"pid":500,"ppid":1,"path":"/bin/zsh","pidversion":7301,"parent_pidversion":1}`),
+		}, []api.Event{
+			lineageEvt("f-child", "fork", 5050, `{"child_pid":600,"parent_pid":500,"pidversion":7302,"parent_pidversion":7300}`),
+		})
+		assert.Equal(t, "/bin/zsh", parentOf(t, rows, forkAt(t, rows, 600, 5050)).Path)
+	})
+
+	t.Run("an exited row from an earlier boot is not a creator", func(t *testing.T) {
+		t.Parallel()
+		// The current boot's parent left no row, so the only row naming the generation is one that exited long before the fork.
+		rows := processInBatches(t, append(earlierParent(), lineageEvt("f-child", "fork", 9000,
+			`{"child_pid":600,"parent_pid":500,"pidversion":7302,"parent_pidversion":7301}`)))
+		assert.Equal(t, -1, forkAt(t, rows, 600, 9000).ParentRank)
+	})
+
 	t.Run("a parent recorded without a generation is matched by time", func(t *testing.T) {
 		t.Parallel()
 		rows := processInBatches(t, []api.Event{
@@ -131,6 +165,28 @@ func TestParentLink_ResolvesTheCreatorGeneration(t *testing.T) {
 		})
 		assert.Equal(t, "/bin/bash", parentOf(t, rows, forkAt(t, rows, 600, 1200)).Path)
 	})
+}
+
+// spec:server-process-graph-builder/process-creator-resolution/a-generation-from-an-earlier-boot-is-not-a-creator
+//
+// The TTL reconciler closes a row six hours after its fork whether or not the process ended, which a long agent session outlives.
+// The children it forks after that must still link to it.
+func TestParentLink_ParentClosedByTheTTLReconciler(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	b := graph.NewBuilder(store, discardLogger())
+	ctx := t.Context()
+	host := "parent-ttl-" + t.Name()
+	require.NoError(t, b.ProcessBatch(ctx, rewriteHost(earlierParent()[:2], host)))
+	_, err := store.ReconcileStaleProcesses(ctx, 2000, 500)
+	require.NoError(t, err)
+	require.NoError(t, b.ProcessBatch(ctx, rewriteHost([]api.Event{
+		lineageEvt("f-child", "fork", 3000, `{"child_pid":600,"parent_pid":500,"pidversion":7330,"parent_pidversion":7301}`),
+	}, host)))
+	rows := dumpNormalizedForest(t, db, ctx, host)
+	parent := parentOf(t, rows, forkAt(t, rows, 600, 3000))
+	require.NotNil(t, parent.ExitReason)
+	assert.Equal(t, api.ExitReasonTTLReconciliation, *parent.ExitReason)
 }
 
 // spec:server-process-graph-builder/process-creator-resolution/a-daemon-links-to-its-creator-after-a-double-fork

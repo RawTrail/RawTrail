@@ -2,13 +2,20 @@
 
 ### Requirement: Process creator resolution
 
-The graph builder SHALL set `parent_process_id` from a fork's `(parent_pid, parent_pidversion)`: the row of that exact generation that had forked by the child's fork, else the parent's row in force then, unless that row is a newer generation whose exec preceded the fork. A process first seen at exec SHALL link the same way to the parent it names. A fork without `parent_pidversion`, or a reparented process first seen at exec, SHALL leave it unset.
+The graph builder SHALL set `parent_process_id` from a fork's `(parent_pid, parent_pidversion)`: the row of that exact generation alive at the child's fork, else the parent's row in force then if alive and not a newer generation whose exec preceded the fork. A TTL-synthesized exit counts as alive. A process first seen at exec SHALL link the same way to the parent it names. A fork without `parent_pidversion`, or a reparented process first seen at exec, SHALL leave it unset.
 
-#### Scenario: The exact generation wins over a reused pid
+#### Scenario: A reused pid's earlier process keeps its child
 
-- **GIVEN** a parent pid was reused by a later process that forked before the child's fork timestamp
-- **WHEN** the child's fork names the earlier process's generation
+- **GIVEN** a process forked a child and exited, and a later process reused its pid
+- **WHEN** the child's fork is processed after the later process is recorded
 - **THEN** the child links to the earlier process's row
+
+#### Scenario: A generation from an earlier boot is not a creator
+
+- **GIVEN** a row from before a reboot holds the parent's pid and the generation the child names
+- **WHEN** the child's fork is processed
+- **THEN** the child links to the current boot's parent when it is recorded, and is unlinked otherwise
+- **AND** a parent the TTL reconciler closed before the child's fork is still linked
 
 #### Scenario: A child forked before its parent's first exec links to that row
 
@@ -38,7 +45,7 @@ The graph builder SHALL set `parent_process_id` from a fork's `(parent_pid, pare
 
 ### Requirement: Exit binding by process generation
 
-An exit that carries `pidversion` SHALL close the open row of that generation for its pid, else the most recent open row whose generation is older or unknown, and SHALL NOT close a row of a newer generation. A buffered exit SHALL NOT be taken by a snapshot exec of a newer generation. An exit without `pidversion` SHALL keep the pid-only rule.
+An exit that carries `pidversion` SHALL close the open row of that generation for its pid, else the most recent open row whose generation is older or unknown, and SHALL NOT close a row of a newer generation. A buffered exit SHALL NOT be taken by a snapshot exec of a newer generation or of a process that started after the exit. An exit without `pidversion` SHALL keep the pid-only rule.
 
 #### Scenario: An exit never closes a newer generation
 
@@ -50,5 +57,5 @@ An exit that carries `pidversion` SHALL close the open row of that generation fo
 #### Scenario: A buffered exit skips a newer snapshot
 
 - **GIVEN** an exit for a generation with no row was buffered
-- **WHEN** a snapshot exec of a newer generation arrives for the same pid
+- **WHEN** a snapshot exec of a newer generation, or of a process that started after the exit, arrives for the same pid
 - **THEN** the snapshot row stays open

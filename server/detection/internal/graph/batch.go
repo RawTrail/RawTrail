@@ -187,7 +187,9 @@ func (s *batchSession) imageInForce(hostID string, pid int, atTimeNs int64) *pro
 // so the store has no SQL twin of it.
 //
 // The exact (pid, pidversion) row wins. pidversion only increases within one boot and restarts at zero on the next one, so the match
-// is bounded to rows that had forked by atNs and never trusted across time on the generation alone.
+// is bounded to rows that had forked by atNs and were still alive then (aliveAt), and never trusted across time on the generation
+// alone. A row from an earlier boot that shares the generation was closed as a reused pid when the pid's current process forked, if
+// that fork was recorded, so it fails the bound and the current parent is found by the fallback instead.
 //
 // Two shapes leave no exact row: a first exec after fork rewrites the fork row's pidversion in place, so a child the parent forked
 // before that exec names a generation no row holds any more, and a dropped exec leaves the row one generation behind. Both fall back
@@ -196,7 +198,7 @@ func (s *batchSession) imageInForce(hostID string, pid int, atTimeNs int64) *pro
 func (s *batchSession) ResolveParent(_ context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*int64, error) {
 	var exact *procRow
 	for _, r := range s.byKey[mysql.HostPID{HostID: hostID, PID: pid}] {
-		if r.proc.PIDVersion == nil || *r.proc.PIDVersion != pidversion || r.proc.ForkTimeNs > atNs {
+		if r.proc.PIDVersion == nil || *r.proc.PIDVersion != pidversion || r.proc.ForkTimeNs > atNs || !aliveAt(r.proc, atNs) {
 			continue
 		}
 		if exact == nil || rankGreater(r, exact) {
@@ -208,11 +210,24 @@ func (s *batchSession) ResolveParent(_ context.Context, hostID string, pid int, 
 		return &id, nil
 	}
 	r := s.imageInForce(hostID, pid, atNs)
-	if r == nil || !fallbackParentAdmits(r.proc, pidversion, atNs) {
+	if r == nil || !aliveAt(r.proc, atNs) || !fallbackParentAdmits(r.proc, pidversion, atNs) {
 		return nil, nil
 	}
 	id := r.proc.ID
 	return &id, nil
+}
+
+// aliveAt reports whether row's process can have been running at atNs, as a creator at its child's fork must be: it has not exited,
+// it exited at or after atNs, or its exit was synthesized by the TTL reconciler, which closes a row six hours after its fork with no
+// evidence that the process ended, so a long-running shell keeps forking children after it.
+//
+// GetParentImage deliberately applies no such bound, because there a dropped answer costs a forked child its image and was measured
+// to lose more than it fixed. Here a dropped link costs only the exact edge, and readers fall back to the ppid rule, while a wrong
+// link hangs the child under another process; an exit before the child's fork is the evidence that a generation match crossed a
+// reboot or a reused pid.
+func aliveAt(row api.Process, atNs int64) bool {
+	return row.ExitTimeNs == nil || *row.ExitTimeNs >= atNs ||
+		(row.ExitReason != nil && *row.ExitReason == api.ExitReasonTTLReconciliation)
 }
 
 // fallbackParentAdmits reports whether the row the time rule picked for a creator can be the generation the child named. It can when
@@ -358,6 +373,12 @@ func (s *batchSession) insertRow(p api.Process, prevNewIdx int) int64 {
 	key := mysql.HostPID{HostID: p.HostID, PID: p.PID}
 	s.byKey[key] = append(s.byKey[key], r)
 	return id
+}
+
+// provisionalIndex returns the newRows index of the row insertRow gave provisional id id. insertRow hands out -1, -2, ... in step with
+// appending to newRows, so the mapping is fixed.
+func provisionalIndex(id int64) int {
+	return int(-id) - 1
 }
 
 func (s *batchSession) InsertProcess(_ context.Context, p api.Process) (int64, error) {
@@ -527,7 +548,7 @@ func (s *batchSession) plan() mysql.ProcessBatchPlan {
 		row := mysql.NewProcessRow{Proc: r.proc, PrevNewIndex: r.prevNew, ParentNewIndex: -1}
 		// A creator created in this batch has only a provisional id, which the flush resolves once the creator is inserted.
 		if id := r.proc.ParentProcessID; id != nil && *id < 0 {
-			row.ParentNewIndex = s.findByID(*id).creIdx
+			row.ParentNewIndex = provisionalIndex(*id)
 			row.Proc.ParentProcessID = nil
 		}
 		p.NewRows = append(p.NewRows, row)

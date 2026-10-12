@@ -79,14 +79,18 @@ func (b *Builder) bufferPendingExit(hostID string, pid int, pe pendingExit) {
 // expired. Returns ok=false when missing or expired. Expired entries are purged lazily here AND by sweepPendingExits at batch
 // boundaries; both paths matter because not every snapshot exec arrives with the same lifecycle.
 //
-// pidversion is the snapshot exec's generation. An exit from an older generation is a process that ended before this one reused the
-// pid, so it stays buffered rather than marking the newer process exited (issue #1280).
-func (b *Builder) consumePendingExit(hostID string, pid int, pidversion *uint32) (pendingExit, bool) {
+// pidversion and startTimeNs are the snapshot exec's generation and start time. An exit stamped before the process started, or from
+// an older generation, is a process that ended before this one reused the pid, so it stays buffered rather than marking the newer
+// process exited (issue #1280). The start time decides first because it holds across a reboot, where generations restart at zero.
+func (b *Builder) consumePendingExit(hostID string, pid int, pidversion *uint32, startTimeNs *int64) (pendingExit, bool) {
 	key := pendingExitKey{hostID: hostID, pid: pid}
 	b.pendingExitsMu.Lock()
 	defer b.pendingExitsMu.Unlock()
 	pe, ok := b.pendingExits[key]
 	if !ok {
+		return pendingExit{}, false
+	}
+	if startTimeNs != nil && pe.exitTimeNs < *startTimeNs {
 		return pendingExit{}, false
 	}
 	if pe.pidVersion != nil && pidversion != nil && *pe.pidVersion < *pidversion {
@@ -465,7 +469,7 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 	// do given the snapshot exec carries no real fork time. last_seen_ns mirrors the same
 	// timestamp so the row doesn't look "fresh" to the TTL reconciler.
 	if p.Snapshot {
-		if pe, ok := b.consumePendingExit(evt.HostID, p.PID, p.PIDVersion); ok {
+		if pe, ok := b.consumePendingExit(evt.HostID, p.PID, p.PIDVersion, p.StartTimeNs); ok {
 			row.ForkTimeNs = pe.exitTimeNs
 			row.ExecTimeNs = &pe.exitTimeNs
 			row.LastSeenNs = &pe.exitTimeNs
