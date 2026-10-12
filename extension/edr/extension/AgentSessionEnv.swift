@@ -16,7 +16,8 @@ let agentSessionEnvAllowlist: Set<String> = [
     "CLAUDE_CODE_CHILD_SESSION",    // "1" in every Claude Code subprocess, including a top-level session's
     "CLAUDE_CODE_ENTRYPOINT",       // how the session was started, e.g. "cli"
     "CLAUDE_CODE_SESSION_ATTENDED", // whether the session reports a human present
-    // Product and version, e.g. "claude-code_2-1-296_agent". Whether other agents set it is not yet observed (#1290).
+    // Product, version and role: "claude-code_2-1-296_agent" in a tool call's processes, "..._harness" in Claude Code's own
+    // helpers (git, rg), which carry no session id. Whether other agents set it is not yet observed (#1290).
     "AI_AGENT"
 ]
 

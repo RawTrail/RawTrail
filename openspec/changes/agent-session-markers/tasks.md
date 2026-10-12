@@ -11,4 +11,4 @@
 
 ## 3. QA
 
-- [ ] 3.1 On edr-dev, a command run by a real Claude Code session carries `env.CLAUDE_CODE_SESSION_ID` equal to its transcript filename, and no event carries `CLAUDE_CODE_MESSAGING_TOKEN`.
+- [x] 3.1 On edr-dev, a command run by a real Claude Code session carries `env.CLAUDE_CODE_SESSION_ID` equal to its transcript filename, and no event carries `CLAUDE_CODE_MESSAGING_TOKEN`.
