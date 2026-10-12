@@ -13,22 +13,22 @@ On a graceful stop, the server SHALL flush its OTel telemetry before it closes i
 
 ### Requirement: Ingest disconnects are not errors
 
-The ingest handler SHALL log a failed event-store write at info level, and write no response, when the failure is a cancellation caused by the agent's request ending. Every other failed write, including a cancellation while the request is still live, SHALL be logged at error level and answered with HTTP 5xx.
+The ingest handler SHALL log a failed store write at info level, and write no response, when the failure is a cancellation caused by the agent's request ending. Every other failed write, including a cancellation while the request is still live, SHALL be logged at error level, and a failed event-archive or work-queue write SHALL be answered with HTTP 5xx.
 
 #### Scenario: A disconnect is info-logged
 
 - **GIVEN** an agent uploading a batch
-- **WHEN** the agent disconnects and the event-store write fails as cancelled
+- **WHEN** the agent disconnects and a store write fails as cancelled
 - **THEN** the failure is logged at info level, not error level, and no response is written
 
 #### Scenario: A live cancellation stays an error
 
 - **GIVEN** an agent whose upload request is still live
-- **WHEN** an event-store write fails as cancelled
+- **WHEN** an event-archive or work-queue write fails as cancelled
 - **THEN** the failure is logged at error level and the handler responds with HTTP 5xx
 
 #### Scenario: A write failure stays an error
 
 - **GIVEN** an agent uploading a batch
-- **WHEN** an event-store write fails with an error that is not a cancellation
+- **WHEN** an event-archive or work-queue write fails with an error that is not a cancellation
 - **THEN** the failure is logged at error level and the handler responds with HTTP 5xx

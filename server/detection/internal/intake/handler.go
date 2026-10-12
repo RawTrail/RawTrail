@@ -248,16 +248,18 @@ func (h *Handler) handleIngest(w http.ResponseWriter, r *http.Request) {
 	// Apply the heartbeat freshness bump (the heartbeat's only server-side effect: bump processes.last_seen_ns so the TTL reconciler
 	// exempts a live snapshot row). Best-effort like UpsertHosts: a heartbeat lands every reconcile interval, so a transient failure
 	// here is re-applied by the next one, well within the 6h TTL. Never fail the batch over a liveness bump.
+	// Both writes are best-effort, so a failure still acknowledges the batch, unless the agent has gone: then there is nobody to answer.
 	if len(heartbeats) > 0 {
-		if err := h.store.BumpSnapshotLastSeenBatch(ctx, pinnedHostID, heartbeats); err != nil {
-			h.logStoreFailure(ctx, "heartbeat freshness bump", err)
+		err := h.store.BumpSnapshotLastSeenBatch(ctx, pinnedHostID, heartbeats)
+		if err != nil && h.logStoreFailure(ctx, "heartbeat freshness bump", err) {
+			return
 		}
 	}
 
 	// UpsertHosts sees the full batch (heartbeats included) so per-host last_seen / event_count advance for a near-idle host whose
 	// only traffic is heartbeats, exactly as before this change.
-	if err := h.store.UpsertHosts(ctx, events); err != nil {
-		h.logStoreFailure(ctx, "upsert hosts", err)
+	if err := h.store.UpsertHosts(ctx, events); err != nil && h.logStoreFailure(ctx, "upsert hosts", err) {
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
