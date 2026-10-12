@@ -15,5 +15,5 @@
 
 ## 4. Later PRs of #1280
 
-- [ ] 4.1 Resolve `parent_process_id` from the fork's exact `(parent_pid, parent_pidversion)`, and bind exits by `pidversion`.
+- [x] 4.1 Resolve `parent_process_id` from the fork's exact `(parent_pid, parent_pidversion)`, and bind exits by `pidversion`.
 - [ ] 4.2 Build the tree and walk ancestors by `parent_process_id`.

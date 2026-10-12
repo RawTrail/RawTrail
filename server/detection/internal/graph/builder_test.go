@@ -67,7 +67,7 @@ func TestBuilder_PendingExit_Issue176(t *testing.T) {
 		// insertExecWithoutFork takes the no-pending-exit branch and the new row is inserted fresh without inheriting the long-expired
 		// exit. This is the recycled-PID safety property the spec pins.
 		advance(time.Hour) // an extreme delay to make the recycled-PID framing explicit
-		_, ok := b.consumePendingExit("host-a", 1234)
+		_, ok := b.consumePendingExit("host-a", 1234, nil, nil)
 		assert.False(t, ok, "consumePendingExit MUST NOT return an expired exit; a recycled PID must not inherit it")
 	})
 
@@ -97,10 +97,43 @@ func TestBuilder_PendingExit_Issue176(t *testing.T) {
 			exitCode:         15,
 			exitReason:       "kernel_signal",
 		})
-		pe, ok := b.consumePendingExit("host-a", 7777)
+		pe, ok := b.consumePendingExit("host-a", 7777, nil, nil)
 		require.True(t, ok, "consumePendingExit MUST return the just-buffered exit while still within the TTL window")
 		assert.Equal(t, int64(2_000_000_000), pe.exitTimeNs, "consumed exit must carry the buffered exitTimeNs")
 		assert.Equal(t, 15, pe.exitCode, "consumed exit must carry the buffered exitCode")
 		assert.Empty(t, b.pendingExits, "consumePendingExit MUST remove the entry on read")
 	})
+}
+
+// A buffered exit is taken only by a snapshot exec of a process that had started by the exit and whose generation is not newer than
+// the exit's (issue #1280). Either way round, the exit ended a process before the snapshotted one reused the pid, so it must not mark
+// that one exited.
+func TestPendingExit_GenerationGuard(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		exitVer   *uint32
+		snapVer   *uint32
+		snapStart *int64
+		consumed  bool
+	}{
+		{"same generation", new(uint32(7411)), new(uint32(7411)), nil, true},
+		{"exit from a later image of the snapshotted process", new(uint32(7420)), new(uint32(7411)), nil, true},
+		{"exit from an older generation", new(uint32(7400)), new(uint32(7411)), nil, false},
+		{"exit without a generation", nil, new(uint32(7411)), nil, true},
+		{"snapshot without a generation", new(uint32(7400)), nil, nil, true},
+		{"exit after the snapshotted process started", new(uint32(7411)), new(uint32(7411)), new(int64(900)), true},
+		// Generations restart at each boot, so an exit from before a reboot can carry a higher one than the new process.
+		{"exit before the snapshotted process started", new(uint32(9000)), new(uint32(7411)), new(int64(1100)), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := &Builder{logger: slog.New(slog.NewTextHandler(io.Discard, nil)), now: time.Now, pendingExits: make(map[pendingExitKey]pendingExit)}
+			b.bufferPendingExit("host-a", 4242, pendingExit{exitTimeNs: 1000, pidVersion: tc.exitVer})
+			_, ok := b.consumePendingExit("host-a", 4242, tc.snapVer, tc.snapStart)
+			assert.Equal(t, tc.consumed, ok)
+			assert.Len(t, b.pendingExits, map[bool]int{true: 0, false: 1}[tc.consumed], "an exit not taken stays buffered")
+		})
+	}
 }

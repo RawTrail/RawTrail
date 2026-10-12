@@ -31,7 +31,7 @@ import (
 )
 
 // normRow is a process row normalised for forest comparison: the absolute auto-increment id and host_id are dropped, and the
-// re-exec back-reference is replaced by the canonical rank of the row it points at, so two structurally identical forests built
+// re-exec and creator back-references are replaced by the canonical rank of the row each points at, so two structurally identical forests built
 // under different ids and host prefixes compare equal.
 type normRow struct {
 	PID              int
@@ -55,7 +55,8 @@ type normRow struct {
 	LastSeenNs       *int64
 	ParentPIDVersion *uint32
 	api.ExecLineage
-	PrevRank int // canonical rank of the previous_exec row, or -1
+	PrevRank   int // canonical rank of the previous_exec row, or -1
+	ParentRank int // canonical rank of the parent_process_id row, or -1
 }
 
 // dumpNormalizedForest reads every process row for hostID and returns it in a canonical, id-independent order. Rows are sorted by a
@@ -68,7 +69,7 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns, parent_pidversion, original_ppid, responsible_pid, responsible_pidversion, session_id,
+		       is_snapshot, last_seen_ns, parent_process_id, parent_pidversion, original_ppid, responsible_pid, responsible_pidversion, session_id,
 		       group_id, tty, start_time_ns, cwd, reparented
 		FROM processes WHERE host_id = ?`, hostID))
 
@@ -80,16 +81,19 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 		rank[r.ID] = i
 	}
 
+	// rankOf maps a row reference to its target's canonical rank: -1 for none, -2 for a dangling reference, which stays deterministic
+	// and surfaces a divergence rather than hiding it.
+	rankOf := func(id *int64) int {
+		if id == nil {
+			return -1
+		}
+		if r, ok := rank[*id]; ok {
+			return r
+		}
+		return -2
+	}
 	out := make([]normRow, len(sorted))
 	for i, r := range sorted {
-		prev := -1
-		if r.PreviousExecID != nil {
-			if pr, ok := rank[*r.PreviousExecID]; ok {
-				prev = pr
-			} else {
-				prev = -2 // dangling reference: still deterministic, surfaces a divergence rather than hiding it
-			}
-		}
 		out[i] = normRow{
 			PID: r.PID, PPID: r.PPID, Path: r.Path,
 			Args: string(r.Args), UID: r.UID, GID: r.GID,
@@ -99,7 +103,7 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 			ExitReason: r.ExitReason, ExitCode: r.ExitCode,
 			IsSnapshot: r.IsSnapshot, LastSeenNs: r.LastSeenNs,
 			ParentPIDVersion: r.ParentPIDVersion, ExecLineage: r.ExecLineage,
-			PrevRank: prev,
+			PrevRank: rankOf(r.PreviousExecID), ParentRank: rankOf(r.ParentProcessID),
 		}
 	}
 	return out
@@ -246,28 +250,89 @@ func TestProcessBatch_DifferentialProperty(t *testing.T) {
 // genEventSequence draws a random sequence of fork/exec/exit/snapshot/heartbeat events over a small PID space with strictly
 // increasing timestamps. The small PID space makes re-exec, PID reuse, exec-without-fork, and exit-then-fork collisions frequent,
 // which is exactly where the in-memory overlay must match the SQL resolution.
+//
+// Generations follow the kernel's rule (issue #1280): one counter, bumped by every fork and exec. Each event names a generation the
+// way an agent could: the current one, any drawn one (a stale, dropped or future generation), or none (an older agent). That drives
+// the creator lookup down its exact, fallback and unset branches and the exit binding down its exact, older and newer ones.
 func genEventSequence(rt *rapid.T) []api.Event {
 	n := rapid.IntRange(1, 30).Draw(rt, "n")
 	pids := []int{100, 101, 102}
 	parents := []int{1, 100, 101, 102}
 	base := int64(2_000_000_000)
+	counter := uint32(1000)
+	current := map[int]uint32{1: 1}
+	// named draws the generation an event reports for pid.
+	named := func(pid int, label string) *uint32 {
+		switch rapid.SampledFrom([]string{"current", "drawn", "absent"}).Draw(rt, label) {
+		case "current":
+			if v, ok := current[pid]; ok {
+				return &v
+			}
+			return nil
+		case "drawn":
+			v := rapid.Uint32Range(990, counter+3).Draw(rt, label+"v")
+			return &v
+		}
+		return nil
+	}
+	next := func(pid int) *uint32 {
+		counter++
+		current[pid] = counter
+		v := counter
+		return &v
+	}
 	var events []api.Event
 	for i := range n {
 		ts := base + int64(i)*1000
-		switch rapid.SampledFrom([]string{"fork", "exec", "exit", "snap_exec", "heartbeat"}).Draw(rt, "type"+strconv.Itoa(i)) {
+		is := strconv.Itoa(i)
+		switch rapid.SampledFrom([]string{"fork", "exec", "exit", "snap_exec", "heartbeat"}).Draw(rt, "type"+is) {
 		case "fork":
-			events = append(events, forkEvt(ts, rapid.SampledFrom(pids).Draw(rt, "fc"+strconv.Itoa(i)), rapid.SampledFrom(parents).Draw(rt, "fp"+strconv.Itoa(i))))
+			child, parent := rapid.SampledFrom(pids).Draw(rt, "fc"+is), rapid.SampledFrom(parents).Draw(rt, "fp"+is)
+			parentVer := named(parent, "fpv"+is)
+			events = append(events, lineageForkEvt(ts, child, parent, next(child), parentVer))
 		case "exec":
-			pid := rapid.SampledFrom(pids).Draw(rt, "ep"+strconv.Itoa(i))
-			events = append(events, execEvt(ts, pid, 1, "/bin/img"+strconv.Itoa(i)))
+			pid, ppid := rapid.SampledFrom(pids).Draw(rt, "ep"+is), rapid.SampledFrom(parents).Draw(rt, "epp"+is)
+			parentVer := named(ppid, "eppv"+is)
+			events = append(events, lineageExecEvt(ts, pid, ppid, "/bin/img"+is, next(pid), parentVer, false))
 		case "exit":
-			events = append(events, exitEvt(ts, rapid.SampledFrom(pids).Draw(rt, "xp"+strconv.Itoa(i)), rapid.IntRange(0, 9).Draw(rt, "xc"+strconv.Itoa(i))))
+			pid := rapid.SampledFrom(pids).Draw(rt, "xp"+is)
+			events = append(events, exitEvtVer(ts, pid, rapid.IntRange(0, 9).Draw(rt, "xc"+is), named(pid, "xv"+is)))
 		case "snap_exec":
-			pid := rapid.SampledFrom(pids).Draw(rt, "sp"+strconv.Itoa(i))
-			events = append(events, snapExecEvt(ts, pid, 1, "/App/snap"+strconv.Itoa(i)))
+			pid := rapid.SampledFrom(pids).Draw(rt, "sp"+is)
+			events = append(events, lineageExecEvt(ts, pid, 1, "/App/snap"+is, named(pid, "sv"+is), named(1, "spv"+is), true))
 		case "heartbeat":
-			events = append(events, heartbeatEvt(ts, rapid.SampledFrom(pids).Draw(rt, "hp"+strconv.Itoa(i))))
+			events = append(events, heartbeatEvt(ts, rapid.SampledFrom(pids).Draw(rt, "hp"+is)))
 		}
 	}
 	return events
+}
+
+// lineageForkEvt, lineageExecEvt and exitEvtVer are the generation-carrying envelopes the property draws. A nil generation leaves its
+// key off the wire, as an older agent does.
+func lineageForkEvt(ts int64, child, parent int, ver, parentVer *uint32) api.Event {
+	return api.Event{EventID: "f" + strconv.FormatInt(ts, 10), HostID: "x", TimestampNs: ts, IngestedAtNs: ts + 1, EventType: "fork",
+		Payload: json.RawMessage(fmt.Sprintf(`{"child_pid":%d,"parent_pid":%d%s%s}`, child, parent, verField(ver),
+			namedVerField("parent_pidversion", parentVer)))}
+}
+
+func lineageExecEvt(ts int64, pid, ppid int, path string, ver, parentVer *uint32, snapshot bool) api.Event {
+	id := "e"
+	if snapshot {
+		id = "s"
+	}
+	return api.Event{EventID: id + strconv.FormatInt(ts, 10), HostID: "x", TimestampNs: ts, IngestedAtNs: ts + 1, EventType: "exec",
+		Payload: json.RawMessage(fmt.Sprintf(`{"pid":%d,"ppid":%d,"path":%q,"uid":501,"gid":20,"snapshot":%t%s%s}`, pid, ppid, path,
+			snapshot, verField(ver), namedVerField("parent_pidversion", parentVer)))}
+}
+
+func exitEvtVer(ts int64, pid, code int, ver *uint32) api.Event {
+	return api.Event{EventID: "q" + strconv.FormatInt(ts, 10), HostID: "x", TimestampNs: ts, IngestedAtNs: ts + 1, EventType: "exit",
+		Payload: json.RawMessage(fmt.Sprintf(`{"pid":%d,"exit_code":%d%s}`, pid, code, verField(ver)))}
+}
+
+func namedVerField(key string, ver *uint32) string {
+	if ver == nil {
+		return ""
+	}
+	return fmt.Sprintf(`,%q:%d`, key, *ver)
 }

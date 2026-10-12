@@ -235,6 +235,9 @@ type ProcessExitUpdate struct {
 	ExitCode         int
 	Reason           string
 	ExitEventID      string
+	// PIDVersion is the exiting process's kernel generation, when the agent sent it (issue #1279). It binds the exit to that
+	// generation's row; nil keeps the pid-only rule.
+	PIDVersion *uint32
 }
 
 // UpdateProcessExit sets the exit timestamp, code, and reason for a running process. ExitIngestedAtNs is the server-stamped ingest
@@ -250,12 +253,19 @@ func (s *Store) UpdateProcessExit(ctx context.Context, u ProcessExitUpdate) (int
 	// fork_time_ns <= exitTimeNs: an exit cannot close a process that forked AFTER it. In single-pass ingest (timestamp order) the
 	// live row always satisfies this, so it is a no-op there; it matters on re-processing (migration 00011), where the preload can
 	// already hold a LATER generation of a reused pid whose exit was buffered on the first pass, and closing it here would be spurious.
+	//
+	// An exit that carries its generation closes that generation's row first (issue #1280). Failing that it closes an older or
+	// unversioned row, which is the row a dropped exec left behind, and it never closes a newer generation: that is a later process
+	// on a reused pid. `pidversion = ?` is NULL for an exit without a generation, so every row ties on it and the pid-only order
+	// decides, as before; for one with a generation it sorts the exact row first and the unversioned rows last.
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE processes SET exit_time_ns = ?, exit_ingested_at_ns = ?,
 		                    exit_reason = ?, exit_code = ?, exit_event_id = ?
 		WHERE host_id = ? AND pid = ? AND exit_time_ns IS NULL AND fork_time_ns <= ?
-		ORDER BY fork_time_ns DESC, id DESC LIMIT 1`,
+		  AND (? IS NULL OR pidversion IS NULL OR pidversion <= ?)
+		ORDER BY pidversion = ? DESC, fork_time_ns DESC, id DESC LIMIT 1`,
 		u.ExitTimeNs, u.ExitIngestedAtNs, reason, u.ExitCode, u.ExitEventID, u.HostID, u.PID, u.ExitTimeNs,
+		u.PIDVersion, u.PIDVersion, u.PIDVersion,
 	)
 	if err != nil {
 		return 0, err
