@@ -83,8 +83,8 @@ func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/session", h.handleLogout)
 }
 
-// RegisterAuthedRoutes wires GET /api/session on the given mux. Caller
-// wraps the mux in Session + CSRF middleware before mounting.
+// RegisterAuthedRoutes wires GET /api/session on the given mux. Caller wraps the mux in the API auth middleware (cookie session + CSRF,
+// or a service-account bearer token) before mounting; only the cookie path yields a session.
 func (h *Handler) RegisterAuthedRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/session", h.handleGet)
 }
@@ -115,6 +115,12 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sess, ok := api.SessionFromContext(ctx)
 	if !ok {
+		// A service-account bearer token authenticates the operator API but carries no browser session. Its credential is valid, so
+		// presenting it again cannot help: that is a 403 the caller can act on, not a server fault.
+		if _, isActor := api.ActorFromContext(ctx); isActor {
+			writeJSON(ctx, h.logger, w, http.StatusForbidden, errBody{Error: "session_required"})
+			return
+		}
 		h.logger.ErrorContext(ctx, "GET /session hit without Session on ctx: middleware wiring broken")
 		writeJSON(ctx, h.logger, w, http.StatusInternalServerError, errBody{Error: "session_misconfigured"})
 		return

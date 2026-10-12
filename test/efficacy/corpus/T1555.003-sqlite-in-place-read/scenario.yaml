@@ -1,0 +1,32 @@
+# T1555.003 Credentials from Password Stores: Credentials from Web Browsers.
+#
+# An infostealer queries Chrome's saved logins in place with sqlite3, opening Login Data through an immutable=1 URI instead of copying
+# it first (Atomic Red Team T1555.003 test #18). Nothing is copied, so the only signal is the read itself: the extension's credential-store
+# client reports the open of Login Data, and credential_browser_store_read fires on sqlite3.
+name: "T1555.003 sqlite3 reads Chrome's Login Data in place"
+host:
+  id: AAAA1555-0003-0000-0000-000000000002
+  hostname: efficacy-t1555-003-sqlite.local
+  os: macOS 26.0
+timeline:
+  - at: 0ms
+    type: fork
+    child_pid: 8200
+    parent_pid: 1
+  - at: 10ms
+    type: exec
+    pid: 8200
+    ppid: 1
+    path: /usr/bin/sqlite3
+    args:
+      - sqlite3
+      - "file:/Users/victor/Library/Application Support/Google/Chrome/Default/Login Data?immutable=1"
+      - "SELECT origin_url, username_value FROM logins"
+    cwd: /Users/victor
+    uid: 501
+    gid: 20
+  - at: 60ms
+    type: open
+    pid: 8200
+    path: /Users/victor/Library/Application Support/Google/Chrome/Default/Login Data
+    flags: 0
