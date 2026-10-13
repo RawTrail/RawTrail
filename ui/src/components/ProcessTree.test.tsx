@@ -4,7 +4,7 @@ import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from "vite
 import * as api from "../api";
 import type { AlertDetail, ApplicationControlRule, ProcessNode } from "../types";
 import { ProcessTreeView } from "./ProcessTree";
-import { degradedScopeMessages } from "./chainScope";
+import { scopedMessage } from "./chainScope";
 import { treeResponse } from "../test/factories";
 
 // spec:web-ui/alert-pivots-to-the-host-process-tree/operator-pivots-from-a-process-optional-alert
@@ -418,7 +418,7 @@ describe("ProcessTreeView alert-entry window", () => {
 });
 
 describe("ProcessTreeView graph/timeline views (issue #583)", () => {
-  // spec:web-ui/host-event-timeline-view/the-graph-and-timeline-share-one-time-window
+  // spec:web-ui/host-timeline-view/the-graph-and-timeline-share-one-time-window
   it("switches to the timeline over the same window the graph used", async () => {
     const treeSpy = vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(forest));
     const tlSpy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
@@ -913,162 +913,50 @@ describe("ProcessTreeView monitor record", () => {
   });
 });
 
-// The Graph and the Timeline are meant to share one alert focus. The Timeline's scope is keyed on the (pid, pidversion) pair, so
-// a chain whose processes carry no pidversion cannot be scoped and the whole host stream is shown instead. These cover the
-// WIRING: ProcessTreeView deciding which of those two situations it is in and telling the Timeline. Deleting the computation
-// leaves the HostTimeline unit tests green, because those pass the prop in directly.
+// WIRING: ProcessTreeView telling the Timeline which process's chain to scope to. The server resolves the chain and reports how far
+// the scope reached (issue #1282), so the Timeline no longer depends on this view's tree read. Deleting the pin leaves the
+// HostTimeline unit tests green, because those pass the prop in directly.
 describe("ProcessTreeView alert-chain timeline scope", () => {
   const chainAlert: AlertDetail = {
     ...launchDaemonAlert, id: 9, process_id: 2, rule_id: "suspicious_exec", title: "Suspicious exec chain",
   };
+  const applied = { applied: true, processes: 2, unmatched: 0, truncated: false };
 
   beforeEach(() => {
     vi.spyOn(api, "getAlertDetail").mockResolvedValue(chainAlert);
-    vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
   });
 
-  it("tells the timeline the chain cannot be scoped when the tree carries no pidversion", async () => {
-    // `process()` builds nodes without pidversion, which is exactly the demo corpus's shape: every row NULL.
-    renderTree("?alert=9&process=2&at=1750248000000&view=timeline");
-    expect(await screen.findByText(/Showing the whole host/)).toBeVisible();
-  });
-
-  // findAlertChain returns an EMPTY set when the alerted process is not in the fetched tree, and that empty chain used to fall
-  // through as ordinary unscoped-by-choice: focus requested, whole host shown, nothing said. Same silence, one case over.
-  it("says the chain could not be located when it resolves to nothing", async () => {
-    // process=999 is not a node in `forest`, so findAlertChain finds no path and returns an empty set.
-    vi.spyOn(api, "getAlertDetail").mockResolvedValue({ ...chainAlert, process_id: 999 });
-    renderTree("?alert=9&process=999&at=1750248000000&view=timeline");
-
-    expect(await screen.findByText(/not in the loaded process tree/)).toBeVisible();
-    expect(screen.queryByText(/carry no generation data/)).not.toBeInTheDocument();
-  });
-
-  // An empty chain has several causes and only one of them is "outside the window". Claiming that reading while the tree is
-  // still loading, or after a failed read, or on a host with nothing in the window, sends the operator to change a time range
-  // that is not the problem. Review caught the condition claiming more than it proves.
-  // spec:web-ui/host-event-timeline-view/timeline-says-nothing-while-a-tree-read-is-in-flight
-  //
-  // Silence is right ONLY while the read is in flight: a note here would appear and then vanish as the tree lands. Asserted against
-  // the timeline's own list of degraded sentences, which has now outlived two weaker forms of the same assertion: naming two
-  // particular messages kept passing when a third was added to exactly this path, and querying the degraded CSS class would keep
-  // passing if the class were renamed. Enumerating the exported list covers a sentence added later without editing this test.
-  it("stays silent while the first read is still pending, rather than naming an absence it cannot see yet", async () => {
-    vi.spyOn(api, "getProcessTree").mockReturnValue(new Promise(() => { /* pending for the life of the test */ }));
-    vi.spyOn(api, "getAlertDetail").mockResolvedValue({ ...chainAlert, process_id: 999 });
-    renderTree("?alert=9&process=999&at=1750248000000&view=timeline");
-
-    // Wait for the view to settle before asserting an absence, so this cannot pass merely by running early.
-    await waitFor(() => { expect(screen.getByRole("searchbox", { name: /Filter timeline by text/i })).toBeVisible(); });
-    for (const message of degradedScopeMessages) {
-      expect(screen.queryByText(message)).not.toBeInTheDocument();
-    }
-  });
-
-  // spec:web-ui/host-event-timeline-view/timeline-says-the-tree-could-not-be-loaded-when-its-read-failed
-  //
-  // A failed read is a settled outcome and says so. Reported from the dogfood deployment: the graph showed `Error: API error: 502`
-  // while the timeline listed the whole host with nothing to say it had stopped trying to narrow, so one surface of the page
-  // reported failure and the other implied success.
-  it("says the tree could not be loaded when its read failed", async () => {
-    vi.spyOn(api, "getProcessTree").mockRejectedValue(new Error("boom"));
-    vi.spyOn(api, "getAlertDetail").mockResolvedValue({ ...chainAlert, process_id: 999 });
-    renderTree("?alert=9&process=999&at=1750248000000&view=timeline");
-
-    expect(await screen.findByText(/process tree could not be loaded/)).toBeVisible();
-    // It must NOT claim absence from a tree that never loaded: that is a statement about data nobody has seen.
-    expect(screen.queryByText(/not in the loaded process tree/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/carry no generation data/)).not.toBeInTheDocument();
-  });
-
-  // spec:web-ui/host-event-timeline-view/timeline-says-the-tree-could-not-be-loaded-when-its-read-failed
-  //
-  // The refetch half of the same failure, which the first version of this fix missed. fetchTree keeps the previous roots when a
-  // read rejects, so after one successful load a failed refetch leaves a chain resolved from the window before it. Gating the
-  // message on an empty chain therefore skipped it exactly when the operator had a tree on screen to be misled by: the graph
-  // rendered its error while the timeline narrowed the NEW window to the OLD window's generations and called itself scoped.
-  it("says the tree could not be loaded when a refetch fails after a successful load", async () => {
-    // Carries pidversion, so the first read resolves a chain the timeline can actually scope to. That fully-scoped first load is
-    // what leaves something stale behind for the failed refetch to misuse.
-    const scopableForest: ProcessNode[] = [
-      {
-        ...process(1, 100, 1, "/sbin/launchd"), pidversion: 11,
-        children: [{ ...process(2, 200, 100, "/usr/local/bin/fleet-edr-agent"), pidversion: 22 }],
-      },
-    ];
-    const treeSpy = vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(scopableForest));
-    const timelineSpy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
+  // spec:web-ui/host-timeline-view/timeline-scopes-to-the-alert-chain
+  it("passes the alerted process to the timeline while focused, and drops it once the focus is off", async () => {
+    const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0, scope: applied });
     renderTree("?alert=9&process=2&at=1750248000000&view=timeline");
 
-    // The first load settles into a scoped timeline that says nothing, which is the precondition: there is no note yet for the
-    // refetch to leave standing, and a real chain for it to go stale. The timeline mounts before the tree resolves, so the
-    // scoped query is a later call, not the first.
-    const lastChain = () => timelineSpy.mock.calls[timelineSpy.mock.calls.length - 1][1].chain;
-    await waitFor(() => { expect(lastChain()).toEqual([{ pid: 100, pidversion: 11 }, { pid: 200, pidversion: 22 }]); });
-    for (const message of degradedScopeMessages) {
-      expect(screen.queryByText(message)).not.toBeInTheDocument();
-    }
-    const callsBeforeShift = timelineSpy.mock.calls.length;
+    expect(await screen.findByText(scopedMessage)).toBeVisible();
+    expect(spy.mock.calls[spy.mock.calls.length - 1][1].chainPin).toBe(2);
 
-    // Shifting the window is the ordinary way an operator triggers a second read, and on the host this was reported from it is
-    // the read that 502s.
-    treeSpy.mockRejectedValue(new Error("API error: 502"));
-    fireEvent.click(screen.getByRole("button", { name: "Shift time window back" }));
-
-    expect(await screen.findByText(/process tree could not be loaded/)).toBeVisible();
-    // And it must stop scoping: a chain resolved from the previous window is not this window's chain.
-    await waitFor(() => { expect(timelineSpy.mock.calls.length).toBeGreaterThan(callsBeforeShift); });
-    expect(lastChain()).toBeUndefined();
+    fireEvent.click(await screen.findByRole("button", { name: "Full tree" }));
+    await waitFor(() => { expect(spy.mock.calls[spy.mock.calls.length - 1][1].chainPin).toBeUndefined(); });
+    expect(screen.queryByText(scopedMessage)).not.toBeInTheDocument();
   });
 
-  // The case that broke the previous wording. BuildTree applies its row limit before aggregation, so a truncated response can
-  // omit a process that IS in the window. Saying "not in this time window" there sent the operator to widen a range that was
-  // never the problem. The message now claims only what truncation cannot falsify: absence from the tree that was loaded.
-  it("does not blame the time window when the tree was truncated", async () => {
-    vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(forest, { truncated: true }));
-    vi.spyOn(api, "getAlertDetail").mockResolvedValue({ ...chainAlert, process_id: 999 });
-    renderTree("?alert=9&process=999&at=1750248000000&view=timeline");
-
-    expect(await screen.findByText(/not in the loaded process tree/)).toBeVisible();
-    expect(screen.queryByText(/time window/)).not.toBeInTheDocument();
-  });
-
-  // A chain where only some processes carry a generation. The scope applies, so the old code reported it as fully scoped while
-  // dropping the ungenerationed process's events; the wiring has to distinguish "scoped" from "scoped, minus part of the chain".
-  it("reports that a mixed chain was only partly reached", async () => {
-    const mixed: ProcessNode[] = [
-      {
-        // The root carries no generation; its child, the alerted process, does.
-        ...process(1, 100, 1, "/sbin/launchd"),
-        children: [{ ...process(2, 200, 100, "/usr/local/bin/fleet-edr-agent"), pidversion: 22 }],
-      },
-    ];
-    vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(mixed));
+  // The graph's tree read failing no longer leaves the timeline unable to scope: the server reads the chain itself.
+  it("scopes the timeline even when the graph's tree read fails", async () => {
+    vi.spyOn(api, "getProcessTree").mockRejectedValue(new Error("API error: 502"));
+    const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0, scope: applied });
     renderTree("?alert=9&process=2&at=1750248000000&view=timeline");
 
-    expect(await screen.findByText(/Scoped to part of the alert chain/)).toBeVisible();
-    expect(screen.queryByText("Scoped to the alert chain")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Showing the whole host/)).not.toBeInTheDocument();
+    expect(await screen.findByText(scopedMessage)).toBeVisible();
+    expect(spy.mock.calls[spy.mock.calls.length - 1][1].chainPin).toBe(2);
   });
 
-  it("scopes the timeline when the tree does carry pidversion", async () => {
-    const withGen: ProcessNode[] = [
-      {
-        ...process(1, 100, 1, "/sbin/launchd"), pidversion: 11,
-        children: [{ ...process(2, 200, 100, "/usr/local/bin/fleet-edr-agent"), pidversion: 22 }],
-      },
-    ];
-    vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(withGen));
+  // A process-optional alert names no process, so there is no chain to scope to and the timeline is the whole host's.
+  it("does not scope the timeline for an alert without a process", async () => {
+    vi.spyOn(api, "getAlertDetail").mockResolvedValue({ ...chainAlert, process_id: 0 });
     const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
-    renderTree("?alert=9&process=2&at=1750248000000&view=timeline");
+    renderTree("?alert=9&at=1750248000000&view=timeline");
 
-    expect(await screen.findByText("Scoped to the alert chain")).toBeVisible();
-    expect(screen.queryByText(/Showing the whole host/)).not.toBeInTheDocument();
-    // The generations must reach the query, not just the label.
-    await waitFor(() => {
-      const lastCall = spy.mock.calls[spy.mock.calls.length - 1];
-      expect(lastCall[1].chain).toEqual(expect.arrayContaining([{ pid: 200, pidversion: 22 }]));
-    });
+    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
+    expect(spy.mock.calls.every((call) => call[1].chainPin === undefined)).toBe(true);
   });
 });
 

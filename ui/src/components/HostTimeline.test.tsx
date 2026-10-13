@@ -4,7 +4,15 @@ import { MemoryRouter, Link } from "react-router";
 
 import { HostTimeline } from "./HostTimeline";
 import * as api from "../api";
-import type { EventRecord } from "../types";
+import type { EventRecord, TimelineScope } from "../types";
+import {
+  degradedScopeMessages,
+  noGenerationsMessage,
+  notStoredMessage,
+  partialScopeMessage,
+  scopedMessage,
+  truncatedScopeMessage,
+} from "./chainScope";
 
 const BOUNDS = { fromNs: 1_000, toNs: 9_000 };
 
@@ -32,7 +40,7 @@ function renderTimeline(search = "", emphasizePid?: number) {
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("HostTimeline", () => {
-  // spec:web-ui/host-event-timeline-view/timeline-view-lists-window-events-filterable-by-type
+  // spec:web-ui/host-timeline-view/timeline-view-lists-window-events-filterable-by-type
   it("lists interleaved events with type and originating process, and passes the window", async () => {
     const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({
       events: [dnsEvent("d", 7, "evil.example"), connEvent("n", 42, "1.2.3.4", 443), execEvent("x", 42, "/bin/sh")],
@@ -47,32 +55,30 @@ describe("HostTimeline", () => {
     expect(spy.mock.calls[0][1]).toMatchObject({ from: "1000", to: "9000" });
   });
 
-  // spec:web-ui/host-event-timeline-view/timeline-scopes-to-the-alert-chain
-  it("scopes the query to the alert chain's process generations and shows a scope note", async () => {
-    const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
-    const chain = [
-      { pid: 450, pidversion: 1010 },
-      { pid: 445, pidversion: 903 },
-    ];
+  // spec:web-ui/host-timeline-view/timeline-scopes-to-the-alert-chain
+  it("asks the server for the alerted process's chain and shows its scope note", async () => {
+    const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({
+      events: [], total_matched: 0, scope: { applied: true, processes: 4, unmatched: 0, truncated: false },
+    });
     render(
       <MemoryRouter initialEntries={["/hosts/H1"]}>
-        <HostTimeline hostId="H1" bounds={BOUNDS} chainGenerations={chain} />
+        <HostTimeline hostId="H1" bounds={BOUNDS} chainPin={875325} />
       </MemoryRouter>,
     );
     await waitFor(() => { expect(spy).toHaveBeenCalled(); });
-    expect(spy.mock.calls[0][1].chain).toEqual(chain);
-    expect(await screen.findByText(/scoped to the alert chain/i)).toBeInTheDocument();
+    expect(spy.mock.calls[0][1].chainPin).toBe(875325);
+    expect(await screen.findByText("Scoped to the alert chain")).toBeVisible();
   });
 
   it("omits the chain scope and the note when unscoped (full host stream)", async () => {
     const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
     renderTimeline();
     await waitFor(() => { expect(spy).toHaveBeenCalled(); });
-    expect(spy.mock.calls[0][1].chain).toBeUndefined();
+    expect(spy.mock.calls[0][1].chainPin).toBeUndefined();
     expect(screen.queryByText(/scoped to the alert chain/i)).not.toBeInTheDocument();
   });
 
-  // spec:web-ui/host-event-timeline-view/timeline-view-lists-window-events-filterable-by-type
+  // spec:web-ui/host-timeline-view/timeline-view-lists-window-events-filterable-by-type
   it("filters by event type when a chip is toggled", async () => {
     const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
     renderTimeline();
@@ -83,7 +89,7 @@ describe("HostTimeline", () => {
     });
   });
 
-  // spec:web-ui/host-event-timeline-view/a-text-filter-narrows-the-timeline
+  // spec:web-ui/host-timeline-view/a-text-filter-narrows-the-timeline
   it("passes a text filter from the URL to the query", async () => {
     const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
     renderTimeline("?text=payload");
@@ -91,7 +97,7 @@ describe("HostTimeline", () => {
     expect(spy.mock.calls[0][1]).toMatchObject({ text: "payload" });
   });
 
-  // spec:web-ui/host-event-timeline-view/a-text-filter-narrows-the-timeline
+  // spec:web-ui/host-timeline-view/a-text-filter-narrows-the-timeline
   it("commits a typed text filter to the query after debouncing (input never drops characters)", async () => {
     const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
     renderTimeline();
@@ -206,61 +212,75 @@ describe("HostTimeline", () => {
   });
 });
 
-// The graph and the timeline share one "Alert chain / Full tree" focus, but the timeline can only honour it when the chain's
-// processes carry a pidversion: the scope is keyed on the (pid, pidversion) pair. When they do not, the timeline shows the whole
-// host, and doing that silently is what made a four-node graph sit beside a thousand-row timeline with nothing to explain it.
+// The graph and the timeline share one "Alert chain / Full tree" focus. The server resolves the chain and reports how far the scope
+// reached (issue #1282), and the timeline states exactly that: an unexplained thousand-row list beside a four-node graph reads as a
+// product defect, and a narrowed list silently missing part of the chain is worse than showing too much.
 describe("HostTimeline alert-chain scope", () => {
-  function renderScoped(props: Partial<Parameters<typeof HostTimeline>[0]>) {
-    return render(
+  function renderScoped(scope: TimelineScope | undefined, props: Partial<Parameters<typeof HostTimeline>[0]> = { chainPin: 42 }) {
+    const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [execEvent("x", 42, "/bin/sh")], total_matched: 1, scope });
+    render(
       <MemoryRouter initialEntries={["/hosts/H1"]}>
         <HostTimeline hostId="H1" bounds={BOUNDS} {...props} />
       </MemoryRouter>,
     );
+    return spy;
   }
 
-  // spec:web-ui/host-event-timeline-view/timeline-says-so-when-it-cannot-scope-to-the-chain
+  // spec:web-ui/host-timeline-view/timeline-says-so-when-it-cannot-scope-to-the-chain
   it("says the scope was dropped when the chain carries no generations", async () => {
-    vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [execEvent("x", 42, "/bin/sh")], total_matched: 1 });
-    renderScoped({ chainScopeUnavailable: "no-generations" });
-    expect(await screen.findByText(/Showing the whole host/)).toBeVisible();
-    // And does not simultaneously claim the opposite.
-    expect(screen.queryByText("Scoped to the alert chain")).not.toBeInTheDocument();
+    renderScoped({ applied: false, processes: 3, unmatched: 3, truncated: false });
+    expect(await screen.findByText(noGenerationsMessage)).toBeVisible();
+    expect(screen.queryByText(scopedMessage)).not.toBeInTheDocument();
   });
 
-  it("claims the scope, and not the fallback, when generations did resolve", async () => {
-    const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [execEvent("x", 42, "/bin/sh")], total_matched: 1 });
-    renderScoped({ chainGenerations: [{ pid: 42, pidversion: 7 }] });
-    expect(await screen.findByText("Scoped to the alert chain")).toBeVisible();
-    expect(screen.queryByText(/Showing the whole host/)).not.toBeInTheDocument();
-    // The scope has to reach the query, not just the label.
-    expect(spy.mock.calls[0][1].chain).toEqual([{ pid: 42, pidversion: 7 }]);
-  });
-
-  // spec:web-ui/host-event-timeline-view/timeline-distinguishes-an-absent-chain-from-a-chain-without-generations
-  it("names the other case: the chain is not in the loaded tree", async () => {
-    vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [execEvent("x", 42, "/bin/sh")], total_matched: 1 });
-    renderScoped({ chainScopeUnavailable: "chain-unresolved" });
-    expect(await screen.findByText(/not in the loaded process tree/)).toBeVisible();
+  // spec:web-ui/host-timeline-view/timeline-distinguishes-an-absent-chain-from-a-chain-without-generations
+  it("names the other case: the alerted process is no longer stored", async () => {
+    renderScoped({ applied: false, processes: 0, unmatched: 0, truncated: false });
+    expect(await screen.findByText(notStoredMessage)).toBeVisible();
     // The two causes have different fixes, so it must not offer the generation-data explanation here.
     expect(screen.queryByText(/carry no generation data/)).not.toBeInTheDocument();
   });
 
-  // The dangerous middle case: scoped, but silently missing a process's events. Claiming "Scoped to the alert chain" here is
-  // worse than showing too much, because a scoped list gives the analyst no reason to suspect anything is absent.
-  // spec:web-ui/host-event-timeline-view/timeline-admits-an-alert-chain-it-could-only-partly-scope
-  it("admits that part of the chain is missing, without claiming how much", async () => {
-    vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [execEvent("x", 42, "/bin/sh")], total_matched: 1 });
-    renderScoped({ chainGenerations: [{ pid: 42, pidversion: 7 }], chainPartiallyScoped: true });
-    expect(await screen.findByText(/Scoped to part of the alert chain/)).toBeVisible();
-    // It must not also show the unqualified label, which is the claim being corrected.
-    expect(screen.queryByText("Scoped to the alert chain")).not.toBeInTheDocument();
+  // spec:web-ui/host-timeline-view/timeline-admits-an-alert-chain-it-could-only-partly-scope
+  it("admits that part of the chain is missing, and why", async () => {
+    renderScoped({ applied: true, processes: 5, unmatched: 2, truncated: false });
+    expect(await screen.findByText(partialScopeMessage)).toBeVisible();
+    expect(screen.queryByText(scopedMessage)).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/host-timeline-view/timeline-admits-an-alert-chain-it-could-only-partly-scope
+  it("admits a chain larger than the timeline can scope to", async () => {
+    renderScoped({ applied: true, processes: 6000, unmatched: 2, truncated: true });
+    expect(await screen.findByText(truncatedScopeMessage)).toBeVisible();
+    expect(screen.queryByText(scopedMessage)).not.toBeInTheDocument();
+  });
+
+  // A report describes the list it came with. Moving to another window must not leave the previous window's report on the new list
+  // while its first page is still loading.
+  it("never labels a list with the report of a previous scope or window", async () => {
+    const spy = vi.spyOn(api, "getHostTimeline");
+    spy.mockResolvedValueOnce({ events: [], total_matched: 0, scope: { applied: true, processes: 4, unmatched: 0, truncated: false } });
+    spy.mockReturnValueOnce(new Promise(() => {}));
+    const view = render(
+      <MemoryRouter initialEntries={["/hosts/H1"]}>
+        <HostTimeline hostId="H1" bounds={BOUNDS} chainPin={42} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(scopedMessage)).toBeVisible();
+    view.rerender(
+      <MemoryRouter initialEntries={["/hosts/H1"]}>
+        <HostTimeline hostId="H1" bounds={{ fromNs: 2_000, toNs: 9_000 }} chainPin={42} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => { expect(spy).toHaveBeenCalledTimes(2); });
+    expect(screen.queryByText(scopedMessage)).not.toBeInTheDocument();
   });
 
   it("says nothing on a plain host view, where the full stream is what was asked for", async () => {
-    vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [execEvent("x", 42, "/bin/sh")], total_matched: 1 });
-    renderScoped({});
+    renderScoped(undefined, {});
     await screen.findByText("sh (42)");
-    expect(screen.queryByText(/Showing the whole host/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Scoped to the alert chain")).not.toBeInTheDocument();
+    for (const message of [scopedMessage, ...degradedScopeMessages]) {
+      expect(screen.queryByText(message)).not.toBeInTheDocument();
+    }
   });
 });

@@ -1,48 +1,43 @@
-// Every sentence the host timeline puts in front of an analyst about how far its alert-chain scope reaches, and the closed set of
-// reasons it could not reach at all. Split out of HostTimeline.tsx because a component module that also exports constants breaks
-// fast refresh, and because tests assert on this list rather than on the markup rendering it.
-
-// ChainScopeGap says why the timeline could not reproduce the graph's alert-chain focus at all.
+// Every sentence the host timeline puts in front of an analyst about how far its alert-chain scope reaches. Split out of
+// HostTimeline.tsx because a component module that also exports constants breaks fast refresh, and because tests assert on this list
+// rather than on the markup rendering it.
 //
-// Only one of these names a cause from the chain itself, deliberately. "no-generations" is provable: the chain resolved and not one
-// of its processes carried the identifier the scope matches on. "tree-unavailable" is equally provable, from the other direction:
-// the read failed, so there is no tree and no chain to look for. "chain-unresolved" is everything left, and it stays vague on
-// purpose.
-// Four review rounds went into trying to say WHY the chain came back empty, and each precondition turned out to admit a case it
-// did not cover: a tree still loading, a failed read, a host with nothing in the window, and finally a TRUNCATED response,
-// where the process is in the window but past the row limit BuildTree applies. A message that names the wrong cause sends the
-// operator to fix the wrong thing, so this one reports what is certain (the chain could not be located in what was loaded) and
-// leaves the cause to the operator, who can see the truncation notice and the time window for themselves.
-//
-// "tree-unavailable" was carved out of that vagueness because it is the one cause the page already knows for certain. Before it
-// existed a failed read produced no note at all, so the graph showed its error while the timeline listed the whole host looking
-// like a successful unscoped view: two surfaces of one page disagreeing about whether the read worked.
-export type ChainScopeGap = "no-generations" | "chain-unresolved" | "tree-unavailable";
+// The server resolves the chain and reports how far the scope reaches (issue #1282), so each sentence follows from that report alone.
+// None claims more than the report says.
 
-// scopeGapMessage is exhaustive over ChainScopeGap by construction: a Record, not a chain of ternaries, so adding a gap without a
-// sentence fails the type check rather than silently falling through to whichever branch happened to be last.
-//
-// None of these claims more than the page knows. "tree-unavailable" in particular does NOT say the chain is absent, because a read
-// that failed produced no tree for anything to be absent from.
-export const scopeGapMessages: Record<ChainScopeGap, string> = {
-  "no-generations": "Showing the whole host: this alert's processes carry no generation data, so the timeline cannot narrow to the chain.",
-  "chain-unresolved": "Showing the whole host: this alert's process is not in the loaded process tree, so there is no chain to narrow to.",
-  "tree-unavailable": "Showing the whole host: the process tree could not be loaded, so the timeline cannot narrow to this alert's chain.",
-};
+import type { TimelineScope } from "../types";
 
-// partialScopeMessage is the fourth sentence rendered in the degraded style, and the only one not keyed by a ChainScopeGap: it
-// describes a scope that IS in force but reaches only part of the chain, rather than one that could not be applied at all.
+export const scopedMessage = "Scoped to the alert chain";
+
+// The scope could not be applied: the events shown are the whole host's.
+export const notStoredMessage =
+  "Showing the whole host: this alert's process is no longer stored, so there is no chain to narrow to.";
+export const noGenerationsMessage =
+  "Showing the whole host: this alert's processes carry no generation data, so the timeline cannot narrow to the chain.";
+
+// The scope applied but reaches only part of the chain, which is worse than showing too much: nothing about a narrowed list
+// suggests part of it is absent.
 export const partialScopeMessage =
   "Scoped to part of the alert chain: some of its processes carry no generation data, so their events are not listed.";
+export const truncatedScopeMessage =
+  "Scoped to part of the alert chain: it has more processes than the timeline can scope to, so some events are not listed.";
 
 // degradedScopeMessages is every sentence the timeline renders in the degraded style. Exported so a test asserting the timeline said
-// nothing about its scope can enumerate them instead of naming a CSS class, which passes when the class is renamed, or a couple of
-// literals, which passes when a sentence is added. A sentence added here is covered by those tests without editing them.
-export const degradedScopeMessages: readonly string[] = [...Object.values(scopeGapMessages), partialScopeMessage];
+// nothing about its scope can enumerate them instead of naming a CSS class, which passes when the class is renamed.
+export const degradedScopeMessages: readonly string[] = [
+  notStoredMessage,
+  noGenerationsMessage,
+  partialScopeMessage,
+  truncatedScopeMessage,
+];
 
-export function scopeGapMessage(gap: ChainScopeGap): string {
-  // gap is a three-value union rather than caller-supplied input, so the key cannot be anything the Record does not declare: the
-  // type checker rejects a fourth value before this line can run.
-  // eslint-disable-next-line security/detect-object-injection -- closed union key, not external input
-  return scopeGapMessages[gap];
+// chainScopeNote turns the server's report into the sentence the timeline shows and whether it is a warning. A truncated scope is
+// reported ahead of unmatched processes: it can hide far more events, and it holds whatever the generations.
+export function chainScopeNote(scope: TimelineScope): { message: string; degraded: boolean } {
+  if (!scope.applied) {
+    return { message: scope.processes === 0 ? notStoredMessage : noGenerationsMessage, degraded: true };
+  }
+  if (scope.truncated) return { message: truncatedScopeMessage, degraded: true };
+  if (scope.unmatched > 0) return { message: partialScopeMessage, degraded: true };
+  return { message: scopedMessage, degraded: false };
 }
