@@ -68,16 +68,17 @@ func (h *Handler) resolveTimelineScope(
 	}
 	scope := &timelineScope{Truncated: res.Truncated}
 	var generations []visibilityapi.ProcessGeneration
+	// Pre-order, so a scope cut at the filter cap keeps the roots and the pinned process ahead of the deepest descendants.
 	var walk func(nodes []api.ProcessNode)
 	walk = func(nodes []api.ProcessNode) {
 		for _, n := range nodes {
 			scope.Processes++
-			walk(n.Children)
 			if n.PIDVersion == nil {
 				scope.Unmatched++
-				continue
+			} else {
+				generations = append(generations, visibilityapi.ProcessGeneration{PID: int64(n.PID), PIDVersion: int64(*n.PIDVersion)})
 			}
-			generations = append(generations, visibilityapi.ProcessGeneration{PID: int64(n.PID), PIDVersion: int64(*n.PIDVersion)})
+			walk(n.Children)
 		}
 	}
 	walk(res.Roots)

@@ -158,19 +158,21 @@ func TestHostTimelineScope_NothingToMatch(t *testing.T) {
 }
 
 // A chain read whose descendants come from the story index can return more generations than the timeline's filter takes.
+// The cap keeps the chain's top: its root and the processes nearest it, which include the pinned process, survive the cut.
 func TestHostTimelineScope_TruncatesPastTheFilterCap(t *testing.T) {
 	t.Parallel()
-	var nodes []api.ProcessNode
+	var descendants []api.ProcessNode
 	for i := range maxTimelineChain + 1 {
-		nodes = append(nodes, treeNode(10_000+i, new(uint32(i))))
+		descendants = append(descendants, treeNode(10_000+i, new(uint32(1000+i))))
 	}
 	svc := fakeService{buildChainTree: func(context.Context, string, api.TimeRange, int64, bool) (api.ProcessTreeResult, error) {
-		return api.ProcessTreeResult{Roots: nodes}, nil
+		return api.ProcessTreeResult{Roots: []api.ProcessNode{treeNode(1, new(uint32(10)), descendants...)}}, nil
 	}}
 	srv := newScopedTimelineServer(t, svc, scopedArchive(t))
 	status, out := getScopedTimeline(t, srv, "scope=chain&pin=42")
 	require.Equal(t, http.StatusOK, status)
-	assert.Equal(t, &timelineScope{Applied: true, Processes: maxTimelineChain + 1, Truncated: true}, out.Scope)
+	assert.Equal(t, &timelineScope{Applied: true, Processes: maxTimelineChain + 2, Truncated: true}, out.Scope)
+	assert.Equal(t, []string{"in-1"}, eventIDs(out), "the root's events survive the cut")
 }
 
 // spec:server-rest-api/host-timeline-scopes/a-malformed-timeline-scope-is-rejected
