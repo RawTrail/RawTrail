@@ -35,20 +35,22 @@ const (
 	processLineageColumns = `parent_process_id, parent_pidversion, ` + execLineageColumns
 	execLineageColumns    = `original_ppid, responsible_pid, responsible_pidversion, session_id, group_id, tty, start_time_ns, cwd,
 		reparented`
+	// agentSessionColumns are api.AgentSession's columns (migration 00019, issue #1281), in its field order.
+	agentSessionColumns = `agent_session_id, agent_name, agent_version`
 )
 
-// insertProcessColumns and insertProcessPlaceholders pin the 34-column process INSERT shape in one place, shared by the per-event
+// insertProcessColumns and insertProcessPlaceholders pin the 37-column process INSERT shape in one place, shared by the per-event
 // InsertProcess, the re-exec INSERT, the batched multi-row INSERT, and the per-row poison fallback (processbatch.go), so the column
 // list and arg order can never drift between the per-event and set-based write paths.
 const insertProcessColumns = `INSERT INTO processes
 		(host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 		 fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 		 exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		 is_snapshot, last_seen_ns, source_event_id, exec_event_id, ` + processLineageColumns + `)`
+		 is_snapshot, last_seen_ns, source_event_id, exec_event_id, ` + processLineageColumns + `, ` + agentSessionColumns + `)`
 
-const insertProcessPlaceholders = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertProcessPlaceholders = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-// appendInsertProcessArgs appends the 34 INSERT bind values for p in insertProcessColumns order.
+// appendInsertProcessArgs appends the 37 INSERT bind values for p in insertProcessColumns order.
 func appendInsertProcessArgs(args []any, p api.Process) []any {
 	args = append(args,
 		p.HostID, p.PID, p.PPID, p.Path, p.Args, p.UID, p.GID,
@@ -56,7 +58,12 @@ func appendInsertProcessArgs(args []any, p api.Process) []any {
 		p.ExitIngestedAtNs, p.ExitReason, p.ExitCode, p.PreviousExecID,
 		p.IsSnapshot, p.LastSeenNs, p.SourceEventID, p.ExecEventID, p.ParentProcessID, p.ParentPIDVersion,
 	)
-	return appendExecLineageArgs(args, p.ExecLineage)
+	return appendAgentSessionArgs(appendExecLineageArgs(args, p.ExecLineage), p.AgentSession)
+}
+
+// appendAgentSessionArgs appends the bind values for a in agentSessionColumns order.
+func appendAgentSessionArgs(args []any, a api.AgentSession) []any {
+	return append(args, a.AgentSessionID, a.AgentName, a.AgentVersion)
 }
 
 // appendExecLineageArgs appends the bind values for l in execLineageColumns order.
@@ -207,6 +214,9 @@ type ProcessExecUpdate struct {
 	// fork that created the row carries none of them. The parent link is not part of it, because an exec names the current parent,
 	// which is launchd for a daemon, not the creator the fork recorded.
 	Lineage api.ExecLineage
+	// Agent is the agent session the row carries after this exec (issue #1281): the exec's own markers, or else what the row
+	// already inherited. The builder resolves which, so the UPDATE writes it outright.
+	Agent api.AgentSession
 }
 
 // UpdateProcessExec updates an existing process record with exec-time
@@ -216,11 +226,12 @@ func (s *Store) UpdateProcessExec(ctx context.Context, u ProcessExecUpdate) erro
 		UPDATE processes SET path = ?, args = ?, uid = ?, gid = ?, code_signing = ?, sha256 = ?, cdhash = ?, exec_time_ns = ?,
 		                    pidversion = COALESCE(?, pidversion), exec_event_id = ?,
 		                    original_ppid = ?, responsible_pid = ?, responsible_pidversion = ?, session_id = ?, group_id = ?,
-		                    tty = ?, start_time_ns = ?, cwd = ?, reparented = ?
+		                    tty = ?, start_time_ns = ?, cwd = ?, reparented = ?,
+		                    agent_session_id = ?, agent_name = ?, agent_version = ?
 		WHERE host_id = ? AND pid = ? AND exit_time_ns IS NULL
 		ORDER BY fork_time_ns DESC, id DESC LIMIT 1`,
-		append(appendExecLineageArgs([]any{u.Path, u.Args, u.UID, u.GID, u.CodeSigning, u.SHA256, u.CDHash, u.ExecTimeNs,
-			u.PIDVersion, u.ExecEventID}, u.Lineage), u.HostID, u.PID)...,
+		append(appendAgentSessionArgs(appendExecLineageArgs([]any{u.Path, u.Args, u.UID, u.GID, u.CodeSigning, u.SHA256, u.CDHash,
+			u.ExecTimeNs, u.PIDVersion, u.ExecEventID}, u.Lineage), u.Agent), u.HostID, u.PID)...,
 	)
 	return err
 }

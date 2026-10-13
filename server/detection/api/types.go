@@ -121,6 +121,7 @@ type Process struct {
 	// current parent's on a row first seen at exec. With ppid it identifies that parent exactly even before its row exists.
 	ParentPIDVersion *uint32 `db:"parent_pidversion" json:"parent_pidversion,omitempty"`
 	ExecLineage
+	AgentSession
 	// ExitEventID is the event_id of the observed exit event that closed this row. The exit close is an in-place UPDATE of the
 	// most-recent-live row, so a re-processed exit would otherwise close a newer generation of a reused pid; the builder reads this to
 	// recognize a re-applied exit and skip it (migration 00011). NULL for live rows and for synthetic closes (pid_reuse, TTL).
@@ -148,6 +149,17 @@ type ExecLineage struct {
 	CWD *string `db:"cwd" json:"cwd,omitempty"`
 	// Reparented is true when launchd adopted the process: its exec reported ppid 1 and an original_ppid of another process.
 	Reparented bool `db:"reparented" json:"reparented,omitempty"`
+}
+
+// AgentSession names the AI agent session a process belongs to (issue #1281). An exec carrying the agent's session marker stamps it,
+// and every other row inherits its creator's, so a child whose environment was stripped (sudo, env -i) stays attributed. The zero
+// value means the process is outside any agent session, or its creator was never seen.
+type AgentSession struct {
+	// AgentSessionID is the agent's own session identifier, CLAUDE_CODE_SESSION_ID for Claude Code.
+	AgentSessionID *string `db:"agent_session_id" json:"agent_session_id,omitempty"`
+	// AgentName and AgentVersion name the agent, as its AI_AGENT marker reports them.
+	AgentName    *string `db:"agent_name" json:"agent_name,omitempty"`
+	AgentVersion *string `db:"agent_version" json:"agent_version,omitempty"`
 }
 
 // ExitReason values for Process.ExitReason.
