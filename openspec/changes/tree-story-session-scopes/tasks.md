@@ -10,5 +10,5 @@
 
 ## 3. Later PRs of #1282
 
-- [ ] 3.1 The alert chain read uses the session or story index.
+- [x] 3.1 The alert chain read uses the story index.
 - [ ] 3.2 The timeline scopes by session or story server-side.

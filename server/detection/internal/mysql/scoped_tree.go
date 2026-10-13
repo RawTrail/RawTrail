@@ -53,3 +53,23 @@ func (s *Store) CountScopedProcesses(ctx context.Context, hostID string, scope a
 	}
 	return total, false, nil
 }
+
+// GetStoryCandidates returns up to limit rows that can descend from a process in story rootID on the host, forked between fromNs and
+// toNs, oldest first: the story's own rows, and the rows with no story root, which a child forked before its creator's row was
+// recorded is left with (issue #1282). The alert chain's descendant walk matches children among them in memory, by the same ppid and
+// lifetime rule its per-process query applies, so the walk costs this one read instead of one query per process. The
+// (host_id, story_root_id, fork_time_ns) index serves both the story's range and the NULL range.
+func (s *Store) GetStoryCandidates(ctx context.Context, hostID string, rootID, fromNs, toNs int64, limit int) ([]api.Process, error) {
+	procs := make([]api.Process, 0, limit)
+	if err := s.db.SelectContext(ctx, &procs, `
+		SELECT `+processReadColumns+`
+		FROM processes
+		WHERE host_id = ? AND (story_root_id = ? OR story_root_id IS NULL) AND fork_time_ns >= ? AND fork_time_ns <= ?
+		ORDER BY fork_time_ns, id
+		LIMIT ?`,
+		hostID, rootID, fromNs, toNs, limit,
+	); err != nil {
+		return nil, fmt.Errorf("query story candidates: %w", err)
+	}
+	return procs, nil
+}

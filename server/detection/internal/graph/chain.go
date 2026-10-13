@@ -12,6 +12,10 @@ import (
 // are bounded by nothing at all.
 const maxChainDescendants = 500
 
+// maxStoryCandidates bounds the rows a story-backed descendant walk reads at once (issue #1282). A story rooted at an IDE can hold most
+// of a host's history, so a chain whose candidates exceed this falls back to the per-process walk and its descendant cap.
+const maxStoryCandidates = 20000
+
 // BuildChainTree returns the pinned process with its ancestors and its descendants, and nothing else.
 //
 // This is what the alert view actually wants. Asking for the host's forest over a window and filtering to the chain in the client
@@ -69,16 +73,31 @@ func (q *Query) BuildChainTree(
 // guess. buildForest links a child to its parent by process number, and that guess picks the newest row holding the number: a chain
 // containing both a process and the later one that reused its number hangs the child under the wrong one, and the two can even name
 // each other, which drops both from the forest entirely. The walk fetched each child FROM its parent, so the edge is a fact here.
+//
+// A root stamped with a story reads its candidates once, by the story index (storyChildren), and walks them in memory, so the read
+// costs one query and is not cut short at maxChainDescendants. A root without one, or a story with more candidates than
+// maxStoryCandidates, walks with a query per process, as before.
 func (q *Query) chainDescendants(
 	ctx context.Context, hostID string, root api.Process, tr api.TimeRange, resolved map[int64]int64,
 ) ([]api.Process, bool, error) {
-	walk := chainWalk{seen: map[int64]struct{}{root.ID: {}}, resolved: resolved}
+	fetchChildren := func(parent api.Process) ([]api.Process, error) { return q.childrenOf(ctx, hostID, parent, tr.ToNs) }
+	limit := maxChainDescendants
+	if root.StoryRootID != nil {
+		candidates, err := q.store.GetStoryCandidates(ctx, hostID, *root.StoryRootID, root.ForkTimeNs, tr.ToNs, maxStoryCandidates+1)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(candidates) <= maxStoryCandidates {
+			fetchChildren, limit = storyChildren(candidates, tr.ToNs), len(candidates)
+		}
+	}
+	walk := chainWalk{seen: map[int64]struct{}{root.ID: {}}, resolved: resolved, limit: limit}
 	frontier := []api.Process{root}
 
 	for len(frontier) > 0 {
 		var next []api.Process
 		for _, parent := range frontier {
-			children, err := q.childrenOf(ctx, hostID, parent, tr.ToNs)
+			children, err := fetchChildren(parent)
 			if err != nil {
 				return nil, false, err
 			}
@@ -99,6 +118,7 @@ type chainWalk struct {
 	out      []api.Process
 	seen     map[int64]struct{}
 	resolved map[int64]int64
+	limit    int
 }
 
 // absorb takes one process's children into the walk, skipping any it has already visited, and reports whether the cap stopped it.
@@ -116,7 +136,7 @@ func (w *chainWalk) absorb(parent api.Process, children []api.Process) (added []
 			continue
 		}
 		w.seen[child.ID] = struct{}{}
-		if len(w.out) >= maxChainDescendants {
+		if len(w.out) >= w.limit {
 			return added, true
 		}
 		w.resolved[child.ID] = parent.ID
@@ -124,6 +144,33 @@ func (w *chainWalk) absorb(parent api.Process, children []api.Process) (added []
 		added = append(added, child)
 	}
 	return added, false
+}
+
+// storyChildren answers childrenOf from rows already read, oldest first: the candidates whose ppid is the parent's pid and that forked
+// during the parent's lifetime, in fork order, which is what childrenOf's query selects.
+func storyChildren(candidates []api.Process, windowEndNs int64) func(api.Process) ([]api.Process, error) {
+	byPPID := make(map[int][]api.Process)
+	for _, c := range candidates {
+		byPPID[c.PPID] = append(byPPID[c.PPID], c)
+	}
+	return func(parent api.Process) ([]api.Process, error) {
+		until := lifetimeEnd(parent, windowEndNs)
+		var out []api.Process
+		for _, c := range byPPID[parent.PID] {
+			if c.ForkTimeNs >= parent.ForkTimeNs && c.ForkTimeNs <= until {
+				out = append(out, c)
+			}
+		}
+		return out, nil
+	}
+}
+
+// lifetimeEnd is the latest fork time a child of parent can have: its exit, or the window's end while it runs.
+func lifetimeEnd(parent api.Process, windowEndNs int64) int64 {
+	if parent.ExitTimeNs != nil && *parent.ExitTimeNs < windowEndNs {
+		return *parent.ExitTimeNs
+	}
+	return windowEndNs
 }
 
 // childrenOf returns the processes forked by one process during ITS lifetime.
@@ -134,10 +181,7 @@ func (w *chainWalk) absorb(parent api.Process, children []api.Process) (added []
 func (q *Query) childrenOf(
 	ctx context.Context, hostID string, parent api.Process, windowEndNs int64,
 ) ([]api.Process, error) {
-	until := windowEndNs
-	if parent.ExitTimeNs != nil && *parent.ExitTimeNs < until {
-		until = *parent.ExitTimeNs
-	}
+	until := lifetimeEnd(parent, windowEndNs)
 	// A process forked after the window closes leaves until below its own fork time. That needs no branch of its own: the range is
 	// then empty and the query matches nothing, which is the answer.
 	return q.store.GetChildProcesses(ctx, hostID, parent.PID, api.TimeRange{FromNs: parent.ForkTimeNs, ToNs: until})
