@@ -157,6 +157,13 @@ type ExecLineage struct {
 	Reparented bool `db:"reparented" json:"reparented,omitempty"`
 }
 
+// TreeScope selects the rows of an indexed tree read (issue #1282): an AI agent session by its id when AgentSessionID is set, or
+// else the story whose root row is StoryRootID.
+type TreeScope struct {
+	StoryRootID    int64
+	AgentSessionID string
+}
+
 // AgentSession names the AI agent session a process belongs to (issue #1281). An exec carrying the agent's session marker stamps it,
 // and every other row inherits its creator's, so a child whose environment was stripped (sudo, env -i) stays attributed. The zero
 // value means the process is outside any agent session, or its creator was never seen.

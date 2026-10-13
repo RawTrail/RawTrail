@@ -61,7 +61,7 @@ GET requests only need the cookie. Logout is `DELETE /api/session`.
 
 Operator endpoints, which take the session cookie or a service-account bearer token (below):
 
-- `GET /api/hosts`, `/api/hosts/{host_id}/tree`, `/api/hosts/{host_id}/processes/{pid}`
+- `GET /api/hosts`, `/api/hosts/{host_id}/tree`, `/api/hosts/{host_id}/processes/{pid}`. The tree reads a time window by default. `scope=chain&pin=<process id>` reads one process with its ancestors and descendants. `scope=session&session=<id>` reads one AI agent session, and `scope=story&root=<process id>` reads everything descended from one process launchd started; both read the whole scope with no time window, bounded by `limit`.
 - `GET /api/alerts`, `/api/alerts/{id}`; `PUT /api/alerts/{id}`
 - `GET /api/commands/{id}`, `POST /api/commands`, `POST /api/commands/{id}/cancel`
 - `GET /api/enrollments`, `POST /api/enrollments/{host_id}/revoke`

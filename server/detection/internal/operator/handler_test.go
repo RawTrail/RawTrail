@@ -25,6 +25,7 @@ import (
 type fakeService struct {
 	listHosts         func(ctx context.Context) ([]api.HostSummary, error)
 	buildChainTree    func(ctx context.Context, hostID string, tr api.TimeRange, pinnedID int64, flatten bool) (api.ProcessTreeResult, error)
+	buildScopedTree   func(ctx context.Context, hostID string, scope api.TreeScope, limit int, flatten bool, pinnedID int64) (api.ProcessTreeResult, error)
 	buildTree         func(ctx context.Context, hostID string, tr api.TimeRange, limit int, flatten bool, pinnedID int64) (api.ProcessTreeResult, error)
 	getProcessDetail  func(ctx context.Context, hostID string, pid int, atNs int64, pidVersion *uint32) (*api.ProcessDetail, error)
 	listAlerts        func(ctx context.Context, filter api.AlertFilter) ([]api.Alert, error)
@@ -62,6 +63,15 @@ func (f fakeService) BuildChainTree(
 		panic("fakeService.BuildChainTree not set")
 	}
 	return f.buildChainTree(ctx, hostID, tr, pinnedID, flatten)
+}
+
+func (f fakeService) BuildScopedTree(
+	ctx context.Context, hostID string, scope api.TreeScope, limit int, flatten bool, pinnedID int64,
+) (api.ProcessTreeResult, error) {
+	if f.buildScopedTree == nil {
+		panic("fakeService.BuildScopedTree not set")
+	}
+	return f.buildScopedTree(ctx, hostID, scope, limit, flatten, pinnedID)
 }
 
 func (f fakeService) GetProcessDetail(

@@ -291,6 +291,23 @@ paths:
             client such as the alert view can locate the alerted process by its real id even when it has identical siblings.
             0 (the default) pins nothing.
           schema: {type: integer, format: int64, default: 0}
+        - name: scope
+          in: query
+          description: >-
+            What to read instead of the time window. `chain` reads the pinned process with its ancestors and descendants, and
+            reads the window when nothing is pinned. `session` reads one AI agent session named by `session`, and `story` reads
+            every process descended from the process launchd started, named by `root`; both read the whole scope oldest first,
+            ignore `from` and `to`, and are bounded by `limit` with the same truncation fields. A `session` or `story` scope
+            without a valid target is rejected with `invalid_scope`.
+          schema: {type: string, enum: [chain, session, story]}
+        - name: session
+          in: query
+          description: The AI agent session id, for `scope=session`. At most 256 bytes.
+          schema: {type: string, maxLength: 256}
+        - name: root
+          in: query
+          description: The process id of the story's root, for `scope=story`.
+          schema: {type: integer, format: int64, minimum: 1}
       responses:
         "200":
           description: Forest of process roots
