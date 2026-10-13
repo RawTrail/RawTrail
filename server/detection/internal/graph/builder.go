@@ -363,8 +363,8 @@ const (
 // #1281). A marker replaces what the row inherited, which is how /clear, or an agent started inside another, begins its own session;
 // its absence keeps the inherited one, which is how a child that sudo or env -i stripped of its environment stays attributed.
 func (p execPayload) sessionOr(inherited api.AgentSession) api.AgentSession {
-	if session, ok := p.markedSession(); ok {
-		return session
+	if p.marked {
+		return p.session
 	}
 	return inherited
 }
@@ -389,12 +389,11 @@ func (p execPayload) markedSession() (api.AgentSession, bool) {
 // observeSession records the exec as a sighting of the agent session its markers name, if any (issue #1281). The agent pid is
 // kept only when it fits the column, since CLAUDE_PID is whatever the process environment says.
 func (p execPayload) observeSession(ctx context.Context, w processStore, evt api.Event) error {
-	session, ok := p.markedSession()
-	if !ok {
+	if !p.marked {
 		return nil
 	}
-	sighting := mysql.SessionSighting{HostID: evt.HostID, Session: session, CWD: p.lineage().CWD, FirstSeenNs: evt.TimestampNs,
-		LastSeenNs: evt.TimestampNs}
+	sighting := mysql.SessionSighting{HostID: evt.HostID, Session: p.session, CWD: p.lineage().CWD, FirstSeenNs: evt.TimestampNs,
+		FirstEventID: evt.EventID, LastSeenNs: evt.TimestampNs}
 	if pid, err := strconv.ParseInt(p.Env[markerAgentPID], 10, 32); err == nil {
 		sighting.AgentPID = new(int(pid))
 	}
@@ -432,6 +431,10 @@ type execPayload struct {
 	// to avoid clobbering a richer live-event row with a sparse synthetic one when the snapshot pass and an early-startup live exec
 	// both arrive for the same PID.
 	Snapshot bool `json:"snapshot"`
+
+	// session is the agent session the exec's own markers name, parsed once by handleExec; marked is false when it carries none.
+	session api.AgentSession
+	marked  bool
 }
 
 // lineage is the exec's lineage as the row stores it (issue #1280). Reparented is derived here rather than trusted from the wire: the
@@ -451,6 +454,7 @@ func (b *Builder) handleExec(ctx context.Context, w processStore, evt api.Event)
 	if err := json.Unmarshal(evt.Payload, &p); err != nil {
 		return err
 	}
+	p.session, p.marked = p.markedSession()
 
 	// Idempotent re-processing (migration 00011): if this exec already created or imaged the row (a batch nack from a retryable
 	// detection miss, or a claim-lease-expiry re-offer, replays it), skip. Without this, a re-applied first-exec-after-fork (whose

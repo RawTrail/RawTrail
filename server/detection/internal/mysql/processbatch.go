@@ -155,7 +155,9 @@ type SessionSighting struct {
 	AgentPID    *int
 	CWD         *string
 	FirstSeenNs int64
-	LastSeenNs  int64
+	// FirstEventID is the earliest sighting's event, which breaks a tie between sightings at the same FirstSeenNs.
+	FirstEventID string
+	LastSeenNs   int64
 }
 
 // SigningBackfill completes the code signature of a preloaded row an earlier extension's snapshot left unsigned. It is written as its
@@ -199,27 +201,28 @@ func backfillSigning(ctx context.Context, ext sqlx.ExtContext, backfills []Signi
 }
 
 // upsertSessions folds the batch's session sightings into agent_sessions, in chunks of processUpdateChunk rows. The new row's values
-// win the pid, cwd, name and version only when it was seen earlier than the stored row, and those assignments come before
-// first_seen_ns's own, because MySQL applies an ON DUPLICATE KEY UPDATE list left to right. Keys arrive sorted, so two batches
+// win the pid, cwd, name and version only when it was seen earlier than the stored row, comparing (first_seen_ns, first_event_id) so
+// a tie at the same nanosecond resolves the same way whatever arrived first, and those assignments come before the first-seen pair's
+// own, because MySQL applies an ON DUPLICATE KEY UPDATE list left to right. Keys arrive sorted, so two batches
 // touching the same sessions lock them in the same order.
 func upsertSessions(ctx context.Context, ext sqlx.ExtContext, sessions []SessionSighting) error {
-	const earlier = `IF(new.first_seen_ns < agent_sessions.first_seen_ns, new.%[1]s, agent_sessions.%[1]s)`
+	const earlier = `IF((new.first_seen_ns, new.first_event_id) < (agent_sessions.first_seen_ns, agent_sessions.first_event_id),
+		new.%[1]s, agent_sessions.%[1]s)`
 	var update strings.Builder
-	for _, col := range []string{"agent_name", "agent_version", "agent_pid", "cwd"} {
+	for _, col := range []string{"agent_name", "agent_version", "agent_pid", "cwd", "first_event_id", "first_seen_ns"} {
 		update.WriteString(col + " = " + fmt.Sprintf(earlier, col) + ", ")
 	}
-	update.WriteString(`first_seen_ns = LEAST(agent_sessions.first_seen_ns, new.first_seen_ns),
-		last_seen_ns = GREATEST(agent_sessions.last_seen_ns, new.last_seen_ns)`)
+	update.WriteString(`last_seen_ns = GREATEST(agent_sessions.last_seen_ns, new.last_seen_ns)`)
 	for start := 0; start < len(sessions); start += processUpdateChunk {
 		chunk := sessions[start:min(start+processUpdateChunk, len(sessions))]
-		args := make([]any, 0, len(chunk)*8)
+		args := make([]any, 0, len(chunk)*9)
 		for _, s := range chunk {
 			args = append(args, s.HostID, s.Session.AgentSessionID, s.Session.AgentName, s.Session.AgentVersion, s.AgentPID, s.CWD,
-				s.FirstSeenNs, s.LastSeenNs)
+				s.FirstSeenNs, s.FirstEventID, s.LastSeenNs)
 		}
 		query := `INSERT INTO agent_sessions
-			(host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)` + strings.Repeat(", (?, ?, ?, ?, ?, ?, ?, ?)", len(chunk)-1) + `
+			(host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, first_event_id, last_seen_ns)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)` + strings.Repeat(", (?, ?, ?, ?, ?, ?, ?, ?, ?)", len(chunk)-1) + `
 			AS new ON DUPLICATE KEY UPDATE ` + update.String()
 		if _, err := ext.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("upsert %d agent sessions: %w", len(chunk), err)

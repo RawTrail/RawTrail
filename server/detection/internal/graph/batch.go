@@ -562,16 +562,25 @@ func (s *batchSession) BackfillSnapshotSigning(_ context.Context, hostID string,
 	return nil
 }
 
-// ObserveSession folds one sighting of an agent session into the batch's. ProcessBatch folds events in timestamp order, so the first
-// sighting is the earliest and supplies everything but the span, and each later one extends the span.
+// ObserveSession folds one sighting of an agent session into the batch's. The earliest sighting by (first seen, event id), the order
+// the flush's upsert applies, supplies everything but the span, and the span widens to cover every sighting, so the row does not
+// depend on the order events arrived in, even for two stamped at the same nanosecond.
 func (s *batchSession) ObserveSession(_ context.Context, sighting mysql.SessionSighting) error {
 	key := sessionKey{hostID: sighting.HostID, sessionID: *sighting.Session.AgentSessionID}
 	if seen, ok := s.sessions[key]; ok {
-		seen.LastSeenNs = sighting.LastSeenNs
-		sighting = seen
+		last := max(seen.LastSeenNs, sighting.LastSeenNs)
+		if sightingOrder(seen, sighting) <= 0 {
+			sighting = seen
+		}
+		sighting.LastSeenNs = last
 	}
 	s.sessions[key] = sighting
 	return nil
+}
+
+// sightingOrder orders two sightings by (first seen, event id).
+func sightingOrder(a, b mysql.SessionSighting) int {
+	return cmp.Or(cmp.Compare(a.FirstSeenNs, b.FirstSeenNs), cmp.Compare(a.FirstEventID, b.FirstEventID))
 }
 
 // plan converts the folded overlay into the set-based write plan: every new row (creation order, with same-batch re-exec links

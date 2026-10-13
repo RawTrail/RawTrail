@@ -67,7 +67,7 @@ func TestAgentSessions_Table(t *testing.T) {
 			{SessionID: sessionOne, Name: "claude-code", Version: new("2.1.296"), AgentPID: new(80673), CWD: new("/Users/v/project"),
 				FirstNs: 2010, LastNs: 3010},
 			{SessionID: sessionTwo, Name: "claude-code", Version: new("2.1.296"), CWD: new("/Users/v/other"), FirstNs: 4010, LastNs: 4010},
-		}, dumpSessions(t, db, host), "a helper without a session, an oversized marker and a pid too large for the column add nothing")
+		}, dumpSessions(t, db, host), "a helper and an oversized marker add no session, and a pid too large for the column is left unset")
 	})
 
 	t.Run("batches arriving out of order keep the earliest tool call", func(t *testing.T) {
@@ -80,6 +80,26 @@ func TestAgentSessions_Table(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, sessionRow{SessionID: sessionOne, Name: "claude-code", Version: new("2.1.296"), AgentPID: new(80673),
 			CWD: new("/Users/v/project"), FirstNs: 2010, LastNs: 3010}, got[0])
+	})
+
+	t.Run("tool calls at the same nanosecond resolve by event id whatever the arrival order", func(t *testing.T) {
+		t.Parallel()
+		first := toolCall("e-tie-a", 2010, 80730, sessionOne, "/Users/v/a", "80673")
+		second := toolCall("e-tie-b", 2010, 80731, sessionOne, "/Users/v/b", "80673")
+		for name, batches := range map[string][][]api.Event{
+			"one batch, in order":   {{first, second}},
+			"one batch, reversed":   {{second, first}},
+			"two batches, in order": {{first}, {second}},
+			"two batches, reversed": {{second}, {first}},
+		} {
+			host := "sessions-tie-" + name
+			for _, batch := range batches {
+				require.NoError(t, b.ProcessBatch(t.Context(), rewriteHost(batch, host)))
+			}
+			got := dumpSessions(t, db, host)
+			require.Len(t, got, 1, name)
+			assert.Equal(t, new("/Users/v/a"), got[0].CWD, name)
+		}
 	})
 
 	t.Run("a replayed batch changes nothing", func(t *testing.T) {

@@ -5,8 +5,8 @@ The sessions list (#1283) needs every AI agent session on a host with when it st
 ## What changes
 
 - Migration 00020 adds `agent_sessions`, keyed by host and session: agent name and version, the agent's pid, the cwd of the earliest tool call seen, and first and last seen.
-- The graph builder upserts it at flush from every exec carrying a session marker. First and last seen only move outward. The pid, cwd, name and version come from the earliest sighting, so batches arriving out of order and replays leave the same row.
-- A `CLAUDE_PID` too large for the column is dropped from the sighting rather than failing the batch.
+- The graph builder upserts it at flush from every exec carrying a session marker. First and last seen only move outward. The pid, cwd, name and version come from the earliest sighting, by timestamp and then event id, so events arriving in any order and replays leave the same row.
+- A `CLAUDE_PID` too large for the column leaves the session's pid unset rather than failing the batch.
 
 ## Impact
 
