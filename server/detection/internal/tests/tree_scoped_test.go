@@ -1,7 +1,7 @@
 //go:build integration
 
-// Story and session tree reads (issue #1282): a whole scope by its index, where the chain read walks one level per query and stops at
-// maxChainDescendants.
+// Story and session tree reads (issue #1282): a whole scope by its index, where the chain read issues a query per process it descends
+// into and stops at maxChainDescendants.
 
 package tests
 
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/fleetdm/edr/server/detection/bootstrap"
 	"github.com/fleetdm/edr/server/detection/internal/graph"
 	"github.com/fleetdm/edr/server/detection/internal/mysql"
 )
@@ -169,4 +170,29 @@ func TestScopedTree_OneQueryWhateverTheDepth(t *testing.T) {
 	_, err = q.BuildChainTree(t.Context(), host, api.TimeRange{FromNs: 0, ToNs: 1 << 62}, ids[0], true)
 	require.NoError(t, err)
 	assert.Greater(t, questions()-before, int64(20), "the walk issues a query per process it descends into")
+}
+
+// Through the service, as the handler calls it: without flatten, identical leaf siblings of a session fold into one aggregate.
+func TestScopedTree_ServiceAggregatesSiblings(t *testing.T) {
+	t.Parallel()
+	d := newDetection(t, detectionOpts{mode: bootstrap.ModeFull})
+	host := "scoped-" + t.Name()
+	store := d.Store()
+	session := api.AgentSession{AgentSessionID: new(sessionOne)}
+	shell, err := store.InsertProcess(t.Context(), api.Process{HostID: host, PID: 1000, PPID: 900, Path: "/bin/zsh", ForkTimeNs: 1000,
+		AgentSession: session})
+	require.NoError(t, err)
+	for i := range 12 {
+		_, err := store.InsertProcess(t.Context(), api.Process{HostID: host, PID: 1001 + i, PPID: 1000, Path: "/usr/bin/grep",
+			ForkTimeNs: int64(1001 + i), ParentProcessID: &shell, AgentSession: session})
+		require.NoError(t, err)
+	}
+
+	res, err := d.Service().BuildScopedTree(t.Context(), host, api.TreeScope{AgentSessionID: sessionOne}, 2000, false, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(13), res.Returned, "counted before aggregation")
+	require.Len(t, res.Roots, 1, "the tool call's shell")
+	require.Len(t, res.Roots[0].Children, 1, "twelve identical leaves fold into one node")
+	require.NotNil(t, res.Roots[0].Children[0].Aggregated)
+	assert.Equal(t, 12, res.Roots[0].Children[0].Aggregated.Count)
 }

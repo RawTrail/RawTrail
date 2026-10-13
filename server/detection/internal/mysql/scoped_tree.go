@@ -8,7 +8,8 @@ import (
 )
 
 // scopePredicate is the indexed equality a scoped tree read filters by, after host_id: the agent session served by
-// idx_processes_host_agent_session, or the story served by idx_processes_host_story_root (migration 00019).
+// idx_processes_host_agent_session_fork, or the story served by idx_processes_host_story_root_fork (migration 00021). Both end in
+// fork_time_ns, so the read's ORDER BY fork_time_ns, id follows the index and stops at its limit.
 func scopePredicate(scope api.TreeScope) (string, any) {
 	if scope.AgentSessionID != "" {
 		return "agent_session_id = ?", scope.AgentSessionID

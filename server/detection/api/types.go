@@ -700,12 +700,14 @@ type ProcessTreeResult struct {
 	TotalMatched int64 `json:"total_matched"`
 	// TotalMatchedCapped reports that TotalMatched is a floor rather than a total, so a reader never has to guess whether a round
 	// number is real or a ceiling. Without it a client showing "2,000 of 10,000" would state a number the server never established.
-	// Two situations set it: the window matched more rows than the counting bound, or the count ran out of its time budget and the
-	// rows already read became the floor. Never set on an untruncated read, which counted every row it returned.
+	// Two situations set it: the read matched more rows than the counting bound, or a window count ran out of its time budget and
+	// the rows already read became the floor. A story or session read matches the rows stamped with its scope, and its count reads
+	// only an index range, so for it only the bound applies. Never set on an untruncated read, which counted every row it returned.
 	TotalMatchedCapped bool `json:"total_matched_capped"`
 	Truncated          bool `json:"truncated"`
 	// RetainedFromNs is the moment before which completed process records have been deleted by retention (issue #1153), or 0 when
-	// retention is disabled. A window that starts earlier can come back with a lone alerted process and none of its neighbours,
+	// retention is disabled. It applies to every read: a story or session older than it has lost its earlier processes. A window that
+	// starts earlier can come back with a lone alerted process and none of its neighbours,
 	// because a process an alert references is kept while the rest age out. The read is not truncated, the rows are simply gone,
 	// so without this the graph reads as broken while the event timeline beside it, retained on its own window, is complete.
 	RetainedFromNs int64 `json:"retained_from_ns,omitempty"`
