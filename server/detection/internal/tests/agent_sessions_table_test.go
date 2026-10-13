@@ -102,6 +102,21 @@ func TestAgentSessions_Table(t *testing.T) {
 		}
 	})
 
+	t.Run("event ids differing only in case compare as bytes", func(t *testing.T) {
+		t.Parallel()
+		upper := toolCall("E-case", 2010, 80730, sessionOne, "/Users/v/upper", "80673")
+		lower := toolCall("e-case", 2010, 80731, sessionOne, "/Users/v/lower", "80673")
+		for name, batches := range map[string][][]api.Event{"upper first": {{upper}, {lower}}, "lower first": {{lower}, {upper}}} {
+			host := "sessions-case-" + name
+			for _, batch := range batches {
+				require.NoError(t, b.ProcessBatch(t.Context(), rewriteHost(batch, host)))
+			}
+			got := dumpSessions(t, db, host)
+			require.Len(t, got, 1, name)
+			assert.Equal(t, new("/Users/v/upper"), got[0].CWD, "%s: E sorts before e", name)
+		}
+	})
+
 	t.Run("a replayed batch changes nothing", func(t *testing.T) {
 		t.Parallel()
 		host := "sessions-" + t.Name()
