@@ -143,6 +143,19 @@ type ProcessBatchPlan struct {
 	NewRows          []NewProcessRow
 	Updates          []ProcessRowUpdate
 	SigningBackfills []SigningBackfill
+	Sessions         []SessionSighting
+}
+
+// SessionSighting is what one batch saw of an AI agent session on a host (issue #1281): its identity and what its earliest sighting
+// in the batch reported, with the span of the sightings. The flush folds it into agent_sessions, where first and last seen only move
+// outward and the agent pid and cwd come from the earliest sighting overall.
+type SessionSighting struct {
+	HostID      string
+	Session     api.AgentSession
+	AgentPID    *int
+	CWD         *string
+	FirstSeenNs int64
+	LastSeenNs  int64
 }
 
 // SigningBackfill completes the code signature of a preloaded row an earlier extension's snapshot left unsigned. It is written as its
@@ -155,7 +168,7 @@ type SigningBackfill struct {
 
 // Empty reports whether the plan would issue no writes.
 func (p ProcessBatchPlan) Empty() bool {
-	return len(p.NewRows) == 0 && len(p.Updates) == 0 && len(p.SigningBackfills) == 0
+	return len(p.NewRows) == 0 && len(p.Updates) == 0 && len(p.SigningBackfills) == 0 && len(p.Sessions) == 0
 }
 
 // backfillSigningGuard limits a signature backfill to a row that is still open and still has none, so a concurrent exit or an
@@ -180,6 +193,36 @@ func backfillSigning(ctx context.Context, ext sqlx.ExtContext, backfills []Signi
 		}
 		if _, err := ext.ExecContext(ctx, sb.String(), args...); err != nil {
 			return fmt.Errorf("backfill code_signing for %d processes: %w", len(chunk), err)
+		}
+	}
+	return nil
+}
+
+// upsertSessions folds the batch's session sightings into agent_sessions, in chunks of processUpdateChunk rows. The new row's values
+// win the pid, cwd, name and version only when it was seen earlier than the stored row, and those assignments come before
+// first_seen_ns's own, because MySQL applies an ON DUPLICATE KEY UPDATE list left to right. Keys arrive sorted, so two batches
+// touching the same sessions lock them in the same order.
+func upsertSessions(ctx context.Context, ext sqlx.ExtContext, sessions []SessionSighting) error {
+	const earlier = `IF(new.first_seen_ns < agent_sessions.first_seen_ns, new.%[1]s, agent_sessions.%[1]s)`
+	var update strings.Builder
+	for _, col := range []string{"agent_name", "agent_version", "agent_pid", "cwd"} {
+		update.WriteString(col + " = " + fmt.Sprintf(earlier, col) + ", ")
+	}
+	update.WriteString(`first_seen_ns = LEAST(agent_sessions.first_seen_ns, new.first_seen_ns),
+		last_seen_ns = GREATEST(agent_sessions.last_seen_ns, new.last_seen_ns)`)
+	for start := 0; start < len(sessions); start += processUpdateChunk {
+		chunk := sessions[start:min(start+processUpdateChunk, len(sessions))]
+		args := make([]any, 0, len(chunk)*8)
+		for _, s := range chunk {
+			args = append(args, s.HostID, s.Session.AgentSessionID, s.Session.AgentName, s.Session.AgentVersion, s.AgentPID, s.CWD,
+				s.FirstSeenNs, s.LastSeenNs)
+		}
+		query := `INSERT INTO agent_sessions
+			(host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)` + strings.Repeat(", (?, ?, ?, ?, ?, ?, ?, ?)", len(chunk)-1) + `
+			AS new ON DUPLICATE KEY UPDATE ` + update.String()
+		if _, err := ext.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("upsert %d agent sessions: %w", len(chunk), err)
 		}
 	}
 	return nil
@@ -224,6 +267,9 @@ func (s *Store) flushProcessBatchFast(ctx context.Context, plan ProcessBatchPlan
 		return err
 	}
 	if err := backfillSigning(ctx, tx, plan.SigningBackfills); err != nil {
+		return err
+	}
+	if err := upsertSessions(ctx, tx, plan.Sessions); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -610,6 +656,18 @@ func (s *Store) flushProcessBatchPerRow(ctx context.Context, plan ProcessBatchPl
 	// it is applied as the fast path applies it.
 	if err := backfillSigning(ctx, tx, plan.SigningBackfills); err != nil {
 		return err
+	}
+	// A sighting shares its host_id with the event that produced it, so a host_id too long for the column poisons both; it is
+	// isolated the same way as a row.
+	for _, sighting := range plan.Sessions {
+		if err := upsertSessions(ctx, tx, []SessionSighting{sighting}); err != nil {
+			if IsPermanentDataError(err) {
+				s.logger.WarnContext(ctx, "agent session sighting dropped: permanent data error at flush", "host_id", sighting.HostID,
+					"err", err)
+				continue
+			}
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit process-batch per-row tx: %w", err)

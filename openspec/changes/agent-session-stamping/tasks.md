@@ -14,4 +14,4 @@
 ## 4. Later PRs of #1281
 
 - [x] 4.1 Stamp `story_root_id` and `tool_call_group`.
-- [ ] 4.2 Upsert the `agent_sessions` table.
+- [x] 4.2 Upsert the `agent_sessions` table.

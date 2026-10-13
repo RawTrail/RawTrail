@@ -363,9 +363,17 @@ const (
 // #1281). A marker replaces what the row inherited, which is how /clear, or an agent started inside another, begins its own session;
 // its absence keeps the inherited one, which is how a child that sudo or env -i stripped of its environment stays attributed.
 func (p execPayload) sessionOr(inherited api.AgentSession) api.AgentSession {
+	if session, ok := p.markedSession(); ok {
+		return session
+	}
+	return inherited
+}
+
+// markedSession returns the agent session the exec's own markers name, and false when it carries no usable session marker.
+func (p execPayload) markedSession() (api.AgentSession, bool) {
 	id := p.Env[markerSessionID]
 	if id == "" || len(id) > maxMarkerLen {
-		return inherited
+		return api.AgentSession{}, false
 	}
 	session := api.AgentSession{AgentSessionID: &id, AgentName: new(claudeCodeAgent)}
 	if agent := p.Env[markerAgent]; agent != "" && len(agent) <= maxMarkerLen {
@@ -375,7 +383,22 @@ func (p execPayload) sessionOr(inherited api.AgentSession) api.AgentSession {
 			session.AgentVersion = new(strings.ReplaceAll(parts[1], "-", "."))
 		}
 	}
-	return session
+	return session, true
+}
+
+// observeSession records the exec as a sighting of the agent session its markers name, if any (issue #1281). The agent pid is
+// kept only when it fits the column, since CLAUDE_PID is whatever the process environment says.
+func (p execPayload) observeSession(ctx context.Context, w processStore, evt api.Event) error {
+	session, ok := p.markedSession()
+	if !ok {
+		return nil
+	}
+	sighting := mysql.SessionSighting{HostID: evt.HostID, Session: session, CWD: p.lineage().CWD, FirstSeenNs: evt.TimestampNs,
+		LastSeenNs: evt.TimestampNs}
+	if pid, err := strconv.ParseInt(p.Env[markerAgentPID], 10, 32); err == nil {
+		sighting.AgentPID = new(int(pid))
+	}
+	return w.ObserveSession(ctx, sighting)
 }
 
 type execPayload struct {
@@ -438,6 +461,9 @@ func (b *Builder) handleExec(ctx context.Context, w processStore, evt api.Event)
 	}
 	if applied {
 		return nil
+	}
+	if err := p.observeSession(ctx, w, evt); err != nil {
+		return err
 	}
 
 	// Resolve the running-at-this-moment row for the PID. Three shapes drive different recovery paths:

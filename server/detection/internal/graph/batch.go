@@ -1,8 +1,11 @@
 package graph
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 
 	"github.com/fleetdm/edr/server/detection/api"
 	"github.com/fleetdm/edr/server/detection/internal/mysql"
@@ -16,6 +19,7 @@ type processStore interface {
 	GetProcessByPID(ctx context.Context, hostID string, pid int, atTimeNs int64) (*api.Process, error)
 	GetParentImage(ctx context.Context, hostID string, pid int, atTimeNs int64) (mysql.ParentImage, error)
 	ResolveParent(ctx context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*api.Process, error)
+	ObserveSession(ctx context.Context, sighting mysql.SessionSighting) error
 	EventAlreadyApplied(ctx context.Context, hostID string, pid int, eventID string) (bool, error)
 	InsertProcess(ctx context.Context, p api.Process) (int64, error)
 	UpdateProcessExec(ctx context.Context, u mysql.ProcessExecUpdate) error
@@ -52,6 +56,14 @@ type batchSession struct {
 	nextProv int64 // provisional id allocator, decreasing from -1
 	// signingBackfills are the signature completions for preloaded rows, flushed as their own conditional UPDATEs.
 	signingBackfills []mysql.SigningBackfill
+	// sessions are the agent sessions this batch saw, one sighting per (host, session), upserted into agent_sessions at flush.
+	sessions map[sessionKey]mysql.SessionSighting
+}
+
+// sessionKey identifies an agent session on a host.
+type sessionKey struct {
+	hostID    string
+	sessionID string
 }
 
 // newBatchSession bulk-loads the candidate rows for keys and builds the in-memory index.
@@ -63,6 +75,7 @@ func newBatchSession(ctx context.Context, store *mysql.Store, keys []mysql.HostP
 	s := &batchSession{
 		byKey:    make(map[mysql.HostPID][]*procRow, len(keys)),
 		nextProv: -1,
+		sessions: map[sessionKey]mysql.SessionSighting{},
 	}
 	for i := range loaded {
 		r := &procRow{proc: loaded[i], loaded: true, seq: loaded[i].ID, creIdx: -1, prevNew: -1}
@@ -549,6 +562,18 @@ func (s *batchSession) BackfillSnapshotSigning(_ context.Context, hostID string,
 	return nil
 }
 
+// ObserveSession folds one sighting of an agent session into the batch's. ProcessBatch folds events in timestamp order, so the first
+// sighting is the earliest and supplies everything but the span, and each later one extends the span.
+func (s *batchSession) ObserveSession(_ context.Context, sighting mysql.SessionSighting) error {
+	key := sessionKey{hostID: sighting.HostID, sessionID: *sighting.Session.AgentSessionID}
+	if seen, ok := s.sessions[key]; ok {
+		seen.LastSeenNs = sighting.LastSeenNs
+		sighting = seen
+	}
+	s.sessions[key] = sighting
+	return nil
+}
+
 // plan converts the folded overlay into the set-based write plan: every new row (creation order, with same-batch re-exec links
 // carried as PrevNewIndex) and every modified preloaded row (its full final mutable state).
 func (s *batchSession) plan() mysql.ProcessBatchPlan {
@@ -572,6 +597,11 @@ func (s *batchSession) plan() mysql.ProcessBatchPlan {
 		}
 	}
 	p.SigningBackfills = s.signingBackfills
+	for _, key := range slices.SortedFunc(maps.Keys(s.sessions), func(a, b sessionKey) int {
+		return cmp.Or(cmp.Compare(a.hostID, b.hostID), cmp.Compare(a.sessionID, b.sessionID))
+	}) {
+		p.Sessions = append(p.Sessions, s.sessions[key])
+	}
 	return p
 }
 
