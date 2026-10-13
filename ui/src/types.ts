@@ -157,6 +157,24 @@ export interface EventSearchResult {
   total_matched: number;
 }
 
+// TimelineScope is the host timeline's report on a scoped read (issue #1282): the server resolved the scope itself, and says how far
+// the events reflect it.
+export interface TimelineScope {
+  // At least one of the scope's processes carries a generation, so the events are narrowed to the scope. False means the events are
+  // the whole host's, and processes says why: 0 means the scope named nothing stored.
+  applied: boolean;
+  processes: number;
+  // Processes in the scope with no generation: their events cannot be selected, so an applied scope is missing them.
+  unmatched: number;
+  // The scope had more processes than the timeline reads, so the events reflect part of it.
+  truncated: boolean;
+}
+
+// HostTimelineResult is a timeline page, with the scope report when the read was scoped.
+export interface HostTimelineResult extends EventSearchResult {
+  scope?: TimelineScope;
+}
+
 export interface ProcessNode extends Process {
   children?: ProcessNode[];
   network_connections?: EventRecord[];

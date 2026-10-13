@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import "./HostTimeline.scss";
-import { getHostTimeline, eventArtifactParam, listAlerts, getAlertDetail, encodeChainGeneration, type ChainGeneration } from "../api";
-import { partialScopeMessage, scopeGapMessage, type ChainScopeGap } from "./chainScope";
-import type { EventRecord, NetworkConnectPayload, DNSQueryPayload, ExecPayload } from "../types";
+import { getHostTimeline, eventArtifactParam, listAlerts, getAlertDetail } from "../api";
+import { chainScopeNote } from "./chainScope";
+import type { EventRecord, NetworkConnectPayload, DNSQueryPayload, ExecPayload, TimelineScope } from "../types";
 import { Table } from "./ui/Table";
 import { Badge } from "./ui/Badge";
 import { TechniqueTags } from "./TechniqueTags";
@@ -52,23 +52,10 @@ interface Props {
   readonly bounds: { fromNs: number; toNs: number };
   // When set, timeline rows whose originating process is this pid are emphasized (the graph node -> timeline pivot).
   readonly emphasizePid?: number;
-  // When set, scopes the timeline to the alert chain: only events belonging to one of these process generations (the alerted process
-  // plus its ancestors and descendants), matched by the (pid, pidversion) pair, mirroring the graph's "Alert chain" focus. Undefined
-  // shows the full host stream.
-  readonly chainGenerations?: ChainGeneration[];
-  // Set when the graph IS focused on an alert chain but that focus cannot be reproduced here at all. The list then shows the
-  // whole host, which is the honest thing to render but the wrong thing to render silently: the graph beside it shows four
-  // processes, so an unexplained thousand-row list reads as a product defect rather than as missing data. The value says WHICH
-  // reason, because the two are fixed by different things and telling the operator the wrong one wastes their time.
-  readonly chainScopeUnavailable?: ChainScopeGap;
-  // True when the scope applied but could not reach every process in the chain, so the list is narrowed and silently missing
-  // those processes' events. That is worse than showing too much: nothing about a scoped list suggests part of it is absent.
-  //
-  // A flag rather than a count, deliberately. The obvious count is chain nodes minus resolved generations, and a tree node is
-  // not a process: the response aggregates identical leaf descendants into synthetic group nodes ("bash x11"), so that
-  // subtraction counts groups as processes. Review caught the count claiming a precision the structure does not support, and a
-  // number that might be wrong is worse than no number when the actionable part is just "some events are missing".
-  readonly chainPartiallyScoped?: boolean;
+  // When set, scopes the timeline to the alert chain of this process (its ancestors and descendants), mirroring the graph's "Alert
+  // chain" focus. The server resolves the chain with the graph's own chain read and reports how far the scope reaches (issue #1282),
+  // so this view no longer depends on what the graph's tree read returned. Undefined shows the full host stream.
+  readonly chainPin?: number;
 }
 
 // How long after the last keystroke the text filter commits to the URL (and thus the query). Keeps a fast typist to one fetch.
@@ -85,20 +72,22 @@ const EVENT_TYPES: { key: string; label: string }[] = [
 // active window, newest-first, filterable by type chips and a text box (both in the URL), keyset-paginated via the shared list hook.
 // A row links to its process node in the graph; connection/DNS rows carry the fleet-wide "search" pivot.
 export function HostTimeline(
-  { hostId, bounds, emphasizePid, chainGenerations, chainScopeUnavailable, chainPartiallyScoped }: Props,
+  { hostId, bounds, emphasizePid, chainPin }: Props,
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
   // Sorted so a semantically-equal selection (e.g. a type toggled off then back on) yields one canonical order; otherwise the
   // Set-insertion order would churn filterKey and reset the cursor list on a no-op change.
   const activeTypes = (searchParams.get("type") ?? "").split(",").filter(Boolean).sort((a, b) => a.localeCompare(b));
   const text = searchParams.get("text") ?? "";
-  // scopeChain is undefined (not []) when unscoped so it is omitted from the query entirely. The filter key includes a canonical,
-  // order-independent encoding of the generations so toggling the scope on or off reloads the list without churning on walk order.
-  const scopeChain = chainGenerations && chainGenerations.length > 0 ? chainGenerations : undefined;
-  const scopeKey = scopeChain
-    ? scopeChain.map(encodeChainGeneration).sort((a, b) => a.localeCompare(b))
-    : [];
-  const filterKey = JSON.stringify({ h: hostId, from: bounds.fromNs, to: bounds.toNs, types: activeTypes, text, chain: scopeKey });
+  const filterKey = JSON.stringify({ h: hostId, from: bounds.fromNs, to: bounds.toNs, types: activeTypes, text, chain: chainPin });
+  // The server's report on the chain scope, from the page it last loaded. Kept with the filter key it describes, so a report for the
+  // previous scope or window never labels the list loaded for this one.
+  const [scopeReport, setScopeReport] = useState<{ key: string; scope: TimelineScope } | null>(null);
+  // The filter key of the list on screen, read when a page lands so a slower request for a key since replaced cannot overwrite the
+  // report of the list that replaced it.
+  const activeKey = useRef(filterKey);
+  useEffect(() => { activeKey.current = filterKey; }, [filterKey]);
+  const scopeNote = chainPin !== undefined && scopeReport?.key === filterKey ? chainScopeNote(scopeReport.scope) : null;
 
   // The text box is driven by local state, not the URL, so fast typing is never reset by a re-render; the draft is debounced into the
   // URL (which drives the query) so a burst of keystrokes issues one fetch, not one per character.
@@ -125,9 +114,10 @@ export function HostTimeline(
     async (cursor: string): Promise<CursorPage<EventRecord>> => {
       const res = await getHostTimeline(
         hostId,
-        { from: String(bounds.fromNs), to: String(bounds.toNs), types: activeTypes, text: text || undefined, chain: scopeChain },
+        { from: String(bounds.fromNs), to: String(bounds.toNs), types: activeTypes, text: text || undefined, chainPin },
         cursor || undefined,
       );
+      if (res.scope && activeKey.current === filterKey) setScopeReport({ key: filterKey, scope: res.scope });
       return { rows: res.events, nextCursor: res.next_cursor, total: res.total_matched };
     },
     [filterKey], // eslint-disable-line react-hooks/exhaustive-deps -- inputs are captured; filterKey is their stable identity
@@ -193,17 +183,10 @@ export function HostTimeline(
         />
         {/* Reflect the shared alert-scope so the analyst knows why fewer events show; the "Alert chain / Full tree" toggle in the
             breadcrumb drives both this and the graph. */}
-        {scopeChain && chainPartiallyScoped !== true && (
-          <span className="host-timeline__scope-note">Scoped to the alert chain</span>
-        )}
-        {scopeChain && chainPartiallyScoped === true && (
+        {scopeNote && !scopeNote.degraded && <span className="host-timeline__scope-note">{scopeNote.message}</span>}
+        {scopeNote?.degraded && (
           <span className="host-timeline__scope-note host-timeline__scope-note--degraded" role="status">
-            {partialScopeMessage}
-          </span>
-        )}
-        {!scopeChain && chainScopeUnavailable !== undefined && (
-          <span className="host-timeline__scope-note host-timeline__scope-note--degraded" role="status">
-            {scopeGapMessage(chainScopeUnavailable)}
+            {scopeNote.message}
           </span>
         )}
       </div>

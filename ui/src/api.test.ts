@@ -360,6 +360,25 @@ describe("getHostTimeline query-string composition", () => {
     expect(url).not.toContain("type=");
   });
 
+  it("asks the server for an alert chain by its pinned process, and carries the scope report back", async () => {
+    const scope = { applied: true, processes: 7, unmatched: 1, truncated: false };
+    const fetchMock = stubFetch({ events: [], total_matched: 0, scope });
+    const res = await getHostTimeline("hostA", { from: "1000", to: "2000", chainPin: 875325 });
+    const params = new URL((fetchMock.mock.calls[0] as [URL])[0].toString(), "https://edr.test").searchParams;
+    expect(params.get("scope")).toBe("chain");
+    expect(params.get("pin")).toBe("875325");
+    expect(params.has("chain")).toBe(false);
+    expect(res.scope).toEqual(scope);
+  });
+
+  it("sends no scope for the full host stream", async () => {
+    const fetchMock = stubFetch({ events: [], total_matched: 0 });
+    await getHostTimeline("hostA", { from: "1000", to: "2000" });
+    const url = (fetchMock.mock.calls[0] as [URL])[0].toString();
+    expect(url).not.toContain("scope=");
+    expect(url).not.toContain("pin=");
+  });
+
   it("normalizes a null events field (empty Go slice) to an empty array", async () => {
     // A zero-match page marshals Events: nil as JSON null; the list consumer would crash reading null.length.
     stubFetch({ events: null, total_matched: 0 });

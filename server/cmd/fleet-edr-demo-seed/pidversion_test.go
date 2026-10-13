@@ -50,7 +50,7 @@ func TestPIDVersionStamper_CounterIsSystemWideAndMonotonic(t *testing.T) {
 		"consecutive across pids, one per fork and one per exec")
 }
 
-// spec:web-ui/host-event-timeline-view/timeline-scopes-to-the-alert-chain
+// spec:web-ui/host-timeline-view/timeline-scopes-to-the-alert-chain
 //
 // A re-exec is a new generation of the same pid, and it is the case the timeline scope has to tell apart: without the bump both
 // generations answer to (pid, v) and the scope sweeps in the wrong one's events.

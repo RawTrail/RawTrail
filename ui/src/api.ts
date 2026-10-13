@@ -12,6 +12,7 @@ import type {
   HostDetail,
   ProcessSearchResult,
   EventSearchResult,
+  HostTimelineResult,
   HostHealth,
   TreeResponse,
   ProcessDetail,
@@ -451,19 +452,6 @@ export async function searchEvents(mode: EventSearchMode, filter: EventSearchFil
   return { ...res, events: res.events ?? [] };
 }
 
-// ChainGeneration identifies one alert-chain process generation by its pid and kernel pid generation (pidversion). The timeline matches
-// events on the (pid, pidversion) pair, which uniquely identifies the generation across PID reuse (a raw pid cannot).
-export interface ChainGeneration {
-  pid: number;
-  pidversion: number;
-}
-
-// encodeChainGeneration is the single `pid:pidversion` wire encoding for one chain generation. Shared by the timeline query builder
-// and HostTimeline's filter-key computation so the two cannot silently diverge if the delimiter or field order ever changes.
-export function encodeChainGeneration(g: ChainGeneration): string {
-  return `${String(g.pid)}:${String(g.pidversion)}`;
-}
-
 // HostTimelineFilter is the host event timeline input (issue #583): the event-time window (ns strings), an optional subset of the
 // timeline event types, an optional case-insensitive payload text match, and an optional alert-chain scope. Empty fields are omitted
 // from the query.
@@ -472,32 +460,29 @@ export interface HostTimelineFilter {
   to?: string;
   types?: string[];
   text?: string;
-  // chain, when set, scopes the timeline to the alert chain's process generations (the alerted process plus its ancestors and
-  // descendants), mirroring the graph's focus. Omitted (or empty) shows the full host stream.
-  chain?: ChainGeneration[];
+  // chainPin, when set, scopes the timeline to the alert chain of that process (its ancestors and descendants), which the server
+  // resolves with the same read the graph's chain focus uses (issue #1282). Omitted shows the full host stream.
+  chainPin?: number;
 }
 
 // getHostTimeline reads GET /api/hosts/{host_id}/timeline: the host's exec/network/DNS events interleaved newest-first over the window,
 // filterable by type and text, keyset-paginated. Shares the EventSearchResult page shape with the fleet event search so the UI drives
 // both with useCursorList. Types join into the comma list the endpoint expects.
-export async function getHostTimeline(hostID: string, filter: HostTimelineFilter, cursor?: string): Promise<EventSearchResult> {
+export async function getHostTimeline(hostID: string, filter: HostTimelineFilter, cursor?: string): Promise<HostTimelineResult> {
   const query = new URLSearchParams();
   const set = (key: string, value: string | undefined) => { if (value) query.set(key, value); };
   set("from", filter.from);
   set("to", filter.to);
   set("type", filter.types && filter.types.length > 0 ? filter.types.join(",") : undefined);
   set("text", filter.text);
-  // Encode each chain generation as `pid:pidversion`, comma-separated. The endpoint matches events on both so PID reuse is disambiguated.
-  set(
-    "chain",
-    filter.chain && filter.chain.length > 0
-      ? filter.chain.map(encodeChainGeneration).join(",")
-      : undefined,
-  );
+  if (filter.chainPin !== undefined) {
+    query.set("scope", "chain");
+    query.set("pin", String(filter.chainPin));
+  }
   set("cursor", cursor);
   const qs = query.toString();
   const suffix = qs ? `?${qs}` : "";
-  const res = await fetchJSON<EventSearchResult>(`/hosts/${encodeURIComponent(hostID)}/timeline${suffix}`);
+  const res = await fetchJSON<HostTimelineResult>(`/hosts/${encodeURIComponent(hostID)}/timeline${suffix}`);
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Go marshals a nil slice as JSON null (a non-nil empty slice would be []) (the type models events as non-null)
   return { ...res, events: res.events ?? [] };
 }

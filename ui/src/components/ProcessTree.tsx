@@ -10,7 +10,6 @@ import { ProcessDetail } from "./ProcessDetail";
 import { AlertTriageActions } from "./AlertTriageActions";
 import { HostHeader } from "./HostHeader";
 import { HostTimeline } from "./HostTimeline";
-import { type ChainScopeGap } from "./chainScope";
 import { type NodeTooltip } from "./node-tooltip";
 import { TechniqueTags } from "./TechniqueTags";
 import { TimeRangeControl } from "./TimeRangeControl";
@@ -24,7 +23,6 @@ import {
   buildQueryFilterIds,
   agedOutBefore,
   buildVisibleRoots,
-  chainGenerations,
   collectMatches,
   wouldSystemToggleReveal,
   findAlertChain,
@@ -244,58 +242,10 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
     return findAlertChain(roots, alertEntry.processId);
   }, [roots, focusAlertChain, alertEntry.processId]);
 
-  // The alert chain's process generations (pid + pidversion), so the Timeline can scope to the same chain the Graph shows (the
-  // "Alert chain / Full tree" toggle drives both). Non-null only when focused on a process-backed alert AND the chain has resolved from
-  // the fetched tree; null otherwise means the Timeline shows the full host stream. A resolved-but-empty chain also yields the full
-  // stream rather than blank.
-  const alertChainGenerations = useMemo(() => {
-    if (!alertChainIds) return null;
-    const gens = chainGenerations(roots, alertChainIds);
-    return gens.length > 0 ? gens : null;
-  }, [roots, alertChainIds]);
-
-  // How much of the chain the timeline can actually reach. The scope is keyed on the (pid, pidversion) pair, so a chain process
-  // with no pidversion cannot be scoped to, and there are three outcomes rather than two:
-  //
-  //   none resolved     -> the timeline shows the whole host (unavailable)
-  //   some resolved     -> the timeline is scoped, but silently WITHOUT the unresolved processes' events (partial)
-  //   all resolved      -> the timeline mirrors the graph exactly
-  //
-  // The middle case is the dangerous one and review caught it: claiming "Scoped to the alert chain" while dropping a process's
-  // events is worse than showing too much, because nothing suggests anything is missing. Live data produces it: 534 of 14,099
-  // process rows on a real host carry no generation, so any chain touching one of them lands here.
-  const chainCoverage = useMemo((): { unavailable?: ChainScopeGap; partial: boolean } => {
-    // No focus requested: the full stream is what was asked for and needs no explanation.
-    if (!alertChainIds) return { partial: false };
-    // A failed read is a settled outcome, not a pending one, and it outranks whatever chain is still on screen. It gets its own
-    // sentence because it cannot reuse "chain-unresolved", which claims the chain is absent from a tree, and a read that failed
-    // produced no tree for anything to be absent from. It is checked BEFORE the chain is consulted because fetchTree keeps the
-    // previous roots on rejection: after one successful load, a failed refetch leaves a NON-EMPTY chain resolved from the window
-    // before it, so gating on an empty chain would let the graph render its error while the timeline scoped this window to the
-    // last window's generations and called itself narrowed. That is the contradiction this gate exists to remove, one refetch over.
-    if (error !== null) return { unavailable: "tree-unavailable", partial: false };
-    // Focus requested, the read succeeded, and findAlertChain still resolved nothing. This reports THAT, and no longer tries to
-    // report why. Four review rounds went into narrowing the cause and each precondition admitted a case it did not cover, most
-    // recently a truncated response, where the process is in the window but past the row limit BuildTree applies before
-    // aggregation. The one remaining gate is timing.
-    if (alertChainIds.size === 0) {
-      // Still in flight: no tree has resolved for the chain to be missing from, and a message that appears and then disappears as
-      // the read lands is its own kind of wrong.
-      if (loading) return { partial: false };
-      return { unavailable: "chain-unresolved", partial: false };
-    }
-    const resolved = alertChainGenerations?.length ?? 0;
-    if (resolved === 0) return { unavailable: "no-generations", partial: false };
-    // Whether anything was left out, not how much. alertChainIds counts tree NODES, and the response aggregates identical leaf
-    // descendants into synthetic group nodes, so subtracting resolved generations from it counts groups as processes. The
-    // comparison still detects the shortfall reliably; only the magnitude was unsound.
-    return { partial: resolved < alertChainIds.size };
-  }, [alertChainIds, alertChainGenerations, loading, error]);
-
-  // Any degraded scope withholds the generations too, so the timeline shows the whole host rather than narrowing to a chain it has
-  // just said it cannot vouch for. This matters only for a failed refetch, where the generations still on hand came from the
-  // previous window; the other two gaps leave nothing to withhold.
-  const timelineChainGenerations = chainCoverage.unavailable ? undefined : (alertChainGenerations ?? undefined);
+  // The process the Timeline scopes to when the "Alert chain / Full tree" toggle focuses the alert's chain. The server reads that
+  // chain with the same read the Graph's focus uses and reports how far the scope reaches (issue #1282), so the Timeline no longer
+  // depends on what this view's tree read returned. A process-optional alert (processId 0) has no chain to scope to.
+  const timelineChainPin = focusAlertChain && alertEntry.processId ? alertEntry.processId : undefined;
 
   // Never hide processes that have alerts attached, or that sit on the ancestor path of one -
   // even if their binary is in a system path, the analyst context matters.
@@ -418,12 +368,12 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
   }, [roots, searchParams, entryAlert]);
 
   useEffect(() => {
-    // Fetch the tree for the graph, and also when focused on an alert in the timeline view so the chain's pids resolve to scope the
-    // timeline (the d3 draw below is a no-op in timeline view because the graph's svg is not mounted). Return fetchTree's cleanup so its
-    // stale-response guard fires: on a window/host/pin change the prior in-flight fetch is cancelled and cannot paint a stale tree.
-    if (view !== "graph" && !(focusAlertChain && alertEntry.processId)) return undefined;
+    // Fetch the tree for the graph only: the timeline's alert-chain scope is resolved by the server (issue #1282). Return fetchTree's
+    // cleanup so its stale-response guard fires: on a window/host/pin change the prior in-flight fetch is cancelled and cannot paint a
+    // stale tree.
+    if (view !== "graph") return undefined;
     return fetchTree(); // eslint-disable-line react-hooks/set-state-in-effect -- data fetch on mount
-  }, [fetchTree, view, focusAlertChain, alertEntry.processId]);
+  }, [fetchTree, view]);
 
   useEffect(() => {
     if (!svgRef.current) return;
@@ -745,9 +695,7 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
           hostId={hostId}
           bounds={bounds}
           emphasizePid={emphasizePid}
-          chainGenerations={timelineChainGenerations}
-          chainScopeUnavailable={chainCoverage.unavailable}
-          chainPartiallyScoped={chainCoverage.partial}
+          chainPin={timelineChainPin}
         />
       ) : (
         <>

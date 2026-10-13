@@ -8,4 +8,4 @@
 
 ## 3. Later
 
-- [ ] 3.1 The UI timeline passes the scope and stops assembling generations (#1282).
+- [x] 3.1 The UI timeline passes the scope and stops assembling generations (#1282).

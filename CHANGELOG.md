@@ -19,6 +19,7 @@ Notable changes to Fleet EDR, newest first. This project follows [Semantic Versi
 
 ### Fixed
 
+- **The server now works out the alert timeline's process chain.** With the alert-chain focus on, the timeline no longer stops at what the graph had loaded, and still narrows when the graph cannot load. When it reaches only part of the chain, it says so and why.
 - **The process tree no longer misplaces a process whose parent's pid was reused.** The server now records which process created each one, so a child appears under its real parent rather than a later process with the same pid, and a daemon stays under the process that launched it after launchd adopts it. This needs an agent from this release; older agents' processes are placed as before.
 - **Routine events no longer log as faults.** A clean server stop no longer logs three gauge warnings and now exports their final values. An agent that disconnects mid-upload, as on a restart or sleep, is logged at INFO rather than ERROR; the agent resends the batch.
 
