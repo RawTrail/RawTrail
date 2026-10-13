@@ -80,6 +80,22 @@ func (h *Handler) handleHostTimeline(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusBadRequest, errInvalidPID)
 		return
 	}
+	// ?scope= names the chain, session or story and lets the server resolve it to generations with the process tree's own reads
+	// (issue #1282), instead of the client assembling ?chain= from whatever tree page it loaded. The two are alternatives.
+	scopeReq, scoped, validScope := parseTimelineScope(q)
+	if scoped && (!validScope || chain != nil) {
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidScope)
+		return
+	}
+	var scope *timelineScope
+	if scoped {
+		var err error
+		if chain, scope, err = h.resolveTimelineScope(ctx, hostID, scopeReq, toNs); err != nil {
+			h.logger.ErrorContext(ctx, "resolve timeline scope", "host_id", hostID, "err", err)
+			h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+			return
+		}
+	}
 
 	limit := parseSearchLimit(q)
 	result, err := h.hostTimeline.HostTimeline(ctx, visibilityapi.HostTimelineFilter{
@@ -99,7 +115,7 @@ func (h *Handler) handleHostTimeline(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
-	h.writeJSON(w, r, result)
+	h.writeJSON(w, r, hostTimelineResponse{EventSearchResult: result, Scope: scope})
 }
 
 // parseTimelineTypes parses the optional ?type= comma list into a validated subset of the timeline event classes. An empty param means

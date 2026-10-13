@@ -1,0 +1,89 @@
+package operator
+
+import (
+	"context"
+	"math"
+	"net/url"
+	"strconv"
+
+	"github.com/fleetdm/edr/server/detection/api"
+	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+)
+
+// timelineScope is what a scoped host-timeline read reports about its scope (issue #1282), so the client can say how much of it the
+// events reflect without assembling the scope itself.
+type timelineScope struct {
+	// Applied is true when at least one of the scope's processes carries a generation, so the events are narrowed to the scope.
+	// When false the response is the whole host's stream, and Processes says why: 0 means the scope named nothing stored.
+	Applied bool `json:"applied"`
+	// Processes counts the scope's processes, and Unmatched those of them with no generation, whose events cannot be selected and
+	// are therefore missing from an applied scope.
+	Processes int `json:"processes"`
+	Unmatched int `json:"unmatched"`
+	// Truncated reports that the scope had more processes than the timeline reads, so the events reflect only part of it.
+	Truncated bool `json:"truncated"`
+}
+
+// hostTimelineResponse is the timeline page, with the scope report when the read was scoped.
+type hostTimelineResponse struct {
+	visibilityapi.EventSearchResult
+	Scope *timelineScope `json:"scope,omitempty"`
+}
+
+// timelineScopeRequest is a scope named by ?scope=: an alert chain by its pinned process, or a story or session as the tree reads them.
+type timelineScopeRequest struct {
+	chainPin int64
+	tree     api.TreeScope
+}
+
+// parseTimelineScope reads ?scope=chain&pin=<process id>, ?scope=session&session=<id> or ?scope=story&root=<process id>. scoped is
+// false when no scope is named; valid is false when one is named without a usable target.
+func parseTimelineScope(q url.Values) (req timelineScopeRequest, scoped, valid bool) {
+	if q.Get("scope") == "chain" {
+		pin, err := strconv.ParseInt(q.Get("pin"), 10, 64)
+		return timelineScopeRequest{chainPin: pin}, true, err == nil && pin > 0
+	}
+	tree, scoped, valid := parseTreeScope(q)
+	return timelineScopeRequest{tree: tree}, scoped, valid
+}
+
+// resolveTimelineScope reads the scope's processes with the same reads the process tree uses (the chain read for an alert chain, the
+// indexed story or session read otherwise), and returns the generations the timeline filters on with the report of how far they
+// reach. toNs bounds a chain's descendants as the timeline's window does; 0 leaves them unbounded.
+func (h *Handler) resolveTimelineScope(
+	ctx context.Context, hostID string, req timelineScopeRequest, toNs int64,
+) ([]visibilityapi.ProcessGeneration, *timelineScope, error) {
+	var res api.ProcessTreeResult
+	var err error
+	if req.chainPin != 0 {
+		if toNs == 0 {
+			toNs = math.MaxInt64
+		}
+		res, err = h.svc.BuildChainTree(ctx, hostID, api.TimeRange{ToNs: toNs}, req.chainPin, true)
+	} else {
+		res, err = h.svc.BuildScopedTree(ctx, hostID, req.tree, maxTimelineChain, true, 0)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	scope := &timelineScope{Truncated: res.Truncated}
+	var generations []visibilityapi.ProcessGeneration
+	var walk func(nodes []api.ProcessNode)
+	walk = func(nodes []api.ProcessNode) {
+		for _, n := range nodes {
+			scope.Processes++
+			walk(n.Children)
+			if n.PIDVersion == nil {
+				scope.Unmatched++
+				continue
+			}
+			generations = append(generations, visibilityapi.ProcessGeneration{PID: int64(n.PID), PIDVersion: int64(*n.PIDVersion)})
+		}
+	}
+	walk(res.Roots)
+	if len(generations) > maxTimelineChain {
+		generations, scope.Truncated = generations[:maxTimelineChain], true
+	}
+	scope.Applied = len(generations) > 0
+	return generations, scope, nil
+}
