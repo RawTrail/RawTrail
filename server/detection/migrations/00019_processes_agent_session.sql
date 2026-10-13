@@ -9,6 +9,10 @@
 --
 -- The columns are added in one INSTANT step. The two indexes are added separately as an online (INPLACE, LOCK=NONE) build, which
 -- MySQL 8.4 cannot do instantly; the table stays readable and writable while it builds.
+-- Rolling upgrade: an older replica keeps materializing batches with these columns NULL, so a process it handles during the rollout,
+-- and the descendants that inherit from it, carry no agent session. That is the same result as a row from an agent without the
+-- markers, and it heals at the next tool call: each Bash tool call's own exec carries the session marker, so the first one a new
+-- replica handles is stamped again. No backfill is attempted.
 -- No down section, per ADR-0009.
 
 -- +goose StatementBegin
