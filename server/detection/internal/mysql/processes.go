@@ -421,30 +421,18 @@ func (s *Store) GetExecChain(ctx context.Context, current api.Process) ([]api.Pr
 	}
 	var chain []api.Process
 	err := s.db.SelectContext(ctx, &chain, `
-		WITH RECURSIVE chain AS (
-			SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-			       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-			       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-			       is_snapshot, last_seen_ns,
-			       0 AS depth
+		WITH RECURSIVE chain (chain_id, chain_host_id, chain_previous_exec_id, depth) AS (
+			SELECT id, host_id, previous_exec_id, 0
 			FROM processes
 			WHERE id = ? AND host_id = ?
 			UNION ALL
-			SELECT p.id, p.host_id, p.pid, p.ppid, p.path, p.args, p.uid, p.gid,
-			       p.code_signing, p.sha256, p.cdhash, p.pidversion, p.fork_time_ns, p.fork_ingested_at_ns,
-			       p.exec_time_ns, p.exit_time_ns, p.exit_ingested_at_ns,
-			       p.exit_reason, p.exit_code, p.previous_exec_id,
-			       p.is_snapshot, p.last_seen_ns,
-			       c.depth + 1
+			SELECT p.id, p.host_id, p.previous_exec_id, c.depth + 1
 			FROM processes p
-			JOIN chain c ON p.id = c.previous_exec_id AND p.host_id = c.host_id
+			JOIN chain c ON p.id = c.chain_previous_exec_id AND p.host_id = c.chain_host_id
 			WHERE c.depth < ?
 		)
-		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns
-		FROM chain
+		SELECT `+processReadColumns+`
+		FROM chain JOIN processes ON processes.id = chain.chain_id
 		ORDER BY depth DESC`,
 		*current.PreviousExecID, current.HostID, maxChainLen-1,
 	)

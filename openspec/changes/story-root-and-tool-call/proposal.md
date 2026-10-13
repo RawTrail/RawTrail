@@ -4,8 +4,9 @@ The agent session (`agent-session-stamping`) answers "what did this agent do", b
 
 ## What changes
 
-- `story_root_id` is the row of the nearest ancestor launchd started. A process whose fork-time parent is launchd is its own root. So is a process first seen at exec whose parent is launchd and that was not reparented. Every other row takes its creator's root, and a re-exec keeps the prior generation's. A row with no creator has none.
-- `tool_call_group` is the process group of the agent's direct child. An exec whose creator's pid equals its `CLAUDE_PID` marker starts a tool call with its own group. Every other row inherits it like the agent session, so it survives `setsid`, which changes the process group itself.
+- `story_root_id` is the row of the nearest ancestor launchd started. A process whose fork-time parent is launchd is its own root. So is a process first seen at exec whose `original_ppid` is launchd; a startup snapshot does not report `original_ppid`, so a daemon in it may only have been adopted and gets no root. Every other row takes its creator's root, and a re-exec keeps the prior generation's. A row with no creator has none.
+- `tool_call_group` is the process group of the agent's direct child. An exec whose creator's pid equals its `CLAUDE_PID` marker starts a tool call with its own group, unless the row already has one. Every other row inherits it like the agent session, so it survives `setsid`, which changes the process group itself.
+- The exec-chain and process-search reads return the lineage, agent session and these keys, as the tree reads do.
 - The flush resolves a root created in the same batch, including a row that is its own root, after the batched INSERT, together with same-batch creator links.
 
 ## Impact

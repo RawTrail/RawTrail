@@ -312,7 +312,15 @@ func genEventSequence(rt *rapid.T) []api.Event {
 			events = append(events, exitEvtVer(ts, pid, rapid.IntRange(0, 9).Draw(rt, "xc"+is), named(pid, "xv"+is)))
 		case "snap_exec":
 			pid := rapid.SampledFrom(pids).Draw(rt, "sp"+is)
-			events = append(events, lineageExecEvt(ts, pid, 1, "/App/snap"+is, named(pid, "sv"+is), named(1, "spv"+is), true))
+			// A snapshot reports the generation now running, which the kernel never lowers: the current one, or a fresh one for a
+			// process this sequence has not seen.
+			var snapVer *uint32
+			if v, ok := current[pid]; ok && rapid.Bool().Draw(rt, "sc"+is) {
+				snapVer = &v
+			} else {
+				snapVer = next(pid)
+			}
+			events = append(events, lineageExecEvt(ts, pid, 1, "/App/snap"+is, snapVer, named(1, "spv"+is), true))
 		case "heartbeat":
 			events = append(events, heartbeatEvt(ts, rapid.SampledFrom(pids).Draw(rt, "hp"+is)))
 		}

@@ -329,11 +329,15 @@ func inheritFrom(creator *api.Process) inheritance {
 	return inheritance{parentID: &id, session: creator.AgentSession, storyRoot: creator.StoryRootID, toolCall: creator.ToolCallGroup}
 }
 
-// toolCallOr returns the exec's own process group when the exec is the agent's direct child, created by the process its
-// CLAUDE_PID marker names, which is how a tool call starts (issue #1281); otherwise inherited. Claude Code leads each tool call's
-// process group, and the group survives daemonizing, so the key holds for everything the call starts; inheriting it rather than
-// reading each row's own group keeps it through setsid as well.
+// toolCallOr returns inherited when the row already has a tool call. Otherwise it returns the exec's own process group when the
+// exec is the agent's direct child, created by the process its CLAUDE_PID marker names, which is how a tool call starts (issue
+// #1281). Claude Code leads each tool call's process group, and the group survives daemonizing, so the key holds for everything the
+// call starts; inheriting it rather than reading each row's own group keeps it through setsid as well, including a re-exec of the
+// tool call's own shell after it changed groups.
 func (p execPayload) toolCallOr(creatorPID int, inherited *int) *int {
+	if inherited != nil {
+		return inherited
+	}
 	if agentPID, err := strconv.Atoi(p.Env[markerAgentPID]); err == nil && agentPID == creatorPID && p.GroupID != nil {
 		return p.GroupID
 	}
@@ -504,7 +508,9 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 	}
 	inherited := inheritFrom(creator)
 	storyRoot := inherited.storyRoot
-	if p.PPID == launchdPID && !lineage.Reparented {
+	// Launchd started it only when the exec says so: a startup snapshot reports no original_ppid, and a daemon launchd merely
+	// adopted would otherwise be taken for the start of a story.
+	if p.PPID == launchdPID && lineage.OriginalPPID != nil && *lineage.OriginalPPID == launchdPID {
 		storyRoot = new(storyRootSelf)
 	}
 	forkIngested := evt.IngestedAtNs

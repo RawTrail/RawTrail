@@ -16,11 +16,6 @@ const (
 	csAdhocFlag = 0x2
 )
 
-// searchProcessColumns is the shared projection for the search, matching api.Process's db tags (same set GetProcessTree selects).
-const searchProcessColumns = `id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-	fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns, exit_ingested_at_ns, exit_reason, exit_code,
-	previous_exec_id, is_snapshot, last_seen_ns`
-
 // SearchProcesses runs the fleet-wide process search (issue #582): the filter's non-empty predicates ANDed in SQL, ordered
 // newest-first by (fork_time_ns, id), keyset-paged from cursor. It returns up to limit rows, a next cursor when a further page
 // exists, and total_matched (the full filtered count, independent of the page) for a filtered search, or api.TotalNotCounted for the
@@ -70,7 +65,7 @@ func (s *Store) SearchProcesses(ctx context.Context, filter api.ProcessSearchFil
 	// Fetch one extra row: its presence tells us another page exists without a second query, and it becomes the next cursor.
 	pageArgs = append(pageArgs, limit+1)
 	var rows []api.Process
-	query := "SELECT " + searchProcessColumns + " FROM processes WHERE " +
+	query := "SELECT " + processReadColumns + " FROM processes WHERE " +
 		strings.Join(pageWhere, " AND ") + " ORDER BY fork_time_ns DESC, id DESC LIMIT ?"
 	if err := s.db.SelectContext(ctx, &rows, query, pageArgs...); err != nil {
 		return api.ProcessSearchResult{}, fmt.Errorf("search processes: %w", err)
