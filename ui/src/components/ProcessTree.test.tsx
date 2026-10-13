@@ -949,6 +949,17 @@ describe("ProcessTreeView alert-chain timeline scope", () => {
     expect(spy.mock.calls[spy.mock.calls.length - 1][1].chainPin).toBe(2);
   });
 
+  // The timeline no longer needs the graph's tree to scope, so its view does not read it.
+  it("does not read the process tree in the timeline view", async () => {
+    const treeSpy = vi.spyOn(api, "getProcessTree");
+    const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0, scope: applied });
+    renderTree("?alert=9&process=2&at=1750248000000&view=timeline");
+
+    expect(await screen.findByText(scopedMessage)).toBeVisible();
+    expect(spy).toHaveBeenCalled();
+    expect(treeSpy).not.toHaveBeenCalled();
+  });
+
   // A process-optional alert names no process, so there is no chain to scope to and the timeline is the whole host's.
   it("does not scope the timeline for an alert without a process", async () => {
     vi.spyOn(api, "getAlertDetail").mockResolvedValue({ ...chainAlert, process_id: 0 });

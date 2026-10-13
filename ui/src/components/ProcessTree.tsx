@@ -368,12 +368,12 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
   }, [roots, searchParams, entryAlert]);
 
   useEffect(() => {
-    // Fetch the tree for the graph, and also when focused on an alert in the timeline view so the chain's pids resolve to scope the
-    // timeline (the d3 draw below is a no-op in timeline view because the graph's svg is not mounted). Return fetchTree's cleanup so its
-    // stale-response guard fires: on a window/host/pin change the prior in-flight fetch is cancelled and cannot paint a stale tree.
-    if (view !== "graph" && !(focusAlertChain && alertEntry.processId)) return undefined;
+    // Fetch the tree for the graph only: the timeline's alert-chain scope is resolved by the server (issue #1282). Return fetchTree's
+    // cleanup so its stale-response guard fires: on a window/host/pin change the prior in-flight fetch is cancelled and cannot paint a
+    // stale tree.
+    if (view !== "graph") return undefined;
     return fetchTree(); // eslint-disable-line react-hooks/set-state-in-effect -- data fetch on mount
-  }, [fetchTree, view, focusAlertChain, alertEntry.processId]);
+  }, [fetchTree, view]);
 
   useEffect(() => {
     if (!svgRef.current) return;
