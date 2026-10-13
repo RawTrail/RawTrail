@@ -367,6 +367,95 @@ paths:
                       disabled.
                     example: 1789000000000000000
 
+  /api/hosts/{host_id}/timeline:
+    get:
+      tags: [Hosts]
+      summary: Event timeline for a host
+      description: >-
+        One host's exec, network and DNS events, newest first, keyset-paged. A `scope` narrows it to the processes the process
+        tree's matching read returns, resolved by the server; `chain` is the older form, a caller-supplied list of generations.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: from
+          in: query
+          schema: {type: integer, format: int64, minimum: 0}
+          description: Lower bound on event time, ns since epoch. 0 or absent is unbounded.
+        - name: to
+          in: query
+          schema: {type: integer, format: int64, minimum: 0}
+          description: Upper bound on event time, ns since epoch. 0 or absent is unbounded. A `chain` scope's descendants are bounded by it too.
+        - name: type
+          in: query
+          description: Comma-separated event classes to keep. Absent keeps every class.
+          schema: {type: string, example: "exec,network_connect,dns_query"}
+        - name: text
+          in: query
+          description: Keep only events whose payload contains this, case-insensitively.
+          schema: {type: string}
+        - name: scope
+          in: query
+          description: >-
+            Narrow the timeline to a process scope. `chain` needs `pin` and reads that process with its ancestors and descendants;
+            `session` needs `session`; `story` needs `root`. A scope without its target, or combined with `chain`, is rejected
+            with `invalid_scope`.
+          schema: {type: string, enum: [chain, session, story]}
+        - name: pin
+          in: query
+          description: The process id whose alert chain to scope to, for `scope=chain`.
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: session
+          in: query
+          description: The AI agent session id, for `scope=session`.
+          schema: {type: string, maxLength: 256}
+        - name: root
+          in: query
+          description: The process id of the story's root, for `scope=story`.
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: chain
+          in: query
+          description: >-
+            Comma-separated `pid:pidversion` generations to scope to, at most 5,000. Superseded by `scope`, and not combinable
+            with it.
+          schema: {type: string, example: "80730:1888196,80732:1888199"}
+        - name: cursor
+          in: query
+          description: The `next_cursor` of the previous page.
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: A page of events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, total_matched]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TimelineEvent"
+                  next_cursor:
+                    type: string
+                    description: Present when another page follows.
+                  total_matched:
+                    type: integer
+                    format: int64
+                  scope:
+                    $ref: "#/components/schemas/TimelineScope"
+        "400":
+          description: >-
+            `bad_window`, `invalid_event_type`, `invalid_pid` (a malformed `chain`), `invalid_scope` or `invalid_cursor`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/hosts/{host_id}/processes/{pid}:
     get:
       tags: [Hosts]
@@ -2432,6 +2521,40 @@ components:
         event_count: {type: integer, format: int64}
         last_seen_ns: {type: integer, format: int64}
 
+    TimelineEvent:
+      type: object
+      required: [event_id, host_id, timestamp_ns, event_type, payload]
+      properties:
+        event_id: {type: string}
+        host_id: {type: string}
+        timestamp_ns: {type: integer, format: int64}
+        ingested_at_ns: {type: integer, format: int64}
+        event_type: {type: string, enum: [exec, network_connect, dns_query]}
+        platform: {type: string}
+        payload:
+          type: object
+          description: The event body as the agent reported it.
+    TimelineScope:
+      type: object
+      description: >-
+        Present when the timeline was read with `scope`. Says how far the scope reaches, so a client can say so without resolving
+        it itself.
+      required: [applied, processes, unmatched, truncated]
+      properties:
+        applied:
+          type: boolean
+          description: >-
+            At least one of the scope's processes carries a generation, so the events are narrowed to the scope. When false the
+            events are the whole host's, and `processes` says why: 0 means the scope names nothing stored.
+        processes:
+          type: integer
+          description: The scope's processes.
+        unmatched:
+          type: integer
+          description: Processes in the scope with no generation, whose events cannot be selected and are missing from an applied scope.
+        truncated:
+          type: boolean
+          description: The scope had more processes than the timeline reads (5,000 generations), so the events reflect part of it.
     Process:
       type: object
       properties:
