@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -21,18 +23,18 @@ const processBatchSelectColumns = processReadColumns + `, source_event_id, exec_
 const processReadColumns = `id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 	fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 	exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-	is_snapshot, last_seen_ns, ` + processLineageColumns + `, ` + agentSessionColumns
+	is_snapshot, last_seen_ns, ` + processLineageColumns + `, ` + agentSessionColumns + `, ` + groupingColumns
 
 // loadKeyChunk caps the (host_id, pid) pairs folded into one preload statement. The row-constructor IN list binds two
 // placeholders per key, so 1000 keys stay well under MySQL's placeholder ceiling while collapsing the per-event SELECTs into a
 // handful of statements.
 const loadKeyChunk = 1000
 
-// processUpdateChunk caps the rows folded into one set-based UPDATE. Each row binds an id and a value for each of the 28 CASE
-// columns plus one IN-list id (57 placeholders), so a few hundred per chunk keeps the statement well bounded.
+// processUpdateChunk caps the rows folded into one set-based UPDATE. Each row binds an id and a value for each of the 29 CASE
+// columns plus one IN-list id (59 placeholders), so a few hundred per chunk keeps the statement well bounded.
 const processUpdateChunk = 200
 
-// insertRowChunk caps the rows folded into one multi-row INSERT. Each row binds 37 placeholders, so this keeps the statement under
+// insertRowChunk caps the rows folded into one multi-row INSERT. Each row binds 39 placeholders, so this keeps the statement under
 // MySQL's ~65k placeholder ceiling even if the configured processing batch grows well beyond today's default; the preload and
 // update paths are chunked for the same reason.
 const insertRowChunk = 1000
@@ -94,17 +96,19 @@ func (s *Store) loadProcessesChunk(ctx context.Context, keys []HostPID) ([]api.P
 // split exists because a same-batch predecessor has no id until it is inserted, so the flush resolves the link after assigning ids.
 //
 // ParentNewIndex does the same for the creator link (issue #1280): the index of a row created in this batch that Proc's creator
-// resolved to, with Proc.ParentProcessID nil, or -1 when ParentProcessID already holds a real id (or nil).
+// resolved to, with Proc.ParentProcessID nil, or -1 when ParentProcessID already holds a real id (or nil). StoryRootNewIndex does it
+// for the story root (issue #1281), and is the row's own index when the row is its own root.
 type NewProcessRow struct {
-	Proc           api.Process
-	PrevNewIndex   int
-	ParentNewIndex int
+	Proc              api.Process
+	PrevNewIndex      int
+	ParentNewIndex    int
+	StoryRootNewIndex int
 }
 
 // ProcessRowUpdate is the final state of a preloaded row the batch fold mutated (an exit, an exec patch, a PID-reuse close, a
 // re-exec close, or a freshness bump). The flush writes the full mutable column set to the row's final value, so a column the fold
 // left untouched is rewritten to its existing value (a no-op) rather than tracked per-column. Immutable columns (host_id, pid,
-// ppid, fork_time_ns, fork_ingested_at_ns, previous_exec_id, is_snapshot, parent_process_id, parent_pidversion) are never in this
+// ppid, fork_time_ns, fork_ingested_at_ns, previous_exec_id, is_snapshot, parent_process_id, parent_pidversion, story_root_id) are never in this
 // set.
 type ProcessRowUpdate struct {
 	ID               int64
@@ -128,6 +132,9 @@ type ProcessRowUpdate struct {
 	Lineage api.ExecLineage
 	// Agent is the agent session (issue #1281), which an exec's markers replace.
 	Agent api.AgentSession
+	// ToolCallGroup is the tool-call key (issue #1281), which an exec by the agent's direct child sets. story_root_id is fixed at
+	// insert, like the parent link, so it is not here.
+	ToolCallGroup *int
 }
 
 // ProcessBatchPlan is the set of writes the graph builder's in-memory fold produced for one batch: new rows to insert (in creation
@@ -241,30 +248,47 @@ func (s *Store) insertNewRowsBatched(ctx context.Context, ext sqlx.ExtContext, r
 			return err
 		}
 	}
-	return linkSameBatchParents(ctx, ext, rows)
+	ids, err := newRowIDs(ctx, ext, rows)
+	if err != nil {
+		return err
+	}
+	return linkSameBatchRows(ctx, ext, rows, ids)
 }
 
-// linkSameBatchParents sets parent_process_id on new rows whose creator was also created in this batch, after the multi-row INSERT
-// has given both their ids. A child forked by a process the same batch created is the common case, so resolving these links one row
-// at a time, as the rarer re-exec links are, would undo the batching. Each new row is found again by its (host_id, pid,
-// source_event_id), which is unique because every write path stamps the event that created the row and a replayed event creates
-// nothing.
-func linkSameBatchParents(ctx context.Context, ext sqlx.ExtContext, rows []NewProcessRow) error {
-	var children []int
+// sameBatchLinked reports whether row links to a row created in the same batch by a column linkSameBatchRows writes.
+func sameBatchLinked(r NewProcessRow) bool {
+	return r.ParentNewIndex >= 0 || r.StoryRootNewIndex >= 0
+}
+
+// newRowIDs finds the ids the multi-row INSERT gave the rows linkSameBatchRows needs: each linked row and each row it links to. A
+// child forked by a process the same batch created is the common case, so resolving these links one row at a time, as the rarer
+// re-exec links are, would undo the batching. Each new row is found again by its (host_id, pid, source_event_id), which is unique
+// because every write path stamps the event that created the row and a replayed event creates nothing. The result is indexed like
+// rows, 0 where no id was needed.
+func newRowIDs(ctx context.Context, ext sqlx.ExtContext, rows []NewProcessRow) ([]int64, error) {
+	need := map[int]struct{}{}
 	for i, r := range rows {
-		if r.ParentNewIndex >= 0 {
-			children = append(children, i)
+		if !sameBatchLinked(r) {
+			continue
+		}
+		need[i] = struct{}{}
+		for _, j := range []int{r.ParentNewIndex, r.StoryRootNewIndex} {
+			if j >= 0 {
+				need[j] = struct{}{}
+			}
 		}
 	}
-	for start := 0; start < len(children); start += processUpdateChunk {
-		if err := linkParentsChunk(ctx, ext, rows, children[start:min(start+processUpdateChunk, len(children))]); err != nil {
-			return err
+	wanted := slices.Sorted(maps.Keys(need))
+	ids := make([]int64, len(rows))
+	for start := 0; start < len(wanted); start += loadKeyChunk {
+		if err := findNewRowIDs(ctx, ext, rows, wanted[start:min(start+loadKeyChunk, len(wanted))], ids); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return ids, nil
 }
 
-// newRowKey is the identity linkSameBatchParents finds a just-inserted row by.
+// newRowKey is the identity newRowIDs finds a just-inserted row by.
 type newRowKey struct {
 	hostID        string
 	pid           int
@@ -275,17 +299,19 @@ func rowKeyOf(p api.Process) newRowKey {
 	return newRowKey{hostID: p.HostID, pid: p.PID, sourceEventID: *p.SourceEventID}
 }
 
-func linkParentsChunk(ctx context.Context, ext sqlx.ExtContext, rows []NewProcessRow, children []int) error {
+func findNewRowIDs(ctx context.Context, ext sqlx.ExtContext, rows []NewProcessRow, wanted []int, ids []int64) error {
 	var sb strings.Builder
-	args := make([]any, 0, len(children)*6)
+	args := make([]any, 0, len(wanted)*3)
+	index := make(map[newRowKey]int, len(wanted))
 	sb.WriteString("SELECT id, host_id, pid, source_event_id FROM processes WHERE (host_id, pid, source_event_id) IN (")
-	for i, c := range children {
-		if i > 0 {
+	for n, i := range wanted {
+		if n > 0 {
 			sb.WriteString(", ")
 		}
-		sb.WriteString("(?, ?, ?), (?, ?, ?)")
-		child, parent := rowKeyOf(rows[c].Proc), rowKeyOf(rows[rows[c].ParentNewIndex].Proc)
-		args = append(args, child.hostID, child.pid, child.sourceEventID, parent.hostID, parent.pid, parent.sourceEventID)
+		sb.WriteString("(?, ?, ?)")
+		key := rowKeyOf(rows[i].Proc)
+		index[key] = i
+		args = append(args, key.hostID, key.pid, key.sourceEventID)
 	}
 	sb.WriteString(")")
 	var found []struct {
@@ -295,25 +321,63 @@ func linkParentsChunk(ctx context.Context, ext sqlx.ExtContext, rows []NewProces
 		SourceEventID string `db:"source_event_id"`
 	}
 	if err := sqlx.SelectContext(ctx, ext, &found, sb.String(), args...); err != nil {
-		return fmt.Errorf("find %d same-batch parent links: %w", len(children), err)
+		return fmt.Errorf("find %d same-batch rows: %w", len(wanted), err)
 	}
-	ids := make(map[newRowKey]int64, len(found))
 	for _, f := range found {
-		ids[newRowKey{hostID: f.HostID, pid: f.PID, sourceEventID: f.SourceEventID}] = f.ID
+		ids[index[newRowKey{hostID: f.HostID, pid: f.PID, sourceEventID: f.SourceEventID}]] = f.ID
 	}
-	sb.Reset()
-	args = args[:0]
-	sb.WriteString("UPDATE processes SET parent_process_id = CASE id")
-	for _, c := range children {
-		args = append(args, ids[rowKeyOf(rows[c].Proc)], ids[rowKeyOf(rows[rows[c].ParentNewIndex].Proc)])
-		sb.WriteString(" WHEN ? THEN ?")
+	return nil
+}
+
+// linkSameBatchRows sets parent_process_id and story_root_id on new rows that link to rows created in the same batch, once ids
+// holds every inserted row's id. A dropped row (id 0) is neither linked nor linked to, which leaves the link NULL.
+func linkSameBatchRows(ctx context.Context, ext sqlx.ExtContext, rows []NewProcessRow, ids []int64) error {
+	var linked []int
+	for i, r := range rows {
+		if sameBatchLinked(r) && ids[i] != 0 {
+			linked = append(linked, i)
+		}
 	}
-	sb.WriteString(" END WHERE id IN (?" + strings.Repeat(", ?", len(children)-1) + ")")
-	for _, c := range children {
-		args = append(args, ids[rowKeyOf(rows[c].Proc)])
+	for start := 0; start < len(linked); start += processUpdateChunk {
+		if err := linkRowsChunk(ctx, ext, rows, ids, linked[start:min(start+processUpdateChunk, len(linked))]); err != nil {
+			return err
+		}
 	}
-	if _, err := ext.ExecContext(ctx, sb.String(), args...); err != nil {
-		return fmt.Errorf("link %d same-batch parents: %w", len(children), err)
+	return nil
+}
+
+// linkRowsChunk writes one set-based UPDATE for up to processUpdateChunk linked rows. A column only gets a CASE when some row in the
+// chunk links by it, and a row whose targets were all dropped writes nothing.
+func linkRowsChunk(ctx context.Context, ext sqlx.ExtContext, rows []NewProcessRow, ids []int64, linked []int) error {
+	var sets []string
+	var args []any
+	for _, col := range []struct {
+		name   string
+		target func(NewProcessRow) int
+	}{
+		{"parent_process_id", func(r NewProcessRow) int { return r.ParentNewIndex }},
+		{"story_root_id", func(r NewProcessRow) int { return r.StoryRootNewIndex }},
+	} {
+		var arms strings.Builder
+		for _, i := range linked {
+			if j := col.target(rows[i]); j >= 0 && ids[j] != 0 {
+				arms.WriteString(" WHEN ? THEN ?")
+				args = append(args, ids[i], ids[j])
+			}
+		}
+		if arms.Len() > 0 {
+			sets = append(sets, col.name+" = CASE id"+arms.String()+" ELSE "+col.name+" END")
+		}
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	query := "UPDATE processes SET " + strings.Join(sets, ", ") + " WHERE id IN (?" + strings.Repeat(", ?", len(linked)-1) + ")"
+	for _, i := range linked {
+		args = append(args, ids[i])
+	}
+	if _, err := ext.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("link %d same-batch rows: %w", len(linked), err)
 	}
 	return nil
 }
@@ -365,13 +429,6 @@ func insertNewRowsLinked(ctx context.Context, ext sqlx.ExtContext, rows []NewPro
 				r.Proc.PreviousExecID = nil
 			}
 		}
-		// The creator link resolves the same way: a creator always precedes its child in creation order, and a dropped one leaves
-		// the link nil, which ParentProcessID already is for a same-batch link.
-		if r.ParentNewIndex >= 0 {
-			if parentID := ids[r.ParentNewIndex]; parentID != 0 {
-				r.Proc.ParentProcessID = &parentID
-			}
-		}
 		id, err := insertOneProcessRow(ctx, ext, r.Proc)
 		if err != nil {
 			if dropPoison && IsPermanentDataError(err) {
@@ -383,7 +440,9 @@ func insertNewRowsLinked(ctx context.Context, ext sqlx.ExtContext, rows []NewPro
 		}
 		ids[i] = id
 	}
-	return nil
+	// The creator and story-root links are written once every row has its id, as on the batched path: a row can be its own story
+	// root, so its id is not known until after its own INSERT.
+	return linkSameBatchRows(ctx, ext, rows, ids)
 }
 
 // insertOneProcessRow inserts a single process row on the given executor and returns its auto-increment id. Shares the column list
@@ -420,7 +479,7 @@ var mutableUpdateColumns = []string{
 	"exec_time_ns", "pidversion", "exec_event_id", "exit_time_ns", "exit_ingested_at_ns", "exit_reason", "exit_code",
 	"exit_event_id", "last_seen_ns",
 	"original_ppid", "responsible_pid", "responsible_pidversion", "session_id", "group_id", "tty", "start_time_ns", "cwd",
-	"reparented", "agent_session_id", "agent_name", "agent_version",
+	"reparented", "agent_session_id", "agent_name", "agent_version", "tool_call_group",
 }
 
 func updateRowsChunk(ctx context.Context, ext sqlx.ExtContext, updates []ProcessRowUpdate) error {
@@ -518,6 +577,8 @@ func updateColumnValue(col string, u ProcessRowUpdate) any {
 		return u.Agent.AgentName
 	case "agent_version":
 		return u.Agent.AgentVersion
+	case "tool_call_group":
+		return u.ToolCallGroup
 	default:
 		panic("mysql: unknown mutable update column " + col) // unreachable: driven by mutableUpdateColumns
 	}
