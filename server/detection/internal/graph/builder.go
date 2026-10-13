@@ -510,7 +510,7 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 	storyRoot := inherited.storyRoot
 	// Launchd started it only when the exec says so: a startup snapshot reports no original_ppid, and a daemon launchd merely
 	// adopted would otherwise be taken for the start of a story.
-	if p.PPID == launchdPID && lineage.OriginalPPID != nil && *lineage.OriginalPPID == launchdPID {
+	if lineage.OriginalPPID != nil && *lineage.OriginalPPID == launchdPID {
 		storyRoot = new(storyRootSelf)
 	}
 	forkIngested := evt.IngestedAtNs
