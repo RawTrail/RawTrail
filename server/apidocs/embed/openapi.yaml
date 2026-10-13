@@ -291,6 +291,23 @@ paths:
             client such as the alert view can locate the alerted process by its real id even when it has identical siblings.
             0 (the default) pins nothing.
           schema: {type: integer, format: int64, default: 0}
+        - name: scope
+          in: query
+          description: >-
+            What to read instead of the time window. `chain` reads the pinned process with its ancestors and descendants, and
+            reads the window when nothing is pinned. `session` reads one AI agent session named by `session`, and `story` reads
+            every process descended from the process launchd started, named by `root`; both read the whole scope oldest first,
+            ignore `from` and `to`, and are bounded by `limit` with the same truncation fields. A `session` or `story` scope
+            without a valid target is rejected with `invalid_scope`.
+          schema: {type: string, enum: [chain, session, story]}
+        - name: session
+          in: query
+          description: The AI agent session id, for `scope=session`. At most 256 bytes.
+          schema: {type: string, maxLength: 256}
+        - name: root
+          in: query
+          description: The process id of the story's root, for `scope=story`.
+          schema: {type: integer, format: int64, minimum: 1}
       responses:
         "200":
           description: Forest of process roots
@@ -316,14 +333,16 @@ paths:
                     type: integer
                     format: int64
                     description: |
-                      Process rows whose lifetime overlaps the window, independent of the row limit. Exact when the server could
+                      Process rows the read matched, independent of the row limit: for a window read, those whose lifetime overlaps
+                      the window; for a `session` or `story` scope, those stamped with it. Exact when the server could
                       count every match, a FLOOR when it could not; `total_matched_capped` says which.
                     example: 2588
                   total_matched_capped:
                     type: boolean
                     description: |
-                      `total_matched` is a floor rather than a total, either because the window matched more rows than the
-                      server's counting bound or because the count ran out of its time budget. Bounding it at all was forced: an
+                      `total_matched` is a floor rather than a total, either because the read matched more rows than the
+                      server's counting bound or because a window count ran out of its time budget (a scope count reads only an
+                      index range and has no budget). Bounding it at all was forced: an
                       unbounded count could not finish, and on a host with 5.2M process rows a 24-hour window matched 542,268
                       while the count ran past the server's write timeout and failed the request. A client MUST NOT present a
                       capped total as exact. Never set when `truncated` is false, since an untruncated read counted every row it
@@ -343,8 +362,9 @@ paths:
                     description: |
                       The moment, in nanoseconds since the epoch, before which completed process records have been deleted
                       by retention (`EDR_RETENTION_DAYS`). A window starting earlier returns the processes an alert references
-                      and not their neighbours, and the read is not truncated, so this is how a client can tell the two apart.
-                      Omitted when retention is disabled.
+                      and not their neighbours, and a `session` or `story` older than it returns only its later processes; either
+                      way the read is not truncated, so this is how a client can tell the two apart. Omitted when retention is
+                      disabled.
                     example: 1789000000000000000
 
   /api/hosts/{host_id}/processes/{pid}:

@@ -30,6 +30,10 @@ type Service interface {
 	// busy host, returns a page the alerted process is not even in (issue #1138). This costs the chain instead. There is no row
 	// limit because the chain is its own bound; Truncated reports only that the descendants were cut short.
 	BuildChainTree(ctx context.Context, hostID string, tr TimeRange, pinnedID int64, flatten bool) (ProcessTreeResult, error)
+	// BuildScopedTree returns a whole story or AI agent session by an indexed lookup (issue #1282), oldest first, bounded by limit
+	// with the same truncation metadata as BuildTree. There is no time window: the scope is its own bound. pinnedID only keeps that
+	// process out of a sibling aggregate.
+	BuildScopedTree(ctx context.Context, hostID string, scope TreeScope, limit int, flatten bool, pinnedID int64) (ProcessTreeResult, error)
 	// GetProcessDetail returns one process generation with its flows and re-exec chain. pidVersion is optional: when set it names the
 	// exact generation, which is the only way to address any but the newest member of a re-exec chain (all of whose generations share
 	// one fork_time_ns, so the as-of read cannot separate them). nil keeps the as-of resolution the tree and timeline pass.

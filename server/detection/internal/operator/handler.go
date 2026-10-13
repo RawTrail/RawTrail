@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -37,6 +38,10 @@ const (
 	errInvalidSigning     = "invalid_signing"
 	errInvalidExitReason  = "invalid_exit_reason"
 	errInvalidEventType   = "invalid_event_type"
+	errInvalidScope       = "invalid_scope"
+
+	// maxSessionIDLen is the widest agent session id a process row stores (migration 00019), so a longer one names no session.
+	maxSessionIDLen = 256
 
 	// processTreeDefaultLimit is the row cap when the caller does not supply ?limit=. Sized to fit a typical analyst's investigation
 	// without paging.
@@ -192,11 +197,23 @@ func (h *Handler) handleProcessTree(w http.ResponseWriter, r *http.Request) {
 	// read returns the newest rows, so on a busy host the alerted process is not in its own page (issue #1138). It needs a pin to
 	// name the process, and without one there is no chain to read, so it falls through to the window read rather than failing: a
 	// caller that asked for a chain and named no process is asking for the host.
+	//
+	// ?scope=story&root=<process id> and ?scope=session&session=<id> read a whole story or AI agent session by its index, with no
+	// time window (issue #1282). Unlike chain, a scope naming no valid root or session is a client error: the caller asked for one
+	// particular thing and did not say which.
+	scope, scoped, validScope := parseTreeScope(r.URL.Query())
+	if scoped && !validScope {
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidScope)
+		return
+	}
 	var res api.ProcessTreeResult
 	var err error
-	if r.URL.Query().Get("scope") == "chain" && pinnedID != 0 {
+	switch {
+	case scoped:
+		res, err = h.svc.BuildScopedTree(ctx, hostID, scope, limit, flatten, pinnedID)
+	case r.URL.Query().Get("scope") == "chain" && pinnedID != 0:
 		res, err = h.svc.BuildChainTree(ctx, hostID, tr, pinnedID, flatten)
-	} else {
+	default:
 		res, err = h.svc.BuildTree(ctx, hostID, tr, limit, flatten, pinnedID)
 	}
 	if err != nil {
@@ -212,6 +229,20 @@ func (h *Handler) handleProcessTree(w http.ResponseWriter, r *http.Request) {
 		res.RetainedFromNs = pipeline.ProcessRetentionCutoff(time.Now(), h.processRetentionDays).UnixNano()
 	}
 	h.writeJSON(w, r, res)
+}
+
+// parseTreeScope reads ?scope=story&root=<process id> or ?scope=session&session=<id> (issue #1282). scoped is false for any other
+// scope; valid is false when a story or session scope names no usable root or session.
+func parseTreeScope(q url.Values) (scope api.TreeScope, scoped, valid bool) {
+	switch q.Get("scope") {
+	case "story":
+		root, err := strconv.ParseInt(q.Get("root"), 10, 64)
+		return api.TreeScope{StoryRootID: root}, true, err == nil && root > 0
+	case "session":
+		session := q.Get("session")
+		return api.TreeScope{AgentSessionID: session}, true, session != "" && len(session) <= maxSessionIDLen
+	}
+	return api.TreeScope{}, false, false
 }
 
 func (h *Handler) handleProcessDetail(w http.ResponseWriter, r *http.Request) {

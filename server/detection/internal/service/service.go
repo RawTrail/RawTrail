@@ -66,6 +66,13 @@ func (s *Service) BuildTree(
 	return s.query.BuildTree(ctx, hostID, tr, limit, flatten, pinnedID)
 }
 
+// BuildScopedTree returns one story or AI agent session by its index (issue #1282).
+func (s *Service) BuildScopedTree(
+	ctx context.Context, hostID string, scope api.TreeScope, limit int, flatten bool, pinnedID int64,
+) (api.ProcessTreeResult, error) {
+	return s.query.BuildScopedTree(ctx, hostID, scope, limit, flatten, pinnedID)
+}
+
 // BuildChainTree returns the pinned process with its ancestors and descendants, and nothing else.
 func (s *Service) BuildChainTree(
 	ctx context.Context, hostID string, tr api.TimeRange, pinnedID int64, flatten bool,
