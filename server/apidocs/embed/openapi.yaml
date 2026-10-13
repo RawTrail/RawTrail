@@ -2592,8 +2592,14 @@ components:
         cwd: {type: string, description: "The working directory of the session's earliest tool call: the project it worked in."}
         first_seen_ns: {type: integer, format: int64}
         last_seen_ns: {type: integer, format: int64}
-        process_count: {type: integer, format: int64}
-        alert_count: {type: integer, format: int64, description: Alerts raised on the session's processes; monitor records are not counted.}
+        process_count:
+          type: integer
+          format: int64
+          description: The session's processes still retained. The session outlives process retention, so this shrinks as rows are pruned.
+        alert_count:
+          type: integer
+          format: int64
+          description: Retained alerts raised on the session's processes; monitor records are not counted.
     TimelineEvent:
       type: object
       required: [event_id, host_id, timestamp_ns, event_type, payload]

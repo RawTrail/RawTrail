@@ -35,6 +35,11 @@ func decodeSessionCursor(token string) (sessionCursor, error) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return sessionCursor{}, fmt.Errorf("%w: not a session cursor: %w", api.ErrInvalidCursor, err)
 	}
+	// JSON leaves a missing member at its zero value, and no row has a zero last-seen or an empty host or session, so a cursor
+	// missing any of them names no position: reject it rather than page from nowhere.
+	if c.LastSeenNs <= 0 || c.HostID == "" || c.SessionID == "" {
+		return sessionCursor{}, fmt.Errorf("%w: incomplete session cursor", api.ErrInvalidCursor)
+	}
 	return c, nil
 }
 

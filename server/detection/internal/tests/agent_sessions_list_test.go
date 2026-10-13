@@ -5,6 +5,7 @@
 package tests
 
 import (
+	"encoding/base64"
 	"strconv"
 	"testing"
 
@@ -144,6 +145,13 @@ func TestAgentSessionsList_Paging(t *testing.T) {
 		seen[id] = true
 	}
 
-	_, err := store.ListAgentSessions(t.Context(), api.AgentSessionFilter{}, "not a cursor", 3)
-	assert.ErrorIs(t, err, api.ErrInvalidCursor)
+	// A cursor that decodes but names no position, because JSON leaves a missing member zero, is as invalid as one that does not.
+	for _, bad := range []string{"not a cursor", "{}", "null", `{"l":5}`, `{"l":5,"h":"host-a"}`, `{"h":"host-a","s":"s:1"}`} {
+		token := bad
+		if bad != "not a cursor" {
+			token = base64.RawURLEncoding.EncodeToString([]byte(bad))
+		}
+		_, err := store.ListAgentSessions(t.Context(), api.AgentSessionFilter{}, token, 3)
+		assert.ErrorIs(t, err, api.ErrInvalidCursor, bad)
+	}
 }

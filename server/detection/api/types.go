@@ -185,7 +185,9 @@ type AgentSessionSummary struct {
 	CWD         *string `db:"cwd" json:"cwd,omitempty"`
 	FirstSeenNs int64   `db:"first_seen_ns" json:"first_seen_ns"`
 	LastSeenNs  int64   `db:"last_seen_ns" json:"last_seen_ns"`
-	// ProcessCount counts the processes stamped with the session, and AlertCount the alerts (not monitor records) raised on them.
+	// ProcessCount counts the processes stamped with the session that are still retained, and AlertCount the retained alerts (not
+	// monitor records) raised on them. The session row outlives process and alert retention, so an old session's counts shrink as
+	// its rows are pruned.
 	ProcessCount int64 `db:"-" json:"process_count"`
 	AlertCount   int64 `db:"-" json:"alert_count"`
 }
