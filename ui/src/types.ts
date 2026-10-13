@@ -124,6 +124,20 @@ export interface Process {
   // re-exec chain.
   exit_reason?: "event" | "ttl_reconciliation" | "pid_reuse" | "reexec" | "host_reconciled";
   previous_exec_id?: number;
+  // Lineage (issue #1280). parent_process_id is the id of the creator's row, which the server links the tree by; parent_pidversion
+  // is the creator's generation. The rest is what the exec reported: original_ppid is the creator's pid, which survives
+  // reparenting, and reparented marks a process launchd adopted. Each is absent when the agent did not send it.
+  parent_process_id?: number;
+  parent_pidversion?: number;
+  original_ppid?: number;
+  responsible_pid?: number;
+  responsible_pidversion?: number;
+  session_id?: number;
+  group_id?: number;
+  tty?: string;
+  start_time_ns?: number;
+  cwd?: string;
+  reparented?: boolean;
 }
 
 // ProcessSearchResult is the response from GET /api/search/processes (issue #582): a page of matching processes across all hosts,

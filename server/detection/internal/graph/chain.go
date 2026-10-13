@@ -104,8 +104,14 @@ type chainWalk struct {
 // absorb takes one process's children into the walk, skipping any it has already visited, and reports whether the cap stopped it.
 // The rows it returns are the next generation to descend into: a row already visited is not one, or a walk over data that loops
 // would never end.
+//
+// The children are matched by ppid and the parent's lifetime, so a child whose creator row the graph builder resolved to a different
+// row is skipped (issue #1280): it was forked by another process that held the same number, and it is left unvisited for that one.
 func (w *chainWalk) absorb(parent api.Process, children []api.Process) (added []api.Process, capped bool) {
 	for _, child := range children {
+		if child.ParentProcessID != nil && *child.ParentProcessID != parent.ID {
+			continue
+		}
 		if _, dup := w.seen[child.ID]; dup {
 			continue
 		}

@@ -636,10 +636,7 @@ func (s *Store) GetProcessTree(ctx context.Context, hostID string, tr api.TimeRa
 	// limit, which the handler has already clamped, so this also saves the append path its regrowth.
 	procs := make([]api.Process, 0, limit)
 	err := s.db.SelectContext(ctx, &procs, `
-		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns
+		SELECT `+processReadColumns+`
 		FROM processes`+processTreeWindowPredicate+`
 		ORDER BY fork_time_ns DESC
 		LIMIT ?`,
@@ -839,10 +836,7 @@ func (s *Store) GetProcessByPID(ctx context.Context, hostID string, pid int, atT
 func (s *Store) GetProcessByPIDVersion(ctx context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*api.Process, error) {
 	var proc api.Process
 	err := s.db.GetContext(ctx, &proc, `
-		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns
+		SELECT `+processReadColumns+`
 		FROM processes
 		WHERE host_id = ? AND pid = ? AND pidversion = ?
 		ORDER BY (COALESCE(exec_time_ns, fork_time_ns) <= ? AND (exit_time_ns IS NULL OR exit_time_ns >= ?)) DESC,
@@ -870,10 +864,7 @@ func (s *Store) GetProcessByPIDVersion(ctx context.Context, hostID string, pid i
 func (s *Store) GetProcessByID(ctx context.Context, hostID string, id int64) (*api.Process, error) {
 	var proc api.Process
 	err := s.db.GetContext(ctx, &proc, `
-		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns
+		SELECT `+processReadColumns+`
 		FROM processes
 		WHERE id = ? AND host_id = ?`,
 		id, hostID,
@@ -892,10 +883,7 @@ func (s *Store) GetProcessByID(ctx context.Context, hostID string, id int64) (*a
 func (s *Store) GetChildProcesses(ctx context.Context, hostID string, ppid int, tr api.TimeRange) ([]api.Process, error) {
 	var procs []api.Process
 	err := s.db.SelectContext(ctx, &procs, `
-		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns
+		SELECT `+processReadColumns+`
 		FROM processes
 		WHERE host_id = ? AND ppid = ? AND fork_time_ns >= ? AND fork_time_ns <= ?
 		ORDER BY fork_time_ns`,
