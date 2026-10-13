@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -263,10 +264,11 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 	if err != nil {
 		b.logger.WarnContext(ctx, "failed to get parent image", "host_id", evt.HostID, "parent_pid", p.ParentPID, "err", err)
 	}
-	parentID, err := resolveCreator(ctx, w, evt, p.ParentPID, p.ParentPIDVersion)
+	creator, err := resolveCreator(ctx, w, evt, p.ParentPID, p.ParentPIDVersion)
 	if err != nil {
 		return err
 	}
+	parentID, session := creatorLink(creator)
 
 	forkIngested := evt.IngestedAtNs
 	sourceEventID := evt.EventID
@@ -281,6 +283,8 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 		PIDVersion:       p.PIDVersion,
 		ParentProcessID:  parentID,
 		ParentPIDVersion: p.ParentPIDVersion,
+		// A forked child runs with its creator's environment, so it belongs to the creator's agent session (issue #1281).
+		AgentSession:     session,
 		ForkTimeNs:       evt.TimestampNs,
 		ForkIngestedAtNs: &forkIngested,
 		SourceEventID:    &sourceEventID,
@@ -288,13 +292,54 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 	return err
 }
 
-// resolveCreator returns the row id of the process (pid, pidversion) that created the event's process at the event's time, or nil
-// when the agent sent no generation, in which case readers keep the ppid rule (issue #1280).
-func resolveCreator(ctx context.Context, w processStore, evt api.Event, pid int, pidversion *uint32) (*int64, error) {
+// resolveCreator returns the row of the process (pid, pidversion) that created the event's process at the event's time, or nil when
+// the agent sent no generation, in which case readers keep the ppid rule (issue #1280).
+func resolveCreator(ctx context.Context, w processStore, evt api.Event, pid int, pidversion *uint32) (*api.Process, error) {
 	if pidversion == nil {
 		return nil, nil
 	}
 	return w.ResolveParent(ctx, evt.HostID, pid, *pidversion, evt.TimestampNs)
+}
+
+// creatorLink returns the creator's row id and the agent session a row it created inherits, both unset without a creator.
+func creatorLink(creator *api.Process) (*int64, api.AgentSession) {
+	if creator == nil {
+		return nil, api.AgentSession{}
+	}
+	id := creator.ID
+	return &id, creator.AgentSession
+}
+
+// The agent session markers the extension forwards from an exec's environment (issue #1278).
+const (
+	// markerSessionID is Claude Code's session identifier, present on the processes it runs for a session.
+	markerSessionID = "CLAUDE_CODE_SESSION_ID"
+	// markerAgent is the agent's self-description, name_version_role with dashes for dots: claude-code_2-1-296_agent.
+	markerAgent = "AI_AGENT"
+	// maxMarkerLen is the longest marker value a row stores, the extension's own cap and the columns' width. A longer value from
+	// another sender is ignored rather than failing the whole row at flush.
+	maxMarkerLen = 256
+	// claudeCodeAgent names the agent when only its session marker is present.
+	claudeCodeAgent = "claude-code"
+)
+
+// sessionOr returns the agent session the exec's own markers name, or inherited when it carries no usable session marker (issue
+// #1281). A marker replaces what the row inherited, which is how /clear, or an agent started inside another, begins its own session;
+// its absence keeps the inherited one, which is how a child that sudo or env -i stripped of its environment stays attributed.
+func (p execPayload) sessionOr(inherited api.AgentSession) api.AgentSession {
+	id := p.Env[markerSessionID]
+	if id == "" || len(id) > maxMarkerLen {
+		return inherited
+	}
+	session := api.AgentSession{AgentSessionID: &id, AgentName: new(claudeCodeAgent)}
+	if agent := p.Env[markerAgent]; agent != "" && len(agent) <= maxMarkerLen {
+		parts := strings.SplitN(agent, "_", 3)
+		session.AgentName = &parts[0]
+		if len(parts) > 1 && parts[1] != "" {
+			session.AgentVersion = new(strings.ReplaceAll(parts[1], "-", "."))
+		}
+	}
+	return session
 }
 
 type execPayload struct {
@@ -400,6 +445,7 @@ func (b *Builder) handleExec(ctx context.Context, w processStore, evt api.Event)
 			PIDVersion:  p.PIDVersion,
 			ExecEventID: &execEventID,
 			Lineage:     p.lineage(),
+			Agent:       p.sessionOr(current.AgentSession),
 		})
 	}
 	return b.insertReExec(ctx, w, evt, p, current)
@@ -415,13 +461,14 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 	lineage := p.lineage()
 	// With no fork seen, the creator is known only when the parent the exec reports is still it. A reparented process names launchd
 	// there, and its creator's generation is not on the exec, so the link stays unset rather than guessed from a pid.
-	var parentID *int64
+	var creator *api.Process
 	if !lineage.Reparented {
 		var err error
-		if parentID, err = resolveCreator(ctx, w, evt, p.PPID, p.ParentPIDVersion); err != nil {
+		if creator, err = resolveCreator(ctx, w, evt, p.PPID, p.ParentPIDVersion); err != nil {
 			return err
 		}
 	}
+	parentID, inherited := creatorLink(creator)
 	forkIngested := evt.IngestedAtNs
 	sourceEventID := evt.EventID
 	row := api.Process{
@@ -440,6 +487,7 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 		ParentProcessID:  parentID,
 		ParentPIDVersion: p.ParentPIDVersion,
 		ExecLineage:      lineage,
+		AgentSession:     p.sessionOr(inherited),
 		ForkTimeNs:       evt.TimestampNs,
 		ForkIngestedAtNs: &forkIngested,
 		ExecTimeNs:       &evt.TimestampNs,
@@ -516,6 +564,8 @@ func (b *Builder) insertReExec(ctx context.Context, w processStore, evt api.Even
 		ParentProcessID:  prior.ParentProcessID,
 		ParentPIDVersion: prior.ParentPIDVersion,
 		ExecLineage:      p.lineage(),
+		// An exec keeps the process's environment unless it was given a new one, so the session carries over the same way.
+		AgentSession:     p.sessionOr(prior.AgentSession),
 		ForkTimeNs:       prior.ForkTimeNs, // chain preserves the original fork time
 		ForkIngestedAtNs: prior.ForkIngestedAtNs,
 		ExecTimeNs:       &evt.TimestampNs,

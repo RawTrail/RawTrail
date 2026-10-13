@@ -55,6 +55,7 @@ type normRow struct {
 	LastSeenNs       *int64
 	ParentPIDVersion *uint32
 	api.ExecLineage
+	api.AgentSession
 	PrevRank   int // canonical rank of the previous_exec row, or -1
 	ParentRank int // canonical rank of the parent_process_id row, or -1
 }
@@ -70,7 +71,7 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
 		       is_snapshot, last_seen_ns, parent_process_id, parent_pidversion, original_ppid, responsible_pid, responsible_pidversion, session_id,
-		       group_id, tty, start_time_ns, cwd, reparented
+		       group_id, tty, start_time_ns, cwd, reparented, agent_session_id, agent_name, agent_version
 		FROM processes WHERE host_id = ?`, hostID))
 
 	sorted := slices.Clone(rows)
@@ -102,7 +103,7 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 			ExecTimeNs: r.ExecTimeNs, ExitTimeNs: r.ExitTimeNs, ExitIngestedAtNs: r.ExitIngestedAtNs,
 			ExitReason: r.ExitReason, ExitCode: r.ExitCode,
 			IsSnapshot: r.IsSnapshot, LastSeenNs: r.LastSeenNs,
-			ParentPIDVersion: r.ParentPIDVersion, ExecLineage: r.ExecLineage,
+			ParentPIDVersion: r.ParentPIDVersion, ExecLineage: r.ExecLineage, AgentSession: r.AgentSession,
 			PrevRank: rankOf(r.PreviousExecID), ParentRank: rankOf(r.ParentProcessID),
 		}
 	}
@@ -293,7 +294,12 @@ func genEventSequence(rt *rapid.T) []api.Event {
 		case "exec":
 			pid, ppid := rapid.SampledFrom(pids).Draw(rt, "ep"+is), rapid.SampledFrom(parents).Draw(rt, "epp"+is)
 			parentVer := named(ppid, "eppv"+is)
-			events = append(events, lineageExecEvt(ts, pid, ppid, "/bin/img"+is, next(pid), parentVer, false))
+			e := lineageExecEvt(ts, pid, ppid, "/bin/img"+is, next(pid), parentVer, false)
+			// Some execs start an agent session, so inheritance across forks, execs and re-execs is compared too (issue #1281).
+			if session := rapid.SampledFrom([]string{"", "", "s-a", "s-b"}).Draw(rt, "es"+is); session != "" {
+				e = withEnv(e, map[string]string{"CLAUDE_CODE_SESSION_ID": session, "AI_AGENT": "claude-code_2-1-296_agent"})
+			}
+			events = append(events, e)
 		case "exit":
 			pid := rapid.SampledFrom(pids).Draw(rt, "xp"+is)
 			events = append(events, exitEvtVer(ts, pid, rapid.IntRange(0, 9).Draw(rt, "xc"+is), named(pid, "xv"+is)))
@@ -328,6 +334,21 @@ func lineageExecEvt(ts int64, pid, ppid int, path string, ver, parentVer *uint32
 func exitEvtVer(ts int64, pid, code int, ver *uint32) api.Event {
 	return api.Event{EventID: "q" + strconv.FormatInt(ts, 10), HostID: "x", TimestampNs: ts, IngestedAtNs: ts + 1, EventType: "exit",
 		Payload: json.RawMessage(fmt.Sprintf(`{"pid":%d,"exit_code":%d%s}`, pid, code, verField(ver)))}
+}
+
+// withEnv returns e with env added to its payload, as the extension forwards an exec's allowlisted environment.
+func withEnv(e api.Event, env map[string]string) api.Event {
+	var payload map[string]any
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		panic(err)
+	}
+	payload["env"] = env
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		panic(err)
+	}
+	e.Payload = raw
+	return e
 }
 
 func namedVerField(key string, ver *uint32) string {

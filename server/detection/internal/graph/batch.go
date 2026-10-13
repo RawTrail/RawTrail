@@ -15,7 +15,7 @@ import (
 type processStore interface {
 	GetProcessByPID(ctx context.Context, hostID string, pid int, atTimeNs int64) (*api.Process, error)
 	GetParentImage(ctx context.Context, hostID string, pid int, atTimeNs int64) (mysql.ParentImage, error)
-	ResolveParent(ctx context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*int64, error)
+	ResolveParent(ctx context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*api.Process, error)
 	EventAlreadyApplied(ctx context.Context, hostID string, pid int, eventID string) (bool, error)
 	InsertProcess(ctx context.Context, p api.Process) (int64, error)
 	UpdateProcessExec(ctx context.Context, u mysql.ProcessExecUpdate) error
@@ -181,10 +181,10 @@ func (s *batchSession) imageInForce(hostID string, pid int, atTimeNs int64) *pro
 	return best
 }
 
-// ResolveParent returns the id of the row for the process that created a child, given the creator's pid and kernel generation as the
-// child's fork reported them and the child's fork time atNs, or nil when no row can be named (issue #1280). The id is provisional
-// (negative) for a row created in this batch; plan turns that into the row's ParentNewIndex. Every fold runs through this overlay,
-// so the store has no SQL twin of it.
+// ResolveParent returns a copy of the row for the process that created a child, given the creator's pid and kernel generation as the
+// child's fork reported them and the child's fork time atNs, or nil when no row can be named (issue #1280). The child links to its
+// ID and inherits its agent session (issue #1281). The ID is provisional (negative) for a row created in this batch; plan turns that
+// into the row's ParentNewIndex. Every fold runs through this overlay, so the store has no SQL twin of it.
 //
 // The exact (pid, pidversion) row wins. pidversion only increases within one boot and restarts at zero on the next one, so the match
 // is bounded to rows that had forked by atNs and were still alive then (aliveAt), and never trusted across time on the generation
@@ -195,7 +195,7 @@ func (s *batchSession) imageInForce(hostID string, pid int, atTimeNs int64) *pro
 // before that exec names a generation no row holds any more, and a dropped exec leaves the row one generation behind. Both fall back
 // to the image in force at atNs, the row GetParentImage reads, admitted by fallbackParentAdmits. A row from an agent that sent no
 // pidversion is admitted too, which is how a child links to a parent recorded by an older agent.
-func (s *batchSession) ResolveParent(_ context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*int64, error) {
+func (s *batchSession) ResolveParent(_ context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*api.Process, error) {
 	var exact *procRow
 	for _, r := range s.byKey[mysql.HostPID{HostID: hostID, PID: pid}] {
 		if r.proc.PIDVersion == nil || *r.proc.PIDVersion != pidversion || r.proc.ForkTimeNs > atNs || !aliveAt(r.proc, atNs) {
@@ -206,15 +206,15 @@ func (s *batchSession) ResolveParent(_ context.Context, hostID string, pid int, 
 		}
 	}
 	if exact != nil {
-		id := exact.proc.ID
-		return &id, nil
+		creator := exact.proc
+		return &creator, nil
 	}
 	r := s.imageInForce(hostID, pid, atNs)
 	if r == nil || !aliveAt(r.proc, atNs) || !fallbackParentAdmits(r.proc, pidversion, atNs) {
 		return nil, nil
 	}
-	id := r.proc.ID
-	return &id, nil
+	creator := r.proc
+	return &creator, nil
 }
 
 // aliveAt reports whether row's process can have been running at atNs, as a creator at its child's fork must be: it has not exited,
@@ -411,6 +411,7 @@ func (s *batchSession) UpdateProcessExec(_ context.Context, u mysql.ProcessExecU
 	}
 	r.proc.ExecEventID = u.ExecEventID
 	r.proc.ExecLineage = u.Lineage
+	r.proc.AgentSession = u.Agent
 	markDirty(r)
 	return nil
 }
@@ -583,6 +584,7 @@ func rowUpdate(p api.Process) mysql.ProcessRowUpdate {
 		ExitEventID:      p.ExitEventID,
 		LastSeenNs:       p.LastSeenNs,
 		Lineage:          p.ExecLineage,
+		Agent:            p.AgentSession,
 	}
 }
 

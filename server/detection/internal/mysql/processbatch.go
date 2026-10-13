@@ -21,18 +21,18 @@ const processBatchSelectColumns = processReadColumns + `, source_event_id, exec_
 const processReadColumns = `id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 	fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 	exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-	is_snapshot, last_seen_ns, ` + processLineageColumns
+	is_snapshot, last_seen_ns, ` + processLineageColumns + `, ` + agentSessionColumns
 
 // loadKeyChunk caps the (host_id, pid) pairs folded into one preload statement. The row-constructor IN list binds two
 // placeholders per key, so 1000 keys stay well under MySQL's placeholder ceiling while collapsing the per-event SELECTs into a
 // handful of statements.
 const loadKeyChunk = 1000
 
-// processUpdateChunk caps the rows folded into one set-based UPDATE. Each row binds an id and a value for each of the 25 CASE
-// columns plus one IN-list id (51 placeholders), so a few hundred per chunk keeps the statement well bounded.
+// processUpdateChunk caps the rows folded into one set-based UPDATE. Each row binds an id and a value for each of the 28 CASE
+// columns plus one IN-list id (57 placeholders), so a few hundred per chunk keeps the statement well bounded.
 const processUpdateChunk = 200
 
-// insertRowChunk caps the rows folded into one multi-row INSERT. Each row binds 34 placeholders, so this keeps the statement under
+// insertRowChunk caps the rows folded into one multi-row INSERT. Each row binds 37 placeholders, so this keeps the statement under
 // MySQL's ~65k placeholder ceiling even if the configured processing batch grows well beyond today's default; the preload and
 // update paths are chunked for the same reason.
 const insertRowChunk = 1000
@@ -126,6 +126,8 @@ type ProcessRowUpdate struct {
 	LastSeenNs       *int64
 	// Lineage is the exec-reported lineage (issue #1280), which a first exec after fork writes onto the fork's row.
 	Lineage api.ExecLineage
+	// Agent is the agent session (issue #1281), which an exec's markers replace.
+	Agent api.AgentSession
 }
 
 // ProcessBatchPlan is the set of writes the graph builder's in-memory fold produced for one batch: new rows to insert (in creation
@@ -418,7 +420,7 @@ var mutableUpdateColumns = []string{
 	"exec_time_ns", "pidversion", "exec_event_id", "exit_time_ns", "exit_ingested_at_ns", "exit_reason", "exit_code",
 	"exit_event_id", "last_seen_ns",
 	"original_ppid", "responsible_pid", "responsible_pidversion", "session_id", "group_id", "tty", "start_time_ns", "cwd",
-	"reparented",
+	"reparented", "agent_session_id", "agent_name", "agent_version",
 }
 
 func updateRowsChunk(ctx context.Context, ext sqlx.ExtContext, updates []ProcessRowUpdate) error {
@@ -510,6 +512,12 @@ func updateColumnValue(col string, u ProcessRowUpdate) any {
 		return u.Lineage.CWD
 	case "reparented":
 		return u.Lineage.Reparented
+	case "agent_session_id":
+		return u.Agent.AgentSessionID
+	case "agent_name":
+		return u.Agent.AgentName
+	case "agent_version":
+		return u.Agent.AgentVersion
 	default:
 		panic("mysql: unknown mutable update column " + col) // unreachable: driven by mutableUpdateColumns
 	}
