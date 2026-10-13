@@ -276,6 +276,32 @@ describe("HostTimeline alert-chain scope", () => {
     expect(screen.queryByText(scopedMessage)).not.toBeInTheDocument();
   });
 
+  // The race the identity check alone would lose: the previous window's request lands AFTER the current window's report, and must not
+  // overwrite it.
+  it("keeps the current list's report when a replaced request lands late", async () => {
+    let settleFirst: (value: Awaited<ReturnType<typeof api.getHostTimeline>>) => void = () => {};
+    const spy = vi.spyOn(api, "getHostTimeline");
+    spy.mockReturnValueOnce(new Promise((resolve) => { settleFirst = resolve; }));
+    spy.mockResolvedValueOnce({ events: [], total_matched: 0, scope: { applied: true, processes: 5, unmatched: 2, truncated: false } });
+    const view = render(
+      <MemoryRouter initialEntries={["/hosts/H1"]}>
+        <HostTimeline hostId="H1" bounds={BOUNDS} chainPin={42} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => { expect(spy).toHaveBeenCalledTimes(1); });
+    view.rerender(
+      <MemoryRouter initialEntries={["/hosts/H1"]}>
+        <HostTimeline hostId="H1" bounds={{ fromNs: 2_000, toNs: 9_000 }} chainPin={42} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(partialScopeMessage)).toBeVisible();
+
+    settleFirst({ events: [], total_matched: 0, scope: { applied: true, processes: 4, unmatched: 0, truncated: false } });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getByText(partialScopeMessage)).toBeVisible();
+    expect(screen.queryByText(scopedMessage)).not.toBeInTheDocument();
+  });
+
   it("says nothing on a plain host view, where the full stream is what was asked for", async () => {
     renderScoped(undefined, {});
     await screen.findByText("sh (42)");

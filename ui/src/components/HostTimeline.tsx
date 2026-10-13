@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import "./HostTimeline.scss";
 import { getHostTimeline, eventArtifactParam, listAlerts, getAlertDetail } from "../api";
@@ -83,6 +83,10 @@ export function HostTimeline(
   // The server's report on the chain scope, from the page it last loaded. Kept with the filter key it describes, so a report for the
   // previous scope or window never labels the list loaded for this one.
   const [scopeReport, setScopeReport] = useState<{ key: string; scope: TimelineScope } | null>(null);
+  // The filter key of the list on screen, read when a page lands so a slower request for a key since replaced cannot overwrite the
+  // report of the list that replaced it.
+  const activeKey = useRef(filterKey);
+  useEffect(() => { activeKey.current = filterKey; }, [filterKey]);
   const scopeNote = chainPin !== undefined && scopeReport?.key === filterKey ? chainScopeNote(scopeReport.scope) : null;
 
   // The text box is driven by local state, not the URL, so fast typing is never reset by a re-render; the draft is debounced into the
@@ -113,7 +117,7 @@ export function HostTimeline(
         { from: String(bounds.fromNs), to: String(bounds.toNs), types: activeTypes, text: text || undefined, chainPin },
         cursor || undefined,
       );
-      if (res.scope) setScopeReport({ key: filterKey, scope: res.scope });
+      if (res.scope && activeKey.current === filterKey) setScopeReport({ key: filterKey, scope: res.scope });
       return { rows: res.events, nextCursor: res.next_cursor, total: res.total_matched };
     },
     [filterKey], // eslint-disable-line react-hooks/exhaustive-deps -- inputs are captured; filterKey is their stable identity

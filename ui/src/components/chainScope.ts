@@ -32,7 +32,8 @@ export const degradedScopeMessages: readonly string[] = [
 ];
 
 // chainScopeNote turns the server's report into the sentence the timeline shows and whether it is a warning. A truncated scope is
-// reported ahead of unmatched processes: it can hide far more events, and it holds whatever the generations.
+// reported ahead of unmatched processes: it can hide far more events, since every process past the cap is left out whether or not it
+// carries a generation.
 export function chainScopeNote(scope: TimelineScope): { message: string; degraded: boolean } {
   if (!scope.applied) {
     return { message: scope.processes === 0 ? notStoredMessage : noGenerationsMessage, degraded: true };
