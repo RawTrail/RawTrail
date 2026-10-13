@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -268,7 +269,11 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 	if err != nil {
 		return err
 	}
-	parentID, session := creatorLink(creator)
+	inherited := inheritFrom(creator)
+	storyRoot := inherited.storyRoot
+	if p.ParentPID == launchdPID {
+		storyRoot = new(storyRootSelf)
+	}
 
 	forkIngested := evt.IngestedAtNs
 	sourceEventID := evt.EventID
@@ -281,10 +286,13 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 		SHA256:           parentImage.SHA256,
 		CDHash:           parentImage.CDHash,
 		PIDVersion:       p.PIDVersion,
-		ParentProcessID:  parentID,
+		ParentProcessID:  inherited.parentID,
 		ParentPIDVersion: p.ParentPIDVersion,
-		// A forked child runs with its creator's environment, so it belongs to the creator's agent session (issue #1281).
-		AgentSession:     session,
+		// A forked child runs with its creator's environment and in its tool call, so it belongs to the creator's agent session
+		// (issue #1281), and to its story unless launchd started it.
+		AgentSession:     inherited.session,
+		StoryRootID:      storyRoot,
+		ToolCallGroup:    inherited.toolCall,
 		ForkTimeNs:       evt.TimestampNs,
 		ForkIngestedAtNs: &forkIngested,
 		SourceEventID:    &sourceEventID,
@@ -301,19 +309,47 @@ func resolveCreator(ctx context.Context, w processStore, evt api.Event, pid int,
 	return w.ResolveParent(ctx, evt.HostID, pid, *pidversion, evt.TimestampNs)
 }
 
-// creatorLink returns the creator's row id and the agent session a row it created inherits, both unset without a creator.
-func creatorLink(creator *api.Process) (*int64, api.AgentSession) {
+// launchdPID is launchd's pid. A process whose fork-time parent it is starts a story (issue #1281).
+const launchdPID = 1
+
+// inheritance is what a new row takes from the row of its creator: the link to it (issue #1280), and its agent session, story root
+// and tool call (issue #1281). All unset without a creator.
+type inheritance struct {
+	parentID  *int64
+	session   api.AgentSession
+	storyRoot *int64
+	toolCall  *int
+}
+
+func inheritFrom(creator *api.Process) inheritance {
 	if creator == nil {
-		return nil, api.AgentSession{}
+		return inheritance{}
 	}
 	id := creator.ID
-	return &id, creator.AgentSession
+	return inheritance{parentID: &id, session: creator.AgentSession, storyRoot: creator.StoryRootID, toolCall: creator.ToolCallGroup}
+}
+
+// toolCallOr returns inherited when the row already has a tool call. Otherwise it returns the exec's own process group when the
+// exec is the agent's direct child, created by the process its CLAUDE_PID marker names, which is how a tool call starts (issue
+// #1281). Claude Code leads each tool call's process group, and the group survives daemonizing, so the key holds for everything the
+// call starts; inheriting it rather than reading each row's own group keeps it through setsid as well, including a re-exec of the
+// tool call's own shell after it changed groups.
+func (p execPayload) toolCallOr(creatorPID int, inherited *int) *int {
+	if inherited != nil {
+		return inherited
+	}
+	if agentPID, err := strconv.Atoi(p.Env[markerAgentPID]); err == nil && agentPID == creatorPID && p.GroupID != nil {
+		return p.GroupID
+	}
+	return inherited
 }
 
 // The agent session markers the extension forwards from an exec's environment (issue #1278).
 const (
 	// markerSessionID is Claude Code's session identifier, present on the processes it runs for a session.
 	markerSessionID = "CLAUDE_CODE_SESSION_ID"
+	// markerAgentPID is the pid of the agent process itself, on the processes it runs.
+	markerAgentPID = "CLAUDE_PID"
 	// markerAgent is the agent's self-description, name_version_role with dashes for dots: claude-code_2-1-296_agent.
 	markerAgent = "AI_AGENT"
 	// maxMarkerLen is the longest marker value a row stores, the extension's own cap and the columns' width. A longer value from
@@ -446,6 +482,8 @@ func (b *Builder) handleExec(ctx context.Context, w processStore, evt api.Event)
 			ExecEventID: &execEventID,
 			Lineage:     p.lineage(),
 			Agent:       p.sessionOr(current.AgentSession),
+			// The row's creator is the ppid its fork recorded.
+			ToolCallGroup: p.toolCallOr(current.PPID, current.ToolCallGroup),
 		})
 	}
 	return b.insertReExec(ctx, w, evt, p, current)
@@ -468,7 +506,13 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 			return err
 		}
 	}
-	parentID, inherited := creatorLink(creator)
+	inherited := inheritFrom(creator)
+	storyRoot := inherited.storyRoot
+	// Launchd started it only when the exec says so: a startup snapshot reports no original_ppid, and a daemon launchd merely
+	// adopted would otherwise be taken for the start of a story.
+	if lineage.OriginalPPID != nil && *lineage.OriginalPPID == launchdPID {
+		storyRoot = new(storyRootSelf)
+	}
 	forkIngested := evt.IngestedAtNs
 	sourceEventID := evt.EventID
 	row := api.Process{
@@ -484,10 +528,12 @@ func (b *Builder) insertExecWithoutFork(ctx context.Context, w processStore, evt
 		CDHash:      p.CDHash,
 		PIDVersion:  p.PIDVersion,
 		// With no fork seen, the parent this row can name is the one the exec reports, so ppid and its generation stay a pair.
-		ParentProcessID:  parentID,
+		ParentProcessID:  inherited.parentID,
 		ParentPIDVersion: p.ParentPIDVersion,
 		ExecLineage:      lineage,
-		AgentSession:     p.sessionOr(inherited),
+		AgentSession:     p.sessionOr(inherited.session),
+		StoryRootID:      storyRoot,
+		ToolCallGroup:    p.toolCallOr(p.PPID, inherited.toolCall),
 		ForkTimeNs:       evt.TimestampNs,
 		ForkIngestedAtNs: &forkIngested,
 		ExecTimeNs:       &evt.TimestampNs,
@@ -566,6 +612,8 @@ func (b *Builder) insertReExec(ctx context.Context, w processStore, evt api.Even
 		ExecLineage:      p.lineage(),
 		// An exec keeps the process's environment unless it was given a new one, so the session carries over the same way.
 		AgentSession:     p.sessionOr(prior.AgentSession),
+		StoryRootID:      prior.StoryRootID,
+		ToolCallGroup:    p.toolCallOr(prior.PPID, prior.ToolCallGroup),
 		ForkTimeNs:       prior.ForkTimeNs, // chain preserves the original fork time
 		ForkIngestedAtNs: prior.ForkIngestedAtNs,
 		ExecTimeNs:       &evt.TimestampNs,

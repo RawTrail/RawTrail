@@ -37,20 +37,22 @@ const (
 		reparented`
 	// agentSessionColumns are api.AgentSession's columns (migration 00019, issue #1281), in its field order.
 	agentSessionColumns = `agent_session_id, agent_name, agent_version`
+	// groupingColumns are the story and tool-call keys (migration 00019, issue #1281).
+	groupingColumns = `story_root_id, tool_call_group`
 )
 
-// insertProcessColumns and insertProcessPlaceholders pin the 37-column process INSERT shape in one place, shared by the per-event
+// insertProcessColumns and insertProcessPlaceholders pin the 39-column process INSERT shape in one place, shared by the per-event
 // InsertProcess, the re-exec INSERT, the batched multi-row INSERT, and the per-row poison fallback (processbatch.go), so the column
 // list and arg order can never drift between the per-event and set-based write paths.
 const insertProcessColumns = `INSERT INTO processes
 		(host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
 		 fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 		 exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		 is_snapshot, last_seen_ns, source_event_id, exec_event_id, ` + processLineageColumns + `, ` + agentSessionColumns + `)`
+		 is_snapshot, last_seen_ns, source_event_id, exec_event_id, ` + processLineageColumns + `, ` + agentSessionColumns + `, ` + groupingColumns + `)`
 
-const insertProcessPlaceholders = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertProcessPlaceholders = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-// appendInsertProcessArgs appends the 37 INSERT bind values for p in insertProcessColumns order.
+// appendInsertProcessArgs appends the 39 INSERT bind values for p in insertProcessColumns order.
 func appendInsertProcessArgs(args []any, p api.Process) []any {
 	args = append(args,
 		p.HostID, p.PID, p.PPID, p.Path, p.Args, p.UID, p.GID,
@@ -58,7 +60,7 @@ func appendInsertProcessArgs(args []any, p api.Process) []any {
 		p.ExitIngestedAtNs, p.ExitReason, p.ExitCode, p.PreviousExecID,
 		p.IsSnapshot, p.LastSeenNs, p.SourceEventID, p.ExecEventID, p.ParentProcessID, p.ParentPIDVersion,
 	)
-	return appendAgentSessionArgs(appendExecLineageArgs(args, p.ExecLineage), p.AgentSession)
+	return append(appendAgentSessionArgs(appendExecLineageArgs(args, p.ExecLineage), p.AgentSession), p.StoryRootID, p.ToolCallGroup)
 }
 
 // appendAgentSessionArgs appends the bind values for a in agentSessionColumns order.
@@ -217,6 +219,9 @@ type ProcessExecUpdate struct {
 	// Agent is the agent session the row carries after this exec (issue #1281): the exec's own markers, or else what the row
 	// already inherited. The builder resolves which, so the UPDATE writes it outright.
 	Agent api.AgentSession
+	// ToolCallGroup is the tool-call key the row carries after this exec: its own process group when the exec is the agent's direct
+	// child, or else what the row inherited (issue #1281).
+	ToolCallGroup *int
 }
 
 // UpdateProcessExec updates an existing process record with exec-time
@@ -227,11 +232,11 @@ func (s *Store) UpdateProcessExec(ctx context.Context, u ProcessExecUpdate) erro
 		                    pidversion = COALESCE(?, pidversion), exec_event_id = ?,
 		                    original_ppid = ?, responsible_pid = ?, responsible_pidversion = ?, session_id = ?, group_id = ?,
 		                    tty = ?, start_time_ns = ?, cwd = ?, reparented = ?,
-		                    agent_session_id = ?, agent_name = ?, agent_version = ?
+		                    agent_session_id = ?, agent_name = ?, agent_version = ?, tool_call_group = ?
 		WHERE host_id = ? AND pid = ? AND exit_time_ns IS NULL
 		ORDER BY fork_time_ns DESC, id DESC LIMIT 1`,
 		append(appendAgentSessionArgs(appendExecLineageArgs([]any{u.Path, u.Args, u.UID, u.GID, u.CodeSigning, u.SHA256, u.CDHash,
-			u.ExecTimeNs, u.PIDVersion, u.ExecEventID}, u.Lineage), u.Agent), u.HostID, u.PID)...,
+			u.ExecTimeNs, u.PIDVersion, u.ExecEventID}, u.Lineage), u.Agent), u.ToolCallGroup, u.HostID, u.PID)...,
 	)
 	return err
 }
@@ -416,30 +421,18 @@ func (s *Store) GetExecChain(ctx context.Context, current api.Process) ([]api.Pr
 	}
 	var chain []api.Process
 	err := s.db.SelectContext(ctx, &chain, `
-		WITH RECURSIVE chain AS (
-			SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-			       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-			       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-			       is_snapshot, last_seen_ns,
-			       0 AS depth
+		WITH RECURSIVE chain (chain_id, chain_host_id, chain_previous_exec_id, depth) AS (
+			SELECT id, host_id, previous_exec_id, 0
 			FROM processes
 			WHERE id = ? AND host_id = ?
 			UNION ALL
-			SELECT p.id, p.host_id, p.pid, p.ppid, p.path, p.args, p.uid, p.gid,
-			       p.code_signing, p.sha256, p.cdhash, p.pidversion, p.fork_time_ns, p.fork_ingested_at_ns,
-			       p.exec_time_ns, p.exit_time_ns, p.exit_ingested_at_ns,
-			       p.exit_reason, p.exit_code, p.previous_exec_id,
-			       p.is_snapshot, p.last_seen_ns,
-			       c.depth + 1
+			SELECT p.id, p.host_id, p.previous_exec_id, c.depth + 1
 			FROM processes p
-			JOIN chain c ON p.id = c.previous_exec_id AND p.host_id = c.host_id
+			JOIN chain c ON p.id = c.chain_previous_exec_id AND p.host_id = c.chain_host_id
 			WHERE c.depth < ?
 		)
-		SELECT id, host_id, pid, ppid, path, args, uid, gid, code_signing, sha256, cdhash, pidversion,
-		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
-		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
-		       is_snapshot, last_seen_ns
-		FROM chain
+		SELECT `+processReadColumns+`
+		FROM chain JOIN processes ON processes.id = chain.chain_id
 		ORDER BY depth DESC`,
 		*current.PreviousExecID, current.HostID, maxChainLen-1,
 	)

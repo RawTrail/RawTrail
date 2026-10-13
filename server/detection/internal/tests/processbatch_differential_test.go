@@ -56,8 +56,10 @@ type normRow struct {
 	ParentPIDVersion *uint32
 	api.ExecLineage
 	api.AgentSession
-	PrevRank   int // canonical rank of the previous_exec row, or -1
-	ParentRank int // canonical rank of the parent_process_id row, or -1
+	ToolCallGroup *int
+	PrevRank      int // canonical rank of the previous_exec row, or -1
+	ParentRank    int // canonical rank of the parent_process_id row, or -1
+	StoryRootRank int // canonical rank of the story_root_id row, or -1
 }
 
 // dumpNormalizedForest reads every process row for hostID and returns it in a canonical, id-independent order. Rows are sorted by a
@@ -71,7 +73,8 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 		       fork_time_ns, fork_ingested_at_ns, exec_time_ns, exit_time_ns,
 		       exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
 		       is_snapshot, last_seen_ns, parent_process_id, parent_pidversion, original_ppid, responsible_pid, responsible_pidversion, session_id,
-		       group_id, tty, start_time_ns, cwd, reparented, agent_session_id, agent_name, agent_version
+		       group_id, tty, start_time_ns, cwd, reparented, agent_session_id, agent_name, agent_version,
+		       story_root_id, tool_call_group
 		FROM processes WHERE host_id = ?`, hostID))
 
 	sorted := slices.Clone(rows)
@@ -104,7 +107,8 @@ func dumpNormalizedForest(t *testing.T, db *sqlx.DB, ctx context.Context, hostID
 			ExitReason: r.ExitReason, ExitCode: r.ExitCode,
 			IsSnapshot: r.IsSnapshot, LastSeenNs: r.LastSeenNs,
 			ParentPIDVersion: r.ParentPIDVersion, ExecLineage: r.ExecLineage, AgentSession: r.AgentSession,
-			PrevRank: rankOf(r.PreviousExecID), ParentRank: rankOf(r.ParentProcessID),
+			ToolCallGroup: r.ToolCallGroup,
+			PrevRank:      rankOf(r.PreviousExecID), ParentRank: rankOf(r.ParentProcessID), StoryRootRank: rankOf(r.StoryRootID),
 		}
 	}
 	return out
@@ -297,7 +301,10 @@ func genEventSequence(rt *rapid.T) []api.Event {
 			e := lineageExecEvt(ts, pid, ppid, "/bin/img"+is, next(pid), parentVer, false)
 			// Some execs start an agent session, so inheritance across forks, execs and re-execs is compared too (issue #1281).
 			if session := rapid.SampledFrom([]string{"", "", "s-a", "s-b"}).Draw(rt, "es"+is); session != "" {
-				e = withEnv(e, map[string]string{"CLAUDE_CODE_SESSION_ID": session, "AI_AGENT": "claude-code_2-1-296_agent"})
+				// The marked exec sometimes names its creator as the agent, which starts a tool call keyed by its group.
+				e = withEnv(e, map[string]string{"CLAUDE_CODE_SESSION_ID": session, "AI_AGENT": "claude-code_2-1-296_agent",
+					"CLAUDE_PID": strconv.Itoa(rapid.SampledFrom(parents).Draw(rt, "agent"+is))})
+				e = withField(e, "group_id", pid)
 			}
 			events = append(events, e)
 		case "exit":
@@ -305,7 +312,15 @@ func genEventSequence(rt *rapid.T) []api.Event {
 			events = append(events, exitEvtVer(ts, pid, rapid.IntRange(0, 9).Draw(rt, "xc"+is), named(pid, "xv"+is)))
 		case "snap_exec":
 			pid := rapid.SampledFrom(pids).Draw(rt, "sp"+is)
-			events = append(events, lineageExecEvt(ts, pid, 1, "/App/snap"+is, named(pid, "sv"+is), named(1, "spv"+is), true))
+			// A snapshot reports the generation now running, which the kernel never lowers: the current one, or a fresh one for a
+			// process this sequence has not seen.
+			var snapVer *uint32
+			if v, ok := current[pid]; ok && rapid.Bool().Draw(rt, "sc"+is) {
+				snapVer = &v
+			} else {
+				snapVer = next(pid)
+			}
+			events = append(events, lineageExecEvt(ts, pid, 1, "/App/snap"+is, snapVer, named(1, "spv"+is), true))
 		case "heartbeat":
 			events = append(events, heartbeatEvt(ts, rapid.SampledFrom(pids).Draw(rt, "hp"+is)))
 		}
@@ -343,6 +358,21 @@ func withEnv(e api.Event, env map[string]string) api.Event {
 		panic(err)
 	}
 	payload["env"] = env
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		panic(err)
+	}
+	e.Payload = raw
+	return e
+}
+
+// withField returns e with one more payload field.
+func withField(e api.Event, key string, value any) api.Event {
+	var payload map[string]any
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		panic(err)
+	}
+	payload[key] = value
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		panic(err)

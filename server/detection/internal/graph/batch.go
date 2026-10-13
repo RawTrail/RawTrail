@@ -360,12 +360,19 @@ func exitMatchGroup(r *procRow, pidversion *uint32) int {
 	}
 }
 
+// storyRootSelf is the StoryRootID a handler gives a new row that is its own story root, whose id is not known until it is inserted.
+// No row has id 0. insertRow replaces it with the row's provisional id, which plan resolves like any same-batch link.
+const storyRootSelf int64 = 0
+
 // insertRow appends a new row to the overlay with a provisional id and the auto-increment-mirroring sequence, indexing it for reads.
 // prevNewIdx links a same-batch re-exec child to its predecessor's eventual id; -1 when there is none.
 func (s *batchSession) insertRow(p api.Process, prevNewIdx int) int64 {
 	id := s.nextProv
 	s.nextProv--
 	p.ID = id
+	if p.StoryRootID != nil && *p.StoryRootID == storyRootSelf {
+		p.StoryRootID = &id
+	}
 	creIdx := len(s.newRows)
 	r := &procRow{proc: p, loaded: false, seq: s.seqBase + int64(creIdx) + 1, creIdx: creIdx, prevNew: prevNewIdx}
 	s.rows = append(s.rows, r)
@@ -412,6 +419,7 @@ func (s *batchSession) UpdateProcessExec(_ context.Context, u mysql.ProcessExecU
 	r.proc.ExecEventID = u.ExecEventID
 	r.proc.ExecLineage = u.Lineage
 	r.proc.AgentSession = u.Agent
+	r.proc.ToolCallGroup = u.ToolCallGroup
 	markDirty(r)
 	return nil
 }
@@ -546,11 +554,15 @@ func (s *batchSession) BackfillSnapshotSigning(_ context.Context, hostID string,
 func (s *batchSession) plan() mysql.ProcessBatchPlan {
 	var p mysql.ProcessBatchPlan
 	for _, r := range s.newRows {
-		row := mysql.NewProcessRow{Proc: r.proc, PrevNewIndex: r.prevNew, ParentNewIndex: -1}
-		// A creator created in this batch has only a provisional id, which the flush resolves once the creator is inserted.
+		row := mysql.NewProcessRow{Proc: r.proc, PrevNewIndex: r.prevNew, ParentNewIndex: -1, StoryRootNewIndex: -1}
+		// A creator or story root created in this batch has only a provisional id, which the flush resolves once it is inserted.
 		if id := r.proc.ParentProcessID; id != nil && *id < 0 {
 			row.ParentNewIndex = provisionalIndex(*id)
 			row.Proc.ParentProcessID = nil
+		}
+		if id := r.proc.StoryRootID; id != nil && *id < 0 {
+			row.StoryRootNewIndex = provisionalIndex(*id)
+			row.Proc.StoryRootID = nil
 		}
 		p.NewRows = append(p.NewRows, row)
 	}
@@ -585,6 +597,7 @@ func rowUpdate(p api.Process) mysql.ProcessRowUpdate {
 		LastSeenNs:       p.LastSeenNs,
 		Lineage:          p.ExecLineage,
 		Agent:            p.AgentSession,
+		ToolCallGroup:    p.ToolCallGroup,
 	}
 }
 

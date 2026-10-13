@@ -122,6 +122,12 @@ type Process struct {
 	ParentPIDVersion *uint32 `db:"parent_pidversion" json:"parent_pidversion,omitempty"`
 	ExecLineage
 	AgentSession
+	// StoryRootID is the row of the nearest ancestor launchd started, the process itself when launchd started it (issue #1281), so a
+	// whole story is one indexed lookup. NULL when the chain up to such an ancestor was not seen.
+	StoryRootID *int64 `db:"story_root_id" json:"story_root_id,omitempty"`
+	// ToolCallGroup is the process group of the agent's direct child that started this process: the key of one agent tool call
+	// (issue #1281). Inherited from the creator, so it survives setsid, which replaces the process group itself.
+	ToolCallGroup *int `db:"tool_call_group" json:"tool_call_group,omitempty"`
 	// ExitEventID is the event_id of the observed exit event that closed this row. The exit close is an in-place UPDATE of the
 	// most-recent-live row, so a re-processed exit would otherwise close a newer generation of a reused pid; the builder reads this to
 	// recognize a re-applied exit and skip it (migration 00011). NULL for live rows and for synthetic closes (pid_reuse, TTL).
