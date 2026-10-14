@@ -121,10 +121,11 @@ export function SessionView() {
   const calls = useMemo(
     () => {
       if (!tree) return [];
-      const incomplete = tree.truncated || (current?.alertsFailed ?? false) || (current?.alertsTruncated ?? false);
+      const incomplete = tree.truncated || current === null || current.alertsFailed === true || current.alertsTruncated === true
+        || beganBeforeRetention(current);
       return buildToolCalls(tree.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete });
     },
-    [tree, verbose, alertsByProcess, current?.alertsFailed, current?.alertsTruncated],
+    [tree, verbose, alertsByProcess, current],
   );
   const summary = useMemo(() => summarizeSession(tree?.roots ?? []), [tree]);
   const hits = useMemo(() => searchCalls(calls, query), [calls, query]);
@@ -211,11 +212,17 @@ export function SessionView() {
 
 // SessionNotices says what the view is not showing: processes past the read's limit, processes retention removed, and alerts that
 // could not be read.
+// beganBeforeRetention reports a session first seen before the retention cutoff, so processes it ran that finished before then are
+// gone from the read.
+function beganBeforeRetention(read: SessionRead): boolean {
+  const retainedFrom = read.tree?.retained_from_ns;
+  return retainedFrom !== undefined && read.record !== undefined && read.record.first_seen_ns < retainedFrom;
+}
+
 function SessionNotices({ read }: { readonly read: SessionRead | null }) {
   const tree = read?.tree;
   if (!tree) return null;
   const retainedFrom = tree.retained_from_ns;
-  const beganBeforeRetention = retainedFrom !== undefined && read.record !== undefined && read.record.first_seen_ns < retainedFrom;
   return (
     <>
       {tree.truncated && (
@@ -224,7 +231,7 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
           {tree.total_matched.toLocaleString()} processes in this session.
         </p>
       )}
-      {beganBeforeRetention && (
+      {retainedFrom !== undefined && beganBeforeRetention(read) && (
         <p className="session-view__notice" role="status">
           This session began before {formatNs(retainedFrom)}, and processes that finished before then have been removed by retention.
         </p>
@@ -342,7 +349,7 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
           {span
             ? `${formatNs(span.firstNs)} to ${formatNs(span.lastNs)}`
             : `pid ${String(node.pid)} · ${formatNs(node.fork_time_ns)}`}
-          {!folded && node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
+          {node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
         </span>
         {uidChange && (
           <span title={`Runs as uid ${String(uidChange.to)}; its creator ran as uid ${String(uidChange.from)}`}>

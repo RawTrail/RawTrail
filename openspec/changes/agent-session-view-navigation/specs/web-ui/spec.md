@@ -10,6 +10,18 @@ The session view SHALL fold identical processes under one creator that started n
 - **WHEN** the operator opens the session's view
 - **THEN** one row lists `wc -l f` with "×3" and the span from its first to its last fork
 
+#### Scenario: Runs that ended differently are not folded together
+
+- **GIVEN** a tool call that ran `wc -l f` four times, one of which exited 1
+- **WHEN** the operator opens the session's view
+- **THEN** the three runs that exited 0 fold into one row that says so, and the failed run is its own row
+
+#### Scenario: Nothing is folded when the read is incomplete
+
+- **GIVEN** a session whose process read was truncated, whose alerts could not all be read, or that began before the retention cutoff
+- **WHEN** the operator opens the session's view
+- **THEN** identical processes are listed one per row
+
 #### Scenario: A long list shows more on request
 
 - **GIVEN** a tool call that ran 25 different commands

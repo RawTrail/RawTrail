@@ -172,3 +172,19 @@
 .session-view__alert .badge {
   text-transform: none;
 }
+
+// On a narrow screen the detail panel stacks under the session rather than pushing it off the side.
+@media (max-width: 960px) {
+  .session-view__layout {
+    flex-direction: column;
+  }
+
+  .session-view__main,
+  .session-view__detail {
+    width: 100%;
+  }
+
+  .session-view__detail {
+    position: static;
+  }
+}

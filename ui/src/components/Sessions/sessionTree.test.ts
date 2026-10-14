@@ -233,6 +233,14 @@ describe("folding", () => {
     expect(call.rows[1].children[0].folded?.map((n) => n.id)).toEqual([32, 33]);
   });
 
+  // spec:web-ui/ai-agent-session-view-navigation/runs-that-ended-differently-are-not-folded-together
+  it("keeps runs that ended differently apart, so a failure is not hidden behind a success", () => {
+    const [call] = buildToolCalls([loop(4, (i) => ({ exit_reason: "event", exit_code: i === 2 ? 1 : 0 }))], QUIET);
+    const wcs = call.rows.filter((r) => r.node.path === "/usr/bin/wc");
+    expect(wcs.map((r) => [r.node.exit_code, 1 + (r.folded?.length ?? 0)])).toEqual([[0, 3], [1, 1]]);
+  });
+
+  // spec:web-ui/ai-agent-session-view-navigation/nothing-is-folded-when-the-read-is-incomplete
   it("does not fold when the read left processes or alerts out", () => {
     const [call] = buildToolCalls([loop(5)], { verbose: false, incomplete: true });
     expect(call.rows.filter((r) => r.node.path === "/usr/bin/wc")).toHaveLength(5);

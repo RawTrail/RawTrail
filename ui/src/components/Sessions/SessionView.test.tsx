@@ -327,6 +327,17 @@ describe("SessionView", () => {
     expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(21);
   });
 
+  it("does not fold a session that began before the retention cutoff", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 3 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'loop'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], retained_from_ns: 60_000_000 }));
+    vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [record({ first_seen_ns: 50_000_000 })], total_matched: 1 });
+    renderView();
+    expect(await screen.findByText(/removed by retention/)).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(3);
+  });
+
   it("does not fold a truncated session's processes", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const children = Array.from({ length: 3 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"]));
@@ -340,7 +351,8 @@ describe("SessionView", () => {
   // spec:web-ui/ai-agent-session-view-navigation/identical-processes-are-folded
   it("shows identical processes as one row with their count and time span", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
-    const children = Array.from({ length: 3 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"]));
+    const children = Array.from({ length: 3 }, (_, i) =>
+      proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"], [], { exit_code: 0 }));
     const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'loop'"], children, { tool_call_group: 1 });
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
     renderView();
@@ -349,6 +361,8 @@ describe("SessionView", () => {
     if (!(row instanceof HTMLElement)) throw new Error("no row");
     expect(within(row).getByText("×3")).toBeVisible();
     expect(row).toHaveTextContent(/to/);
+    // They all exited 0, so the folded row says so.
+    expect(row).toHaveTextContent(/exit 0/);
     expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(1);
   });
 

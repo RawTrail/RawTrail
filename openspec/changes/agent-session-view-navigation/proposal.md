@@ -4,9 +4,10 @@ The session view (`agent-session-view`, `agent-session-view-badges`) lists every
 
 ## What changes
 
-- Identical processes under the same creator that started nothing, changed no privilege and carry no alert fold into one row, with the count and the span of their fork times. Folding is off when the read was truncated or the alerts could not all be read, since a row could then hide a child or an alert.
+- Identical processes under the same creator that started nothing, changed no privilege and carry no alert fold into one row, with the count and the span of their fork times. Runs that ended differently stay apart, so a failure is not hidden behind a success. Folding is off when the read was truncated, the alerts could not all be read, or the session began before the retention cutoff, since a row could then hide a child or an alert.
 - A list longer than 20 rows shows its first 20 and a "Show N more processes" control. A row holding a search hit or an alert is listed past the cap.
 - A search box finds a command or path, ignoring case. It expands the calls it finds something in, says how many processes match in each, and highlights them.
+- On a narrow screen the detail stacks under the session.
 - A process's name selects it and opens the existing process detail beside the session, with a link to the process in its host's graph. The detail's "Show in timeline" opens the host's timeline on a window ending just after the process's last observed activity, so its own events are inside it.
 
 ## Impact

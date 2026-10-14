@@ -99,7 +99,9 @@ function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape)
 // carries no alert. Null for any other row.
 function foldKey(listed: SessionRow, shape: RowShape): string | null {
   if (shape.incomplete || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) return null;
-  return `${listed.node.path}\u0000${commandLine(listed.node.path, listed.node.args)}`;
+  // How each ended is part of the key: a failed run must not hide behind a successful one.
+  const outcome = `${listed.node.exit_reason ?? ""}:${String(listed.node.exit_code ?? "")}`;
+  return `${listed.node.path}\u0000${commandLine(listed.node.path, listed.node.args)}\u0000${outcome}`;
 }
 
 // foldRows folds identical sibling rows into the first of them, keeping the list's order. A loop that runs the same command a
