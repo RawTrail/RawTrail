@@ -18,6 +18,7 @@ type wirePayload struct {
 	CWD            string `json:"cwd"`
 	Sidechain      bool   `json:"sidechain"`
 	Truncated      bool   `json:"truncated"`
+	UID            uint32 `json:"uid"`
 }
 
 // A tool call's payload survives the wire whole: every field, Unicode included, decodes back to what was sent, and a field left
@@ -32,6 +33,7 @@ func TestToolCallPayloadRoundTrip(t *testing.T) {
 			ToolName: rapid.StringN(1, 16, -1).Draw(t, "tool"), Command: rapid.String().Draw(t, "command"),
 			Description: rapid.String().Draw(t, "description"), FilePath: rapid.String().Draw(t, "path"),
 			CWD: rapid.String().Draw(t, "cwd"), Sidechain: rapid.Bool().Draw(t, "sidechain"), Truncated: rapid.Bool().Draw(t, "truncated"),
+			OwnerUID: rapid.Uint32().Draw(t, "uid"),
 		}
 		payload := call.Payload()
 		raw, err := json.Marshal(payload)
@@ -43,7 +45,7 @@ func TestToolCallPayloadRoundTrip(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		want := wirePayload{call.SessionID, call.ToolUseID, call.ToolName, call.Command, call.Description, call.FilePath, call.CWD,
-			call.Sidechain, call.Truncated}
+			call.Sidechain, call.Truncated, call.OwnerUID}
 		if got != want {
 			t.Fatalf("round trip changed the call: got %+v, want %+v", got, want)
 		}

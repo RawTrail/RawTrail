@@ -2,7 +2,7 @@
 
 ### Requirement: Agent tool call capture
 
-The agent SHALL report each tool call an AI agent records in its session transcript as an `agent_tool_call` event, stamped at the transcript's time and carrying the session id, the `tool_use_id` and the tool name, a Bash call's command and description, and a file tool's path. It SHALL NOT send prompt text, model output or tool results. A transcript line it cannot read SHALL be skipped.
+The agent SHALL report each tool call an AI agent records in its session transcript as an `agent_tool_call` event, stamped at the transcript's time, carrying the session id, `tool_use_id`, tool name, a Bash call's command and description, and a file tool's path. It SHALL NOT send prompt text, model output or tool results. A line it cannot read, or naming a session not its transcript's, SHALL be skipped; each call SHALL carry its transcript owner's uid.
 
 #### Scenario: A Bash tool call is reported with its command
 
@@ -22,3 +22,10 @@ The agent SHALL report each tool call an AI agent records in its session transcr
 - **GIVEN** a transcript line that is not JSON, or a tool call missing its session, id, name or time
 - **WHEN** the agent reads it
 - **THEN** no event is sent for that line and the reading continues with the next
+
+#### Scenario: A forged line cannot stand in for another session's call
+
+- **GIVEN** a user writes into their own transcript a line carrying another session's id and one of its call ids
+- **WHEN** the agent reads it
+- **THEN** no event is sent for that line
+- **AND** a call is stamped with its transcript owner's uid, which its event id is derived from, so another user's line can never take its event id

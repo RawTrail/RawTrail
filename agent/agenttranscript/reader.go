@@ -78,12 +78,13 @@ type PassStats struct {
 	Unreadable int
 }
 
-// transcript is one recent transcript a pass found: the home it is under, its path within that home, and the regular file the
-// listing saw there.
+// transcript is one recent transcript a pass found: the home it is under, its path within that home, the regular file the listing saw
+// there, and the session its path names, which every line of it must carry.
 type transcript struct {
-	home   string
-	rel    string
-	listed os.FileInfo
+	home    string
+	rel     string
+	listed  os.FileInfo
+	session string
 }
 
 // Run reads the transcripts every defaultInterval until ctx ends.
@@ -173,18 +174,19 @@ func (r *Reader) listHome(home string) []transcript {
 				// A session directory holds its subagents' transcripts.
 				sub := path.Join(dir, entry.Name(), subagentsDir)
 				if subEntries, err := readDir(homeRoot, sub); err == nil {
-					found = append(found, r.recentIn(home, sub, subEntries)...)
+					found = append(found, r.recentIn(home, sub, subEntries, entry.Name())...)
 				}
 			}
 		}
-		found = append(found, r.recentIn(home, dir, entries)...)
+		found = append(found, r.recentIn(home, dir, entries, "")...)
 	}
 	return found
 }
 
 // recentIn returns the transcripts among a directory's entries that changed within recentWindow. An entry's type is its own, not a
-// link target's, so a symlink or a FIFO is passed over.
-func (r *Reader) recentIn(home, dir string, entries []fs.DirEntry) []transcript {
+// link target's, so a symlink or a FIFO is passed over. A session's transcript is named for the session; a subagent's is under the
+// session's directory, whose name session carries.
+func (r *Reader) recentIn(home, dir string, entries []fs.DirEntry, session string) []transcript {
 	var found []transcript
 	for _, entry := range entries {
 		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), transcriptSuffix) {
@@ -194,7 +196,11 @@ func (r *Reader) recentIn(home, dir string, entries []fs.DirEntry) []transcript 
 		if err != nil || r.now().Sub(info.ModTime()) > recentWindow {
 			continue
 		}
-		found = append(found, transcript{home: home, rel: path.Join(dir, entry.Name()), listed: info})
+		named := session
+		if named == "" {
+			named = strings.TrimSuffix(entry.Name(), transcriptSuffix)
+		}
+		found = append(found, transcript{home: home, rel: path.Join(dir, entry.Name()), listed: info, session: named})
 	}
 	return found
 }
@@ -245,12 +251,22 @@ func (r *Reader) readFrom(ctx context.Context, hostID string, t transcript, key 
 	if err != nil {
 		return 0, fmt.Errorf("read transcript: %w", err)
 	}
-	return int64(len(chunk)), r.consume(ctx, hostID, pos, chunk, stats)
+	src := source{session: t.session}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		src.ownerUID = st.Uid
+	}
+	return int64(len(chunk)), r.consume(ctx, hostID, src, pos, chunk, stats)
+}
+
+// source is what a transcript's lines are checked and stamped against: the session its path names and the uid that owns it.
+type source struct {
+	session  string
+	ownerUID uint32
 }
 
 // consume handles the complete lines of chunk, read from pos.offset, and advances the position past them. A line that fills a whole
 // chunk is too long to wait for: it is counted unreadable and passed over up to its newline, however many passes that takes.
-func (r *Reader) consume(ctx context.Context, hostID string, pos *position, chunk []byte, stats *PassStats) error {
+func (r *Reader) consume(ctx context.Context, hostID string, src source, pos *position, chunk []byte, stats *PassStats) error {
 	if pos.skipping {
 		end := bytes.IndexByte(chunk, '\n')
 		if end < 0 {
@@ -266,7 +282,7 @@ func (r *Reader) consume(ctx context.Context, hostID string, pos *position, chun
 		if end < 0 {
 			break
 		}
-		if err := r.handleLine(ctx, hostID, chunk[:end], stats); err != nil {
+		if err := r.handleLine(ctx, hostID, src, chunk[:end], stats); err != nil {
 			// The line is read again next pass: a call the queue refused is not lost.
 			return err
 		}
@@ -281,14 +297,23 @@ func (r *Reader) consume(ctx context.Context, hostID string, pos *position, chun
 	return nil
 }
 
-// handleLine enqueues one line's tool calls. An unreadable line is counted and passed over; only an enqueue failure stops the read.
-func (r *Reader) handleLine(ctx context.Context, hostID string, line []byte, stats *PassStats) error {
+// handleLine enqueues one line's tool calls, stamped with the transcript's owner. An unreadable line, or one naming a session other
+// than its transcript's, is counted and passed over: the file is the user's to write, and a line naming another session would put a
+// call in it that its agent never made. Only an enqueue failure stops the read.
+func (r *Reader) handleLine(ctx context.Context, hostID string, src source, line []byte, stats *PassStats) error {
 	calls, err := ParseLine(line)
 	if err != nil {
 		stats.Unreadable++
 		return nil
 	}
 	for _, call := range calls {
+		if call.SessionID != src.session {
+			stats.Unreadable++
+			return nil
+		}
+	}
+	for _, call := range calls {
+		call.OwnerUID = src.ownerUID
 		body, err := sensorevent.Marshal(call.EventID(), hostID, EventType, call.At.UnixNano(), call.Payload())
 		if err != nil {
 			return err

@@ -48,6 +48,11 @@ func (q *recordingQueue) toolUseIDs() []string {
 	return ids
 }
 
+// bashLineIn is a Bash call of the given session, for a transcript named for that session.
+func bashLineIn(session, id, command string) string {
+	return strings.Replace(bashLine(id, command), "47abb2a1-d231-4304-8cb1-52f4460fcd11", session, 1)
+}
+
 func bashLine(id, command string) string {
 	return assistantLine(`[{"type":"tool_use","id":"`+id+`","name":"Bash","input":{"command":"`+command+`"}}]`) + "\n"
 }
@@ -280,8 +285,9 @@ func TestReader_PassIsBounded(t *testing.T) {
 	require.NoError(t, os.Chtimes(path, stale, stale)) // the fixture's empty transcript is not one of the many
 	newest := time.Now()
 	for i := range maxFilesPerPass + 20 {
-		name := filepath.Join(dir, fmt.Sprintf("s%03d.jsonl", i))
-		require.NoError(t, os.WriteFile(name, []byte(bashLine(fmt.Sprintf("toolu_%03d", i), "ls")), 0o600))
+		session := fmt.Sprintf("s%03d", i)
+		name := filepath.Join(dir, session+".jsonl")
+		require.NoError(t, os.WriteFile(name, []byte(bashLineIn(session, fmt.Sprintf("toolu_%03d", i), "ls")), 0o600))
 		at := newest.Add(-time.Duration(i) * time.Second)
 		require.NoError(t, os.Chtimes(name, at, at))
 	}
@@ -310,6 +316,25 @@ func TestReader_RefusesASymlinkSwappedIn(t *testing.T) {
 	require.Error(t, err)
 	assert.Zero(t, read)
 	assert.Empty(t, q.events)
+}
+
+// A user writes their own transcripts, so a line naming another session than its transcript's is refused, and a call is stamped
+// with the uid of the transcript's owner, which its event id is bound to: another user's forged line can never take its place.
+// spec:endpoint-event-collection/agent-tool-call-capture/a-forged-line-cannot-stand-in-for-another-session-s-call
+func TestReader_BindsCallsToTheirTranscript(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, bashLineIn("someone-elses-session", "toolu_forged", "ls")+bashLine("toolu_01", "pwd"))
+	assert.Equal(t, PassStats{Calls: 1, Unreadable: 1}, r.RunOnce(context.Background()))
+	require.Equal(t, []string{"toolu_01"}, q.toolUseIDs())
+	payload, _ := q.events[0]["payload"].(map[string]any)
+	assert.InDelta(t, float64(os.Getuid()), payload["uid"], 0, "stamped with the transcript owner's uid")
+
+	call := ToolCall{SessionID: "s", ToolUseID: "toolu_01"}
+	other := call
+	other.OwnerUID = call.OwnerUID + 1
+	assert.NotEqual(t, call.EventID(), other.EventID(), "the same session and call under another owner is another event")
 }
 
 func TestReader_SkipsWhatItCannotAttribute(t *testing.T) {

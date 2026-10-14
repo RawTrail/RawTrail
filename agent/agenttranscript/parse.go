@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 	"unicode/utf8"
 	"uuid"
@@ -38,12 +39,18 @@ type ToolCall struct {
 	// Truncated reports that Command was cut to maxCommandBytes.
 	Truncated bool
 	At        time.Time
+	// OwnerUID is the uid of the transcript's owner: the user the call was read for. Transcripts are their users' to write, so it is
+	// what keeps one user's lines from standing in for another's.
+	OwnerUID uint32
 }
 
 // EventID is the call's event id, the same however many times the call is read: the archive keeps one event per id, so a transcript
-// read again after a restart adds nothing. A version 8 UUID over the session and the tool_use_id.
+// read again after a restart adds nothing. A version 8 UUID over the transcript's owner, the session and the tool_use_id. The owner is
+// in it because the rest is text the user wrote: without it, a line another user forged with this session's id and a call's id would
+// take the real call's event id, and the archive would keep whichever came first.
 func (c ToolCall) EventID() string {
-	sum := sha256.Sum256([]byte(EventType + "\x00" + c.SessionID + "\x00" + c.ToolUseID))
+	sum := sha256.Sum256([]byte(EventType + "\x00" + strconv.FormatUint(uint64(c.OwnerUID), 10) + "\x00" + c.SessionID + "\x00" +
+		c.ToolUseID))
 	var id uuid.UUID
 	copy(id[:], sum[:len(id)])
 	id[6] = id[6]&uuidLowNibble | uuidVersion8
@@ -53,7 +60,7 @@ func (c ToolCall) EventID() string {
 
 // Payload is the call's wire payload; empty fields are left out.
 func (c ToolCall) Payload() map[string]any {
-	p := map[string]any{"agent_session_id": c.SessionID, "tool_use_id": c.ToolUseID, "tool_name": c.ToolName}
+	p := map[string]any{"agent_session_id": c.SessionID, "tool_use_id": c.ToolUseID, "tool_name": c.ToolName, "uid": c.OwnerUID}
 	for key, value := range map[string]string{"command": c.Command, "description": c.Description, "file_path": c.FilePath, "cwd": c.CWD} {
 		if value != "" {
 			p[key] = value

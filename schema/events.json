@@ -325,7 +325,7 @@
     },
     "agent_tool_call_payload": {
       "type": "object",
-      "required": ["agent_session_id", "tool_use_id", "tool_name"],
+      "required": ["agent_session_id", "tool_use_id", "tool_name", "uid"],
       "description": "One tool call an AI agent recorded in its session transcript, read by the agent from the transcript on disk. The envelope timestamp_ns is the time the transcript gives the call. Only tool-call metadata is carried: never prompt text, model output or tool results.",
       "properties": {
         "agent_session_id": { "type": "string", "description": "The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code, which the exec events of the session's processes also carry." },
@@ -336,7 +336,8 @@
         "file_path": { "type": "string", "description": "Optional. The path a file tool acted on." },
         "cwd": { "type": "string", "description": "Optional. The session's working directory when the call was made." },
         "sidechain": { "type": "boolean", "description": "Optional. True when a subagent made the call inside the session." },
-        "truncated": { "type": "boolean", "description": "Optional. True when command was cut to its 8 KiB limit." }
+        "truncated": { "type": "boolean", "description": "Optional. True when command was cut to its 8 KiB limit." },
+        "uid": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "The uid of the transcript's owner, the user the call was read for. A transcript is its user's to write, so a call is trusted only for its owner's sessions." }
       }
     },
     "network_connect_payload": {

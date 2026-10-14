@@ -103,8 +103,8 @@ func TestToolCall_Payload(t *testing.T) {
 	assert.True(t, strings.HasPrefix(long, command))
 	assert.True(t, utf8.ValidString(command), "cut on a rune boundary")
 	assert.Equal(t, true, p["truncated"])
-	assert.Equal(t, map[string]any{"agent_session_id": "s", "tool_use_id": "t", "tool_name": "Read", "file_path": "/r/a"},
-		ToolCall{SessionID: "s", ToolUseID: "t", ToolName: "Read", FilePath: "/r/a"}.Payload(), "empty fields are left out")
+	assert.Equal(t, map[string]any{"agent_session_id": "s", "tool_use_id": "t", "tool_name": "Read", "file_path": "/r/a", "uid": uint32(501)},
+		ToolCall{SessionID: "s", ToolUseID: "t", ToolName: "Read", FilePath: "/r/a", OwnerUID: 501}.Payload(), "empty fields are left out")
 }
 
 func FuzzParseLine(f *testing.F) {
