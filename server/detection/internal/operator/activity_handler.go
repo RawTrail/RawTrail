@@ -152,11 +152,11 @@ func (h *Handler) sessionAgents(ctx context.Context, hostID, sessionID string, r
 	if h.agentSessions == nil {
 		return nil, nil
 	}
-	sessions, err := h.agentSessions.ListAgentSessions(ctx, api.AgentSessionFilter{HostID: hostID, AgentSessionID: sessionID}, "", 1)
-	if err != nil || len(sessions.Rows) == 0 || sessions.Rows[0].AgentPID == nil {
+	session, err := h.agentSessions.GetAgentSession(ctx, hostID, sessionID)
+	if err != nil || session == nil || session.AgentPID == nil {
 		return nil, err
 	}
-	agentPID := *sessions.Rows[0].AgentPID
+	agentPID := *session.AgentPID
 	var agents []api.ProcessNode
 	read := map[int64]bool{}
 	for _, root := range roots {

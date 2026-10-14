@@ -61,6 +61,15 @@ func TestProcessTreeHandler_SessionNamesItsAgent(t *testing.T) {
 		assert.Equal(t, int64(3), out.Returned)
 	})
 
+	t.Run("the agent lookup does not pay for the session list's counts", func(t *testing.T) {
+		t.Parallel()
+		lister := &fakeSessionLister{result: sessions}
+		status, out := serve(lister, "?scope=session&session=47abb2a1&flatten=1")
+		require.Equal(t, http.StatusOK, status)
+		require.Len(t, out.Agents, 1)
+		assert.Zero(t, lister.limit, "the list, which counts each session's processes and alerts, is never read")
+	})
+
 	t.Run("a story read names no agent", func(t *testing.T) {
 		t.Parallel()
 		lister := &fakeSessionLister{result: sessions}

@@ -43,6 +43,22 @@ func decodeSessionCursor(token string) (sessionCursor, error) {
 	return c, nil
 }
 
+// GetAgentSession reads one session's record without its process and alert counts, which a caller that needs only the agent's pid
+// or the session's time span should not pay for (issue #1334). It returns nil when the host holds no such session.
+func (s *Store) GetAgentSession(ctx context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error) {
+	var rows []api.AgentSessionSummary
+	if err := s.db.SelectContext(ctx, &rows, `
+		SELECT host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns
+		FROM agent_sessions WHERE host_id = ? AND agent_session_id = ?`, hostID, sessionID,
+	); err != nil {
+		return nil, fmt.Errorf("get agent session: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return &rows[0], nil
+}
+
 // ListAgentSessions returns one page of agent sessions (issue #1283), most recently active first, keyset-paged on (last_seen_ns,
 // host_id, agent_session_id), which is idx_agent_sessions_last_seen's order (InnoDB appends the primary key), so a page reads only
 // its rows. Each row carries its process and alert counts, read with one grouped query each over the page's sessions rather than one

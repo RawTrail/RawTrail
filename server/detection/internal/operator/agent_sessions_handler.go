@@ -15,6 +15,8 @@ import (
 // AgentSessionLister is the AI agent sessions list surface (issue #1283). mysql.Store satisfies it.
 type AgentSessionLister interface {
 	ListAgentSessions(ctx context.Context, filter api.AgentSessionFilter, cursor string, limit int) (api.AgentSessionResult, error)
+	// GetAgentSession reads one session's record without its counts; nil when the host holds no such session.
+	GetAgentSession(ctx context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error)
 }
 
 func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
@@ -59,17 +61,16 @@ func (h *Handler) handleAgentToolCalls(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID := r.PathValue("session_id")
-	sessions, err := h.agentSessions.ListAgentSessions(ctx, api.AgentSessionFilter{HostID: hostID, AgentSessionID: sessionID}, "", 1)
+	session, err := h.agentSessions.GetAgentSession(ctx, hostID, sessionID)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "read agent session", "host_id", hostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
-	if len(sessions.Rows) == 0 {
+	if session == nil {
 		h.writeError(ctx, w, http.StatusNotFound, errNotFound)
 		return
 	}
-	session := sessions.Rows[0]
 	calls, truncated, err := h.agentToolCalls.AgentToolCalls(ctx, visibilityapi.AgentToolCallFilter{
 		HostID: hostID, SessionID: sessionID, Limit: maxToolCalls,
 		FromNs: session.FirstSeenNs - toolCallMargin.Nanoseconds(), ToNs: session.LastSeenNs + toolCallMargin.Nanoseconds(),
