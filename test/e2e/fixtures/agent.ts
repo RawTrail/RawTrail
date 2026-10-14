@@ -61,6 +61,8 @@ export interface ScenarioEvent {
   pidversion?: number;
   parent_pidversion?: number;
   group_id?: number;
+  // original_ppid is the creator's pid on an exec, which survives reparenting: with ppid 1 it says launchd adopted the process.
+  original_ppid?: number;
   exit_code?: number;
   exit_reason?: string; // schema/events.json exit_payload.exit_reason, matches the Go ScenarioEvent struct.
   flags?: number;
@@ -315,6 +317,7 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
         ...(ev.env ? { env: ev.env } : {}),
         ...lineage(ev),
         ...(ev.group_id ? { group_id: ev.group_id } : {}),
+        ...(ev.original_ppid ? { original_ppid: ev.original_ppid } : {}),
       };
     case "fork":
       return { child_pid: ev.child_pid ?? 0, parent_pid: ev.parent_pid ?? 0, ...lineage(ev) };

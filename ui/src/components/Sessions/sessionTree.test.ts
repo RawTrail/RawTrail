@@ -2,9 +2,12 @@ import { describe, it, expect } from "vitest";
 
 import {
   buildCommands,
+  buildProcessForest,
   containsHit,
+  countRows,
   forkSpan,
   searchCommands,
+  searchRows,
   summarizeSession,
   type RowShape,
   type SessionRow,
@@ -304,5 +307,53 @@ describe("searchCommands", () => {
     expect(containsHit(bash, hits)).toBe(true);
     expect(containsHit(bash.children[0], hits)).toBe(true);
     expect(containsHit(calls[0].rows[0], hits)).toBe(false);
+  });
+});
+
+describe("buildProcessForest", () => {
+  // The agent as the session tree read names it (issue #1334): no session marker, and the creator of every command's root.
+  const agent = proc(9000, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.296", ["claude"], [], { agent_session_id: undefined });
+  const createdByAgent = (roots: ProcessNode[]) => roots.map((r) => ({ ...r, ppid: 5000, parent_process_id: 9000 }));
+
+  // spec:web-ui/session-processes-view/every-process-is-listed-under-the-agent-that-ran-it
+  it("roots every process at the agent, in fork order, with nothing hidden or folded", () => {
+    const forest = buildProcessForest(createdByAgent(realSession()), [agent], QUIET);
+    expect(forest).toHaveLength(1);
+    expect(forest[0].node.id).toBe(9000);
+    expect(forest[0].agent).toBe(true);
+    expect(forest[0].children.some((r) => r.agent)).toBe(false);
+    // Every one of the capture's 16 processes, plus the agent: the wrappers and the subshell's zsh copy are listed, not hidden.
+    expect(countRows(forest)).toBe(17);
+    expect(forest[0].children.map((r) => r.node.pid)).toEqual([80727, 80730, 80838, 80840, 80843]);
+    expect(outline([forest[0].children[1]])).toEqual(["/bin/zsh", "  /bin/zsh", "    /bin/sleep"]);
+    const loop = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc -l f; wc -l f'"], [
+      proc(2, 2, 2, "/usr/bin/wc", ["wc", "-l", "f"]), proc(3, 3, 3, "/usr/bin/wc", ["wc", "-l", "f"]),
+    ]);
+    const [loopRoot] = buildProcessForest(createdByAgent([loop]), [agent], QUIET)[0].children;
+    expect(loopRoot.children.map((r) => r.folded)).toEqual([undefined, undefined]);
+  });
+
+  it("lists a root no listed agent created after the agents, and every root when the agent was not seen", () => {
+    const [stray] = realSession();
+    const forest = buildProcessForest([...createdByAgent(realSession().slice(1)), stray], [agent], QUIET);
+    expect(forest.map((r) => r.node.id)).toEqual([9000, stray.id]);
+    expect(buildProcessForest(realSession(), [], QUIET).map((r) => r.node.pid)).toEqual([80727, 80730, 80838, 80840, 80843]);
+  });
+
+  it("keeps a process launchd adopted under the process that created it", () => {
+    // A double fork: the subshell exits before its child execs sleep, so launchd adopts the sleep.
+    const daemon = proc(3, 30, 3, "/bin/sleep", ["sleep", "47"], [], { ppid: 1, reparented: true });
+    const call = proc(1, 10, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval '(sleep 47 &)'"], [proc(2, 20, 2, "/bin/zsh", undefined, [daemon])]);
+    const [root] = buildProcessForest(createdByAgent([call]), [agent], QUIET)[0].children;
+    expect(outline([root])).toEqual(["/bin/zsh", "  /bin/zsh", "    /bin/sleep"]);
+  });
+});
+
+describe("searchRows", () => {
+  it("finds a query anywhere in the forest, and nothing for an empty one", () => {
+    const forest = buildProcessForest(realSession(), [], QUIET);
+    const hits = searchRows(forest, " SLEEP 47 ");
+    expect([...hits.rows].map((r) => r.node.id)).toEqual([2298325, 2298327]);
+    expect(searchRows(forest, "  ").rows.size).toBe(0);
   });
 });

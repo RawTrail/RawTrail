@@ -423,6 +423,9 @@ export interface TreeResponse {
   // retained_from_ns is the moment before which completed process records were deleted by retention (issue #1153). Absent when
   // retention is disabled, or from a server that predates the field.
   retained_from_ns?: number;
+  // agents are a session read's AI agent processes (issue #1334): the agent carries no session marker, so it is not among the roots,
+  // and each root it created names it by parent_process_id. Absent for other reads, and when the agent was not seen.
+  agents?: ProcessNode[];
 }
 
 export interface Alert {

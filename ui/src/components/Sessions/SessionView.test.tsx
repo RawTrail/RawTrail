@@ -447,6 +447,83 @@ describe("SessionView", () => {
     expect(screen.getByText("ls /private/tmp | head -3")).toBeVisible();
   });
 
+  // spec:web-ui/session-processes-view/every-process-is-listed-under-the-agent-that-ran-it
+  // spec:web-ui/session-processes-view/a-reparented-process-stays-under-its-creator
+  it("lists every process under the agent in the Processes view, a reparented one marked", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
+    const agent = proc(9, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.296", ["claude"], [], { agent_session_id: undefined });
+    // A double fork: the subshell's copy of zsh exits before its child execs sleep, which then reports launchd as its parent.
+    const daemon = proc(12, 12, 102, "/bin/sleep", ["sleep", "47"], [], { ppid: 1, reparented: true });
+    const call = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval '(sleep 47 &)'"], [proc(11, 11, 101, "/bin/zsh", undefined, [daemon])],
+      { tool_call_group: 10, ppid: 5000, parent_process_id: 9 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], agents: [agent] }));
+    renderView();
+    expect(await screen.findByText("(sleep 47 &)", { selector: "code" })).toBeVisible();
+    expect(screen.getByText("Show shell plumbing")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Processes" }));
+    expect(screen.getByRole("button", { name: "Processes", pressed: true })).toBeVisible();
+    expect(screen.getByText("4 processes, under the agent that ran them")).toBeVisible();
+    expect(screen.queryByText("Show shell plumbing")).not.toBeInTheDocument();
+    // The agent leads, its command's wrapper and the subshell's copy of zsh are listed, and the daemon is under the copy that made it.
+    const names = [...document.querySelectorAll(".session-view__processes .session-view__name")].map((b) => b.textContent);
+    expect(names).toEqual(["claude", "zsh", "zsh", "sleep"]);
+    expect(screen.getByText("agent")).toBeVisible();
+    const reparented = screen.getByText("reparented");
+    expect(reparented.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("sleep");
+    expect(reparented.parentElement).toHaveAttribute("title",
+      "launchd adopted it after the process that created it exited; it is listed under its creator");
+    // Only the adopted process is marked: its creators are not.
+    expect(screen.getAllByText("reparented")).toHaveLength(1);
+
+    fireEvent.change(screen.getByLabelText("Search this session"), { target: { value: "sleep 47" } });
+    expect(screen.getByPlaceholderText("Search processes")).toBeVisible();
+    expect(document.querySelectorAll(".session-view__processes .session-view__row--hit")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "claude" }));
+    expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
+  });
+
+  it("opens the agent's detail from the session's activity", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
+    const agent = proc(9, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.296", ["claude"], [], { agent_session_id: undefined });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ agents: [agent] }));
+    vi.spyOn(api, "getActivity").mockResolvedValue({
+      ...lsActivity,
+      network: { events: 0, distinct: 0, truncated: false, rows: [] },
+      files: {
+        events: 1, distinct: 1, truncated: false,
+        rows: [{ pid: 5000, pidversion: 1, count: 1, first_ns: 1, last_ns: 1, operation: "modify", path: "/Users/dev/project/main.go" }],
+      },
+      processes: [{ id: 9, pid: 5000, pidversion: 1, path: "/Users/victor/.local/share/claude/versions/2.1.296" }],
+    });
+    renderView();
+    await screen.findByText("ls /private/tmp | head -3");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Files/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "claude (5000)" }));
+    expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
+  });
+
+  it("says 1 process, not 1 processes, for a session of one", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'pwd'"])] }));
+    renderView();
+    expect(await screen.findByText("1 process", { selector: "span" })).toBeVisible();
+  });
+
+  it("lists the commands as roots when the agent process was not seen", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    renderView();
+    await screen.findByText("ls /private/tmp | head -3");
+    fireEvent.click(screen.getByRole("button", { name: "Processes" }));
+    expect(screen.getByText(/16 processes\. The agent process was not seen/)).toBeVisible();
+  });
+
   // spec:web-ui/inferred-launches-in-the-ui/a-session-lists-a-launch-under-the-call-that-asked
   it("lists what launchd started for a call's open under that call, marked as inferred", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);

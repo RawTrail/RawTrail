@@ -29,6 +29,20 @@
     margin: 0 0 0.75rem;
   }
 
+  // The Processes view (issue #1335): one tree in one card, the way a command's processes sit in theirs.
+  &__processes {
+    background: $core-fleet-white;
+    border: 1px solid $ui-fleet-black-10;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+  }
+
+  &__processes-summary {
+    color: $ui-fleet-black-75;
+    font-size: 0.85rem;
+    margin: 0 0 0.25rem;
+  }
+
   &__calls {
     display: flex;
     flex-direction: column;
