@@ -193,7 +193,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // withLastTimestamp adds a folded event's last_timestamp_ns, which is absolute and so needs the scenario's start time buildPayload does
 // not see.
 func withLastTimestamp(payload json.RawMessage, lastNs int64) (json.RawMessage, error) {
-	var fields map[string]any
+	fields := map[string]any{}
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return nil, err
 	}
