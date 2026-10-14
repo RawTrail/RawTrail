@@ -4,13 +4,23 @@
 # launchd starts TextEdit. The agent (pid 5000) is never seen, so each call's shell is a root. Every exec carries the session markers the
 # production agent forwards from the environment. Every fork and exec carries the kernel generations the server resolves a creator by, and
 # each call's shell leads its own process group, which keys the tool call. git's connection and lookup carry its generation, as the
-# production agent's flows do, and git's index update arrives as the agent-file client folds it.
+# production agent's flows do, and git's index update arrives as the agent-file client folds it. Each call's Bash tool call, as the
+# agent reads it from the transcript, is recorded as the call's shell forks.
 name: "Claude Code session: four Bash tool calls"
 host:
   id: AAAA0007-0000-0000-0000-000000000007
   hostname: dev-laptop.local
   os: macOS 26.0
 timeline:
+  # The Bash call the agent recorded in its transcript for this tool call (issue #1288).
+  - at: 0ms
+    type: agent_tool_call
+    agent_session_id: 169b5bb1-29b5-41da-9a54-92cd72599ad9
+    tool_use_id: toolu_e2e_git
+    tool_name: Bash
+    uid: 501
+    command: "git status"
+    description: Show working tree status
   - at: 0ms
     type: fork
     child_pid: 5001
@@ -87,6 +97,15 @@ timeline:
     type: exit
     pid: 5001
     exit_code: 0
+  # The Bash call the agent recorded in its transcript for this tool call (issue #1288).
+  - at: 100ms
+    type: agent_tool_call
+    agent_session_id: 169b5bb1-29b5-41da-9a54-92cd72599ad9
+    tool_use_id: toolu_e2e_sleep
+    tool_name: Bash
+    uid: 501
+    command: "(sleep 47 &)"
+    description: Background a sleep
   - at: 100ms
     type: fork
     child_pid: 5003
@@ -142,6 +161,15 @@ timeline:
     pid: 5003
     exit_code: 0
   # The third call runs `sudo id`: sudo is setuid, so its exec reports uid 0 under the agent's uid-501 shell, a privilege change.
+  # The Bash call the agent recorded in its transcript for this tool call (issue #1288).
+  - at: 200ms
+    type: agent_tool_call
+    agent_session_id: 169b5bb1-29b5-41da-9a54-92cd72599ad9
+    tool_use_id: toolu_e2e_sudo
+    tool_name: Bash
+    uid: 501
+    command: "sudo id"
+    description: Show root identity
   - at: 200ms
     type: fork
     child_pid: 5006
@@ -214,6 +242,15 @@ timeline:
     exit_code: 0
   # The fourth call runs `open -a TextEdit`: launchd starts TextEdit through xpcproxy (the same pid re-execs), with the agent's
   # environment, as LaunchServices passed it on edr-dev. The server infers the launch from the open.
+  # The Bash call the agent recorded in its transcript for this tool call (issue #1288).
+  - at: 300ms
+    type: agent_tool_call
+    agent_session_id: 169b5bb1-29b5-41da-9a54-92cd72599ad9
+    tool_use_id: toolu_e2e_open
+    tool_name: Bash
+    uid: 501
+    command: "open -a TextEdit"
+    description: Open TextEdit
   - at: 300ms
     type: fork
     child_pid: 5021

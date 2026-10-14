@@ -74,6 +74,12 @@ export interface ScenarioEvent {
   // The offset of the last folded operation, sent as last_timestamp_ns.
   last_at?: string;
   rolled_up?: boolean;
+  // agent_tool_call (issue #1288): a tool call the agent recorded in its transcript; `path` carries a file tool's path.
+  agent_session_id?: string;
+  tool_use_id?: string;
+  tool_name?: string;
+  command?: string;
+  description?: string;
   protocol?: string;
   direction?: string;
   local_address?: string;
@@ -331,6 +337,18 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
       if (ev.source_path) p.source_path = ev.source_path;
       if (ev.count !== undefined && ev.count > 1) p.coalesced_count = ev.count;
       if (ev.rolled_up) p.rolled_up = true;
+      return p;
+    }
+    case "agent_tool_call": {
+      const p: Record<string, unknown> = {
+        agent_session_id: ev.agent_session_id ?? "",
+        tool_use_id: ev.tool_use_id ?? "",
+        tool_name: ev.tool_name ?? "",
+        uid: ev.uid ?? 0,
+      };
+      if (ev.command) p.command = ev.command;
+      if (ev.description) p.description = ev.description;
+      if (ev.path) p.file_path = ev.path;
       return p;
     }
     case "network_connect": {

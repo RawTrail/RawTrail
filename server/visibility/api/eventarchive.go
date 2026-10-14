@@ -82,6 +82,10 @@ type EventArchive interface {
 	// generation by exact (pid, pidversion), the rule the alert-chain timeline uses, so an event without a pidversion, or one of a
 	// later process that reused a pid, is never counted. See ActivityRollup for what each class reports.
 	ActivityForGenerations(ctx context.Context, filter ActivityFilter) (ActivityRollup, error)
+
+	// AgentToolCalls lists the tool calls an AI agent session recorded on one host (issue #1288), oldest first, one per tool_use_id and
+	// transcript owner however many times the agent reported it, and reports whether more than the limit were recorded.
+	AgentToolCalls(ctx context.Context, filter AgentToolCallFilter) ([]AgentToolCall, bool, error)
 }
 
 // TelemetryActivity is one host's per-stream event presence over a telemetry-freshness window.
@@ -278,4 +282,31 @@ type DNSActivityRow struct {
 	ActivityRow
 	QueryName string   `json:"query_name"`
 	Addresses []string `json:"addresses"`
+}
+
+// AgentToolCallFilter selects one session's tool calls on one host. FromNs/ToNs bound the time the agent recorded each call, zero
+// meaning unbounded on that side; Limit caps the calls listed.
+type AgentToolCallFilter struct {
+	HostID    string
+	SessionID string
+	FromNs    int64
+	ToNs      int64
+	Limit     int
+}
+
+// AgentToolCall is one tool call an AI agent session recorded in its transcript: the tool, a Bash call's command and the description
+// the agent gave it, or a file tool's path, and when the agent made the call.
+type AgentToolCall struct {
+	ToolUseID   string `json:"tool_use_id"`
+	ToolName    string `json:"tool_name"`
+	Command     string `json:"command,omitempty"`
+	Description string `json:"description,omitempty"`
+	FilePath    string `json:"file_path,omitempty"`
+	// Sidechain marks a call a subagent made, and Truncated a command cut to the agent's 8 KiB limit.
+	Sidechain  bool  `json:"sidechain,omitempty"`
+	Truncated  bool  `json:"truncated,omitempty"`
+	CalledAtNs int64 `json:"called_at_ns"`
+	// UID is the uid of the transcript the call was read from. A transcript is its user's to write, so a call is trusted only for the
+	// processes of the user who owns it.
+	UID int64 `json:"uid"`
 }

@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -510,4 +511,46 @@ var errActivityUnsupported = errors.New("mem archive: the activity rollup is ser
 // ActivityForGenerations is not mirrored in memory; see errActivityUnsupported.
 func (m *MemArchive) ActivityForGenerations(context.Context, api.ActivityFilter) (api.ActivityRollup, error) {
 	return api.ActivityRollup{}, errActivityUnsupported
+}
+
+// AgentToolCalls mirrors the ClickHouse store: one session's tool calls, one per tool_use_id and owner at the time it was first
+// recorded, oldest first, cut at the limit.
+func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallFilter) ([]api.AgentToolCall, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	type callKey struct {
+		id  string
+		uid int64
+	}
+	first := map[callKey]api.AgentToolCall{}
+	for _, id := range m.order {
+		e := m.byID[id]
+		if e.HostID != filter.HostID || e.EventType != "agent_tool_call" ||
+			(filter.FromNs > 0 && e.TimestampNs < filter.FromNs) || (filter.ToNs > 0 && e.TimestampNs > filter.ToNs) {
+			continue
+		}
+		var p struct {
+			api.AgentToolCall
+			SessionID string `json:"agent_session_id"`
+		}
+		if json.Unmarshal(e.Payload, &p) != nil || p.SessionID != filter.SessionID {
+			continue
+		}
+		p.CalledAtNs = e.TimestampNs
+		key := callKey{p.ToolUseID, p.UID}
+		if prior, seen := first[key]; !seen || p.CalledAtNs < prior.CalledAtNs {
+			first[key] = p.AgentToolCall
+		}
+	}
+	calls := make([]api.AgentToolCall, 0, len(first))
+	for _, c := range first {
+		calls = append(calls, c)
+	}
+	slices.SortFunc(calls, func(a, b api.AgentToolCall) int {
+		return cmp.Or(cmp.Compare(a.CalledAtNs, b.CalledAtNs), cmp.Compare(a.ToolUseID, b.ToolUseID), cmp.Compare(a.UID, b.UID))
+	})
+	if len(calls) > filter.Limit {
+		return calls[:filter.Limit], true, nil
+	}
+	return calls, false, nil
 }

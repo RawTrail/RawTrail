@@ -84,19 +84,20 @@ type alertDetailResponse struct {
 
 // Handler serves the operator-facing detection routes.
 type Handler struct {
-	svc           api.Service
-	authz         identityapi.AuthZ
-	audit         identityapi.AuditRecorder
-	webhookAdmin  WebhookAdmin
-	webhookTester webhookTester
-	hostHealth    HostHealthReader
-	hostDetail    HostDetailReader
-	histogram     ActivityHistogramReader
-	processSearch ProcessSearchReader
-	eventSearch   EventSearchReader
-	hostTimeline  HostTimelineReader
-	agentSessions AgentSessionLister
-	activity      ActivityReader
+	svc            api.Service
+	authz          identityapi.AuthZ
+	audit          identityapi.AuditRecorder
+	webhookAdmin   WebhookAdmin
+	webhookTester  webhookTester
+	hostHealth     HostHealthReader
+	hostDetail     HostDetailReader
+	histogram      ActivityHistogramReader
+	processSearch  ProcessSearchReader
+	eventSearch    EventSearchReader
+	hostTimeline   HostTimelineReader
+	agentSessions  AgentSessionLister
+	agentToolCalls AgentToolCallReader
+	activity       ActivityReader
 	// processRetentionDays is how many days completed process records are kept, or 0 when retention is disabled. See
 	// SetProcessRetention.
 	processRetentionDays int

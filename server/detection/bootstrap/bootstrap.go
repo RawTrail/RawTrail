@@ -210,6 +210,7 @@ func (d *Detection) wireFullMode(deps Deps, store *mysql.Store, intakeH *intake.
 	d.operatorH.SetEventSearch(store)
 	d.operatorH.SetHostTimeline(store)
 	d.operatorH.SetAgentSessions(store)
+	d.operatorH.SetAgentToolCalls(store)
 	d.operatorH.SetActivity(store)
 	d.operatorH.SetProcessRetention(deps.RetentionDays)
 

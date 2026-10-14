@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
-import { getSessionTree, listAgentSessions, listAlerts } from "../../api";
-import type { AgentSessionSummary, Alert, ProcessNode, TreeResponse } from "../../types";
+import { getAgentToolCalls, getSessionTree, listAgentSessions, listAlerts } from "../../api";
+import type { AgentSessionSummary, AgentToolCall, Alert, ProcessNode, TreeResponse } from "../../types";
 import { PageHeader } from "../ui/PageHeader";
 import { Toggle } from "../ui/Toggle";
 import { Input } from "../ui/Input";
@@ -30,6 +30,7 @@ import {
   type ToolCall,
 } from "./sessionTree";
 import { commandLine } from "./toolCommand";
+import { joinToolCalls, type ToolCallMatch } from "./toolCallJoin";
 
 // AUTO_EXPAND_CALLS is the most tool calls a session can have and still open with every call expanded. A longer session opens with
 // only the calls an alert was raised in expanded, so the operator starts from what was flagged.
@@ -55,6 +56,10 @@ interface SessionRead {
   alertsFailed?: boolean;
   // alertsTruncated is set when the session has more alerts than were read, so some are not badged.
   alertsTruncated?: boolean;
+  // toolCalls are the calls the session recorded in its transcript (issue #1288). Unread, the groups simply carry no call.
+  toolCalls?: AgentToolCall[];
+  // toolCallsTruncated is set when the session recorded more calls than were read, so some groups may show none.
+  toolCallsTruncated?: boolean;
 }
 
 // SessionRowsContext carries what every row of the view needs: the session's alerts by process, the current search's hits, and the
@@ -80,12 +85,13 @@ function message(err: unknown): string {
 }
 
 async function readSession(key: string, hostId: string, sessionId: string): Promise<SessionRead> {
-  const [tree, record, alerts] = await Promise.all([
+  const [tree, record, alerts, toolCalls] = await Promise.all([
     getSessionTree(hostId, sessionId).catch((err: unknown) => message(err)),
     listAgentSessions({ host_id: hostId, session: sessionId })
       .then((res) => res.rows[0] as AgentSessionSummary | undefined)
       .catch(() => undefined),
     listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
+    getAgentToolCalls(hostId, sessionId).catch(() => undefined),
   ]);
   if (typeof tree === "string") return { key, error: tree };
   return {
@@ -95,6 +101,8 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
     alerts: (alerts ?? []).slice(0, MAX_SESSION_ALERTS),
     alertsFailed: alerts === null,
     alertsTruncated: (alerts?.length ?? 0) > MAX_SESSION_ALERTS,
+    toolCalls: toolCalls?.tool_calls,
+    toolCallsTruncated: toolCalls?.truncated,
   };
 }
 
@@ -274,6 +282,11 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
       {read.alertsFailed && (
         <p className="session-view__notice" role="status">This session&apos;s alerts could not be loaded, so none are shown.</p>
       )}
+      {read.toolCallsTruncated && (
+        <p className="session-view__notice" role="status">
+          This session recorded more tool calls than are read, so some calls may show without the tool call that started them.
+        </p>
+      )}
       {read.alertsTruncated && (
         <p className="session-view__notice" role="status">
           This session has more than {MAX_SESSION_ALERTS.toLocaleString()} alerts; only the {MAX_SESSION_ALERTS.toLocaleString()} most
@@ -290,11 +303,20 @@ function SessionBody({ read, calls }: { readonly read: SessionRead | null; reado
   if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
   if (calls.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
   const expandAll = calls.length <= AUTO_EXPAND_CALLS;
+  const matches = joinToolCalls(calls, read.toolCalls ?? []);
   return (
     <ol className="session-view__calls">
       {calls.map((call) => {
         const alerts = call.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
-        return <ToolCallGroup key={call.key} call={call} alerts={alerts} defaultOpen={expandAll || alerts.length > 0} />;
+        return (
+          <ToolCallGroup
+            key={call.key}
+            call={call}
+            match={matches.get(call.key)}
+            alerts={alerts}
+            defaultOpen={expandAll || alerts.length > 0}
+          />
+        );
       })}
     </ol>
   );
@@ -306,8 +328,9 @@ function highestSeverity(alerts: readonly Alert[]): string {
 }
 
 // ToolCallGroup is one call. A search that finds something in it opens it, whatever the operator last chose.
-function ToolCallGroup({ call, alerts, defaultOpen }: {
+function ToolCallGroup({ call, match, alerts, defaultOpen }: {
   readonly call: ToolCall;
+  readonly match: ToolCallMatch | undefined;
   readonly alerts: readonly Alert[];
   readonly defaultOpen: boolean;
 }) {
@@ -331,9 +354,29 @@ function ToolCallGroup({ call, alerts, defaultOpen }: {
           <Badge variant={severityBadgeVariant(highestSeverity(alerts))}>{plural(alerts.length, "alert", "alerts")}</Badge>
         )}
         {found > 0 && <span className="session-view__found">{plural(found, "match", "matches")}</span>}
+        {match && <AgentCall match={match} />}
       </button>
       {expanded && call.rows.length > 0 && <ProcessRows rows={call.rows} />}
     </li>
+  );
+}
+
+// AgentCall names the tool call that started a group (issue #1288): the description the agent gave it and its tool_use_id, or, for
+// identical calls of one turn that cannot be told apart, the calls it is one of.
+function AgentCall({ match }: { readonly match: ToolCallMatch }) {
+  if (match.kind === "ambiguous") {
+    const ids = match.candidates.map((c) => c.tool_use_id);
+    return (
+      <span className="session-view__agent-call" title={`One of: ${ids.join(", ")}`}>
+        One of {match.candidates.length} identical calls made at once
+      </span>
+    );
+  }
+  return (
+    <span className="session-view__agent-call">
+      {match.call.description && <span>{match.call.description}</span>}
+      <code className="session-view__tool-use-id">{match.call.tool_use_id}</code>
+    </span>
   );
 }
 

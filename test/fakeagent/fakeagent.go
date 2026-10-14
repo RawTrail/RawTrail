@@ -111,6 +111,13 @@ type Event struct {
 	LastAt    *Duration `json:"last_at,omitempty"`
 	RolledUp  bool      `json:"rolled_up,omitempty"`
 
+	// agent_tool_call specifics (issue #1288): a tool call an AI agent recorded in its transcript. Path carries a file tool's path.
+	AgentSessionID string `json:"agent_session_id,omitempty"`
+	ToolUseID      string `json:"tool_use_id,omitempty"`
+	ToolName       string `json:"tool_name,omitempty"`
+	Command        string `json:"command,omitempty"`
+	Description    string `json:"description,omitempty"`
+
 	// network_connect specifics.
 	Protocol      string `json:"protocol,omitempty"`
 	Direction     string `json:"direction,omitempty"`
@@ -255,8 +262,9 @@ var knownEventTypes = map[string]bool{
 	// removed, which is exactly the distinction a corpus scenario needs to express.
 	"file_truncate": true,
 	"file_delete":   true,
-	// An AI agent's folded file activity (issue #1287), for the session journeys.
+	// An AI agent's folded file activity (issue #1287) and the tool calls it recorded (#1288), for the session journeys.
 	"file_activity":       true,
+	"agent_tool_call":     true,
 	"network_connect":     true,
 	"dns_query":           true,
 	"snapshot_heartbeat":  true,

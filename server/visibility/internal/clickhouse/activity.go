@@ -162,3 +162,40 @@ func scanActivity[R any](rows *sql.Rows, limit int, fields func(*R) []any) ([]R,
 	}
 	return out, truncated, nil
 }
+
+// AgentToolCalls lists one session's tool calls (issue #1288). Calls are grouped by tool_use_id and the transcript's owner, so a call
+// reported again is listed once, at the time the agent first recorded it, and a line another user forged with the same ids is listed
+// apart, under its own uid.
+func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilter) ([]api.AgentToolCall, bool, error) {
+	where := hostPredicate + ` AND event_type = 'agent_tool_call' AND JSONExtractString(payload, 'agent_session_id') = ?`
+	args := []any{filter.HostID, filter.SessionID}
+	if filter.FromNs > 0 {
+		where += " AND timestamp_ns >= ?"
+		args = append(args, filter.FromNs)
+	}
+	if filter.ToNs > 0 {
+		where += " AND timestamp_ns <= ?"
+		args = append(args, filter.ToNs)
+	}
+	// One argMin over the whole record, so every field comes from the first recording, as the time does.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, first.1, first.2, first.3, first.4, toBool(first.5), toBool(first.6), at, uid
+		FROM (
+			SELECT JSONExtractString(payload, 'tool_use_id') AS id, JSONExtractInt(payload, 'uid') AS uid,
+				argMin((JSONExtractString(payload, 'tool_name'), JSONExtractString(payload, 'command'),
+					JSONExtractString(payload, 'description'), JSONExtractString(payload, 'file_path'),
+					JSONExtractBool(payload, 'sidechain'), JSONExtractBool(payload, 'truncated')), (timestamp_ns, event_id)) AS first,
+				min(timestamp_ns) AS at
+			FROM events FINAL
+			WHERE `+where+`
+			GROUP BY id, uid
+		)
+		ORDER BY at, id, uid
+		LIMIT ?`, append(args, filter.Limit+1)...)
+	if err != nil {
+		return nil, false, fmt.Errorf("clickhouse agent tool calls: %w", err)
+	}
+	return scanActivity(rows, filter.Limit, func(c *api.AgentToolCall) []any {
+		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID}
+	})
+}
