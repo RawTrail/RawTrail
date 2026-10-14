@@ -2622,6 +2622,7 @@ components:
             - file_rename
             - file_truncate
             - file_delete
+            - file_activity
             - network_connect
             - dns_query
             - application_control_block
