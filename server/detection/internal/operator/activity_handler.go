@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 
 	"github.com/fleetdm/edr/server/detection/api"
@@ -18,6 +19,7 @@ import (
 type ActivityReader interface {
 	ActivityForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivityRollup, error)
 	GetProcessByID(ctx context.Context, hostID string, id int64) (*api.Process, error)
+	SessionTouches(ctx context.Context, hostID string, generation visibilityapi.ProcessGeneration) ([]visibilityapi.SessionTouch, error)
 }
 
 // SetActivity installs the activity read surface. Bootstrap wires it with the detection store in ModeFull; unset, the route answers
@@ -86,9 +88,17 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	generations, scope, matched := scopeGenerations(roots, truncated)
+	filter := visibilityapi.ActivityFilter{HostID: hostID, Generations: generations}
+	if req.tree.AgentSessionID != "" {
+		if filter, err = h.boundAgents(ctx, req.tree.AgentSessionID, roots, filter); err != nil {
+			h.logger.ErrorContext(ctx, "bound agent activity", "host_id", hostID, "err", err)
+			h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+			return
+		}
+	}
 	// A scope with no generation to match is answered with nothing, not with the host's whole activity: the totals would claim the
 	// scope touched what other processes did.
-	rollup, err := h.activity.ActivityForGenerations(ctx, visibilityapi.ActivityFilter{HostID: hostID, Generations: generations})
+	rollup, err := h.activity.ActivityForGenerations(ctx, filter)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "activity rollup", "host_id", hostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
@@ -160,6 +170,53 @@ func (h *Handler) withAgentProcess(ctx context.Context, hostID, sessionID string
 		}
 	}
 	return roots, nil
+}
+
+// boundAgents bounds each agent process in a session's scope to the span it served the session (issue #1319). A session's own
+// processes carry its id; the agent carries none, so the processes without one are the agent rows withAgentProcess added. One agent
+// process can serve several sessions in turn (/clear, /resume), and its activity belongs to each only while it served it.
+func (h *Handler) boundAgents(
+	ctx context.Context, sessionID string, roots []api.ProcessNode, filter visibilityapi.ActivityFilter,
+) (visibilityapi.ActivityFilter, error) {
+	for _, root := range roots {
+		if root.AgentSessionID != nil || root.PIDVersion == nil {
+			continue
+		}
+		gen := visibilityapi.ProcessGeneration{PID: int64(root.PID), PIDVersion: int64(*root.PIDVersion)}
+		touches, err := h.activity.SessionTouches(ctx, filter.HostID, gen)
+		if err != nil {
+			return filter, err
+		}
+		span, bounded := sessionSpan(touches, sessionID)
+		if !bounded {
+			continue
+		}
+		span.ProcessGeneration = gen
+		filter.Generations = slices.DeleteFunc(filter.Generations, func(g visibilityapi.ProcessGeneration) bool { return g == gen })
+		filter.Spans = append(filter.Spans, span)
+	}
+	return filter, nil
+}
+
+// sessionSpan is the span an agent process served a session, from the transcripts it touched: from its first touch of the session's
+// transcript (the process's start, for the first session it served) to its first touch of a later session's. It is not bounded when
+// the process touched no other session's transcript, or never touched this one's, which leaves nothing to bound it by.
+func sessionSpan(touches []visibilityapi.SessionTouch, sessionID string) (visibilityapi.GenerationSpan, bool) {
+	own := slices.IndexFunc(touches, func(t visibilityapi.SessionTouch) bool { return t.SessionID == sessionID })
+	if own < 0 || len(touches) < 2 {
+		return visibilityapi.GenerationSpan{}, false
+	}
+	var span visibilityapi.GenerationSpan
+	for _, t := range touches {
+		switch {
+		case t.SessionID == sessionID:
+		case t.FirstNs < touches[own].FirstNs:
+			span.FromNs = touches[own].FirstNs
+		case span.ToNs == 0 || t.FirstNs < span.ToNs:
+			span.ToNs = t.FirstNs
+		}
+	}
+	return span, true
 }
 
 // findProcessNode returns the node of the process with the given row id, or nil when the forest does not hold it.

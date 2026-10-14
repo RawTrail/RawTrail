@@ -944,6 +944,13 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter visibilityapi
 	return s.archive.ActivityForGenerations(ctx, filter)
 }
 
+// SessionTouches delegates the transcripts a process generation touched (issue #1319) to the visibility EventArchive.
+func (s *Store) SessionTouches(
+	ctx context.Context, hostID string, generation visibilityapi.ProcessGeneration,
+) ([]visibilityapi.SessionTouch, error) {
+	return s.archive.SessionTouches(ctx, hostID, generation)
+}
+
 // AgentToolCalls delegates the tool calls a session recorded (issue #1288) to the visibility EventArchive.
 func (s *Store) AgentToolCalls(
 	ctx context.Context, filter visibilityapi.AgentToolCallFilter,

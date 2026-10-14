@@ -21,6 +21,9 @@ type fakeActivityReader struct {
 	filter *visibilityapi.ActivityFilter
 	result visibilityapi.ActivityRollup
 	err    error
+	// touches are what SessionTouches answers, by pid; touchesErr fails it.
+	touches    map[int64][]visibilityapi.SessionTouch
+	touchesErr error
 	// processes are the rows GetProcessByID answers from, by id; processErr fails it.
 	processes  map[int64]api.Process
 	processErr error
@@ -35,6 +38,12 @@ func (f *fakeActivityReader) GetProcessByID(_ context.Context, hostID string, id
 		return nil, nil
 	}
 	return &p, nil
+}
+
+func (f *fakeActivityReader) SessionTouches(
+	_ context.Context, _ string, generation visibilityapi.ProcessGeneration,
+) ([]visibilityapi.SessionTouch, error) {
+	return f.touches[generation.PID], f.touchesErr
 }
 
 func (f *fakeActivityReader) ActivityForGenerations(
@@ -311,4 +320,77 @@ func TestActivityHandler_Errors(t *testing.T) {
 			assert.Equal(t, tc.want, status)
 		})
 	}
+}
+
+// spec:server-rest-api/agent-activity-bounded-to-its-session/a-reused-agent-counts-in-each-session-only-while-serving-it
+func TestSessionSpan(t *testing.T) {
+	t.Parallel()
+	// The edr-dev capture: one claude served 4f5b9ea2, then 07c2d66d after /clear; a third session is added for the middle case.
+	touches := []visibilityapi.SessionTouch{
+		{SessionID: "4f5b9ea2", FirstNs: 633}, {SessionID: "07c2d66d", FirstNs: 673}, {SessionID: "9a1c", FirstNs: 900},
+	}
+	for _, tc := range []struct {
+		name    string
+		touches []visibilityapi.SessionTouch
+		session string
+		want    visibilityapi.GenerationSpan
+		bounded bool
+	}{
+		{"the first session keeps the process's start", touches, "4f5b9ea2", visibilityapi.GenerationSpan{ToNs: 673}, true},
+		{"a middle session runs between its first touch and the next", touches, "07c2d66d",
+			visibilityapi.GenerationSpan{FromNs: 673, ToNs: 900}, true},
+		{"the last session is open-ended", touches, "9a1c", visibilityapi.GenerationSpan{FromNs: 900}, true},
+		{"one session in the process is not bounded", touches[:1], "4f5b9ea2", visibilityapi.GenerationSpan{}, false},
+		{"a session whose transcript was never seen is not bounded", touches, "missing", visibilityapi.GenerationSpan{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, bounded := sessionSpan(tc.touches, tc.session)
+			assert.Equal(t, tc.bounded, bounded)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// spec:server-rest-api/agent-activity-bounded-to-its-session/a-reused-agent-counts-in-each-session-only-while-serving-it
+func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
+	t.Parallel()
+	agentRow, agentPID, agentVersion := int64(50), 4911, uint32(9)
+	agentProc := api.Process{ID: agentRow, HostID: "h1", PID: agentPID, PIDVersion: &agentVersion, Path: "/opt/claude/2.1.296"}
+	sessionID := "07c2d66d"
+	shell := activityNode(1, 5001, 1)
+	shell.ParentProcessID = &agentRow
+	shell.AgentSessionID = &sessionID
+	readScope := func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+		return api.ProcessTreeResult{Roots: []api.ProcessNode{shell}}, nil
+	}
+	sessions := api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: sessionID, AgentPID: &agentPID}}}
+	serve := func(reader *fakeActivityReader) int {
+		h := New(fakeService{buildScopedTree: readScope}, allowAllAuthZ{}, slog.Default())
+		h.SetActivity(reader)
+		h.SetAgentSessions(&fakeSessionLister{result: sessions})
+		mux := http.NewServeMux()
+		h.RegisterRoutes(mux)
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		status, _ := getActivity(t, srv, "scope=session&session="+sessionID)
+		return status
+	}
+
+	reader := &fakeActivityReader{
+		processes: map[int64]api.Process{agentRow: agentProc},
+		touches: map[int64][]visibilityapi.SessionTouch{
+			int64(agentPID): {{SessionID: "4f5b9ea2", FirstNs: 633}, {SessionID: sessionID, FirstNs: 673}},
+		},
+	}
+	require.Equal(t, http.StatusOK, serve(reader))
+	require.NotNil(t, reader.filter)
+	assert.Equal(t, []visibilityapi.ProcessGeneration{{PID: 5001, PIDVersion: 1}}, reader.filter.Generations,
+		"the session's own processes stay whole")
+	assert.Equal(t, []visibilityapi.GenerationSpan{
+		{ProcessGeneration: visibilityapi.ProcessGeneration{PID: int64(agentPID), PIDVersion: 9}, FromNs: 673},
+	}, reader.filter.Spans, "the agent counts only from its first touch of this session's transcript")
+
+	failing := &fakeActivityReader{processes: map[int64]api.Process{agentRow: agentProc}, touchesErr: errors.New("ch")}
+	assert.Equal(t, http.StatusInternalServerError, serve(failing))
 }

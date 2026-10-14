@@ -204,3 +204,73 @@ func TestEventArchive_AgentToolCalls(t *testing.T) {
 		assert.True(t, truncated, "toolu_c is in the window too")
 	})
 }
+
+// An agent process's session touches, and its activity counted only inside a span (issue #1319). The edr-dev capture: claude (pid
+// 5709, generation 9) created the first session's transcript, then at /clear the second's scratch directory and transcript, and wrote
+// the old transcript once more as it closed.
+//
+// spec:server-rest-api/agent-activity-bounded-to-its-session/a-reused-agent-counts-in-each-session-only-while-serving-it
+func TestEventArchive_AgentSpans(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	at := func(s int64) int64 { return base + s*int64(time.Second) }
+	const (
+		dir           = "/Users/dev/.claude/projects/-Users-dev-qa"
+		firstSession  = "4f5b9ea2-30e4-43f2-96e7-aa36898179d5"
+		secondSession = "07c2d66d-1b9e-4ae4-871c-bb28533aa98e"
+	)
+	file := func(id string, ts int64, pv int, op, path string) visibilityapi.Event {
+		return activityEvent(id, "h1", "file_activity", ts, `{"pid":5709,"pidversion":`+strconv.Itoa(pv)+`,"operation":"`+op+
+			`","path":"`+path+`"}`)
+	}
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
+		file("t1", at(10), 9, "create", dir+"/"+firstSession+".jsonl"),
+		file("t2", at(11), 9, "modify", dir+"/"+firstSession+".jsonl"),
+		// The next session's scratch directory comes a few milliseconds before its transcript, and is its first touch.
+		file("t3", at(49), 9, "create", "/private/tmp/claude-501/-Users-dev-qa/"+secondSession+"/scratchpad"),
+		file("t4", at(50), 9, "create", dir+"/"+secondSession+".jsonl"),
+		// The old session's last write is not a new first touch.
+		file("t5", at(51), 9, "modify", dir+"/"+firstSession+".jsonl"),
+		file("t6", at(52), 9, "create", dir+"/"+secondSession+"/subagents/agent-a11c.jsonl"),
+		// Paths that name no session: Claude Code's history, and a rolled-up directory row.
+		file("t7", at(53), 9, "modify", "/Users/dev/.claude/history.jsonl"),
+		file("t8", at(54), 9, "create", dir),
+		// Another generation of the pid.
+		file("t9", at(5), 7, "create", dir+"/"+firstSession+".jsonl"),
+		// What the agent connected to, in each session.
+		activityEvent("n1", "h1", "network_connect", at(20), `{"pid":5709,"pidversion":9,"protocol":"tcp","direction":"outbound",`+
+			`"remote_address":"160.79.104.10","remote_port":443}`),
+		activityEvent("n2", "h1", "network_connect", at(60), `{"pid":5709,"pidversion":9,"protocol":"tcp","direction":"outbound",`+
+			`"remote_address":"34.149.66.165","remote_port":443}`),
+	}))
+
+	var touches []visibilityapi.SessionTouch
+	require.Eventually(t, func() bool {
+		var err error
+		touches, err = arch.SessionTouches(ctx, "h1", visibilityapi.ProcessGeneration{PID: 5709, PIDVersion: 9})
+		return err == nil && len(touches) == 2
+	}, 5*time.Second, 100*time.Millisecond)
+	want := []visibilityapi.SessionTouch{{SessionID: firstSession, FirstNs: at(10)}, {SessionID: secondSession, FirstNs: at(49)}}
+	assert.Equal(t, want, touches, "the first touch of a path named after each session")
+
+	agent := visibilityapi.ProcessGeneration{PID: 5709, PIDVersion: 9}
+	for _, tc := range []struct {
+		name string
+		span visibilityapi.GenerationSpan
+		want string
+	}{
+		{"the first session", visibilityapi.GenerationSpan{ProcessGeneration: agent, ToNs: at(49)}, "160.79.104.10"},
+		{"the second session", visibilityapi.GenerationSpan{ProcessGeneration: agent, FromNs: at(49)}, "34.149.66.165"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := arch.ActivityForGenerations(ctx, visibilityapi.ActivityFilter{HostID: "h1",
+				Spans: []visibilityapi.GenerationSpan{tc.span}})
+			require.NoError(t, err)
+			require.Len(t, got.Network.Rows, 1)
+			assert.Equal(t, tc.want, got.Network.Rows[0].RemoteAddress)
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/fleetdm/edr/server/visibility/api"
 )
@@ -33,14 +34,14 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 		Network: api.NetworkActivity{Rows: []api.NetworkActivityRow{}},
 		DNS:     api.DNSActivity{Rows: []api.DNSActivityRow{}},
 	}
-	if len(filter.Generations) == 0 {
+	if len(filter.Generations) == 0 && len(filter.Spans) == 0 {
 		return out, nil
 	}
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = defaultActivityLimit
 	}
-	genClause, genArgs := generationIdentitySQL(filter.Generations)
+	genClause, genArgs := activityScopeSQL(filter)
 	scope := hostPredicate + " AND " + genClause
 	scopeArgs := append([]any{filter.HostID}, genArgs...)
 
@@ -198,4 +199,62 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 	return scanActivity(rows, filter.Limit, func(c *api.AgentToolCall) []any {
 		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID}
 	})
+}
+
+// activityScopeSQL matches the filter's generations: those in Generations wholly, those in Spans only inside their span (issue
+// #1319).
+func activityScopeSQL(filter api.ActivityFilter) (string, []any) {
+	var arms []string
+	var args []any
+	if len(filter.Generations) > 0 {
+		clause, genArgs := generationIdentitySQL(filter.Generations)
+		arms = append(arms, clause)
+		args = append(args, genArgs...)
+	}
+	for _, span := range filter.Spans {
+		clause, genArgs := generationIdentitySQL([]api.ProcessGeneration{span.ProcessGeneration})
+		clause += " AND timestamp_ns >= ?"
+		genArgs = append(genArgs, span.FromNs)
+		if span.ToNs > 0 {
+			clause += " AND timestamp_ns < ?"
+			genArgs = append(genArgs, span.ToNs)
+		}
+		arms = append(arms, "("+clause+")")
+		args = append(args, genArgs...)
+	}
+	return "(" + strings.Join(arms, " OR ") + ")", args
+}
+
+// sessionPath matches a path Claude Code names after a session, and captures the session's id: its transcript,
+// ~/.claude/projects/<project>/<session id>.jsonl, and the session's directories, ~/.claude/projects/<project>/<session id>/,
+// ~/.claude/session-env/<session id> and /tmp/claude-<uid>/<project>/<session id>/. Claude Code creates the scratch directory a few
+// milliseconds before the transcript, so the transcript alone would leave those first writes in the previous session.
+const sessionPath = `(?:/\.claude/projects/[^/]+/|/\.claude/session-env/|/claude-[0-9]+/[^/]+/)` +
+	`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.jsonl$|/|$)`
+
+// SessionTouches lists the first time the generation created or changed a path of each session, oldest first (issue #1319).
+func (s *Store) SessionTouches(ctx context.Context, hostID string, generation api.ProcessGeneration) ([]api.SessionTouch, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT extract(JSONExtractString(payload, 'path'), ?) AS session, min(timestamp_ns) AS first
+		FROM events FINAL
+		WHERE `+hostPredicate+` AND event_type = 'file_activity' AND pid = ? AND `+activityPIDVersion+` = ?
+			AND match(JSONExtractString(payload, 'path'), ?)
+		GROUP BY session
+		ORDER BY first, session`, sessionPath, hostID, generation.PID, generation.PIDVersion, sessionPath)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse session touches: %w", err)
+	}
+	defer rows.Close()
+	touches := []api.SessionTouch{}
+	for rows.Next() {
+		var t api.SessionTouch
+		if err := rows.Scan(&t.SessionID, &t.FirstNs); err != nil {
+			return nil, fmt.Errorf("scan session touch: %w", err)
+		}
+		touches = append(touches, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate session touches: %w", err)
+	}
+	return touches, nil
 }
