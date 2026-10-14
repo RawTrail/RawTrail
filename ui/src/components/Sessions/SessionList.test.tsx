@@ -26,7 +26,6 @@ function renderList(initial = "/sessions") {
     <MemoryRouter initialEntries={[initial]}>
       <Routes>
         <Route path="/sessions" element={<SessionList />} />
-        <Route path="/hosts/:hostId" element={<div>HOST PAGE</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -52,14 +51,12 @@ describe("SessionList", () => {
   });
 
   // spec:web-ui/ai-agent-sessions-page/a-session-opens-its-activity
-  it("opens the session's host on a window ending at its last activity", async () => {
+  it("opens the session's own view", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
-    // A time on an exact millisecond still moves to the next one: a JSON number can read an event a few ns after it as this value.
-    const row = session({ host_id: "H 1", last_seen_ns: 9_000_000_000 });
-    vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [row], total_matched: 1 });
+    vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session({ host_id: "H 1" })], total_matched: 1 });
     renderList();
     const link = await screen.findByRole("link", { name: "claude-code" });
-    expect(link).toHaveAttribute("href", "/hosts/H%201?at=9001");
+    expect(link).toHaveAttribute("href", "/sessions/H%201/169b5bb1-29b5-41da-9a54-92cd72599ad9");
     expect(screen.getByText("H 1")).toBeVisible();
   });
 

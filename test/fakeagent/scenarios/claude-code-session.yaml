@@ -1,26 +1,37 @@
-# A Claude Code session's tool calls: the agent (pid 5000) runs a shell for a Bash tool call, and the shell runs git. Each exec carries
-# the session markers the production agent forwards from the environment, so the server records one agent session working in
-# /Users/dev/project with both processes stamped with it.
-name: "Claude Code session: shell runs git"
+# A Claude Code session's two Bash tool calls, each run the way Claude Code 2.1.296 runs one: a zsh -c whose script restores the
+# shell snapshot and evals the model's command. The first runs `git status`; the second backgrounds `sleep 47` from a subshell, so
+# zsh forks a copy of itself that never execs and the sleep outlives the call. The agent (pid 5000) is never seen, so each call's
+# shell is a root. Every exec carries the session markers the production agent forwards from the environment. Every fork and exec
+# carries the kernel generations the server resolves a creator by, and each call's shell leads its own process group, which keys the
+# tool call.
+name: "Claude Code session: two Bash tool calls"
 host:
   id: AAAA0007-0000-0000-0000-000000000007
   hostname: dev-laptop.local
-  os: macOS 15.5
+  os: macOS 26.0
 timeline:
   - at: 0ms
     type: fork
     child_pid: 5001
     parent_pid: 5000
+    pidversion: 11
+    parent_pidversion: 10
   - at: 2ms
     type: exec
     pid: 5001
     ppid: 5000
+    pidversion: 11
+    parent_pidversion: 10
+    group_id: 5001
     path: /bin/zsh
-    args: ["/bin/zsh", "-c", "git status"]
+    args:
+      - /bin/zsh
+      - -c
+      - "source /Users/dev/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'git status' < /dev/null && pwd -P >| /tmp/claude-1a2b-cwd"
     cwd: /Users/dev/project
     uid: 501
     gid: 20
-    env:
+    env: &markers
       CLAUDE_CODE_SESSION_ID: 169b5bb1-29b5-41da-9a54-92cd72599ad9
       CLAUDE_PID: "5000"
       AI_AGENT: claude-code_2-1-296_agent
@@ -28,19 +39,20 @@ timeline:
     type: fork
     child_pid: 5002
     parent_pid: 5001
+    pidversion: 21
+    parent_pidversion: 11
   - at: 7ms
     type: exec
     pid: 5002
     ppid: 5001
+    pidversion: 21
+    parent_pidversion: 11
     path: /usr/bin/git
     args: ["git", "status"]
     cwd: /Users/dev/project
     uid: 501
     gid: 20
-    env:
-      CLAUDE_CODE_SESSION_ID: 169b5bb1-29b5-41da-9a54-92cd72599ad9
-      CLAUDE_PID: "5000"
-      AI_AGENT: claude-code_2-1-296_agent
+    env: *markers
   - at: 30ms
     type: exit
     pid: 5002
@@ -48,4 +60,58 @@ timeline:
   - at: 32ms
     type: exit
     pid: 5001
+    exit_code: 0
+  - at: 100ms
+    type: fork
+    child_pid: 5003
+    parent_pid: 5000
+    pidversion: 31
+    parent_pidversion: 10
+  - at: 102ms
+    type: exec
+    pid: 5003
+    ppid: 5000
+    pidversion: 31
+    parent_pidversion: 10
+    group_id: 5003
+    path: /bin/zsh
+    args:
+      - /bin/zsh
+      - -c
+      - "source /Users/dev/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval '(sleep 47 &)' < /dev/null && pwd -P >| /tmp/claude-3c4d-cwd"
+    cwd: /Users/dev/project
+    uid: 501
+    gid: 20
+    env: *markers
+  - at: 105ms
+    type: fork
+    child_pid: 5004
+    parent_pid: 5003
+    pidversion: 41
+    parent_pidversion: 31
+  - at: 107ms
+    type: fork
+    child_pid: 5005
+    parent_pid: 5004
+    pidversion: 51
+    parent_pidversion: 41
+  - at: 109ms
+    type: exec
+    pid: 5005
+    ppid: 5004
+    pidversion: 51
+    parent_pidversion: 41
+    path: /bin/sleep
+    args: ["sleep", "47"]
+    cwd: /Users/dev/project
+    uid: 501
+    gid: 20
+    env: *markers
+  - at: 112ms
+    type: exit
+    pid: 5004
+    exit_code: 0
+  - at: 115ms
+    type: exit
+    pid: 5003
     exit_code: 0

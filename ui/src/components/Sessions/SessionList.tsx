@@ -116,10 +116,7 @@ export function SessionList() {
   );
 }
 
-// sessionHref opens the session's host on a window ending just after the session's last activity: the host page's ?at= anchor ends
-// its window there. It is the next millisecond rather than a rounding up, because a current-epoch nanosecond time loses its low digits
-// as a JSON number and can read as earlier than the event. The session view (issue #1284) replaces this target.
+// sessionHref opens the session's own view.
 function sessionHref(s: AgentSessionSummary): string {
-  const atMs = Math.floor(s.last_seen_ns / NANOSECONDS_PER_MILLISECOND) + 1;
-  return `/hosts/${encodeURIComponent(s.host_id)}?at=${String(atMs)}`;
+  return `/sessions/${encodeURIComponent(s.host_id)}/${encodeURIComponent(s.agent_session_id)}`;
 }

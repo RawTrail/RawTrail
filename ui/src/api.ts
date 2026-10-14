@@ -354,6 +354,13 @@ export async function getProcessTree(
   );
 }
 
+// getSessionTree reads one AI agent session's processes as the raw forest by creator (issue #1284): no time window, since a session is
+// read by its index, and no sibling aggregation, since the session view groups the processes itself. limit bounds the rows.
+export async function getSessionTree(hostId: string, sessionId: string, limit = 2000): Promise<TreeResponse> {
+  const query = new URLSearchParams({ scope: "session", session: sessionId, flatten: "1", limit: String(limit) });
+  return fetchJSON<TreeResponse>(`/hosts/${encodeURIComponent(hostId)}/tree?${query.toString()}`);
+}
+
 export async function getHostDetail(hostId: string): Promise<HostDetail> {
   return fetchJSON<HostDetail>(`/hosts/${encodeURIComponent(hostId)}`);
 }

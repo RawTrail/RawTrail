@@ -1,0 +1,107 @@
+@use "../../styles/var/colors" as *;
+
+.session-view {
+  &__back {
+    color: $ui-fleet-black-50;
+    display: inline-block;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    text-decoration: none;
+
+    &:hover {
+      color: $core-fleet-blue;
+    }
+  }
+
+  &__mono {
+    font-family: ui-monospace, sfmono-regular, Menlo, monospace;
+  }
+
+  &__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+  }
+
+  &__notice {
+    color: $ui-fleet-black-75;
+    font-size: 0.85rem;
+    margin: 0 0 0.75rem;
+  }
+
+  &__calls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  &__call {
+    background: $core-fleet-white;
+    border: 1px solid $ui-fleet-black-10;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  &__call-header {
+    align-items: baseline;
+    background: $ui-fleet-black-5;
+    border: 0;
+    cursor: pointer;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.6rem 0.9rem;
+    text-align: left;
+    width: 100%;
+
+    &[aria-expanded="true"] {
+      border-bottom: 1px solid $ui-fleet-black-10;
+    }
+  }
+
+  &__command {
+    color: $core-fleet-black;
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  &__meta {
+    color: $ui-fleet-black-50;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  &__rows {
+    list-style: none;
+    margin: 0;
+    padding: 0.25rem 0 0.25rem 1.25rem;
+
+    .session-view__rows {
+      border-left: 1px solid $ui-fleet-black-10;
+      margin-left: 0.4rem;
+      padding-top: 0;
+    }
+  }
+
+  &__row {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    padding: 0.25rem 0.9rem 0.25rem 0;
+  }
+
+  &__name {
+    font-weight: 600;
+  }
+
+  &__cmdline {
+    color: $ui-fleet-black-75;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+  }
+}
