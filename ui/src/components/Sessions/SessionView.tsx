@@ -14,6 +14,7 @@ import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
 import { formatNs, basename, plural } from "../Search/format";
 import { findNodeByDbId } from "../ProcessTree.helpers";
+import { applyLaunchLinks } from "../launchLinks";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import {
@@ -127,7 +128,9 @@ export function SessionView() {
       if (!tree) return [];
       const incomplete = tree.truncated || current === null || current.alertsFailed === true || current.alertsTruncated === true
         || beganBeforeRetention(current);
-      return buildToolCalls(tree.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete });
+      // What launchd started for a call's open or launchctl is listed under it, marked inferred (issue #1286).
+      const logical = applyLaunchLinks(tree.roots, tree.links);
+      return buildToolCalls(logical.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred });
     },
     [tree, verbose, alertsByProcess, current],
   );
@@ -354,7 +357,7 @@ function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
 
 function ProcessRow({ listed }: { readonly listed: SessionRow }) {
   const { alertsByProcess, hits, selectedId, onSelect } = useSessionRows();
-  const { node, children, uidChange, folded } = listed;
+  const { node, children, uidChange, folded, inferred } = listed;
   const span = folded ? forkSpan(listed) : null;
   const rowClass = `session-view__row${hits.rows.has(listed) ? " session-view__row--hit" : ""}`;
   return (
@@ -376,6 +379,11 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
             : `pid ${String(node.pid)} · ${formatNs(node.fork_time_ns)}`}
           {node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
         </span>
+        {inferred && (
+          <span title="Started by launchd moments after the process above asked for it: linked by timing and target, not lineage">
+            <Badge variant="info">inferred launch</Badge>
+          </span>
+        )}
         {uidChange && (
           <span title={`Runs as uid ${String(uidChange.to)}; its creator ran as uid ${String(uidChange.from)}`}>
             <Badge variant="high">{uidChange.to === 0 ? "runs as root" : `runs as uid ${String(uidChange.to)}`}</Badge>

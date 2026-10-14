@@ -367,8 +367,18 @@ export interface ProcessDetail {
 // Both counts come from the server rather than being derived here, because both client-side derivations are wrong in the cases that
 // matter: the handler clamps the requested limit, so the limit this client sent is not reliably the effective one, and counting
 // rendered nodes undercounts because aggregation collapses siblings.
+// ProcessLink is an edge between two process rows that parentage does not hold (issue #1286). inferred_launch links an open or
+// launchctl exec to the process launchd started for it, inferred from timing and target rather than lineage.
+export interface ProcessLink {
+  from: number;
+  to: number;
+  kind: "inferred_launch";
+}
+
 export interface TreeResponse {
   roots: ProcessNode[];
+  // links are the read's inferred launches; absent when there are none.
+  links?: ProcessLink[];
   returned: number;
   total_matched: number;
   total_matched_capped: boolean;

@@ -247,6 +247,13 @@ describe("folding", () => {
     expect(call.rows.some((r) => r.folded)).toBe(false);
   });
 
+  it("marks an inferred launch and never folds it with an identical sibling", () => {
+    const tree = loop(3);
+    const [call] = buildToolCalls([tree], { verbose: false, inferred: new Set([101]) });
+    const wcs = call.rows.filter((r) => r.node.path === "/usr/bin/wc");
+    expect(wcs.map((r) => [r.node.id, r.inferred ?? false, r.folded?.length ?? 0])).toEqual([[100, false, 1], [101, true, 0]]);
+  });
+
   it("does not fold processes that ran different commands", () => {
     const [call] = buildToolCalls([loop(3, (i) => ({ args: ["wc", "-l", `f${String(i)}`] }))], QUIET);
     expect(call.rows.filter((r) => r.node.path === "/usr/bin/wc")).toHaveLength(3);

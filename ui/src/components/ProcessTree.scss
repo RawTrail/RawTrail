@@ -365,6 +365,11 @@
 // Search highlight styles applied to D3-rendered nodes and links.
 // Stable selections managed by D3; these rules only toggle visual state.
 .process-tree__canvas {
+  // An inferred launch's edge (issue #1286): dashed, since it is a correlation by timing and target rather than parentage.
+  svg .link--inferred {
+    stroke-dasharray: 5 4;
+  }
+
   svg .link {
     stroke: $ui-fleet-black-25;
     stroke-width: 1;

@@ -398,6 +398,38 @@ describe("SessionView", () => {
     expect(screen.getByText("ls /private/tmp | head -3")).toBeVisible();
   });
 
+  // spec:web-ui/inferred-launches-in-the-ui/a-session-lists-a-launch-under-the-call-that-asked
+  it("lists what launchd started for a call's open under that call, marked as inferred", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    // As captured on edr-dev: the call's open, and TextEdit, a root launchd started that carries the session's markers.
+    const call = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'open -a TextEdit'"], [
+      proc(11, 11, 101, "/usr/bin/open", ["open", "-a", "TextEdit"]),
+    ], { tool_call_group: 10 });
+    const textEdit = proc(12, 12, 102, "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit", ["TextEdit"]);
+    const links = [{ from: 11, to: 12, kind: "inferred_launch" as const }];
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call, textEdit], links }));
+    renderView();
+    expect(await screen.findByText("open -a TextEdit", { selector: "code" })).toBeVisible();
+    expect(callHeaders()).toHaveLength(1);
+    const badge = screen.getByText("inferred launch");
+    expect(badge.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("TextEdit");
+    // TextEdit sits under the open that asked for it.
+    expect(badge.closest("li")?.parentElement?.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("open");
+  });
+
+  it("lists a launch as a call of its own when the read carries no link for it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const call = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'open -a TextEdit'"], [
+      proc(11, 11, 101, "/usr/bin/open", ["open", "-a", "TextEdit"]),
+    ], { tool_call_group: 10 });
+    const textEdit = proc(12, 12, 102, "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit", ["TextEdit"]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call, textEdit] }));
+    renderView();
+    await screen.findByText("open -a TextEdit", { selector: "code" });
+    expect(callHeaders()).toHaveLength(2);
+    expect(screen.queryByText("inferred launch")).not.toBeInTheDocument();
+  });
+
   it("says how many processes there are at least when the server capped its count", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, total_matched: 10_000, total_matched_capped: true }));

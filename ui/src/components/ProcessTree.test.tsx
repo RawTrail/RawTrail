@@ -1040,3 +1040,37 @@ describe("ProcessTreeView retention notice", () => {
     expect(screen.queryByText(/have been deleted by retention/)).toBeNull();
   });
 });
+
+describe("ProcessTreeView logical tree (issue #1286)", () => {
+  // A shell ran `open -a TextEdit`; launchd started TextEdit, a root of its own. The read links the two.
+  const launchForest: ProcessNode[] = [
+    { ...process(1, 100, 1, "/usr/local/bin/zsh"), children: [{ ...process(2, 200, 100, "/usr/bin/open"), fork_time_ns: 2 }] },
+    { ...process(3, 300, 1, "/usr/local/bin/TextEdit"), fork_time_ns: 3 },
+  ];
+
+  // spec:web-ui/inferred-launches-in-the-ui/the-host-graph-toggles-a-logical-tree
+  it("offers a logical tree that hangs a launch under its launcher with a dashed edge", async () => {
+    vi.spyOn(api, "getProcessTree").mockResolvedValue({
+      ...treeResponse(launchForest),
+      links: [{ from: 2, to: 3, kind: "inferred_launch" }],
+    });
+    const { container } = renderTree("");
+    expect(await screen.findByText("TextEdit (300)")).toBeInTheDocument();
+    expect(container.querySelector("path.link--inferred")).toBeNull();
+
+    fireEvent.click(screen.getByText("Logical tree"));
+    expect(await screen.findByText("TextEdit (300) inferred launch")).toBeInTheDocument();
+    expect(container.querySelectorAll("path.link--inferred")).toHaveLength(1);
+
+    fireEvent.click(screen.getByText("Logical tree"));
+    expect(await screen.findByText("TextEdit (300)")).toBeInTheDocument();
+    expect(container.querySelector("path.link--inferred")).toBeNull();
+  });
+
+  it("offers no logical tree when the read carries no links", async () => {
+    vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(launchForest));
+    renderTree("");
+    await screen.findByText("TextEdit (300)");
+    expect(screen.queryByText("Logical tree")).not.toBeInTheDocument();
+  });
+});

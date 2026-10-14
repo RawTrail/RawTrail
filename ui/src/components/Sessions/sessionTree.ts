@@ -14,6 +14,9 @@ export interface SessionRow {
   // uidChange is set when the process runs as a different user from the process that created it: a privilege change, such as sudo
   // to root, the view badges.
   uidChange?: { from: number; to: number };
+  // inferred is set when the row was launched by launchd for the process it is listed under (issue #1286): linked by timing and
+  // target, not lineage.
+  inferred?: boolean;
   // folded holds the identical siblings folded into this row, in fork order: processes that ran the same command under the same
   // creator, ran nothing of their own and were not flagged. The row stands for all of them.
   folded?: ProcessNode[];
@@ -43,6 +46,8 @@ export interface RowShape {
   // incomplete is set when the read left out processes or alerts (a truncated tree, a failed or capped alert read). Folding is then
   // off: a row that looks identical to its siblings may have started a process or carried an alert the view never saw.
   incomplete?: boolean;
+  // inferred names the rows an inferred launch placed under their launcher, so each is marked as inferred rather than lineage.
+  inferred?: ReadonlySet<number>;
 }
 
 // SessionSummary is what the view's header says about the whole session, read from its processes.
@@ -89,6 +94,7 @@ function hidden(node: ProcessNode, isPlumbing: boolean, shape: RowShape): boolea
 // row lists a process. creatorUid is the user its creator ran as, when known, for the privilege comparison.
 function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape): SessionRow {
   const listed: SessionRow = { node, children: visibleRows(node, node.uid ?? creatorUid, shape) };
+  if (shape.inferred?.has(node.id)) listed.inferred = true;
   if (creatorUid !== undefined && node.uid !== undefined && node.uid !== creatorUid) {
     listed.uidChange = { from: creatorUid, to: node.uid };
   }
@@ -98,7 +104,9 @@ function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape)
 // foldKey identifies a row that can be folded with its identical siblings: a process that started nothing, changed no privilege and
 // carries no alert. Null for any other row.
 function foldKey(listed: SessionRow, shape: RowShape): string | null {
-  if (shape.incomplete || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) return null;
+  if (shape.incomplete || listed.inferred || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) {
+    return null;
+  }
   // How each ended is part of the key: a failed run must not hide behind a successful one.
   const outcome = `${listed.node.exit_reason ?? ""}:${String(listed.node.exit_code ?? "")}`;
   return `${listed.node.path}\u0000${commandLine(listed.node.path, listed.node.args)}\u0000${outcome}`;

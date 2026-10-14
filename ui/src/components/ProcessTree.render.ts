@@ -36,6 +36,8 @@ export interface RenderResult {
 // aggregated-node expand.
 export interface TreeInteractions {
   alertProcessIds: Set<number>;
+  // inferredIds are the rows the logical tree hung under a launcher (issue #1286): their edge is dashed and their label says so.
+  inferredIds?: ReadonlySet<number>;
   // techniquesByNodeId maps a process DB id to its alerts' technique ids, shown in the hover tooltip (issue #585).
   techniquesByNodeId: Map<number, string[]>;
   onToggleCollapsed?: (nodeId: number) => void;
@@ -125,6 +127,7 @@ export function renderTree(
 ): RenderResult {
   const { alertProcessIds, techniquesByNodeId, onToggleCollapsed, expandedAggIds, onToggleAggExpanded, onHover } =
     interactions;
+  const inferredIds = interactions.inferredIds ?? new Set<number>();
   const hierarchy = toD3Hierarchy(roots);
   const root = d3.hierarchy(hierarchy);
 
@@ -170,7 +173,7 @@ export function renderTree(
   g.selectAll("path.link")
     .data(links.filter((l) => !hasSyntheticRoot || l.source.depth !== 0))
     .join("path")
-    .attr("class", "link")
+    .attr("class", (l) => (inferredIds.has(l.target.data.data.id) ? "link link--inferred" : "link"))
     .attr("fill", "none")
     .attr(
       "d",
@@ -249,7 +252,7 @@ export function renderTree(
     .attr("font-family", "ui-monospace, SFMono-Regular, Menlo, monospace")
     .attr("fill", (d) => nodeLabelFill(alertProcessIds.has(d.data.data.id)))
     .attr("font-weight", (d) => nodeLabelWeight(alertProcessIds.has(d.data.data.id)))
-    .text((d) => nodeLabelText(d.data));
+    .text((d) => (inferredIds.has(d.data.data.id) ? `${nodeLabelText(d.data)}  inferred launch` : nodeLabelText(d.data)));
 
   // White backdrop behind each label so sibling tree links passing through the
   // label area don't visually cut through the text. Inserted after the text is
