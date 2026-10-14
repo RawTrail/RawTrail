@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -28,8 +29,15 @@ const (
 	// maxBytesPerPass bounds what one pass reads from one transcript, so a long session first seen after a restart is caught up over
 	// several passes rather than in one long one. A line longer than this is skipped, not waited on.
 	maxBytesPerPass = 4 << 20
+	// maxFilesPerPass and maxBytesTotalPerPass bound one pass over every home, so transcripts cannot take the agent away from the
+	// telemetry it exists for: the most recently changed transcripts are read first, and the rest wait for a later pass.
+	maxFilesPerPass      = 256
+	maxBytesTotalPerPass = 16 << 20
 	// projectsDir is where Claude Code keeps its transcripts under a home directory, one directory per project.
 	projectsDir = ".claude/projects"
+	// subagentsDir holds a session's subagent transcripts: <project>/<session id>/subagents/agent-<id>.jsonl, whose lines carry the
+	// parent session's id (Claude Code 2.1.296, probed on edr-dev).
+	subagentsDir = "subagents"
 	// transcriptSuffix names a transcript within a project directory.
 	transcriptSuffix = ".jsonl"
 )
@@ -70,6 +78,14 @@ type PassStats struct {
 	Unreadable int
 }
 
+// transcript is one recent transcript a pass found: the home it is under, its path within that home, and the regular file the
+// listing saw there.
+type transcript struct {
+	home   string
+	rel    string
+	listed os.FileInfo
+}
+
 // Run reads the transcripts every defaultInterval until ctx ends.
 func (r *Reader) Run(ctx context.Context) {
 	ticker := time.NewTicker(defaultInterval)
@@ -87,8 +103,8 @@ func (r *Reader) Run(ctx context.Context) {
 	}
 }
 
-// RunOnce reads what each recent transcript gained since the last pass. Without a host id there is nothing to attribute a call to,
-// so the pass is skipped and the positions stay where they are.
+// RunOnce reads what the recent transcripts gained since the last pass, the most recently changed first, within the pass's budgets.
+// Without a host id there is nothing to attribute a call to, so the pass is skipped and the positions stay where they are.
 func (r *Reader) RunOnce(ctx context.Context) PassStats {
 	var stats PassStats
 	hostID := r.hostID()
@@ -99,70 +115,122 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 	if err != nil {
 		return stats
 	}
-	recent := map[string]bool{}
+	var found []transcript
 	for _, home := range homes {
 		if home.IsDir() {
-			r.readHome(ctx, hostID, home.Name(), recent, &stats)
+			found = append(found, r.listHome(home.Name())...)
+		}
+	}
+	slices.SortFunc(found, func(a, b transcript) int { return b.listed.ModTime().Compare(a.listed.ModTime()) })
+	kept := map[string]bool{}
+	budget := int64(maxBytesTotalPerPass)
+	for i, t := range found {
+		if i == maxFilesPerPass {
+			break
+		}
+		key := path.Join(t.home, t.rel)
+		kept[key] = true
+		if ctx.Err() != nil || budget <= 0 {
+			continue
+		}
+		read, err := r.readFrom(ctx, hostID, t, key, budget, &stats)
+		budget -= read
+		if err != nil {
+			r.logger.WarnContext(ctx, "read agent transcript", "err", err)
 		}
 	}
 	for key := range r.files {
-		if !recent[key] {
+		if !kept[key] {
 			delete(r.files, key)
 		}
 	}
 	return stats
 }
 
-// readHome reads the recent transcripts under one home directory, through an os.Root confined to it.
-func (r *Reader) readHome(ctx context.Context, hostID, home string, recent map[string]bool, stats *PassStats) {
+// listHome lists the recent transcripts under one home directory, sessions' and their subagents', through an os.Root confined to it.
+func (r *Reader) listHome(home string) []transcript {
 	homeRoot, err := os.OpenRoot(path.Join(r.root, home))
 	if err != nil {
-		return
+		return nil
 	}
 	defer func() { _ = homeRoot.Close() }() // read only: a failed close loses nothing
-	homeFS := homeRoot.FS()
-	projects, err := fs.ReadDir(homeFS, projectsDir)
+	projects, err := readDir(homeRoot, projectsDir)
 	if err != nil {
-		return
+		return nil
 	}
+	var found []transcript
 	for _, project := range projects {
+		if !project.IsDir() {
+			continue
+		}
 		dir := path.Join(projectsDir, project.Name())
-		entries, err := fs.ReadDir(homeFS, dir)
+		entries, err := readDir(homeRoot, dir)
 		if err != nil {
 			continue
 		}
 		for _, entry := range entries {
-			// A directory entry's type is the entry's own, not a link target's: a symlink or a FIFO is passed over here.
-			if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), transcriptSuffix) {
-				continue
-			}
-			info, err := entry.Info()
-			if err != nil || r.now().Sub(info.ModTime()) > recentWindow {
-				continue
-			}
-			rel := path.Join(dir, entry.Name())
-			key := path.Join(home, rel)
-			recent[key] = true
-			if err := r.readFrom(ctx, hostID, homeRoot, rel, key, stats); err != nil {
-				r.logger.WarnContext(ctx, "read agent transcript", "err", err)
+			if entry.IsDir() {
+				// A session directory holds its subagents' transcripts.
+				sub := path.Join(dir, entry.Name(), subagentsDir)
+				if subEntries, err := readDir(homeRoot, sub); err == nil {
+					found = append(found, r.recentIn(home, sub, subEntries)...)
+				}
 			}
 		}
+		found = append(found, r.recentIn(home, dir, entries)...)
 	}
+	return found
 }
 
-// readFrom reads one transcript from its position and enqueues the tool calls of each complete line, advancing past each line it
-// handled. A trailing line without its newline is still being written and waits for the next pass. A transcript that is not the file
-// last read, or that is shorter than the position, was replaced and is read from its start.
-func (r *Reader) readFrom(ctx context.Context, hostID string, homeRoot *os.Root, rel, key string, stats *PassStats) error {
-	// O_NONBLOCK keeps a FIFO swapped in since the listing from blocking the open, and the check after it turns it away.
-	f, err := homeRoot.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return fmt.Errorf("open transcript: %w", err)
+// recentIn returns the transcripts among a directory's entries that changed within recentWindow. An entry's type is its own, not a
+// link target's, so a symlink or a FIFO is passed over.
+func (r *Reader) recentIn(home, dir string, entries []fs.DirEntry) []transcript {
+	var found []transcript
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), transcriptSuffix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || r.now().Sub(info.ModTime()) > recentWindow {
+			continue
+		}
+		found = append(found, transcript{home: home, rel: path.Join(dir, entry.Name()), listed: info})
 	}
-	defer f.Close()
+	return found
+}
+
+// readDir lists a directory within a home. O_DIRECTORY and O_NONBLOCK make the open fail at once for anything else the user put there,
+// a FIFO included, which a plain open would block on.
+func readDir(homeRoot *os.Root, name string) ([]fs.DirEntry, error) {
+	f, err := homeRoot.OpenFile(name, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }() // read only: a failed close loses nothing
+	return f.ReadDir(-1)
+}
+
+// readFrom reads one transcript from its position, at most budget bytes, and enqueues the tool calls of each complete line, advancing
+// past each line it handled; it returns how much it read. A trailing line without its newline is still being written and waits for
+// the next pass. A transcript that is not the file last read, or that is shorter than the position, was replaced and is read from its
+// start.
+func (r *Reader) readFrom(ctx context.Context, hostID string, t transcript, key string, budget int64, stats *PassStats) (int64, error) {
+	homeRoot, err := os.OpenRoot(path.Join(r.root, t.home))
+	if err != nil {
+		return 0, fmt.Errorf("open home: %w", err)
+	}
+	defer func() { _ = homeRoot.Close() }() // read only: a failed close loses nothing
+	// The transcript was a regular file when listed, but its directory is the user's, who can swap something else in since.
+	// O_NONBLOCK keeps a FIFO from blocking the open, and the identity check after it turns away anything that is not the file the
+	// listing saw: os.Root follows a symlink that stays inside the home, O_NOFOLLOW or not.
+	f, err := homeRoot.OpenFile(t.rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return 0, fmt.Errorf("open transcript: %w", err)
+	}
+	defer func() { _ = f.Close() }() // read only: a failed close loses nothing
 	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		return fmt.Errorf("transcript %s is not a regular file", path.Base(rel))
+	if err != nil || !os.SameFile(t.listed, info) {
+		return 0, fmt.Errorf("transcript %s changed since it was listed", path.Base(t.rel))
 	}
 	pos := r.files[key]
 	if pos == nil || !os.SameFile(pos.file, info) || info.Size() < pos.offset {
@@ -171,13 +239,13 @@ func (r *Reader) readFrom(ctx context.Context, hostID string, homeRoot *os.Root,
 	}
 	pos.file = info
 	if info.Size() == pos.offset {
-		return nil
+		return 0, nil
 	}
-	chunk, err := io.ReadAll(io.LimitReader(io.NewSectionReader(f, pos.offset, info.Size()-pos.offset), maxBytesPerPass))
+	chunk, err := io.ReadAll(io.LimitReader(io.NewSectionReader(f, pos.offset, info.Size()-pos.offset), min(maxBytesPerPass, budget)))
 	if err != nil {
-		return fmt.Errorf("read transcript: %w", err)
+		return 0, fmt.Errorf("read transcript: %w", err)
 	}
-	return r.consume(ctx, hostID, pos, chunk, stats)
+	return int64(len(chunk)), r.consume(ctx, hostID, pos, chunk, stats)
 }
 
 // consume handles the complete lines of chunk, read from pos.offset, and advances the position past them. A line that fills a whole

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -225,6 +226,90 @@ func TestReader_EventIDsAreStable(t *testing.T) {
 	parsed, err := uuid.Parse(id)
 	require.NoError(t, err)
 	assert.Equal(t, id, parsed.String(), "a canonical UUID, as the schema's format asks")
+}
+
+// A subagent's calls are in a transcript of its own under the session's directory, carrying the parent session.
+func TestReader_ReadsSubagentTranscripts(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	sub := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
+	require.NoError(t, os.MkdirAll(sub, 0o700))
+	line := strings.Replace(bashLine("toolu_sub", "echo from-subagent"), `"isSidechain":false`, `"isSidechain":true`, 1)
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "agent-a11cf0d792d53f727.jsonl"), []byte(line), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "agent-a11cf0d792d53f727.meta.json"), []byte(`{}`), 0o600))
+	assert.Equal(t, PassStats{Calls: 1}, r.RunOnce(context.Background()))
+	payload, _ := q.events[0]["payload"].(map[string]any)
+	assert.Equal(t, true, payload["sidechain"])
+	assert.Equal(t, "47abb2a1-d231-4304-8cb1-52f4460fcd11", payload["agent_session_id"])
+}
+
+// A FIFO where the reader expects a directory fails its open at once rather than blocking the pass.
+func TestReader_AFIFOForADirectoryDoesNotBlock(t *testing.T) {
+	t.Parallel()
+	for name, fifo := range map[string]string{
+		"among the projects":          filepath.Join(".claude", "projects", "fifo"),
+		"in place of the projects":    filepath.Join(".claude", "projects"),
+		"in place of a session's dir": filepath.Join(".claude", "projects", "-Users-dev-project", "47abb2a1"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			at := filepath.Join(root, "dev", fifo)
+			require.NoError(t, os.MkdirAll(filepath.Dir(at), 0o700))
+			require.NoError(t, syscall.Mkfifo(at, 0o600))
+			r := New(root, func() string { return "H1" }, (&recordingQueue{}).enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			done := make(chan struct{})
+			go func() { r.RunOnce(context.Background()); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("a FIFO blocked the pass")
+			}
+		})
+	}
+}
+
+// One pass reads at most maxFilesPerPass transcripts, the most recently changed first.
+func TestReader_PassIsBounded(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	dir := filepath.Dir(path)
+	stale := time.Now().Add(-2 * recentWindow)
+	require.NoError(t, os.Chtimes(path, stale, stale)) // the fixture's empty transcript is not one of the many
+	newest := time.Now()
+	for i := range maxFilesPerPass + 20 {
+		name := filepath.Join(dir, fmt.Sprintf("s%03d.jsonl", i))
+		require.NoError(t, os.WriteFile(name, []byte(bashLine(fmt.Sprintf("toolu_%03d", i), "ls")), 0o600))
+		at := newest.Add(-time.Duration(i) * time.Second)
+		require.NoError(t, os.Chtimes(name, at, at))
+	}
+	stats := r.RunOnce(context.Background())
+	assert.Equal(t, maxFilesPerPass, stats.Calls)
+	assert.Contains(t, q.toolUseIDs(), "toolu_000", "the newest are read")
+	assert.NotContains(t, q.toolUseIDs(), fmt.Sprintf("toolu_%03d", maxFilesPerPass+19), "the oldest wait")
+	assert.LessOrEqual(t, len(r.files), maxFilesPerPass)
+}
+
+// A transcript swapped for a symlink after it was listed is not read through it, even to a file inside the home.
+func TestReader_RefusesASymlinkSwappedIn(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	other := filepath.Join(filepath.Dir(path), "other.txt")
+	require.NoError(t, os.WriteFile(other, []byte(bashLine("toolu_other", "ls")), 0o600))
+	listed, err := os.Lstat(path)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(path))
+	// Relative, so it stays inside the home and os.Root alone would follow it.
+	require.NoError(t, os.Symlink(filepath.Base(other), path))
+	rel := strings.TrimPrefix(path, filepath.Join(r.root, "dev")+"/")
+	read, err := r.readFrom(context.Background(), "H1", transcript{home: "dev", rel: rel, listed: listed}, "k", maxBytesTotalPerPass,
+		&PassStats{})
+	require.Error(t, err)
+	assert.Zero(t, read)
+	assert.Empty(t, q.events)
 }
 
 func TestReader_SkipsWhatItCannotAttribute(t *testing.T) {
