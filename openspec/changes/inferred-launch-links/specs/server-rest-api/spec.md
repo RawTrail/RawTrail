@@ -2,7 +2,7 @@
 
 ### Requirement: Inferred launch links
 
-A process tree read SHALL link an `open -a <App>`, `open <path>.app` or `launchctl submit ... -- <program>` exec to the first process launchd started within 5 seconds of it that runs the app or program it named, oldest launcher first and each launched process once, as an `inferred_launch` link. A session or story read SHALL include a linked process it does not hold, with its descendants. A link SHALL NOT change any process's parentage, session or tool call.
+A window, session or story tree read SHALL link an `open -a <App>`, `open <path>.app` or `launchctl submit ... -- <program>` exec to the first process launchd started (not adopted) within 5 seconds of it that runs what it named, earliest ask first, each launched process once, for at most 50 launchers per read. A session or story read SHALL include a linked process with its descendants and report truncation when they are cut. A link SHALL NOT change parentage.
 
 #### Scenario: A session read links and includes what its launchers started
 
@@ -13,9 +13,9 @@ A process tree read SHALL link an `open -a <App>`, `open <path>.app` or `launchc
 
 #### Scenario: A launcher is matched to what it named
 
-- **GIVEN** a launchd child that runs something else within the window, a process of the agent's own running the same program, a second `open -a TextEdit` before the app started, a later `open -a TextEdit` whose own launch follows it, and launchers that name a bundle id or a plist
+- **GIVEN** a launchd child that runs something else within the window, a process of the agent's own running the same program, the same program started by launchd before the ask, a daemon launchd adopted rather than started, a second `open -a TextEdit` before the app started, a later `open -a TextEdit` whose own launch follows it, and launchers that name a bundle id or a plist
 - **WHEN** the tree is read
-- **THEN** each launcher is linked to its own launch, and the second open, the unrelated launchd child, the agent's own process and the launchers naming nothing a path matches are not linked
+- **THEN** each launcher is linked to its own launch, and none of the other processes, nor the launchers naming nothing a path matches, are linked
 
 #### Scenario: A window read links only what it holds
 

@@ -19,12 +19,15 @@ const (
 	// launchWindow is how long after the launcher's exec its launchd child may start. Launch Services answered within a second on
 	// edr-dev; five leaves room for a cold app start without reaching far enough to pair unrelated launches.
 	launchWindow = 5 * time.Second
-	// maxLaunchers bounds how many launchers one read infers for, each costing one indexed candidate read.
+	// maxLaunchers bounds how many launchers one read infers for, the oldest kept.
 	maxLaunchers = 50
-	// maxLaunchCandidates bounds the launchd children read per launcher.
-	maxLaunchCandidates = 200
-	// maxLaunchStory bounds the rows a scoped read adds for one launched program's story.
-	maxLaunchStory = 500
+	// maxLaunchCandidates bounds the launchd children read for all of a read's launchers at once.
+	maxLaunchCandidates = 2000
+	// maxLaunchStory bounds the rows a scoped read adds for the programs its launchers started; past it the read reports truncation.
+	maxLaunchStory = 2000
+	// The launchers, by their canonical paths: a binary elsewhere that happens to be named open or launchctl is not Apple's.
+	openPath      = "/usr/bin/open"
+	launchctlPath = "/bin/launchctl"
 )
 
 // launchTarget returns what a launcher exec asked launchd to start, as a match over a candidate's executable path, and false for an
@@ -35,8 +38,7 @@ const (
 //
 // `open -b bundle.id`, `launchctl load|bootstrap plist` and XPC hops name nothing a path matches and are not inferred.
 func launchTarget(p api.Process) (func(string) bool, bool) {
-	base := path.Base(p.Path)
-	if base != "open" && base != "launchctl" {
+	if p.Path != openPath && p.Path != launchctlPath {
 		return nil, false
 	}
 	// The argv is stored as the JSON array the exec reported; one that does not decode names nothing to match.
@@ -44,7 +46,7 @@ func launchTarget(p api.Process) (func(string) bool, bool) {
 	if json.Unmarshal(p.Args, &args) != nil || len(args) < 2 {
 		return nil, false
 	}
-	if base == "open" {
+	if p.Path == openPath {
 		return openTarget(args[1:])
 	}
 	return submitTarget(args[1:])
@@ -93,46 +95,66 @@ func submitTarget(args []string) (func(string) bool, bool) {
 
 // launchLinks infers the launches the forest's launchers made: for each, the first launchd child forked within launchWindow of its
 // exec whose executable matches its target, each child linked at most once. When extend is set (a story or session read), a launched
-// process the forest does not hold is returned with its descendants as extra roots, so the scope shows what it caused to run; a window
-// read links only what it already holds.
+// process the forest does not hold is returned with its descendants as extra roots, so the scope shows what it caused to run, and
+// truncated reports that those descendants were cut; a window read links only what it already holds. Two reads at most: every
+// launcher's candidates at once, and every launched story at once.
 func (q *Query) launchLinks(
 	ctx context.Context, hostID string, forest []api.ProcessNode, extend bool,
-) ([]api.ProcessLink, []api.ProcessNode, error) {
+) (links []api.ProcessLink, extra []api.ProcessNode, truncated bool, err error) {
 	held, launchers := collectLaunchers(forest)
-	var links []api.ProcessLink
-	var extra []api.ProcessNode
+	if len(launchers) == 0 {
+		return nil, nil, false, nil
+	}
+	ranges := make([]api.TimeRange, len(launchers))
+	for i, l := range launchers {
+		ranges[i] = api.TimeRange{FromNs: launchedFrom(l), ToNs: launchedFrom(l) + launchWindow.Nanoseconds()}
+	}
+	candidates, err := q.store.GetLaunchdChildren(ctx, hostID, ranges, maxLaunchCandidates)
+	if err != nil {
+		return nil, nil, false, err
+	}
 	linked := map[int64]bool{}
-	for _, launcher := range launchers {
-		launched, err := q.firstLaunch(ctx, hostID, launcher, func(c api.Process) bool { return !linked[c.ID] && (extend || held[c.ID]) })
-		if err != nil {
-			return nil, nil, err
-		}
-		if launched == nil {
-			continue
-		}
-		linked[launched.ID] = true
-		links = append(links, api.ProcessLink{From: launcher.ID, To: launched.ID, Kind: api.ProcessLinkInferredLaunch})
-		if extend && !held[launched.ID] {
-			subtree, err := q.launchedSubtree(ctx, hostID, *launched)
-			if err != nil {
-				return nil, nil, err
+	var launched []api.Process
+	for i, launcher := range launchers {
+		match, _ := launchTarget(launcher)
+		for _, c := range candidates {
+			inWindow := c.ForkTimeNs >= ranges[i].FromNs && c.ForkTimeNs <= ranges[i].ToNs
+			if inWindow && match(c.Path) && !linked[c.ID] && (extend || held[c.ID]) {
+				linked[c.ID] = true
+				links = append(links, api.ProcessLink{From: launcher.ID, To: c.ID, Kind: api.ProcessLinkInferredLaunch})
+				if !held[c.ID] {
+					launched = append(launched, c)
+				}
+				break
 			}
-			extra = append(extra, subtree...)
 		}
 	}
-	return links, extra, nil
+	if !extend || len(launched) == 0 {
+		return links, nil, false, nil
+	}
+	extra, truncated, err = q.launchedSubtrees(ctx, hostID, launched, held)
+	return links, extra, truncated, err
 }
 
-// collectLaunchers walks the forest for the rows it holds and its launchers, oldest launcher first, so of two launches of one app the
-// earlier launcher claims the earlier launch and the links come out in the order the launches happened rather than the forest's.
+// launchedFrom is when a launcher asked for its launch: its exec, or its fork when the row carries no exec time.
+func launchedFrom(p api.Process) int64 {
+	if p.ExecTimeNs != nil {
+		return *p.ExecTimeNs
+	}
+	return p.ForkTimeNs
+}
+
+// collectLaunchers walks the forest for the rows it holds and its launchers, ordered by when each asked, so of two launches of one
+// app the earlier ask claims the earlier launch and the links come out in the order the launches happened. The cap applies after
+// ordering, so the oldest launchers are the ones kept.
 func collectLaunchers(forest []api.ProcessNode) (map[int64]bool, []api.Process) {
 	held := map[int64]bool{}
-	var launchers []api.Process
+	launchers := []api.Process{}
 	var walk func(nodes []api.ProcessNode)
 	walk = func(nodes []api.ProcessNode) {
 		for _, n := range nodes {
 			held[n.ID] = true
-			if _, ok := launchTarget(n.Process); ok && len(launchers) < maxLaunchers {
+			if _, ok := launchTarget(n.Process); ok {
 				launchers = append(launchers, n.Process)
 			}
 			walk(n.Children)
@@ -140,49 +162,65 @@ func collectLaunchers(forest []api.ProcessNode) (map[int64]bool, []api.Process) 
 	}
 	walk(forest)
 	slices.SortFunc(launchers, func(a, b api.Process) int {
-		return cmp.Or(cmp.Compare(a.ForkTimeNs, b.ForkTimeNs), cmp.Compare(a.ID, b.ID))
+		return cmp.Or(cmp.Compare(launchedFrom(a), launchedFrom(b)), cmp.Compare(a.ID, b.ID))
 	})
-	return held, launchers
+	return held, launchers[:min(len(launchers), maxLaunchers)]
 }
 
-// firstLaunch returns the first launchd child forked within launchWindow of the launcher's exec that runs its target and that
-// eligible admits, or nil when there is none.
-func (q *Query) firstLaunch(
-	ctx context.Context, hostID string, launcher api.Process, eligible func(api.Process) bool,
-) (*api.Process, error) {
-	match, _ := launchTarget(launcher)
-	from := launcher.ForkTimeNs
-	if launcher.ExecTimeNs != nil {
-		from = *launcher.ExecTimeNs
-	}
-	candidates, err := q.store.GetLaunchdChildren(ctx, hostID, from, from+launchWindow.Nanoseconds(), maxLaunchCandidates)
-	if err != nil {
-		return nil, err
-	}
-	for i := range candidates {
-		if match(candidates[i].Path) && eligible(candidates[i]) {
-			return &candidates[i], nil
+// launchedSubtrees reads the launched processes' stories in one read and returns each launched process with its descendants,
+// leaving out launchd's xpcproxy row (plumbing, not what the launcher asked for) and any row the forest already holds or an earlier
+// subtree added, so no process is listed twice. truncated reports that the stories had more rows than are read.
+func (q *Query) launchedSubtrees(
+	ctx context.Context, hostID string, launched []api.Process, held map[int64]bool,
+) ([]api.ProcessNode, bool, error) {
+	var roots []int64
+	for _, l := range launched {
+		if l.StoryRootID != nil {
+			roots = append(roots, *l.StoryRootID)
 		}
 	}
-	return nil, nil
+	procs, err := q.store.GetStoriesProcesses(ctx, hostID, roots, maxLaunchStory+1)
+	if err != nil {
+		return nil, false, err
+	}
+	truncated := len(procs) > maxLaunchStory
+	if truncated {
+		procs = procs[:maxLaunchStory]
+	}
+	stories := buildForest(procs, nil)
+	var extra []api.ProcessNode
+	for _, l := range launched {
+		if held[l.ID] {
+			continue
+		}
+		node := api.ProcessNode{Process: l}
+		for _, root := range stories {
+			if found := findInForest(root, l.ID); found != nil {
+				node = *found
+				break
+			}
+		}
+		if pruned, ok := pruneHeld(node, held); ok {
+			extra = append(extra, pruned)
+		}
+	}
+	return extra, truncated, nil
 }
 
-// launchedSubtree reads a launched process with its descendants from its story, leaving out the xpcproxy row it was re-exec'd from:
-// that is launchd's plumbing, not what the launcher asked for.
-func (q *Query) launchedSubtree(ctx context.Context, hostID string, launched api.Process) ([]api.ProcessNode, error) {
-	if launched.StoryRootID == nil {
-		return []api.ProcessNode{{Process: launched}}, nil
+// pruneHeld returns n without the rows held already holds, marking the rest held, and false when n itself is held.
+func pruneHeld(n api.ProcessNode, held map[int64]bool) (api.ProcessNode, bool) {
+	if held[n.ID] {
+		return api.ProcessNode{}, false
 	}
-	procs, err := q.store.GetScopedProcesses(ctx, hostID, api.TreeScope{StoryRootID: *launched.StoryRootID}, maxLaunchStory)
-	if err != nil {
-		return nil, err
-	}
-	for _, root := range buildForest(procs, nil) {
-		if node := findInForest(root, launched.ID); node != nil {
-			return []api.ProcessNode{*node}, nil
+	held[n.ID] = true
+	children := n.Children
+	n.Children = nil
+	for _, c := range children {
+		if kept, ok := pruneHeld(c, held); ok {
+			n.Children = append(n.Children, kept)
 		}
 	}
-	return []api.ProcessNode{{Process: launched}}, nil
+	return n, true
 }
 
 // findInForest returns the node of the row with the given id under n, n included, or nil.
@@ -196,4 +234,14 @@ func findInForest(n api.ProcessNode, id int64) *api.ProcessNode {
 		}
 	}
 	return nil
+}
+
+// linkEnds is the rows aggregation must keep out of a group: the pinned process and both ends of every link, so a client can find
+// each end of an edge it draws.
+func linkEnds(links []api.ProcessLink, pinnedID int64) map[int64]bool {
+	keep := map[int64]bool{pinnedID: pinnedID != 0}
+	for _, l := range links {
+		keep[l.From], keep[l.To] = true, true
+	}
+	return keep
 }

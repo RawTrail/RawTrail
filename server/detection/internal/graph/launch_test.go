@@ -82,6 +82,8 @@ func TestLaunchTarget_NamesNothingMatchable(t *testing.T) {
 		"launchctl submit ending --":  launcher(t, "/bin/launchctl", "launchctl", "submit", "-l", "j", "--"),
 		"not a launcher":              launcher(t, "/bin/sleep", "sleep", "61"),
 		"another tool with submit":    launcher(t, "/usr/local/bin/jobs", "jobs", "submit", "-l", "j", "--", "/bin/sleep"),
+		"a launchctl elsewhere":       launcher(t, "/tmp/launchctl", "launchctl", "submit", "-l", "j", "--", "/bin/sleep"),
+		"an open elsewhere":           launcher(t, "/opt/bin/open", "open", "-a", "TextEdit"),
 		"an argv that is not JSON":    {Path: "/usr/bin/open", Args: api.NullRawJSON("not json")},
 	} {
 		t.Run(name, func(t *testing.T) {

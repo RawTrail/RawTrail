@@ -58,20 +58,29 @@ func seedLaunches(t *testing.T, store *mysql.Store, db *sqlx.DB, host string) la
 	shell := insert(api.Process{PID: 22795, PPID: 22518, Path: "/bin/zsh", ForkTimeNs: at(0), AgentSession: session})
 	seed.open = insert(api.Process{PID: 22796, PPID: 22795, Path: "/usr/bin/open", Args: args("open", "-a", "TextEdit"),
 		ForkTimeNs: at(1), ExecTimeNs: new(at(1)), ParentProcessID: &shell, AgentSession: session})
-	// A second open of the app before it started launches nothing new, so it must not claim the first open's launch.
-	insert(api.Process{PID: 22797, PPID: 22795, Path: "/usr/bin/open", Args: args("open", "-a", "TextEdit"), ForkTimeNs: at(1.1),
+	// A second open of the app asks after the first, though its process forked before it, and launches nothing new: ordered by when
+	// each asked, it must not claim the first open's launch.
+	insert(api.Process{PID: 22797, PPID: 22795, Path: "/usr/bin/open", Args: args("open", "-a", "TextEdit"), ForkTimeNs: at(0.9),
 		ExecTimeNs: new(at(1.1)), ParentProcessID: &shell, AgentSession: session})
 	launchdChild(22799, 1.2, "/usr/libexec/other", api.AgentSession{})
 	_, seed.textEdit = launchdChild(22798, 1.5, "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit", session)
+	// launchd started a sleep before the launchctl below asked for one, inside the first open's window: read for that window, it
+	// must not be taken as the later ask's launch.
+	launchdChild(22802, 2.0, "/bin/sleep", api.AgentSession{})
 	seed.launchctl = insert(api.Process{PID: 22808, PPID: 22807, Path: "/bin/launchctl",
 		Args: args("launchctl", "submit", "-l", "com.fleetdm.qa1286", "--", "/bin/sleep", "61"), ForkTimeNs: at(3), ExecTimeNs: new(at(3)),
 		ParentProcessID: &shell, AgentSession: session})
 	// The agent's own shell runs a sleep in the window too; it is not launchd's, so it is no launch.
 	insert(api.Process{PID: 22850, PPID: 22795, Path: "/bin/sleep", ForkTimeNs: at(3.1), ExecTimeNs: new(at(3.1)), ParentProcessID: &shell,
 		AgentSession: session})
+	// A daemon launchd adopted, first seen at exec, has ppid 1 too but launchd did not start it, so it is no launch either.
+	insert(api.Process{PID: 22851, PPID: 1, Path: "/bin/sleep", ForkTimeNs: at(3.15), ExecTimeNs: new(at(3.15)),
+		ExecLineage: api.ExecLineage{Reparented: true}})
 	seed.xpcSleep, seed.sleep = launchdChild(22809, 3.2, "/bin/sleep", api.AgentSession{})
+	// What the job started carries the session's markers, so the session holds it already: added under the job, it must not be
+	// listed twice.
 	seed.sleepChild = insert(api.Process{PID: 22810, PPID: 22809, Path: "/usr/bin/caffeinate", ForkTimeNs: at(4), ParentProcessID: &seed.sleep,
-		StoryRootID: &seed.xpcSleep})
+		StoryRootID: &seed.xpcSleep, AgentSession: session})
 	seed.laterOpen = insert(api.Process{PID: 22900, PPID: 22795, Path: "/usr/bin/open", Args: args("open", "-a", "TextEdit"),
 		ForkTimeNs: at(20), ExecTimeNs: new(at(20)), ParentProcessID: &shell, AgentSession: session})
 	_, seed.laterTextEdit = launchdChild(22901, 20.5, "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit", session)
@@ -110,9 +119,19 @@ func TestLaunchLinks_SessionRead(t *testing.T) {
 	assert.Equal(t, 1, ids[seed.sleepChild], "with what it started")
 	assert.Equal(t, 1, ids[seed.textEdit], "the marked TextEdit is listed once")
 	assert.Zero(t, ids[seed.xpcSleep], "launchd's xpcproxy is plumbing, not what the launcher asked for")
-	// The shell, the three opens, both TextEdits, launchctl and the shell's own sleep: the session's own rows. The launched job is
-	// added beside them.
-	assert.Equal(t, int64(8), res.Returned)
+	// The shell, the three opens, both TextEdits, launchctl, the shell's own sleep and the job's marked child: the session's own rows.
+	// The launched job is added beside them.
+	assert.Equal(t, int64(9), res.Returned)
+	assert.False(t, res.Truncated)
+
+	// The default read folds the shell's identical `open -a TextEdit` leaves, but never a link's end: a client draws the edge by id.
+	folded, err := graph.NewQuery(store).BuildScopedTree(t.Context(), host, api.TreeScope{AgentSessionID: launchSession}, 2000, false, 0)
+	require.NoError(t, err)
+	foldedIDs := forestIDs(folded.Roots)
+	for _, l := range folded.Links {
+		assert.Equal(t, 1, foldedIDs[l.From], "launcher %d", l.From)
+		assert.Equal(t, 1, foldedIDs[l.To], "launched %d", l.To)
+	}
 }
 
 // spec:server-rest-api/inferred-launch-links/a-window-read-links-only-what-it-holds
@@ -132,4 +151,23 @@ func TestLaunchLinks_WindowRead(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []api.ProcessLink{{From: seed.open, To: seed.textEdit, Kind: api.ProcessLinkInferredLaunch}}, early.Links)
 	assert.Zero(t, forestIDs(early.Roots)[seed.sleep])
+}
+
+// A launched program whose story is larger than a read adds is cut, and the read says so.
+func TestLaunchLinks_LaunchedStoryCutIsReported(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	host := "launch-" + t.Name()
+	seed := seedLaunches(t, store, db, host)
+	_, err := db.ExecContext(t.Context(), `
+		INSERT INTO processes (host_id, pid, ppid, path, fork_time_ns, parent_process_id, story_root_id)
+		WITH RECURSIVE n (i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 49)
+		SELECT ?, 30000 + a.i * 50 + b.i, 22809, '/bin/date', ? + a.i * 50 + b.i, ?, ?
+		FROM n AS a CROSS JOIN n AS b WHERE a.i * 50 + b.i < 2001`, host, at(5), seed.sleep, seed.xpcSleep)
+	require.NoError(t, err)
+
+	res, err := graph.NewQuery(store).BuildScopedTree(t.Context(), host, api.TreeScope{AgentSessionID: launchSession}, 2000, true, 0)
+	require.NoError(t, err)
+	assert.True(t, res.Truncated, "the launched job's descendants were cut")
+	assert.Equal(t, 1, forestIDs(res.Roots)[seed.sleep])
 }
