@@ -578,7 +578,7 @@ describe("getSessionTree", () => {
     const [target] = fetchMock.mock.calls[0] as [URL];
     const url = new URL(target.toString());
     expect(url.pathname).toMatch(/\/hosts\/host-a\/tree$/);
-    expect(Object.fromEntries(url.searchParams)).toEqual({ scope: "session", session: "169b5bb1-29b5", flatten: "1", limit: "2000" });
+    expect(Object.fromEntries(url.searchParams)).toEqual({ scope: "session", session: "169b5bb1-29b5", flatten: "1", limit: "5000" });
   });
 });
 

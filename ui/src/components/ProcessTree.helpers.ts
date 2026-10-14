@@ -183,7 +183,7 @@ export function findAlertChain(roots: ProcessNode[], targetDbId: number): Set<nu
   return related;
 }
 
-function findNodeByDbId(nodes: ProcessNode[], dbId: number): ProcessNode | null {
+export function findNodeByDbId(nodes: readonly ProcessNode[], dbId: number): ProcessNode | null {
   for (const n of nodes) {
     if (n.id === dbId) return n;
     if (n.children) {

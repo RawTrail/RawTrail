@@ -456,13 +456,12 @@ function ProcessActivity({ hostId, processId }: { readonly hostId: string; reado
     <div className="process-detail__activity">
       <div className="process-detail__activity-header">
         <h4 className="process-detail__activity-title">Activity</h4>
-        <div role="radiogroup" aria-label="Activity scope" className="process-detail__activity-scope">
+        <div role="group" aria-label="Activity scope" className="process-detail__activity-scope">
           {[false, true].map((whole) => (
             <button
               key={String(whole)}
               type="button"
-              role="radio"
-              aria-checked={subtree === whole}
+              aria-pressed={subtree === whole}
               className="process-detail__activity-option"
               onClick={() => { setSubtree(whole); }}
             >

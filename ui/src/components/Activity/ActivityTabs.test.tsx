@@ -63,16 +63,16 @@ describe("ActivityTabs", () => {
       ["192.168.64.1:53 udp gateway", "dig (43027)", "1"],
     ]);
     // The tab labels count distinct artifacts.
-    expect(screen.getByRole("tab", { name: "Network 3" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Network 3" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("switches to the DNS and Files tabs", async () => {
     vi.spyOn(api, "getActivity").mockResolvedValue(session());
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
-    fireEvent.click(await screen.findByRole("tab", { name: "DNS 3" }));
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
     expect(screen.getByText("5 queries for 3 names")).toBeVisible();
     expect(screen.getByText("104.20.23.154, 172.66.147.243")).toBeVisible();
-    fireEvent.click(screen.getByRole("tab", { name: "Files 0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Files 0" }));
     expect(screen.getByText("0 file events on 0 paths")).toBeVisible();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
@@ -88,7 +88,7 @@ describe("ActivityTabs", () => {
     };
     vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
-    fireEvent.click(await screen.findByRole("tab", { name: "Files 2" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Files 2" }));
     expect(screen.getByText("/tmp/a → /tmp/b")).toBeVisible();
     expect(screen.getByText("rename")).toBeVisible();
     expect(screen.getByText("open")).toBeVisible();
@@ -121,6 +121,11 @@ describe("ActivityTabs", () => {
 
   // spec:web-ui/activity-tabs/the-tabs-say-how-much-of-the-scope-they-reflect
   it.each([
+    [
+      // Truncated with nothing applied: the unread processes may carry generations, so only "partial" can be said.
+      { applied: false, processes: 5000, unmatched: 5000, truncated: true },
+      "This scope has more processes than are read, so its activity is partial.",
+    ],
     [
       { applied: false, processes: 0, unmatched: 0, truncated: false },
       "No stored process matches this scope, so there is no activity to show.",

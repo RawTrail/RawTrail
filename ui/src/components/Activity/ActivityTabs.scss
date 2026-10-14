@@ -23,7 +23,7 @@
       color: $core-fleet-blue;
     }
 
-    &[aria-selected="true"] {
+    &[aria-pressed="true"] {
       border-bottom-color: $core-vibrant-blue;
       color: $core-fleet-blue;
       font-weight: 600;

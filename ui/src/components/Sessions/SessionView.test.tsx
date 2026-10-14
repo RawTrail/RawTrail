@@ -388,13 +388,13 @@ describe("SessionView", () => {
     renderView();
     await screen.findByText("ls /private/tmp | head -3");
     expect(activity).not.toHaveBeenCalledWith("H1", { kind: "session", session: SESSION });
-    fireEvent.click(screen.getByRole("radio", { name: "Activity" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(await screen.findByText("1 connection to 1 destination")).toBeVisible();
     expect(activity).toHaveBeenCalledWith("H1", { kind: "session", session: SESSION });
     expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ls (80728)" }));
     expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
-    fireEvent.click(screen.getByRole("radio", { name: "Tool calls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tool calls" }));
     expect(screen.getByText("ls /private/tmp | head -3")).toBeVisible();
   });
 

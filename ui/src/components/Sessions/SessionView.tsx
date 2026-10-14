@@ -12,7 +12,8 @@ import { ActivityTabs } from "../Activity/ActivityTabs";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
-import { formatNs, basename } from "../Search/format";
+import { formatNs, basename, plural } from "../Search/format";
+import { findNodeByDbId } from "../ProcessTree.helpers";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import {
@@ -191,13 +192,12 @@ export function SessionView() {
       <SessionRowsContext.Provider value={rowsContext}>
         <div className="session-view__layout">
           <div className="session-view__main">
-            <div role="radiogroup" aria-label="Session view" className="session-view__views">
+            <div role="group" aria-label="Session view" className="session-view__views">
               {(["calls", "activity"] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
-                  role="radio"
-                  aria-checked={view === v}
+                  aria-pressed={view === v}
                   className="session-view__view"
                   onClick={() => { setView(v); }}
                 >
@@ -213,7 +213,7 @@ export function SessionView() {
                 hostId={hostId}
                 scope={{ kind: "session", session: sessionId }}
                 onProcess={(id) => {
-                  const node = tree ? findNode(tree.roots, id) : null;
+                  const node = tree ? findNodeByDbId(tree.roots, id) : null;
                   if (node) rowsContext.onSelect(node);
                 }}
               />
@@ -297,10 +297,6 @@ function SessionBody({ read, calls }: { readonly read: SessionRead | null; reado
 // highestSeverity is the most severe of the alerts' severities, for the group's badge.
 function highestSeverity(alerts: readonly Alert[]): string {
   return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
-}
-
-function plural(count: number, one: string, many: string): string {
-  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
 }
 
 // ToolCallGroup is one call. A search that finds something in it opens it, whatever the operator last chose.
@@ -411,14 +407,4 @@ function timelineHref(hostId: string, node: ProcessNode): string {
 function hostHref(hostId: string, processId: number, forkNs: number): string {
   const atMs = Math.floor(forkNs / NANOSECONDS_PER_MILLISECOND) + 1;
   return `/hosts/${encodeURIComponent(hostId)}?process=${String(processId)}&at=${String(atMs)}`;
-}
-
-// findNode returns the session's process with the given row id, or null when the read does not hold it.
-function findNode(nodes: readonly ProcessNode[], id: number): ProcessNode | null {
-  for (const n of nodes) {
-    if (n.id === id) return n;
-    const found = findNode(n.children ?? [], id);
-    if (found) return found;
-  }
-  return null;
 }

@@ -8,6 +8,11 @@ export function formatNs(ns: number): string {
   return new Date(ns / NANOSECONDS_PER_MILLISECOND).toLocaleString();
 }
 
+// plural renders a count with the noun that agrees with it: "1 process", "2 processes".
+export function plural(count: number, one: string, many: string): string {
+  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+}
+
 // basename returns the last path segment (handling both / and \ separators), or the whole string when it has no separator.
 export function basename(path: string): string {
   const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));

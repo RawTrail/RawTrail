@@ -444,9 +444,9 @@ describe("ProcessDetail activity (issue #1285)", () => {
     render(<ProcessDetail hostId="h1" node={makeNode({ id: 42 })} onClose={vi.fn()} />);
     expect(await screen.findByText("0 connections to 0 destinations")).toBeVisible();
     expect(spy).toHaveBeenLastCalledWith("h1", { kind: "process", process: 42 });
-    expect(screen.getByRole("radio", { name: "This process" })).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(screen.getByRole("radio", { name: "Whole subtree" }));
+    expect(screen.getByRole("button", { name: "This process" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Whole subtree" }));
     await waitFor(() => { expect(spy).toHaveBeenLastCalledWith("h1", { kind: "subtree", process: 42 }); });
-    expect(screen.getByRole("radio", { name: "Whole subtree" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("button", { name: "Whole subtree" })).toHaveAttribute("aria-pressed", "true");
   });
 });

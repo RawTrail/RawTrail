@@ -74,9 +74,10 @@ type Event struct {
 	// Lineage (issue #1280), emitted only when set: the kernel generation of the process (the child on a fork), sent on fork, exec,
 	// network_connect and dns_query, which the server resolves a creator and attributes a flow by; on fork and exec the creator's
 	// generation; and on exec the process group it ran in, which keys an agent's tool call.
-	PIDVersion       uint32 `json:"pidversion,omitempty"`
-	ParentPIDVersion uint32 `json:"parent_pidversion,omitempty"`
-	GroupID          int    `json:"group_id,omitempty"`
+	// The generations are pointers so a scenario's explicit 0, a real kernel generation, is sent rather than dropped as absent.
+	PIDVersion       *uint32 `json:"pidversion,omitempty"`
+	ParentPIDVersion *uint32 `json:"parent_pidversion,omitempty"`
+	GroupID          int     `json:"group_id,omitempty"`
 
 	// file_rename specifics. Path carries the DESTINATION for a rename, the same way it carries the target for an open, so
 	// only the origin needs a field of its own.

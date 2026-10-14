@@ -272,11 +272,12 @@ export function stringifyEnvelopes(envelopes: Envelope[]): string {
   return raw.replace(/"@@BIGINT@@(\d+)@@BIGINT@@"/g, "$1");
 }
 
-// lineage is an event's generation fields, each only when the scenario set it.
+// lineage is an event's generation fields, each only when the scenario set it. Presence, not truthiness: generation 0 is a real
+// kernel generation, and dropping it would send the event as one that carries none.
 function lineage(ev: ScenarioEvent): Record<string, number> {
   return {
-    ...(ev.pidversion ? { pidversion: ev.pidversion } : {}),
-    ...(ev.parent_pidversion ? { parent_pidversion: ev.parent_pidversion } : {}),
+    ...(ev.pidversion !== undefined ? { pidversion: ev.pidversion } : {}),
+    ...(ev.parent_pidversion !== undefined ? { parent_pidversion: ev.parent_pidversion } : {}),
   };
 }
 
@@ -325,7 +326,7 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
       // !== undefined so an explicitly-provided local_port: 0 isn't dropped by JS truthy semantics. Same shape for the address
       // wouldn't matter (empty string is falsy + meaningless), so the local_address truthy check stays.
       if (ev.local_port !== undefined) p.local_port = ev.local_port;
-      if (ev.pidversion) p.pidversion = ev.pidversion;
+      Object.assign(p, lineage(ev));
       return p;
     }
     case "dns_query": {
@@ -336,7 +337,7 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
       };
       if (ev.response_addresses) p.response_addresses = ev.response_addresses;
       if (ev.protocol) p.protocol = ev.protocol;
-      if (ev.pidversion) p.pidversion = ev.pidversion;
+      Object.assign(p, lineage(ev));
       return p;
     }
     case "snapshot_heartbeat":

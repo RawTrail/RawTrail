@@ -74,13 +74,13 @@ test.describe("agent sessions", () => {
     await expect(graphLink).toHaveAttribute("href", new RegExp(`/hosts/${hostId}\\?process=\\d+&at=\\d+$`));
 
     // The session's activity: git's lookup of github.com and its one connection, matched to git by its generation.
-    await page.getByRole("radio", { name: "Activity" }).click();
+    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Activity" }).click();
     const sessionActivity = page.locator(".session-view__main");
     await expect(sessionActivity.getByText("1 connection to 1 destination")).toBeVisible({ timeout: 10_000 });
-    const connection = sessionActivity.getByRole("tabpanel").getByRole("row").nth(1);
+    const connection = sessionActivity.locator(".activity-tabs__panel").getByRole("row").nth(1);
     await expect(connection).toContainText("140.82.112.3:443 tcp");
     await expect(connection).toContainText("git (5002)");
-    await page.getByRole("tablist", { name: "Session activity" }).getByRole("tab", { name: /^DNS/ }).click();
+    await page.getByRole("group", { name: "Session activity" }).getByRole("button", { name: /^DNS/ }).click();
     await expect(sessionActivity.getByText("1 query for 1 name")).toBeVisible();
   });
 });

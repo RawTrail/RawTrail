@@ -3,7 +3,7 @@ import "./ActivityTabs.scss";
 import { getActivity, type ActivityScopeQuery } from "../../api";
 import type { ActivityResponse, ActivityRow, ActivityScope } from "../../types";
 import { Table, EmptyState } from "../ui/Table";
-import { formatNs, basename, hostPort } from "../Search/format";
+import { formatNs, basename, hostPort, plural } from "../Search/format";
 
 type TabKey = "files" | "network" | "dns";
 
@@ -21,7 +21,7 @@ interface ActivityRead {
 }
 
 interface Props {
-  // label names the tab list, so two activity views on one page (a session's and a selected process's) are told apart.
+  // label names the class switch, so two activity views on one page (a session's and a selected process's) are told apart.
   readonly label: string;
   readonly hostId: string;
   readonly scope: ActivityScopeQuery;
@@ -29,18 +29,16 @@ interface Props {
   readonly onProcess?: (processId: number) => void;
 }
 
-function plural(count: number, one: string, many: string): string {
-  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
-}
-
 // scopeNote says how much of the scope the activity reflects, or null when it reflects all of it.
 function scopeNote(scope: ActivityScope): string | null {
+  // A truncated scope comes first: when the processes read carry no generation, the unread ones still might, so all that can be said
+  // is that the activity is partial.
+  if (scope.truncated) return "This scope has more processes than are read, so its activity is partial.";
   if (!scope.applied) {
     return scope.processes === 0
       ? "No stored process matches this scope, so there is no activity to show."
       : "None of this scope's processes carry a process generation, so their activity cannot be read.";
   }
-  if (scope.truncated) return "This scope has more processes than are read, so its activity is partial.";
   if (scope.unmatched > 0) {
     return `${plural(scope.unmatched, "process carries", "processes carry")} no process generation, so their activity is not counted.`;
   }
@@ -89,13 +87,13 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
   return (
     <div className="activity-tabs">
       {note && <p className="activity-tabs__note" role="status">{note}</p>}
-      <div role="tablist" aria-label={label} className="activity-tabs__list">
+      {/* Toggle buttons rather than an ARIA tablist, which would promise arrow-key navigation this does not implement (see SubNav). */}
+      <div role="group" aria-label={label} className="activity-tabs__list">
         {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
-            role="tab"
-            aria-selected={tab === t.key}
+            aria-pressed={tab === t.key}
             className="activity-tabs__tab"
             onClick={() => { setTab(t.key); }}
           >
@@ -103,7 +101,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
           </button>
         ))}
       </div>
-      <div role="tabpanel" className="activity-tabs__panel">
+      <div className="activity-tabs__panel">
         {tab === "files" && <FilesPanel activity={activity} processName={processName} />}
         {tab === "network" && <NetworkPanel activity={activity} processName={processName} />}
         {tab === "dns" && <DNSPanel activity={activity} processName={processName} />}

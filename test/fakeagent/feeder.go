@@ -204,8 +204,8 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			GID              int               `json:"gid"`
 			PackageSigning   *PackageSigning   `json:"package_signing,omitempty"`
 			Env              map[string]string `json:"env,omitempty"`
-			PIDVersion       uint32            `json:"pidversion,omitempty"`
-			ParentPIDVersion uint32            `json:"parent_pidversion,omitempty"`
+			PIDVersion       *uint32           `json:"pidversion,omitempty"`
+			ParentPIDVersion *uint32           `json:"parent_pidversion,omitempty"`
 			GroupID          int               `json:"group_id,omitempty"`
 		}{
 			ev.PID, ev.PPID, ev.Path, ev.Args, ev.CWD, ev.UID, ev.GID, ev.PackageSigning, ev.Env,
@@ -213,10 +213,10 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 		})
 	case "fork":
 		return json.Marshal(struct {
-			ChildPID         int    `json:"child_pid"`
-			ParentPID        int    `json:"parent_pid"`
-			PIDVersion       uint32 `json:"pidversion,omitempty"`
-			ParentPIDVersion uint32 `json:"parent_pidversion,omitempty"`
+			ChildPID         int     `json:"child_pid"`
+			ParentPID        int     `json:"parent_pid"`
+			PIDVersion       *uint32 `json:"pidversion,omitempty"`
+			ParentPIDVersion *uint32 `json:"parent_pidversion,omitempty"`
 		}{ev.ChildPID, ev.ParentPID, ev.PIDVersion, ev.ParentPIDVersion})
 	case "exit":
 		out := struct {
@@ -244,14 +244,14 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 		}{ev.PID, ev.Path})
 	case "network_connect":
 		out := struct {
-			PID           int    `json:"pid"`
-			Protocol      string `json:"protocol"`
-			Direction     string `json:"direction"`
-			LocalAddress  string `json:"local_address,omitempty"`
-			LocalPort     int    `json:"local_port,omitempty"`
-			RemoteAddress string `json:"remote_address"`
-			RemotePort    int    `json:"remote_port"`
-			PIDVersion    uint32 `json:"pidversion,omitempty"`
+			PID           int     `json:"pid"`
+			Protocol      string  `json:"protocol"`
+			Direction     string  `json:"direction"`
+			LocalAddress  string  `json:"local_address,omitempty"`
+			LocalPort     int     `json:"local_port,omitempty"`
+			RemoteAddress string  `json:"remote_address"`
+			RemotePort    int     `json:"remote_port"`
+			PIDVersion    *uint32 `json:"pidversion,omitempty"`
 		}{ev.PID, ev.Protocol, ev.Direction, ev.LocalAddress, ev.LocalPort, ev.RemoteAddress, ev.RemotePort, ev.PIDVersion}
 		return json.Marshal(out)
 	case "dns_query":
@@ -261,7 +261,7 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			QueryType         string   `json:"query_type"`
 			ResponseAddresses []string `json:"response_addresses,omitempty"`
 			Protocol          string   `json:"protocol,omitempty"`
-			PIDVersion        uint32   `json:"pidversion,omitempty"`
+			PIDVersion        *uint32  `json:"pidversion,omitempty"`
 		}{ev.PID, ev.QueryName, ev.QueryType, ev.ResponseAddresses, ev.Protocol, ev.PIDVersion}
 		return json.Marshal(out)
 	case "snapshot_heartbeat":

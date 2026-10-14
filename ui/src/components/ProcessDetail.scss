@@ -257,7 +257,7 @@
   font-size: 0.8rem;
   padding: 0.25rem 0.6rem;
 
-  &[aria-checked="true"] {
+  &[aria-pressed="true"] {
     background: $ui-fleet-black-10;
     color: $core-fleet-black;
     font-weight: 600;
