@@ -227,10 +227,13 @@ describe("SessionView", () => {
   it("says when the session has more alerts than were read", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
-    vi.spyOn(api, "listAlerts").mockResolvedValue(Array.from({ length: 1001 }, (_, i) => alert({ id: i + 1 })));
+    // The 1,000 most recent are on a process outside this tree, so none renders; the 1,001st, on ls, is past the cap.
+    const alerts = Array.from({ length: 1000 }, (_, i) => alert({ id: i + 1, process_id: 1 }));
+    alerts.push(alert({ id: 1001, title: "Past the cap" }));
+    vi.spyOn(api, "listAlerts").mockResolvedValue(alerts);
     renderView();
     expect(await screen.findByText(/has more than 1,000 alerts; only the 1,000 most recent are badged/)).toBeVisible();
-    expect(screen.getAllByRole("link", { name: "System discovery" })).toHaveLength(1000);
+    expect(screen.queryByText("Past the cap")).not.toBeInTheDocument();
   });
 
   it("credits a rule's author beside its alert", async () => {

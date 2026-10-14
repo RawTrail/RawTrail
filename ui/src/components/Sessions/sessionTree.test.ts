@@ -73,6 +73,24 @@ describe("buildToolCalls", () => {
     expect(sudo.children[0].uidChange).toBeUndefined();
   });
 
+  it("hides a shell copy that reports no user, as forks do, and compares what it runs with the shell's user", () => {
+    // As captured: the subshell's fork of zsh carries no uid. A root process under it is still a change from the shell's uid 501.
+    const copy = proc(3, 3, 201, "/bin/zsh", undefined, [proc(4, 4, 202, "/bin/sleep", ["sleep", "1"], [], { uid: 0 })]);
+    const root = proc(2, 2, 200, "/bin/zsh", ["/bin/zsh", "-c", "eval '(sleep 1 &)'"], [copy], { tool_call_group: 2, uid: 501 });
+    const [call] = buildToolCalls([root], QUIET);
+    expect(outline(call.rows)).toEqual(["/bin/sleep"]);
+    expect(call.rows[0].uidChange).toEqual({ from: 501, to: 0 });
+  });
+
+  it("compares what a listed shell copy runs with the user the copy inherited", () => {
+    // Verbose lists the copy, which reports no user; the root sleep under it is still a change from the shell's uid 501.
+    const copy = proc(3, 3, 201, "/bin/zsh", undefined, [proc(4, 4, 202, "/bin/sleep", ["sleep", "1"], [], { uid: 0 })]);
+    const root = proc(2, 2, 200, "/bin/zsh", ["/bin/zsh", "-c", "eval '(sleep 1 &)'"], [copy], { tool_call_group: 2, uid: 501 });
+    const [shell] = buildToolCalls([root], VERBOSE)[0].rows;
+    expect(shell.children[0].uidChange).toBeUndefined();
+    expect(shell.children[0].children[0].uidChange).toEqual({ from: 501, to: 0 });
+  });
+
   it("lists a shell copy that runs as another user, since that is a privilege change", () => {
     const copy = proc(3, 3, 201, "/bin/zsh", undefined, [proc(4, 4, 202, "/bin/sleep", ["sleep", "1"], [], { uid: 0 })], { uid: 0 });
     const root = proc(2, 2, 200, "/bin/zsh", ["/bin/zsh", "-c", "eval '(sleep 1 &)'"], [copy], { tool_call_group: 2, uid: 501 });

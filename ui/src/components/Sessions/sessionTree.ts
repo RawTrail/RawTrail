@@ -69,32 +69,35 @@ function walk(node: ProcessNode, visit: (n: ProcessNode) => void): void {
 }
 
 // isShellCopy reports a fork of a shell that never exec'd: the copy a shell makes to run a subshell or a background job. It carries
-// its creator's image, user and no command of its own. A copy running as another user changed privilege, which is not plumbing.
-function isShellCopy(node: ProcessNode, creator: ProcessNode): boolean {
-  return node.exec_time_ns === undefined && node.path === creator.path && node.uid === creator.uid && isShellPath(node.path);
+// its creator's image and no command of its own. A fork carries no user of its own either, so it runs as its creator did; one that
+// reports another user changed privilege, which is not plumbing.
+function isShellCopy(node: ProcessNode, creator: ProcessNode, creatorUid: number | undefined): boolean {
+  const sameUser = node.uid === undefined || node.uid === creatorUid;
+  return node.exec_time_ns === undefined && node.path === creator.path && sameUser && isShellPath(node.path);
 }
 
 function hidden(node: ProcessNode, isPlumbing: boolean, shape: RowShape): boolean {
   return isPlumbing && !shape.verbose && !(shape.keep?.has(node.id) ?? false);
 }
 
-// row lists a process. creator is the process that created it, when the session holds it, for the privilege comparison.
-function row(node: ProcessNode, creator: ProcessNode | undefined, shape: RowShape): SessionRow {
-  const listed: SessionRow = { node, children: visibleRows(node, shape) };
-  if (creator?.uid !== undefined && node.uid !== undefined && node.uid !== creator.uid) {
-    listed.uidChange = { from: creator.uid, to: node.uid };
+// row lists a process. creatorUid is the user its creator ran as, when known, for the privilege comparison.
+function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape): SessionRow {
+  const listed: SessionRow = { node, children: visibleRows(node, node.uid ?? creatorUid, shape) };
+  if (creatorUid !== undefined && node.uid !== undefined && node.uid !== creatorUid) {
+    listed.uidChange = { from: creatorUid, to: node.uid };
   }
   return listed;
 }
 
-// visibleRows lists a node's children as the view shows them. A hidden shell copy is replaced by its own children.
-function visibleRows(creator: ProcessNode, shape: RowShape): SessionRow[] {
+// visibleRows lists a node's children as the view shows them. A hidden shell copy is replaced by its own children. uid is the user
+// the node runs as: its own when it reports one, else the one it inherited, since a fork that never exec'd reports none.
+function visibleRows(creator: ProcessNode, uid: number | undefined, shape: RowShape): SessionRow[] {
   const rows: SessionRow[] = [];
   for (const child of [...(creator.children ?? [])].sort(byForkTime)) {
-    if (hidden(child, isShellCopy(child, creator), shape)) {
-      rows.push(...visibleRows(child, shape));
+    if (hidden(child, isShellCopy(child, creator, uid), shape)) {
+      rows.push(...visibleRows(child, child.uid ?? uid, shape));
     } else {
-      rows.push(row(child, creator, shape));
+      rows.push(row(child, uid, shape));
     }
   }
   return rows;
@@ -103,7 +106,7 @@ function visibleRows(creator: ProcessNode, shape: RowShape): SessionRow[] {
 // rootRows is what a tool call's root contributes: a hidden wrapper shell is the group's header rather than a row, so its children
 // stand in its place. The root's creator is the agent, which the session does not hold.
 function rootRows(root: ProcessNode, shape: RowShape): SessionRow[] {
-  if (hidden(root, toolCommand(root.args) !== null, shape)) return visibleRows(root, shape);
+  if (hidden(root, toolCommand(root.args) !== null, shape)) return visibleRows(root, root.uid, shape);
   return [row(root, undefined, shape)];
 }
 

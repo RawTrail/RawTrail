@@ -30,8 +30,9 @@ export function proc(
     path,
     args,
     fork_time_ns: atMs * MS,
-    // A fork that never exec'd carries no argv and no exec time.
+    // A fork that never exec'd carries no argv, no exec time and no user; everything the capture exec'd ran as uid 501.
     exec_time_ns: args === undefined ? undefined : atMs * MS + 1,
+    uid: args === undefined ? undefined : 501,
     exit_time_ns: atMs * MS + 5 * MS,
     exit_reason: "event",
     agent_session_id: SESSION,
