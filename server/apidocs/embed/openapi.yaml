@@ -355,6 +355,21 @@ paths:
                       from `returned < total_matched`: the count behind `total_matched` can be capped or give up, and a client
                       that inferred truncation from it would read a partial forest as complete. Key on this flag.
                     example: false
+                  links:
+                    type: array
+                    description: >-
+                      Edges the forest's parentage does not hold. `inferred_launch` links an `open` or `launchctl submit` exec to the
+                      process launchd started within 5 seconds that runs the app or program it named: a correlation from timing and
+                      target, not lineage. A `session` or `story` read adds a linked process it does not hold, with its descendants,
+                      as an extra root; a window read links only what it holds. `open -b`, `launchctl load` and XPC hops name
+                      nothing to match and are not linked. Omitted when there are none.
+                    items:
+                      type: object
+                      required: [from, to, kind]
+                      properties:
+                        from: {type: integer, format: int64, description: The launcher's process id.}
+                        to: {type: integer, format: int64, description: The launched process's id.}
+                        kind: {type: string, enum: [inferred_launch]}
                   retained_from_ns:
                     type: integer
                     format: int64

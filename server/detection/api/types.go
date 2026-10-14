@@ -758,6 +758,21 @@ type ProcessTreeResult struct {
 	// because a process an alert references is kept while the rest age out. The read is not truncated, the rows are simply gone,
 	// so without this the graph reads as broken while the event timeline beside it, retained on its own window, is complete.
 	RetainedFromNs int64 `json:"retained_from_ns,omitempty"`
+	// Links are edges the forest's parentage does not hold (issue #1286): a process launchd started that an earlier process in the
+	// read asked for. Absent when there are none.
+	Links []ProcessLink `json:"links,omitempty"`
+}
+
+// ProcessLinkInferredLaunch is a link inferred from timing and a matching target: an open or launchctl exec, then within seconds a
+// process launchd started running the app or program it named. A correlation, not lineage: the launched process keeps its own
+// parentage, session and tool call.
+const ProcessLinkInferredLaunch = "inferred_launch"
+
+// ProcessLink is an edge between two process rows that parentage does not express, with how it was established.
+type ProcessLink struct {
+	From int64  `json:"from"`
+	To   int64  `json:"to"`
+	Kind string `json:"kind"`
 }
 
 // ProcessNode is the tree shape the UI's process-tree view renders.

@@ -36,6 +36,13 @@ func (q *Query) BuildScopedTree(
 		res.TotalMatched, res.TotalMatchedCapped = resolveTotalMatched(res.Returned, total, capped)
 	}
 	forest := buildForest(procs, nil)
+	// A story or session shows what its launchers caused launchd to run, as extra roots the links name (issue #1286).
+	links, launched, err := q.launchLinks(ctx, hostID, forest, true)
+	if err != nil {
+		return api.ProcessTreeResult{}, err
+	}
+	forest = append(forest, launched...)
+	res.Links = links
 	if flatten {
 		res.Roots = forest
 		return res, nil

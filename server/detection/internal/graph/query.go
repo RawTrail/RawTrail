@@ -94,6 +94,10 @@ func (q *Query) BuildTree(
 	}
 
 	forest := buildForest(procs, resolved)
+	// A window read links the launches it holds both ends of; it adds no rows, which would break the window's own bound.
+	if res.Links, _, err = q.launchLinks(ctx, hostID, forest, false); err != nil {
+		return api.ProcessTreeResult{}, err
+	}
 	if flatten {
 		res.Roots = forest
 		return res, nil
