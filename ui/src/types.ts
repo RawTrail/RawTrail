@@ -190,9 +190,12 @@ export interface ActivityRow {
 }
 
 export interface FileActivityRow extends ActivityRow {
-  operation: "open" | "file_rename" | "file_truncate" | "file_delete";
+  // A watched-path event's type, or an AI agent's file operation (issue #1287).
+  operation: "open" | "file_rename" | "file_truncate" | "file_delete" | FileOperation;
   path: string;
   source_path?: string;
+  // Set when path is a directory standing for the agent file activity under it, folded by the extension.
+  rolled_up?: boolean;
 }
 
 export interface NetworkActivityRow extends ActivityRow {
@@ -305,7 +308,7 @@ export interface EventRecord {
   host_id: string;
   timestamp_ns: number;
   event_type: string;
-  payload: NetworkConnectPayload | DNSQueryPayload | ExecPayload;
+  payload: NetworkConnectPayload | DNSQueryPayload | ExecPayload | FileActivityPayload;
 }
 
 // ExecPayload is the payload of an exec event, surfaced in the host timeline (issue #583). Every timeline payload shares pid and an
@@ -331,6 +334,20 @@ export interface NetworkConnectPayload {
   remote_address: string;
   remote_port: number;
   remote_hostname?: string;
+}
+
+export type FileOperation = "create" | "modify" | "rename" | "delete";
+
+// FileActivityPayload is an AI agent's file activity as the extension folded it (issue #1287): one or more operations by one process.
+export interface FileActivityPayload {
+  pid: number;
+  pidversion: number;
+  operation: FileOperation;
+  path: string;
+  source_path?: string;
+  coalesced_count?: number;
+  last_timestamp_ns?: number;
+  rolled_up?: boolean;
 }
 
 export interface DNSQueryPayload {

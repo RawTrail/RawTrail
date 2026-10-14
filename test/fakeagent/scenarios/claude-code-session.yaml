@@ -4,7 +4,7 @@
 # launchd starts TextEdit. The agent (pid 5000) is never seen, so each call's shell is a root. Every exec carries the session markers the
 # production agent forwards from the environment. Every fork and exec carries the kernel generations the server resolves a creator by, and
 # each call's shell leads its own process group, which keys the tool call. git's connection and lookup carry its generation, as the
-# production agent's flows do.
+# production agent's flows do, and git's index update arrives as the agent-file client folds it.
 name: "Claude Code session: four Bash tool calls"
 host:
   id: AAAA0007-0000-0000-0000-000000000007
@@ -70,6 +70,15 @@ timeline:
     direction: outbound
     remote_address: 140.82.112.3
     remote_port: 443
+  # git status refreshes the index: the agent-file client reports it as one modify folding two writes (issue #1287).
+  - at: 14ms
+    type: file_activity
+    pid: 5002
+    pidversion: 21
+    operation: modify
+    path: /Users/dev/project/.git/index
+    count: 2
+    last_at: 16ms
   - at: 30ms
     type: exit
     pid: 5002

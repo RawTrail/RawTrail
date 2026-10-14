@@ -4,7 +4,7 @@ import { MemoryRouter, Link } from "react-router";
 
 import { HostTimeline } from "./HostTimeline";
 import * as api from "../api";
-import type { EventRecord, TimelineScope } from "../types";
+import type { EventRecord, FileActivityPayload, TimelineScope } from "../types";
 import {
   degradedScopeMessages,
   noGenerationsMessage,
@@ -27,6 +27,13 @@ function connEvent(id: string, pid: number, addr: string, port: number, ts = 2_0
 }
 function dnsEvent(id: string, pid: number, name: string, ts = 3_000_000_000): EventRecord {
   return { event_id: id, host_id: "H1", timestamp_ns: ts, event_type: "dns_query", payload: { pid, query_name: name, query_type: "A", response_addresses: ["9.9.9.9"] } };
+}
+
+function fileEvent(id: string, payload: Partial<FileActivityPayload>, ts = 4_000_000_000): EventRecord {
+  return {
+    event_id: id, host_id: "H1", timestamp_ns: ts, event_type: "file_activity",
+    payload: { pid: 4911, pidversion: 9, operation: "modify", path: "/r/main.go", ...payload },
+  };
 }
 
 function renderTimeline(search = "", emphasizePid?: number) {
@@ -53,6 +60,39 @@ describe("HostTimeline", () => {
     expect(screen.getByText(/Showing 3 of 3/)).toBeInTheDocument();
     // The window bounds rode into the request.
     expect(spy.mock.calls[0][1]).toMatchObject({ from: "1000", to: "9000" });
+  });
+
+  // spec:web-ui/agent-file-activity-views/the-timeline-shows-an-agent-s-file-activity
+  it("lists an agent's file activity under its process's pid, with each operation spelled out", async () => {
+    vi.spyOn(api, "getHostTimeline").mockResolvedValue({
+      events: [
+        fileEvent("single", {}),
+        fileEvent("repeated", { path: "/r/notes.md", coalesced_count: 3, last_timestamp_ns: 4_500_000_000 }),
+        fileEvent("moved", { operation: "rename", path: "/r/b", source_path: "/r/a" }),
+        fileEvent("install", { pid: 5054, operation: "create", path: "/r/node_modules", coalesced_count: 1856, rolled_up: true }),
+      ],
+      total_matched: 4,
+    });
+    renderTimeline();
+    expect(await screen.findByText("modify /r/main.go")).toBeVisible();
+    expect(screen.getByText("modify /r/notes.md ×3")).toBeVisible();
+    expect(screen.getByText("rename /r/a → /r/b")).toBeVisible();
+    expect(screen.getByText("create 1,856 files under /r/node_modules")).toBeVisible();
+    // The cell cuts a long path with an ellipsis; its title keeps the whole of it.
+    expect(screen.getByText("modify /r/main.go")).toHaveAttribute("title", "modify /r/main.go");
+    // The file path is not the process: the process column names the pid alone.
+    expect(screen.getAllByText("4911")).toHaveLength(3);
+    expect(screen.queryByText("main.go (4911)")).toBeNull();
+    expect(screen.getAllByText("Files").length).toBeGreaterThan(1);
+  });
+
+  // spec:web-ui/agent-file-activity-views/the-timeline-shows-an-agent-s-file-activity
+  it("offers a Files chip that asks for agent file activity alone", async () => {
+    const spy = vi.spyOn(api, "getHostTimeline").mockResolvedValue({ events: [], total_matched: 0 });
+    renderTimeline();
+    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    await waitFor(() => { expect(spy.mock.lastCall?.[1]).toMatchObject({ types: ["file_activity"] }); });
   });
 
   // spec:web-ui/host-timeline-view/timeline-scopes-to-the-alert-chain

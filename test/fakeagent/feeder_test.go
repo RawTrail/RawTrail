@@ -272,3 +272,24 @@ func TestBuildPayload_SendsGenerationZero(t *testing.T) {
 		})
 	}
 }
+
+// A folded file_activity event carries coalesced_count and, from its last_at offset, the absolute last_timestamp_ns the extension
+// sends with it; a single operation carries neither (issue #1287).
+func TestEnvelopes_FileActivityFolding(t *testing.T) {
+	t.Parallel()
+	last := Duration(16 * time.Millisecond)
+	start := time.Unix(100, 0)
+	s := Scenario{Name: "fold", Host: Host{ID: "h"}, Timeline: []Event{
+		{At: Duration(14 * time.Millisecond), Type: "file_activity", PID: 7, Operation: "modify", Path: "/r/.git/index", Count: 2, LastAt: &last},
+		{At: Duration(20 * time.Millisecond), Type: "file_activity", PID: 7, Operation: "create", Path: "/r/a"},
+	}}
+	envs, err := s.Envelopes(WithStartTime(start))
+	require.NoError(t, err)
+	var folded, single map[string]any
+	require.NoError(t, json.Unmarshal(envs[0].Payload, &folded))
+	require.NoError(t, json.Unmarshal(envs[1].Payload, &single))
+	assert.InDelta(t, 2, folded["coalesced_count"], 0)
+	assert.InDelta(t, float64(start.Add(16*time.Millisecond).UnixNano()), folded["last_timestamp_ns"], 0)
+	assert.NotContains(t, single, "coalesced_count")
+	assert.NotContains(t, single, "last_timestamp_ns")
+}

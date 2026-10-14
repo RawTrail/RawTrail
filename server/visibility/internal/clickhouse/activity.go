@@ -11,11 +11,14 @@ import (
 // defaultActivityLimit is how many rows each class lists when the caller names no limit.
 const defaultActivityLimit = 200
 
-// Activity SQL fragments (issue #1285). A coalesced flow stands for coalesced_count connections or queries, so it weighs that much in
-// every count; an event without the field is one. A coalesced flow's last occurrence is last_timestamp_ns, later than its own time.
+// Activity SQL fragments (issue #1285). A coalesced flow stands for coalesced_count connections or queries, and an agent's folded file
+// activity (#1287) for coalesced_count operations, so each weighs that much in every count; an event without the field is one. A
+// coalesced event's last occurrence is last_timestamp_ns, later than its own time. An agent file row's operation is its payload's
+// (create, modify, rename, delete); every other file event's is its type.
 const (
-	activityFileTypes     = "('open', 'file_rename', 'file_truncate', 'file_delete')"
-	activityAllTypes      = "('open', 'file_rename', 'file_truncate', 'file_delete', 'network_connect', 'dns_query')"
+	activityFileTypes     = "('open', 'file_rename', 'file_truncate', 'file_delete', 'file_activity')"
+	activityAllTypes      = "('open', 'file_rename', 'file_truncate', 'file_delete', 'file_activity', 'network_connect', 'dns_query')"
+	activityFileOperation = "if(event_type = 'file_activity', JSONExtractString(payload, 'operation'), event_type)"
 	activityWeight        = "if(JSONHas(payload, 'coalesced_count'), JSONExtractInt(payload, 'coalesced_count'), 1)"
 	activityLastTimestamp = "greatest(timestamp_ns, JSONExtractInt(payload, 'last_timestamp_ns'))"
 	activityPIDVersion    = "JSONExtractInt(payload, 'pidversion')"
@@ -62,7 +65,7 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 func (s *Store) activityTotals(ctx context.Context, scope string, args []any, out *api.ActivityRollup) error {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT
-			toInt64(countIf(event_type IN `+activityFileTypes+`)),
+			toInt64(sumIf(`+activityWeight+`, event_type IN `+activityFileTypes+`)),
 			toInt64(uniqExactIf(JSONExtractString(payload, 'path'), event_type IN `+activityFileTypes+`)),
 			toInt64(sumIf(`+activityWeight+`, event_type = 'network_connect')),
 			toInt64(uniqExactIf((JSONExtractString(payload, 'remote_address'), JSONExtractInt(payload, 'remote_port'),
@@ -80,18 +83,19 @@ func (s *Store) activityTotals(ctx context.Context, scope string, args []any, ou
 
 func (s *Store) fileActivity(ctx context.Context, scope string, args []any, limit int) ([]api.FileActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT event_type, JSONExtractString(payload, 'path') AS path, JSONExtractString(payload, 'source_path') AS source_path,
-			pid, `+activityPIDVersion+` AS pv, toInt64(count()), min(timestamp_ns) AS first, max(timestamp_ns)
+		SELECT `+activityFileOperation+` AS operation, JSONExtractString(payload, 'path') AS path,
+			JSONExtractString(payload, 'source_path') AS source_path, toBool(JSONExtractBool(payload, 'rolled_up')) AS rolled_up,
+			pid, `+activityPIDVersion+` AS pv, toInt64(sum(`+activityWeight+`)), min(timestamp_ns) AS first, max(`+activityLastTimestamp+`)
 		FROM events FINAL
 		WHERE event_type IN `+activityFileTypes+` AND `+scope+`
-		GROUP BY event_type, path, source_path, pid, pv
-		ORDER BY first, path, event_type
+		GROUP BY operation, path, source_path, rolled_up, pid, pv
+		ORDER BY first, path, operation
 		LIMIT ?`, append(args, limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse file activity: %w", err)
 	}
 	return scanActivity(rows, limit, func(r *api.FileActivityRow) []any {
-		return []any{&r.Operation, &r.Path, &r.SourcePath, &r.PID, &r.PIDVersion, &r.Count, &r.FirstNs, &r.LastNs}
+		return []any{&r.Operation, &r.Path, &r.SourcePath, &r.RolledUp, &r.PID, &r.PIDVersion, &r.Count, &r.FirstNs, &r.LastNs}
 	})
 }
 

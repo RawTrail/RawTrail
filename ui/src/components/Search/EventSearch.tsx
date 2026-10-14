@@ -95,7 +95,7 @@ export function EventSearch({ mode, hostNames }: { readonly mode: EventSearchMod
 // processCell renders the originating process as "name (pid)", the same shorthand the tree uses; falls back to the raw pid when the
 // event carried no path (a legacy or redacted flow).
 function processCell(evt: EventRecord): string {
-  const p = evt.payload as { path?: string; pid: number };
+  const p = evt.payload;
   const name = p.path ? basename(p.path) : "";
   return name ? `${name} (${String(p.pid)})` : String(p.pid);
 }

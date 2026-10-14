@@ -67,6 +67,13 @@ export interface ScenarioEvent {
   // file_rename: `path` carries the DESTINATION, the same way it carries the target for an open, so only the origin needs a
   // field of its own. Mirrors the Go ScenarioEvent struct in test/fakeagent/fakeagent.go.
   source_path?: string;
+  // file_activity (issue #1287): an AI agent's folded file operation. `path` is the file, or the directory a rolled-up row stands for;
+  // `count` is how many operations it folds, sent as coalesced_count only past one. Mirrors the Go ScenarioEvent struct.
+  operation?: string;
+  count?: number;
+  // The offset of the last folded operation, sent as last_timestamp_ns.
+  last_at?: string;
+  rolled_up?: boolean;
   protocol?: string;
   direction?: string;
   local_address?: string;
@@ -250,13 +257,18 @@ async function enrollHost(ctx: APIRequestContext, hostId: string, hostname: stri
 // Number.MAX_SAFE_INTEGER; storing as a plain Number would silently round and diverge from Go's int64.
 export function generateEnvelopes(scenario: Scenario, hostId: string, startTime: Date): Envelope[] {
   const startNs = BigInt(startTime.getTime()) * 1_000_000n;
-  return scenario.timeline.map((ev) => ({
-    event_id: crypto.randomUUID(),
-    host_id: hostId,
-    timestamp_ns: startNs + parseGoDuration(ev.at),
-    event_type: ev.type,
-    payload: buildPayload(ev),
-  }));
+  return scenario.timeline.map((ev) => {
+    const payload = buildPayload(ev);
+    // A folded event's last_timestamp_ns is absolute, so it is set here, where the start time is known; the Go fake does the same.
+    if (ev.last_at) payload.last_timestamp_ns = startNs + parseGoDuration(ev.last_at);
+    return {
+      event_id: crypto.randomUUID(),
+      host_id: hostId,
+      timestamp_ns: startNs + parseGoDuration(ev.at),
+      event_type: ev.type,
+      payload,
+    };
+  });
 }
 
 // stringifyEnvelopes serialises a batch of envelopes to a JSON string with BigInt timestamp_ns emitted as an UNQUOTED JSON number,
@@ -314,6 +326,13 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
     case "file_truncate":
     case "file_delete":
       return { pid: ev.pid ?? 0, path: ev.path ?? "" };
+    case "file_activity": {
+      const p: Record<string, unknown> = { pid: ev.pid ?? 0, pidversion: ev.pidversion ?? 0, operation: ev.operation ?? "", path: ev.path ?? "" };
+      if (ev.source_path) p.source_path = ev.source_path;
+      if (ev.count !== undefined && ev.count > 1) p.coalesced_count = ev.count;
+      if (ev.rolled_up) p.rolled_up = true;
+      return p;
+    }
     case "network_connect": {
       const p: Record<string, unknown> = {
         pid: ev.pid ?? 0,

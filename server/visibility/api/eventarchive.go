@@ -70,7 +70,7 @@ type EventArchive interface {
 	// a wedge (the wedge claim requires positive process activity, which an absent host by definition lacks).
 	TelemetryActivityForHosts(ctx context.Context, hostIDs []string, tr httpserver.TimeRange) (map[string]TelemetryActivity, error)
 
-	// HostTimeline returns one host's investigation events (exec, network_connect, dns_query) interleaved in event-time order,
+	// HostTimeline returns one host's investigation events (TimelineEventTypes) interleaved in event-time order,
 	// newest-first, over the filter's event-time window, optionally narrowed to a subset of those types and to a case-insensitive
 	// payload substring (issue #583). Keyset-paged over (timestamp_ns, event_id) from cursor, up to limit events, with a next cursor
 	// when more remain and total_matched independent of the page. Shares the EventSearchResult page shape and EventCursor codec with
@@ -232,8 +232,9 @@ type ActivityRow struct {
 	LastNs     int64 `json:"last_ns"`
 }
 
-// FileActivity lists, per process, the paths touched and how. Operation is the event type (open, file_rename, file_truncate,
-// file_delete); SourcePath is a rename's origin, empty otherwise.
+// FileActivity lists, per process, the paths touched and how. Operation is the event type of a watched-path event (open, file_rename,
+// file_truncate, file_delete), or the operation of an agent's file activity (create, modify, rename, delete); SourcePath is a single
+// rename's origin, empty otherwise.
 type FileActivity struct {
 	ActivityTotals
 	Rows []FileActivityRow `json:"rows"`
@@ -245,6 +246,9 @@ type FileActivityRow struct {
 	Operation  string `json:"operation"`
 	Path       string `json:"path"`
 	SourcePath string `json:"source_path,omitempty"`
+	// RolledUp marks Path as a directory standing for the agent file activity under it, which the extension folded to stay within its
+	// per-second budget.
+	RolledUp bool `json:"rolled_up,omitempty"`
 }
 
 // NetworkActivity lists, per process, the destinations it connected to.

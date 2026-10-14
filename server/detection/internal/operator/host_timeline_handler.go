@@ -16,7 +16,7 @@ import (
 // that; the cap bounds the OR-clause count against a malformed caller rather than a real chain.
 const maxTimelineChain = processTreeMaxLimit
 
-// HostTimelineReader is the host-scoped merged event timeline surface (issue #583): exec, network_connect, and dns_query events for one
+// HostTimelineReader is the host-scoped merged event timeline surface (issue #583): the TimelineEventTypes events for one
 // host interleaved in event-time order. mysql.Store satisfies it by delegating to the visibility EventArchive, the same seam the
 // fleet-wide event search uses.
 type HostTimelineReader interface {

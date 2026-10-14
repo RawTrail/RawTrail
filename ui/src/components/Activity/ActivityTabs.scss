@@ -57,6 +57,11 @@
     color: $ui-fleet-black-50;
   }
 
+  &__rollup {
+    color: $ui-fleet-black-50;
+    font-family: inherit;
+  }
+
   &__process {
     background: none;
     border: 0;
