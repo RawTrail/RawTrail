@@ -18,6 +18,7 @@ export interface NavLink {
 export const NAV_LINKS: NavLink[] = [
   { to: "/alerts", label: "Alerts", action: PermissionAction.AlertRead },
   { to: "/hosts", label: "Hosts", action: PermissionAction.HostRead },
+  { to: "/sessions", label: "Sessions", action: PermissionAction.ProcessRead },
   { to: "/search", label: "Search", action: PermissionAction.ProcessRead },
   { to: "/app-control", label: "Application control", action: PermissionAction.AppControlRead },
   { to: "/rules", label: "Rules", action: PermissionAction.AlertRead, siblings: ["/coverage"] },

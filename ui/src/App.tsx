@@ -8,6 +8,7 @@ import { AttackCoverage } from "./components/AttackCoverage";
 import { ApplicationControlRoutes } from "./components/ApplicationControl/ApplicationControlRoutes";
 import { DetectionConfig } from "./components/DetectionConfig/DetectionConfig";
 import { SearchPage } from "./components/Search/SearchPage";
+import { SessionList } from "./components/Sessions/SessionList";
 import { RuleDetail } from "./components/RuleDetail";
 import { RulesCatalog } from "./components/RulesCatalog";
 import { RuleEditor } from "./components/RuleEditor";
@@ -191,6 +192,14 @@ export function AuthedApp() {
             element={(
               <RequirePermission action={PermissionAction.ProcessRead} surface="Search">
                 <SearchPage />
+              </RequirePermission>
+            )}
+          />
+          <Route
+            path="/sessions"
+            element={(
+              <RequirePermission action={PermissionAction.ProcessRead} surface="Sessions">
+                <SessionList />
               </RequirePermission>
             )}
           />

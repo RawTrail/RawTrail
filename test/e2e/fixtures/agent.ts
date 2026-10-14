@@ -53,6 +53,8 @@ export interface ScenarioEvent {
   path?: string;
   args?: string[];
   cwd?: string;
+  // exec: the AI agent session markers the production agent forwards from the environment, emitted only when set.
+  env?: Record<string, string>;
   exit_code?: number;
   exit_reason?: string; // schema/events.json exit_payload.exit_reason, matches the Go ScenarioEvent struct.
   flags?: number;
@@ -277,6 +279,7 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
         cwd: ev.cwd ?? "",
         uid: ev.uid ?? 0,
         gid: ev.gid ?? 0,
+        ...(ev.env ? { env: ev.env } : {}),
       };
     case "fork":
       return { child_pid: ev.child_pid ?? 0, parent_pid: ev.parent_pid ?? 0 };

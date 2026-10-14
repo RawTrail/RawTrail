@@ -148,6 +148,29 @@ export interface ProcessSearchResult {
   total_matched: number;
 }
 
+// AgentSessionSummary is one row of GET /api/agent-sessions (issue #1283): an AI agent session on one host, with the project it worked
+// in (the working directory of its earliest tool call), when it was active, and how many retained processes and alerts it has.
+export interface AgentSessionSummary {
+  host_id: string;
+  agent_session_id: string;
+  agent_name: string;
+  agent_version?: string;
+  agent_pid?: number;
+  cwd?: string;
+  first_seen_ns: number;
+  last_seen_ns: number;
+  process_count: number;
+  alert_count: number;
+}
+
+// AgentSessionResult is one page of the sessions list, most recently active first, with the keyset cursor for the next page (absent
+// on the last) and the number of sessions the filter matched.
+export interface AgentSessionResult {
+  rows: AgentSessionSummary[];
+  next_cursor?: string;
+  total_matched: number;
+}
+
 // EventSearchResult is the response from the fleet-wide connection and DNS search endpoints (GET /api/search/connections and
 // /api/search/dns, issue #582): a page of matching events across all hosts, the opaque keyset cursor for the next page (absent on the
 // last), and the full match count independent of the page. Each event carries the visibility Event shape (see EventRecord).

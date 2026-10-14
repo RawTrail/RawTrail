@@ -11,6 +11,7 @@ import type {
   HostSummary,
   HostDetail,
   ProcessSearchResult,
+  AgentSessionResult,
   EventSearchResult,
   HostTimelineResult,
   HostHealth,
@@ -416,6 +417,24 @@ export async function searchProcesses(filter: ProcessSearchFilter, cursor?: stri
   // disable is required because the response type models rows as non-null, which the wire does not guarantee for an empty page.
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Go marshals a nil slice as JSON null (a non-nil empty slice would be [])
   return { ...res, rows: res.rows ?? [] };
+}
+
+// AgentSessionFilter mirrors GET /api/agent-sessions' query params (issue #1283). from and to are ns since epoch and select the
+// sessions active in that window. Empty values are omitted from the query.
+export interface AgentSessionFilter {
+  host_id?: string;
+  agent?: string;
+  from?: string;
+  to?: string;
+}
+
+export async function listAgentSessions(filter: AgentSessionFilter, cursor?: string): Promise<AgentSessionResult> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries({ ...filter, cursor })) {
+    if (value) query.set(key, value);
+  }
+  const qs = query.toString();
+  return fetchJSON<AgentSessionResult>(`/agent-sessions${qs ? `?${qs}` : ""}`);
 }
 
 // EventSearchMode picks which fleet-wide artifact search to run: "connections" hits GET /api/search/connections (matching a remote
