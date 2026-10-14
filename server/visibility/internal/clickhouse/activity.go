@@ -225,11 +225,11 @@ func activityScopeSQL(filter api.ActivityFilter) (string, []any) {
 	return "(" + strings.Join(arms, " OR ") + ")", args
 }
 
-// sessionPath matches a path Claude Code names after a session, and captures the session's id: its transcript,
+// SessionPathPattern matches a path Claude Code names after a session, and captures the session's id: its transcript,
 // ~/.claude/projects/<project>/<session id>.jsonl, and the session's directories, ~/.claude/projects/<project>/<session id>/,
 // ~/.claude/session-env/<session id> and /tmp/claude-<uid>/<project>/<session id>/. Claude Code creates the scratch directory a few
 // milliseconds before the transcript, so the transcript alone would leave those first writes in the previous session.
-const sessionPath = `(?:/\.claude/projects/[^/]+/|/\.claude/session-env/|/claude-[0-9]+/[^/]+/)` +
+const SessionPathPattern = `(?:/\.claude/projects/[^/]+/|/\.claude/session-env/|/claude-[0-9]+/[^/]+/)` +
 	`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.jsonl$|/|$)`
 
 // SessionTouches lists the first time the generation created or changed a path of each session, oldest first (issue #1319).
@@ -240,7 +240,8 @@ func (s *Store) SessionTouches(ctx context.Context, hostID string, generation ap
 		WHERE `+hostPredicate+` AND event_type = 'file_activity' AND pid = ? AND `+activityPIDVersion+` = ?
 			AND match(JSONExtractString(payload, 'path'), ?)
 		GROUP BY session
-		ORDER BY first, session`, sessionPath, hostID, generation.PID, generation.PIDVersion, sessionPath)
+		ORDER BY first, session`, SessionPathPattern, hostID, generation.PID, generation.PIDVersion,
+		SessionPathPattern)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse session touches: %w", err)
 	}

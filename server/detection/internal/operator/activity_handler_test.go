@@ -361,8 +361,11 @@ func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
 	shell := activityNode(1, 5001, 1)
 	shell.ParentProcessID = &agentRow
 	shell.AgentSessionID = &sessionID
+	// A program the session had launchd run is a root without the session's marker too, but it is not the agent: it stays whole even
+	// when it touched session paths of its own.
+	launched := activityNode(2, 6001, 2)
 	readScope := func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
-		return api.ProcessTreeResult{Roots: []api.ProcessNode{shell}}, nil
+		return api.ProcessTreeResult{Roots: []api.ProcessNode{shell, launched}}, nil
 	}
 	sessions := api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: sessionID, AgentPID: &agentPID}}}
 	serve := func(reader *fakeActivityReader) int {
@@ -381,12 +384,13 @@ func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
 		processes: map[int64]api.Process{agentRow: agentProc},
 		touches: map[int64][]visibilityapi.SessionTouch{
 			int64(agentPID): {{SessionID: "4f5b9ea2", FirstNs: 633}, {SessionID: sessionID, FirstNs: 673}},
+			6001:            {{SessionID: "4f5b9ea2", FirstNs: 640}, {SessionID: sessionID, FirstNs: 690}},
 		},
 	}
 	require.Equal(t, http.StatusOK, serve(reader))
 	require.NotNil(t, reader.filter)
-	assert.Equal(t, []visibilityapi.ProcessGeneration{{PID: 5001, PIDVersion: 1}}, reader.filter.Generations,
-		"the session's own processes stay whole")
+	assert.Equal(t, []visibilityapi.ProcessGeneration{{PID: 5001, PIDVersion: 1}, {PID: 6001, PIDVersion: 2}}, reader.filter.Generations,
+		"the session's own processes and what it launched stay whole")
 	assert.Equal(t, []visibilityapi.GenerationSpan{
 		{ProcessGeneration: visibilityapi.ProcessGeneration{PID: int64(agentPID), PIDVersion: 9}, FromNs: 673},
 	}, reader.filter.Spans, "the agent counts only from its first touch of this session's transcript")

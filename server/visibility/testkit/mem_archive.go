@@ -14,6 +14,7 @@ import (
 
 	"github.com/fleetdm/edr/server/httpserver"
 	"github.com/fleetdm/edr/server/visibility/api"
+	"github.com/fleetdm/edr/server/visibility/internal/clickhouse"
 )
 
 // MemArchive is an in-memory EventArchive for tests: it satisfies the visibility EventArchive contract without a ClickHouse container,
@@ -556,9 +557,8 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 	return calls, false, nil
 }
 
-// sessionPath is the ClickHouse store's match of a path Claude Code names after a session, capturing the session's id.
-var sessionPath = regexp.MustCompile(`(?:/\.claude/projects/[^/]+/|/\.claude/session-env/|/claude-[0-9]+/[^/]+/)` +
-	`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.jsonl$|/|$)`)
+// sessionPath is the ClickHouse store's own match of a path Claude Code names after a session, so the two cannot drift.
+var sessionPath = regexp.MustCompile(clickhouse.SessionPathPattern)
 
 // SessionTouches mirrors the ClickHouse store: the first time the generation touched a path of each session, oldest first.
 func (m *MemArchive) SessionTouches(_ context.Context, hostID string, generation api.ProcessGeneration) ([]api.SessionTouch, error) {

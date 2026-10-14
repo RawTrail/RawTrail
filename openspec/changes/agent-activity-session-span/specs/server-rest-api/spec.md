@@ -2,7 +2,7 @@
 
 ### Requirement: Agent activity bounded to its session
 
-A session's activity SHALL count the agent process only from its first touch of a path named after the session, its transcript or one of its directories, to its first touch of a path of a later session; the first session it served SHALL also keep the process's start. An agent that touched no other session's paths, or none of this session's, SHALL be counted whole.
+A session's activity SHALL count the agent process's records, by their first occurrence, only from its first touch of a path named after the session, its transcript or one of its directories, to its first touch of a path of a later session; the first session it served SHALL also keep the process's start. An agent that touched no other session's paths, or none of this session's, SHALL be counted whole.
 
 #### Scenario: A reused agent counts in each session only while serving it
 
