@@ -94,11 +94,15 @@ func (q *Query) BuildTree(
 	}
 
 	forest := buildForest(procs, resolved)
+	// A window read links the launches it holds both ends of; it adds no rows, which would break the window's own bound.
+	if res.Links, _, _, err = q.launchLinks(ctx, hostID, forest, false); err != nil {
+		return api.ProcessTreeResult{}, err
+	}
 	if flatten {
 		res.Roots = forest
 		return res, nil
 	}
-	res.Roots = aggregateSiblingsPinned(forest, pinnedID)
+	res.Roots = aggregateSiblingsKeeping(forest, linkEnds(res.Links, pinnedID))
 	return res, nil
 }
 
@@ -553,6 +557,12 @@ func aggregateSiblings(forest []api.ProcessNode) []api.ProcessNode {
 // aggregated header a synthetic negative id (the negation of its representative), which the id-keyed UI paths cannot match, so an alerted
 // process with identical siblings would otherwise vanish from its own chain. 0 pins nothing (the plain aggregateSiblings entry point).
 func aggregateSiblingsPinned(forest []api.ProcessNode, pinnedID int64) []api.ProcessNode {
+	return aggregateSiblingsKeeping(forest, map[int64]bool{pinnedID: pinnedID != 0})
+}
+
+// aggregateSiblingsKeeping is aggregateSiblingsPinned for a set of rows kept out of every group: the pinned process and the ends of
+// the read's links (issue #1286), which a client must be able to find by id.
+func aggregateSiblingsKeeping(forest []api.ProcessNode, keep map[int64]bool) []api.ProcessNode {
 	if len(forest) == 0 {
 		return forest
 	}
@@ -562,13 +572,13 @@ func aggregateSiblingsPinned(forest []api.ProcessNode, pinnedID int64) []api.Pro
 		n := forest[i]
 		if len(n.Children) > 0 {
 			// Non-leaf: keep it individual and recurse so its own children aggregate too.
-			n.Children = aggregateSiblingsPinned(n.Children, pinnedID)
+			n.Children = aggregateSiblingsKeeping(n.Children, keep)
 			out = append(out, n)
 			continue
 		}
 		leaves = append(leaves, n)
 	}
-	out = append(out, groupLeaves(leaves, pinnedID)...)
+	out = append(out, groupLeaves(leaves, keep)...)
 	slices.SortFunc(out, func(a, b api.ProcessNode) int {
 		if d := nodeFirstForkNs(a) - nodeFirstForkNs(b); d != 0 {
 			return int(min(max(d, -1), 1))
@@ -581,19 +591,19 @@ func aggregateSiblingsPinned(forest []api.ProcessNode, pinnedID int64) []api.Pro
 // groupLeaves partitions leaf siblings by binary identity and folds every group of at least aggregateMinGroup members into one
 // aggregated node; smaller groups pass through unchanged. Group order within the returned slice is not significant: aggregateSiblings
 // re-sorts the merged output by fork time.
-func groupLeaves(leaves []api.ProcessNode, pinnedID int64) []api.ProcessNode {
+func groupLeaves(leaves []api.ProcessNode, keep map[int64]bool) []api.ProcessNode {
 	if len(leaves) == 0 {
 		return nil
 	}
 	// order preserves first-seen key order so grouping is deterministic before the caller's fork-time sort.
 	groups := make(map[string][]api.ProcessNode, len(leaves))
 	var order []string
-	// A pinned leaf (the alerted process) always passes through as its own node, never folded into a "×N" group, so the id-keyed UI
-	// paths can still find it. Removing it from its identity group can drop that group below aggregateMinGroup, which then also passes
+	// A kept leaf (the alerted process, a link's end) always passes through as its own node, never folded into a "×N" group, so the
+	// id-keyed UI paths can still find it. Removing it from its identity group can drop that group below aggregateMinGroup, which then also passes
 	// through individually; that is fine (a two-member group with one pinned collapses to two plain nodes).
 	var pinned []api.ProcessNode
 	for _, n := range leaves {
-		if pinnedID != 0 && n.ID == pinnedID {
+		if keep[n.ID] {
 			pinned = append(pinned, n)
 			continue
 		}

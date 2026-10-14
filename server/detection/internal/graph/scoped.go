@@ -36,10 +36,19 @@ func (q *Query) BuildScopedTree(
 		res.TotalMatched, res.TotalMatchedCapped = resolveTotalMatched(res.Returned, total, capped)
 	}
 	forest := buildForest(procs, nil)
+	// A story or session shows what its launchers caused launchd to run, as extra roots the links name (issue #1286).
+	links, launched, launchedCut, err := q.launchLinks(ctx, hostID, forest, true)
+	if err != nil {
+		return api.ProcessTreeResult{}, err
+	}
+	forest = append(forest, launched...)
+	res.Links = links
+	// A launched program's descendants cut at their bound are a partial read like any other.
+	res.Truncated = res.Truncated || launchedCut
 	if flatten {
 		res.Roots = forest
 		return res, nil
 	}
-	res.Roots = aggregateSiblingsPinned(forest, pinnedID)
+	res.Roots = aggregateSiblingsKeeping(forest, linkEnds(links, pinnedID))
 	return res, nil
 }
