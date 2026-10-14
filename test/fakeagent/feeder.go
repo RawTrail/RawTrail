@@ -33,6 +33,9 @@ func (s *Scenario) Envelopes(opts ...Option) ([]Envelope, error) {
 	out := make([]Envelope, 0, len(s.Timeline))
 	for i, ev := range s.Timeline {
 		payload, err := buildPayload(ev)
+		if err == nil && ev.LastAt != nil {
+			payload, err = withLastTimestamp(payload, cfg.startTime.Add(time.Duration(*ev.LastAt)).UnixNano())
+		}
 		if err != nil {
 			return nil, fmt.Errorf("timeline[%d] %s: %w", i, ev.Type, err)
 		}
@@ -185,6 +188,17 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-t.C:
 		return nil
 	}
+}
+
+// withLastTimestamp adds a folded event's last_timestamp_ns, which is absolute and so needs the scenario's start time buildPayload does
+// not see.
+func withLastTimestamp(payload json.RawMessage, lastNs int64) (json.RawMessage, error) {
+	var fields map[string]any
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return nil, err
+	}
+	fields["last_timestamp_ns"] = lastNs
+	return json.Marshal(fields)
 }
 
 // buildPayload constructs the per-event-type payload object that the wire envelope embeds. The function picks the right field

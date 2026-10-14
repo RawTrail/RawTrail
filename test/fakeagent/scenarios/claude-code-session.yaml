@@ -78,6 +78,7 @@ timeline:
     operation: modify
     path: /Users/dev/project/.git/index
     count: 2
+    last_at: 16ms
   - at: 30ms
     type: exit
     pid: 5002

@@ -12,4 +12,4 @@
 
 - [x] 3.1 ClickHouse integration test for agent file rows; timeline handler test.
 - [x] 3.2 vitest for the Files tab and the timeline.
-- [ ] 3.3 Playwright: the Claude Code session's activity lists git's index update.
+- [x] 3.3 Playwright: the Claude Code session's activity lists git's index update.

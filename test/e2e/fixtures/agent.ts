@@ -71,6 +71,8 @@ export interface ScenarioEvent {
   // `count` is how many operations it folds, sent as coalesced_count only past one. Mirrors the Go ScenarioEvent struct.
   operation?: string;
   count?: number;
+  // The offset of the last folded operation, sent as last_timestamp_ns.
+  last_at?: string;
   rolled_up?: boolean;
   protocol?: string;
   direction?: string;
@@ -255,13 +257,18 @@ async function enrollHost(ctx: APIRequestContext, hostId: string, hostname: stri
 // Number.MAX_SAFE_INTEGER; storing as a plain Number would silently round and diverge from Go's int64.
 export function generateEnvelopes(scenario: Scenario, hostId: string, startTime: Date): Envelope[] {
   const startNs = BigInt(startTime.getTime()) * 1_000_000n;
-  return scenario.timeline.map((ev) => ({
-    event_id: crypto.randomUUID(),
-    host_id: hostId,
-    timestamp_ns: startNs + parseGoDuration(ev.at),
-    event_type: ev.type,
-    payload: buildPayload(ev),
-  }));
+  return scenario.timeline.map((ev) => {
+    const payload = buildPayload(ev);
+    // A folded event's last_timestamp_ns is absolute, so it is set here, where the start time is known; the Go fake does the same.
+    if (ev.last_at) payload.last_timestamp_ns = startNs + parseGoDuration(ev.last_at);
+    return {
+      event_id: crypto.randomUUID(),
+      host_id: hostId,
+      timestamp_ns: startNs + parseGoDuration(ev.at),
+      event_type: ev.type,
+      payload,
+    };
+  });
 }
 
 // stringifyEnvelopes serialises a batch of envelopes to a JSON string with BigInt timestamp_ns emitted as an UNQUOTED JSON number,

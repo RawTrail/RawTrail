@@ -104,10 +104,12 @@ type Event struct {
 	Flags int `json:"flags,omitempty"`
 
 	// file_activity specifics (issue #1287): an AI agent's folded file operation. Path is the file, or the directory a rolled-up row
-	// stands for; SourcePath is a rename's origin; Count is how many operations the row folds, sent as coalesced_count only past one.
-	Operation string `json:"operation,omitempty"`
-	Count     int    `json:"count,omitempty"`
-	RolledUp  bool   `json:"rolled_up,omitempty"`
+	// stands for; SourcePath is a rename's origin; Count is how many operations the row folds, sent as coalesced_count only past one,
+	// and LastAt the offset of the last of them, sent as last_timestamp_ns.
+	Operation string    `json:"operation,omitempty"`
+	Count     int       `json:"count,omitempty"`
+	LastAt    *Duration `json:"last_at,omitempty"`
+	RolledUp  bool      `json:"rolled_up,omitempty"`
 
 	// network_connect specifics.
 	Protocol      string `json:"protocol,omitempty"`
