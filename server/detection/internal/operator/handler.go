@@ -218,6 +218,9 @@ func (h *Handler) handleProcessTree(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case scoped:
 		res, err = h.svc.BuildScopedTree(ctx, hostID, scope, limit, flatten, pinnedID)
+		if err == nil && scope.AgentSessionID != "" {
+			res.Agents, err = h.sessionAgents(ctx, hostID, scope.AgentSessionID, res.Roots)
+		}
 	case r.URL.Query().Get("scope") == "chain" && pinnedID != 0:
 		res, err = h.svc.BuildChainTree(ctx, hostID, tr, pinnedID, flatten)
 	default:

@@ -29,6 +29,21 @@ func (f *fakeSessionLister) ListAgentSessions(_ context.Context, filter api.Agen
 	return f.result, f.err
 }
 
+// GetAgentSession answers from result's rows, recording the lookup in filter as the list does, and never calls the list: a lookup that
+// paid for the list's counts would leave limit set.
+func (f *fakeSessionLister) GetAgentSession(_ context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error) {
+	f.filter = api.AgentSessionFilter{HostID: hostID, AgentSessionID: sessionID}
+	if f.err != nil {
+		return nil, f.err
+	}
+	for _, r := range f.result.Rows {
+		if r.HostID == hostID && r.AgentSessionID == sessionID {
+			return &r, nil
+		}
+	}
+	return nil, nil
+}
+
 func newSessionsServer(t *testing.T, lister AgentSessionLister, az identityapi.AuthZ) *httptest.Server {
 	t.Helper()
 	h := New(fakeService{}, az, slog.Default())

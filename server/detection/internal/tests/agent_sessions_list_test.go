@@ -191,3 +191,29 @@ func TestListAlerts_ByAgentSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, monitor, 1, "the disposition filter still applies")
 }
+
+// One session's record, read without the list's counts (issue #1334): by host and session, so the same id on another host is not it.
+func TestAgentSessions_GetOne(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	seedSessionRow(t, db, "host-a", "s-new", "claude-code", "/Users/v/project", 300, 900)
+	seedSessionRow(t, db, "host-b", "s-new", "codex", "/srv/app", 400, 500)
+	seedSessionProcesses(t, store, "host-a", "s-new", 2)
+
+	got, err := store.GetAgentSession(t.Context(), "host-a", "s-new")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "claude-code", got.AgentName)
+	assert.Equal(t, new(80673), got.AgentPID)
+	assert.Equal(t, [2]int64{300, 900}, [2]int64{got.FirstSeenNs, got.LastSeenNs})
+	assert.Zero(t, got.ProcessCount, "the counts are the list's, not the record's")
+
+	other, err := store.GetAgentSession(t.Context(), "host-b", "s-new")
+	require.NoError(t, err)
+	require.NotNil(t, other)
+	assert.Equal(t, "codex", other.AgentName)
+
+	missing, err := store.GetAgentSession(t.Context(), "host-c", "s-new")
+	require.NoError(t, err)
+	assert.Nil(t, missing)
+}
