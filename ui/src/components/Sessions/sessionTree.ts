@@ -69,9 +69,9 @@ function walk(node: ProcessNode, visit: (n: ProcessNode) => void): void {
 }
 
 // isShellCopy reports a fork of a shell that never exec'd: the copy a shell makes to run a subshell or a background job. It carries
-// its creator's image and no command of its own.
+// its creator's image, user and no command of its own. A copy running as another user changed privilege, which is not plumbing.
 function isShellCopy(node: ProcessNode, creator: ProcessNode): boolean {
-  return node.exec_time_ns === undefined && node.path === creator.path && isShellPath(node.path);
+  return node.exec_time_ns === undefined && node.path === creator.path && node.uid === creator.uid && isShellPath(node.path);
 }
 
 function hidden(node: ProcessNode, isPlumbing: boolean, shape: RowShape): boolean {

@@ -7,7 +7,7 @@ import { PageHeader } from "../ui/PageHeader";
 import { Toggle } from "../ui/Toggle";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/Table";
-import { severityBadgeVariant } from "../ui/severity";
+import { severityBadgeVariant, severityRank } from "../ui/severity";
 import { formatNs, basename } from "../Search/format";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
@@ -17,10 +17,9 @@ import { commandLine } from "./toolCommand";
 // AUTO_EXPAND_CALLS is the most tool calls a session can have and still open with every call expanded. A longer session opens with
 // only the calls an alert was raised in expanded, so the operator starts from what was flagged.
 const AUTO_EXPAND_CALLS = 10;
-// MAX_SESSION_ALERTS bounds the session's alert read.
+// MAX_SESSION_ALERTS bounds the session's alert read. One more is asked for, so a session with more is reported rather than shown as
+// if its first page were all of them.
 const MAX_SESSION_ALERTS = 1000;
-// SEVERITY_ORDER ranks severities from least to most severe; an unknown severity ranks below them all.
-const SEVERITY_ORDER: readonly string[] = ["low", "medium", "high", "critical"];
 
 // SessionRead is everything the view reads for one session, kept with the session it was for so another session's results are never
 // shown. The tree is required; the record and the alerts decorate it, and their failures are reported without hiding the tree.
@@ -31,6 +30,8 @@ interface SessionRead {
   record?: AgentSessionSummary;
   alerts?: Alert[];
   alertsFailed?: boolean;
+  // alertsTruncated is set when the session has more alerts than were read, so some are not badged.
+  alertsTruncated?: boolean;
 }
 
 function message(err: unknown): string {
@@ -43,10 +44,17 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
     listAgentSessions({ host_id: hostId, session: sessionId })
       .then((res) => res.rows[0] as AgentSessionSummary | undefined)
       .catch(() => undefined),
-    listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS }).catch(() => null),
+    listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
   ]);
   if (typeof tree === "string") return { key, error: tree };
-  return { key, tree, record, alerts: alerts ?? [], alertsFailed: alerts === null };
+  return {
+    key,
+    tree,
+    record,
+    alerts: (alerts ?? []).slice(0, MAX_SESSION_ALERTS),
+    alertsFailed: alerts === null,
+    alertsTruncated: (alerts?.length ?? 0) > MAX_SESSION_ALERTS,
+  };
 }
 
 // SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its tool calls ran, one
@@ -136,6 +144,12 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
       {read.alertsFailed && (
         <p className="session-view__notice" role="status">This session&apos;s alerts could not be loaded, so none are shown.</p>
       )}
+      {read.alertsTruncated && (
+        <p className="session-view__notice" role="status">
+          This session has more than {MAX_SESSION_ALERTS.toLocaleString()} alerts; only the {MAX_SESSION_ALERTS.toLocaleString()} most
+          recent are badged.
+        </p>
+      )}
     </>
   );
 }
@@ -171,7 +185,7 @@ function SessionBody({ read, calls, hostId, alertsByProcess }: {
 
 // highestSeverity is the most severe of the alerts' severities, for the group's badge.
 function highestSeverity(alerts: readonly Alert[]): string {
-  return alerts.reduce((top, a) => (SEVERITY_ORDER.indexOf(a.severity) > SEVERITY_ORDER.indexOf(top) ? a.severity : top), "");
+  return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
 }
 
 function ToolCallGroup({ call, hostId, alerts, alertsByProcess, defaultOpen }: {
@@ -227,9 +241,13 @@ function ProcessRows({ rows, hostId, alertsByProcess }: {
               </span>
             )}
             {(alertsByProcess.get(node.id) ?? []).map((alert) => (
-              <Link key={alert.id} to={`/alerts/${String(alert.id)}`} className="session-view__alert">
-                <Badge variant={severityBadgeVariant(alert.severity)}>{alert.title}</Badge>
-              </Link>
+              <span key={alert.id} className="session-view__alert">
+                <Link to={`/alerts/${String(alert.id)}`}>
+                  <Badge variant={severityBadgeVariant(alert.severity)}>{alert.title}</Badge>
+                </Link>
+                {/* A vendored rule's match owes its author the credit on every surface that shows it (issue #765). */}
+                {alert.origin && <span className="session-view__meta">{alert.origin}</span>}
+              </span>
             ))}
           </div>
           {children.length > 0 && <ProcessRows rows={children} hostId={hostId} alertsByProcess={alertsByProcess} />}

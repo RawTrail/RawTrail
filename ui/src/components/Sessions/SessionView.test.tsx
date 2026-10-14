@@ -172,7 +172,8 @@ describe("SessionView", () => {
     renderView();
     const link = await screen.findByRole("link", { name: "System discovery" });
     expect(link).toHaveAttribute("href", "/alerts/2047");
-    expect(spy).toHaveBeenCalledWith({ host_id: "H1", agent_session: SESSION, limit: 1000 });
+    // One past the cap, so a session with more alerts than are read is reported.
+    expect(spy).toHaveBeenCalledWith({ host_id: "H1", agent_session: SESSION, limit: 1001 });
     const header = screen.getByText("ls /private/tmp | head -3").closest("button");
     if (!header) throw new Error("no header");
     expect(within(header).getByText("1 alert")).toHaveClass("badge--critical");
@@ -209,16 +210,35 @@ describe("SessionView", () => {
   });
 
   // spec:web-ui/ai-agent-session-view-badges/a-privilege-change-is-badged
-  it("badges a process that runs as root under a user's process", async () => {
+  it("badges the process that became root, and not the root process it ran", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    // sudo is setuid, so its exec runs as root under the agent's uid-501 shell; the id it runs is root like sudo.
     const sudoCall = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'sudo id'"], [
-      proc(11, 11, 101, "/usr/bin/sudo", ["sudo", "id"], [proc(12, 12, 102, "/usr/bin/id", ["id"], [], { uid: 0 })], { uid: 501 }),
+      proc(11, 11, 101, "/usr/bin/sudo", ["sudo", "id"], [proc(12, 12, 102, "/usr/bin/id", ["id"], [], { uid: 0 })], { uid: 0 }),
     ], { tool_call_group: 10, uid: 501 });
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [sudoCall] }));
     renderView();
     const badge = await screen.findByText("runs as root");
     expect(badge).toBeVisible();
-    expect(badge.closest("li")?.querySelector("a")?.textContent).toBe("id");
+    expect(screen.getAllByText("runs as root")).toHaveLength(1);
+    expect(badge.closest("li")?.querySelector("a")?.textContent).toBe("sudo");
+  });
+
+  it("says when the session has more alerts than were read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "listAlerts").mockResolvedValue(Array.from({ length: 1001 }, (_, i) => alert({ id: i + 1 })));
+    renderView();
+    expect(await screen.findByText(/has more than 1,000 alerts; only the 1,000 most recent are badged/)).toBeVisible();
+    expect(screen.getAllByRole("link", { name: "System discovery" })).toHaveLength(1000);
+  });
+
+  it("credits a rule's author beside its alert", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "listAlerts").mockResolvedValue([alert({ origin: "SigmaHQ, by Alejandro Ortuno, oscd.community" })]);
+    renderView();
+    expect(await screen.findByText("SigmaHQ, by Alejandro Ortuno, oscd.community")).toBeVisible();
   });
 
   it("says so when the session's alerts could not be read, and still lists its processes", async () => {

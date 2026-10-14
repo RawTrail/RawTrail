@@ -26,6 +26,7 @@ import { Button } from "../ui/Button";
 import { Input, Select } from "../ui/Input";
 import { ReasonModal } from "./ReasonModal";
 import { WatchedPaths } from "./WatchedPaths";
+import { severityRank } from "../ui/severity";
 import "./DetectionConfig.scss";
 
 // The canonical display order for exclusion match types, mirroring api.ExclusionMatchType server-side. The editor never offers all of
@@ -390,16 +391,6 @@ function renderCost(stat: RuleEvalSummary | undefined, ruleID: string, days: num
       )}
     </AbbreviatedFigure>
   );
-}
-
-// SEVERITY_ORDER lists declared severities most- to least-severe; the rule-modes table sorts by it (ascending rank = critical first).
-const SEVERITY_ORDER = ["critical", "high", "medium", "low"] as const;
-
-// severityRank returns a rule's position in SEVERITY_ORDER (0 = critical). A severity that isn't one of the four (an unset "" or an
-// unrecognized value) ranks last, so "(unspecified)" rules fall to the bottom of the table.
-function severityRank(sev: string): number {
-  const i = SEVERITY_ORDER.indexOf(sev as (typeof SEVERITY_ORDER)[number]);
-  return i === -1 ? SEVERITY_ORDER.length : i;
 }
 
 // errMessage renders a typed detection-config API error's message, falling back to a generic string.

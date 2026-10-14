@@ -2,7 +2,7 @@
 
 ### Requirement: AI agent session view badges
 
-The session view SHALL read its header from the session's record and SHALL say when the session began before the retention cutoff. It SHALL badge each alert on the process it was raised on and on its tool call, and SHALL never hide such a process as shell plumbing. It SHALL badge a process that runs as a different user from its creator. A session of more than 10 tool calls SHALL open with only its alerted calls expanded.
+The session view SHALL read its header from the session's record and SHALL say when the session began before the retention cutoff. It SHALL badge each alert on the process it was raised on and on its tool call, and SHALL never hide such a process as shell plumbing. It SHALL badge a process that runs as a different user from its creator, and SHALL credit each alert's rule author beside it. A session of more than 10 tool calls SHALL open with only its alerted calls expanded.
 
 #### Scenario: The header reads the session's record
 
@@ -38,6 +38,6 @@ The session view SHALL read its header from the session's record and SHALL say w
 
 #### Scenario: A privilege change is badged
 
-- **GIVEN** a tool call that ran `sudo id`, so `id` runs as root under a process of uid 501
+- **GIVEN** a tool call that ran `sudo id`, where setuid `sudo` runs as root under the agent's uid-501 shell and `id` runs as root under `sudo`
 - **WHEN** the operator opens the session's view
-- **THEN** `id` carries a "runs as root" badge and `sudo` carries none
+- **THEN** `sudo` carries a "runs as root" badge and `id`, which runs as the same user as its creator, carries none

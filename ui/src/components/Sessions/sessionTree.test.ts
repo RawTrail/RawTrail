@@ -65,12 +65,20 @@ describe("buildToolCalls", () => {
   // spec:web-ui/ai-agent-session-view-badges/a-privilege-change-is-badged
   it("marks a process that runs as a different user from its creator", () => {
     const root = proc(2, 2, 200, "/bin/zsh", ["/bin/zsh", "-c", "eval 'sudo id'"], [
-      proc(3, 3, 201, "/usr/bin/sudo", ["sudo", "id"], [proc(4, 4, 202, "/usr/bin/id", ["id"], [], { uid: 0 })], { uid: 501 }),
+      proc(3, 3, 201, "/usr/bin/sudo", ["sudo", "id"], [proc(4, 4, 202, "/usr/bin/id", ["id"], [], { uid: 0 })], { uid: 0 }),
     ], { tool_call_group: 2, uid: 501 });
     const [call] = buildToolCalls([root], QUIET);
     const [sudo] = call.rows;
-    expect(sudo.uidChange).toBeUndefined();
-    expect(sudo.children[0].uidChange).toEqual({ from: 501, to: 0 });
+    expect(sudo.uidChange).toEqual({ from: 501, to: 0 });
+    expect(sudo.children[0].uidChange).toBeUndefined();
+  });
+
+  it("lists a shell copy that runs as another user, since that is a privilege change", () => {
+    const copy = proc(3, 3, 201, "/bin/zsh", undefined, [proc(4, 4, 202, "/bin/sleep", ["sleep", "1"], [], { uid: 0 })], { uid: 0 });
+    const root = proc(2, 2, 200, "/bin/zsh", ["/bin/zsh", "-c", "eval '(sleep 1 &)'"], [copy], { tool_call_group: 2, uid: 501 });
+    const [call] = buildToolCalls([root], QUIET);
+    expect(outline(call.rows)).toEqual(["/bin/zsh", "  /bin/sleep"]);
+    expect(call.rows[0].uidChange).toEqual({ from: 501, to: 0 });
   });
 
   it("compares a hoisted process with its real creator, not the row it is listed under", () => {
