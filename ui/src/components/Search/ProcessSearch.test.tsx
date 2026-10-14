@@ -26,6 +26,27 @@ function renderProc(initial = "/search?path=grep", hostNames = HOSTS) {
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("ProcessSearch", () => {
+  // spec:web-ui/process-search-lineage-filters/every-curl-any-claude-code-session-ran-this-week-is-one-search
+  it("asks for every curl any Claude Code session ran in the last week, as one search", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+    const spy = vi.spyOn(api, "searchProcesses").mockResolvedValue({ rows: [], total_matched: 0 });
+    renderProc("/search?path=curl&agent=claude-code&since=7d");
+    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
+    const weekAgoNs = (Date.parse("2026-10-14T12:00:00Z") - 7 * 24 * 3_600_000) * 1_000_000;
+    expect(spy.mock.calls[0][0]).toEqual({ path: "curl", agent: "claude-code", from: String(weekAgoNs) });
+    expect(screen.getByText("Claude Code", { exact: false })).toBeVisible();
+    vi.useRealTimers();
+  });
+
+  // spec:web-ui/process-search-lineage-filters/a-session-story-or-ancestor-chip-narrows-the-search
+  it("passes the session, story, ancestor and argument chips through", async () => {
+    const spy = vi.spyOn(api, "searchProcesses").mockResolvedValue({ rows: [], total_matched: 0 });
+    renderProc("/search?agent_session=47abb2a1&story_root=875325&ancestor=875400&args=example.com");
+    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
+    expect(spy.mock.calls[0][0]).toEqual({ agent_session: "47abb2a1", story_root: "875325", ancestor: "875400", args: "example.com" });
+  });
+
   it("renders process rows with the resolved host name and passes URL filters to the search", async () => {
     const spy = vi.spyOn(api, "searchProcesses").mockResolvedValue({
       rows: [proc({ id: 7, args: ["grep", "-r", "x"], exec_time_ns: 2_000_000_000 })],

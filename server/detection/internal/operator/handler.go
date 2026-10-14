@@ -39,6 +39,7 @@ const (
 	errInvalidExitReason  = "invalid_exit_reason"
 	errInvalidEventType   = "invalid_event_type"
 	errInvalidScope       = "invalid_scope"
+	errInvalidProcess     = "invalid_process"
 	errSessionNeedsHost   = "agent_session_requires_host_id"
 
 	// maxSessionIDLen is the widest agent session id a process row stores (migration 00019), so a longer one names no session.

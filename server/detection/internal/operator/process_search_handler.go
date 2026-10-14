@@ -115,6 +115,10 @@ func (h *Handler) parseProcessSearchRequest(ctx context.Context, w http.Response
 		return filter, 0, false
 	}
 	filter.FromNs, filter.ToNs = fromNs, toNs
+	if !parseLineageFilters(q, &filter) {
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidProcess)
+		return filter, 0, false
+	}
 	if raw := q.Get("uid"); raw != "" {
 		uid, err := strconv.Atoi(raw)
 		if err != nil || uid < 0 {
@@ -132,6 +136,24 @@ func (h *Handler) parseProcessSearchRequest(ctx context.Context, w http.Response
 		limit = searchMaxLimit
 	}
 	return filter, limit, true
+}
+
+// parseLineageFilters reads the agent, story, ancestor and argument filters (issue #1289) into filter. A story_root or ancestor that is
+// not a positive process row id is refused (false) rather than dropped, which would widen the search to the whole fleet.
+func parseLineageFilters(q url.Values, filter *api.ProcessSearchFilter) bool {
+	filter.AgentSession, filter.Agent, filter.Args = q.Get("agent_session"), q.Get("agent"), q.Get("args")
+	for name, into := range map[string]*int64{"story_root": &filter.StoryRoot, "ancestor": &filter.Ancestor} {
+		raw := q.Get(name)
+		if raw == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id < 1 {
+			return false
+		}
+		*into = id
+	}
+	return true
 }
 
 // parsePIDVersionParam reads the optional `pidversion` query param naming one process generation. Absent -> (nil, true), meaning

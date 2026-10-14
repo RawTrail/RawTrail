@@ -383,6 +383,16 @@ type ProcessSearchFilter struct {
 	ToNs       int64
 	ExitReason string
 	Signing    string
+	// AgentSession keeps the processes of one AI agent session, and Agent those of any session of one agent, by the name its
+	// AI_AGENT marker gives it (claude-code) (issue #1289).
+	AgentSession string
+	Agent        string
+	// StoryRoot keeps the processes of one story, by the row id of its root.
+	StoryRoot int64
+	// Ancestor keeps the descendants of one process, by its row id: what it forked, what they forked, and its re-execs.
+	Ancestor int64
+	// Args keeps processes one of whose arguments contains this, case-sensitively.
+	Args string
 }
 
 // ProcessSearchResult is one page of a fleet-wide process search plus the pagination and total metadata. NextCursor is empty on the

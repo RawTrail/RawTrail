@@ -1,6 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { Link } from "react-router";
-import { searchProcesses, type ProcessSearchFilter } from "../../api";
+import { searchProcesses } from "../../api";
 import type { Process } from "../../types";
 import { Table } from "../ui/Table";
 import { Badge } from "../ui/Badge";
@@ -11,6 +11,7 @@ import { SearchResultsFrame } from "./SearchResultsFrame";
 import { formatNs, basename } from "./format";
 import { deriveSigningVerdict } from "../../signing";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
+import { SINCE_CHOICES, searchFilter } from "./processSearchFilter";
 
 // The filter dimensions the process search exposes, in chip order. Signing carries the verdict vocabulary as a fixed option set so
 // the chip offers a dropdown rather than free text.
@@ -31,6 +32,13 @@ const FILTER_FIELDS: FilterField[] = [
       { value: "signed", label: "Signed" },
     ],
   },
+  // An AI agent's processes (issue #1289): any session of an agent, by the name its AI_AGENT marker gives it, or one session.
+  { key: "agent", label: "Agent", options: [{ value: "claude-code", label: "Claude Code" }] },
+  { key: "agent_session", label: "Agent session" },
+  { key: "story_root", label: "Story root" },
+  { key: "ancestor", label: "Descendant of" },
+  { key: "args", label: "Argument" },
+  { key: "since", label: "Since", options: SINCE_CHOICES.map(({ value, label }) => ({ value, label })) },
 ];
 
 const FILTER_KEYS = FILTER_FIELDS.map((f) => f.key);
@@ -40,15 +48,17 @@ const FILTER_KEYS = FILTER_FIELDS.map((f) => f.key);
 // link and the page is bookmarkable. hostNames (resolved once by the parent) decorates rows with a name over the bare host id.
 export function ProcessSearch({ hostNames }: { readonly hostNames: Map<string, string> }) {
   const { activeFilter, filterKey, setFilter } = useUrlFilter(FILTER_KEYS);
-  // The active filter doubles as the ProcessSearchFilter passed to the endpoint (every field is an optional string).
-  const filter = activeFilter as ProcessSearchFilter;
+  // windowNowMs is when the search's first page was read: a "since" window starts back from it, so every page of one search reads the
+  // same window.
+  const windowNowMs = useRef(0);
 
   const fetchPage = useCallback(
     async (cursor: string): Promise<CursorPage<Process>> => {
-      const res = await searchProcesses(filter, cursor || undefined);
+      if (!cursor) windowNowMs.current = Date.now();
+      const res = await searchProcesses(searchFilter(activeFilter, windowNowMs.current), cursor || undefined);
       return { rows: res.rows, nextCursor: res.next_cursor, total: res.total_matched };
     },
-    [filterKey], // eslint-disable-line react-hooks/exhaustive-deps -- filter is captured; filterKey is its stable identity
+    [filterKey], // eslint-disable-line react-hooks/exhaustive-deps -- activeFilter is captured; filterKey is its stable identity
   );
   const { rows, total, loading, error, hasMore, loadMore } = useCursorList(filterKey, fetchPage);
 
