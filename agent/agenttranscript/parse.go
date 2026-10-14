@@ -1,0 +1,129 @@
+// Package agenttranscript reads the tool calls an AI agent made from the session transcripts it keeps on disk (issue #1288), so the
+// server can show each Bash tool call beside the processes it started. Claude Code writes one JSONL transcript per session at
+// ~/.claude/projects/<project>/<session id>.jsonl. The format is undocumented, so the parser is strict: a line it cannot read is
+// counted and skipped, never guessed at.
+//
+// Only tool-call metadata leaves the host: the tool's name and id, a Bash call's command and description, a file tool's path, the
+// session, the working directory and the time. Prompt text, model output and tool results are never read into an event. A Bash
+// command is already on the wire in the exec of the shell that runs it.
+package agenttranscript
+
+import (
+	"encoding/json"
+	"errors"
+	"time"
+	"unicode/utf8"
+)
+
+// EventType is the wire event type of one tool call.
+const EventType = "agent_tool_call"
+
+// maxCommandBytes caps a Bash command on the wire. A heredoc can make a command arbitrarily long; the exec of its shell carries it
+// whole already, so the cut copy only needs to be enough to label and match the call.
+const maxCommandBytes = 8 << 10
+
+// ToolCall is one tool call an agent made, as its transcript records it.
+type ToolCall struct {
+	SessionID   string
+	ToolUseID   string
+	ToolName    string
+	Command     string
+	Description string
+	FilePath    string
+	CWD         string
+	// Sidechain marks a call a subagent made inside the session.
+	Sidechain bool
+	// Truncated reports that Command was cut to maxCommandBytes.
+	Truncated bool
+	At        time.Time
+}
+
+// Payload is the call's wire payload; empty fields are left out.
+func (c ToolCall) Payload() map[string]any {
+	p := map[string]any{"agent_session_id": c.SessionID, "tool_use_id": c.ToolUseID, "tool_name": c.ToolName}
+	for key, value := range map[string]string{"command": c.Command, "description": c.Description, "file_path": c.FilePath, "cwd": c.CWD} {
+		if value != "" {
+			p[key] = value
+		}
+	}
+	if c.Sidechain {
+		p["sidechain"] = true
+	}
+	if c.Truncated {
+		p["truncated"] = true
+	}
+	return p
+}
+
+// errUnreadable is a line that is not a transcript entry this parser understands.
+var errUnreadable = errors.New("unreadable transcript line")
+
+// transcriptLine is the part of a transcript entry a tool call is read from. Entries of other types (user turns, attachments,
+// bookkeeping) decode into it too and are recognized by Type.
+type transcriptLine struct {
+	Type        string `json:"type"`
+	SessionID   string `json:"sessionId"`
+	Timestamp   string `json:"timestamp"`
+	CWD         string `json:"cwd"`
+	IsSidechain bool   `json:"isSidechain"`
+	Message     struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"message"`
+}
+
+type contentBlock struct {
+	Type  string `json:"type"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Input struct {
+		Command     string `json:"command"`
+		Description string `json:"description"`
+		FilePath    string `json:"file_path"`
+	} `json:"input"`
+}
+
+// ParseLine returns the tool calls one transcript line records: none for an entry that is not an assistant turn, or one per tool_use
+// block of an assistant turn. It fails for a line that is not JSON, and for an assistant turn whose tool call lacks its session, id,
+// name or time, which a guess would attach to the wrong session or call.
+func ParseLine(raw []byte) ([]ToolCall, error) {
+	var line transcriptLine
+	if err := json.Unmarshal(raw, &line); err != nil {
+		return nil, errUnreadable
+	}
+	if line.Type != "assistant" || len(line.Message.Content) == 0 || line.Message.Content[0] != '[' {
+		// A text-only turn carries its content as a string; only the block form holds tool calls.
+		return nil, nil
+	}
+	var blocks []contentBlock
+	if err := json.Unmarshal(line.Message.Content, &blocks); err != nil {
+		return nil, errUnreadable
+	}
+	var calls []ToolCall
+	for _, b := range blocks {
+		if b.Type != "tool_use" {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, line.Timestamp)
+		if err != nil || line.SessionID == "" || b.ID == "" || b.Name == "" {
+			return nil, errUnreadable
+		}
+		command, truncated := capCommand(b.Input.Command)
+		calls = append(calls, ToolCall{
+			SessionID: line.SessionID, ToolUseID: b.ID, ToolName: b.Name, Command: command, Description: b.Input.Description,
+			FilePath: b.Input.FilePath, CWD: line.CWD, Sidechain: line.IsSidechain, Truncated: truncated, At: at,
+		})
+	}
+	return calls, nil
+}
+
+// capCommand cuts command to maxCommandBytes on a rune boundary.
+func capCommand(command string) (string, bool) {
+	if len(command) <= maxCommandBytes {
+		return command, false
+	}
+	cut := maxCommandBytes
+	for cut > 0 && !utf8.RuneStart(command[cut]) {
+		cut--
+	}
+	return command[:cut], true
+}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/fleetdm/edr/agent/agenttranscript"
 	"github.com/fleetdm/edr/agent/health"
 	"github.com/fleetdm/edr/agent/receiver"
 	"github.com/fleetdm/edr/agent/selfheal"
@@ -33,6 +34,10 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 		health:       d.health,
 		component:    health.ComponentEndpointSecurityExtension,
 	})
+	// The tool calls AI agents record in their session transcripts (issue #1288), read from every home directory, so the server can
+	// label each tool call's processes with the call that started them. On Linux there is no /Users and this reads nothing.
+	go agenttranscript.New("/Users", d.hostIDFn, d.enqueue, d.logger).Run(ctx)
+
 	if d.cfg.NetXPCService != "" {
 		// One emitter shared by both durable sensor records: the provider transitions and the repair-gave-up event go
 		// through the same queue on the same host.
