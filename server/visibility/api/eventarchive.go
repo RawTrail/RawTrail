@@ -76,6 +76,12 @@ type EventArchive interface {
 	// when more remain and total_matched independent of the page. Shares the EventSearchResult page shape and EventCursor codec with
 	// SearchEvents. A malformed cursor is a caller error.
 	HostTimeline(ctx context.Context, filter HostTimelineFilter, cursor string, limit int) (EventSearchResult, error)
+
+	// ActivityForGenerations rolls up what a set of process generations touched on one host (issue #1285): the files they opened,
+	// renamed, truncated or deleted, the destinations they connected to, and the names they resolved. Events are matched to a
+	// generation by exact (pid, pidversion), the rule the alert-chain timeline uses, so an event without a pidversion, or one of a
+	// later process that reused a pid, is never counted. See ActivityRollup for what each class reports.
+	ActivityForGenerations(ctx context.Context, filter ActivityFilter) (ActivityRollup, error)
 }
 
 // TelemetryActivity is one host's per-stream event presence over a telemetry-freshness window.
@@ -191,3 +197,81 @@ var ErrEventsTruncated = errors.New("visibility: event read exceeded its row cap
 
 // ErrInvalidEventCursor is returned by SearchEvents when the pagination cursor does not decode. The operator handler maps it to 400.
 var ErrInvalidEventCursor = errors.New("visibility: invalid event search cursor")
+
+// ActivityFilter selects one host's events of a set of process generations for an activity rollup (issue #1285). Limit caps the
+// rows each class lists; non-positive means the implementation's default.
+type ActivityFilter struct {
+	HostID      string
+	Generations []ProcessGeneration
+	Limit       int
+}
+
+// ActivityRollup is what a set of process generations touched, by class.
+type ActivityRollup struct {
+	Files   FileActivity    `json:"files"`
+	Network NetworkActivity `json:"network"`
+	DNS     DNSActivity     `json:"dns"`
+}
+
+// ActivityTotals is a class's size: Events counts its events, a coalesced flow counting as the connections it stands for, and
+// Distinct counts its distinct artifacts (paths, destinations, names) across every process. Truncated reports that the class
+// listed fewer rows than it has.
+type ActivityTotals struct {
+	Events    int64 `json:"events"`
+	Distinct  int64 `json:"distinct"`
+	Truncated bool  `json:"truncated"`
+}
+
+// ActivityRow is the part of a listed artifact every class shares: the process generation that touched it, how many times, and when.
+// LastNs is the latest event time, a coalesced flow's last occurrence included.
+type ActivityRow struct {
+	PID        int64 `json:"pid"`
+	PIDVersion int64 `json:"pidversion"`
+	Count      int64 `json:"count"`
+	FirstNs    int64 `json:"first_ns"`
+	LastNs     int64 `json:"last_ns"`
+}
+
+// FileActivity lists, per process, the paths touched and how. Operation is the event type (open, file_rename, file_truncate,
+// file_delete); SourcePath is a rename's origin, empty otherwise.
+type FileActivity struct {
+	ActivityTotals
+	Rows []FileActivityRow `json:"rows"`
+}
+
+// FileActivityRow is one path one process touched in one way.
+type FileActivityRow struct {
+	ActivityRow
+	Operation  string `json:"operation"`
+	Path       string `json:"path"`
+	SourcePath string `json:"source_path,omitempty"`
+}
+
+// NetworkActivity lists, per process, the destinations it connected to.
+type NetworkActivity struct {
+	ActivityTotals
+	Rows []NetworkActivityRow `json:"rows"`
+}
+
+// NetworkActivityRow is one destination one process connected to. RemoteHostname is the name the network extension reported for
+// it, when it reported one.
+type NetworkActivityRow struct {
+	ActivityRow
+	RemoteAddress  string `json:"remote_address"`
+	RemotePort     int64  `json:"remote_port"`
+	Protocol       string `json:"protocol"`
+	RemoteHostname string `json:"remote_hostname,omitempty"`
+}
+
+// DNSActivity lists, per process, the names it resolved.
+type DNSActivity struct {
+	ActivityTotals
+	Rows []DNSActivityRow `json:"rows"`
+}
+
+// DNSActivityRow is one name one process resolved, with the addresses its answers carried.
+type DNSActivityRow struct {
+	ActivityRow
+	QueryName string   `json:"query_name"`
+	Addresses []string `json:"addresses"`
+}

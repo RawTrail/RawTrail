@@ -456,6 +456,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/activity:
+    get:
+      tags: [Hosts]
+      summary: What a process, its subtree, or an agent session touched
+      description: >-
+        Totals and lists of the files, network destinations and DNS names a scope of processes touched, from the event archive.
+        Events are matched to a process by its exact generation (pid and pidversion), so an event without one, or one of a later
+        process that reused the pid, is not counted. A coalesced connection or query counts as the occurrences it stands for. Each
+        list is capped, and a cut list says so.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: scope
+          in: query
+          required: true
+          description: >-
+            `process` totals one process and `subtree` the process with its descendants, both named by `process`; `session` needs
+            `session`; `story` needs `root`. A missing scope, or one without its target, is rejected with `invalid_scope`.
+          schema: {type: string, enum: [process, subtree, session, story]}
+        - name: process
+          in: query
+          description: The process id, for `scope=process` or `scope=subtree`.
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: session
+          in: query
+          description: The AI agent session id, for `scope=session`.
+          schema: {type: string, maxLength: 256}
+        - name: root
+          in: query
+          description: The process id of the story's root, for `scope=story`.
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        "200":
+          description: The scope's activity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityResponse"
+        "400":
+          description: "`invalid_scope`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/agent-sessions:
     get:
       tags: [Hosts]
@@ -2623,6 +2670,104 @@ components:
         payload:
           type: object
           description: The event body as the agent reported it.
+    ActivityResponse:
+      type: object
+      required: [files, network, dns, scope, processes]
+      properties:
+        files:
+          allOf:
+            - $ref: "#/components/schemas/ActivityTotals"
+            - type: object
+              required: [rows]
+              properties:
+                rows:
+                  type: array
+                  items:
+                    allOf:
+                      - $ref: "#/components/schemas/ActivityRow"
+                      - type: object
+                        required: [operation, path]
+                        properties:
+                          operation: {type: string, enum: [open, file_rename, file_truncate, file_delete]}
+                          path: {type: string}
+                          source_path: {type: string, description: A rename's origin.}
+        network:
+          allOf:
+            - $ref: "#/components/schemas/ActivityTotals"
+            - type: object
+              required: [rows]
+              properties:
+                rows:
+                  type: array
+                  items:
+                    allOf:
+                      - $ref: "#/components/schemas/ActivityRow"
+                      - type: object
+                        required: [remote_address, remote_port, protocol]
+                        properties:
+                          remote_address: {type: string}
+                          remote_port: {type: integer, format: int64}
+                          protocol: {type: string}
+                          remote_hostname: {type: string, description: The name the network extension reported for the destination.}
+        dns:
+          allOf:
+            - $ref: "#/components/schemas/ActivityTotals"
+            - type: object
+              required: [rows]
+              properties:
+                rows:
+                  type: array
+                  items:
+                    allOf:
+                      - $ref: "#/components/schemas/ActivityRow"
+                      - type: object
+                        required: [query_name, addresses]
+                        properties:
+                          query_name: {type: string}
+                          addresses:
+                            type: array
+                            description: Up to 16 of the addresses the answers carried, sorted.
+                            items: {type: string}
+        scope:
+          $ref: "#/components/schemas/TimelineScope"
+        processes:
+          type: array
+          description: The scope's processes that carry a generation, mapping a row's `pid` and `pidversion` to the process.
+          items:
+            type: object
+            required: [id, pid, pidversion, path]
+            properties:
+              id: {type: integer, format: int64}
+              pid: {type: integer}
+              pidversion: {type: integer, format: int64}
+              path: {type: string}
+    ActivityTotals:
+      type: object
+      required: [events, distinct, truncated]
+      properties:
+        events:
+          type: integer
+          format: int64
+          description: The class's events, a coalesced one counting as the occurrences it stands for.
+        distinct:
+          type: integer
+          format: int64
+          description: Distinct paths, destinations (address, port and protocol) or names, across every process.
+        truncated:
+          type: boolean
+          description: The list holds fewer rows than the class has.
+    ActivityRow:
+      type: object
+      required: [pid, pidversion, count, first_ns, last_ns]
+      properties:
+        pid: {type: integer, format: int64}
+        pidversion: {type: integer, format: int64}
+        count:
+          type: integer
+          format: int64
+          description: How many times the process touched the artifact.
+        first_ns: {type: integer, format: int64}
+        last_ns: {type: integer, format: int64}
     TimelineScope:
       type: object
       description: >-

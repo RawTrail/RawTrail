@@ -1,0 +1,159 @@
+package clickhouse
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	"github.com/fleetdm/edr/server/visibility/api"
+)
+
+// defaultActivityLimit is how many rows each class lists when the caller names no limit.
+const defaultActivityLimit = 200
+
+// Activity SQL fragments (issue #1285). A coalesced flow stands for coalesced_count connections or queries, so it weighs that much in
+// every count; an event without the field is one. A coalesced flow's last occurrence is last_timestamp_ns, later than its own time.
+const (
+	activityFileTypes     = "('open', 'file_rename', 'file_truncate', 'file_delete')"
+	activityAllTypes      = "('open', 'file_rename', 'file_truncate', 'file_delete', 'network_connect', 'dns_query')"
+	activityWeight        = "if(JSONHas(payload, 'coalesced_count'), JSONExtractInt(payload, 'coalesced_count'), 1)"
+	activityLastTimestamp = "greatest(timestamp_ns, JSONExtractInt(payload, 'last_timestamp_ns'))"
+	activityPIDVersion    = "JSONExtractInt(payload, 'pidversion')"
+)
+
+// ActivityForGenerations rolls up what the generations touched: one aggregate for every class's totals, then each class's rows grouped
+// by artifact and generation, oldest first. FINAL collapses ReplacingMergeTree duplicates so a re-delivered event is not counted
+// twice. Each class reads one row past the limit to report that it was cut.
+func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityFilter) (api.ActivityRollup, error) {
+	out := api.ActivityRollup{
+		Files:   api.FileActivity{Rows: []api.FileActivityRow{}},
+		Network: api.NetworkActivity{Rows: []api.NetworkActivityRow{}},
+		DNS:     api.DNSActivity{Rows: []api.DNSActivityRow{}},
+	}
+	if len(filter.Generations) == 0 {
+		return out, nil
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = defaultActivityLimit
+	}
+	genClause, genArgs := generationIdentitySQL(filter.Generations)
+	scope := hostPredicate + " AND " + genClause
+	scopeArgs := append([]any{filter.HostID}, genArgs...)
+
+	if err := s.activityTotals(ctx, scope, scopeArgs, &out); err != nil {
+		return api.ActivityRollup{}, err
+	}
+	var err error
+	if out.Files.Rows, out.Files.Truncated, err = s.fileActivity(ctx, scope, scopeArgs, limit); err != nil {
+		return api.ActivityRollup{}, err
+	}
+	if out.Network.Rows, out.Network.Truncated, err = s.networkActivity(ctx, scope, scopeArgs, limit); err != nil {
+		return api.ActivityRollup{}, err
+	}
+	if out.DNS.Rows, out.DNS.Truncated, err = s.dnsActivity(ctx, scope, scopeArgs, limit); err != nil {
+		return api.ActivityRollup{}, err
+	}
+	return out, nil
+}
+
+// activityTotals counts each class's events and distinct artifacts in one pass: a file's artifact is its path, a connection's its
+// destination (address, port and protocol), a query's its name.
+func (s *Store) activityTotals(ctx context.Context, scope string, args []any, out *api.ActivityRollup) error {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT
+			toInt64(countIf(event_type IN `+activityFileTypes+`)),
+			toInt64(uniqExactIf(JSONExtractString(payload, 'path'), event_type IN `+activityFileTypes+`)),
+			toInt64(sumIf(`+activityWeight+`, event_type = 'network_connect')),
+			toInt64(uniqExactIf((JSONExtractString(payload, 'remote_address'), JSONExtractInt(payload, 'remote_port'),
+				JSONExtractString(payload, 'protocol')), event_type = 'network_connect')),
+			toInt64(sumIf(`+activityWeight+`, event_type = 'dns_query')),
+			toInt64(uniqExactIf(JSONExtractString(payload, 'query_name'), event_type = 'dns_query'))
+		FROM events FINAL
+		WHERE event_type IN `+activityAllTypes+` AND `+scope, args...)
+	if err := row.Scan(&out.Files.Events, &out.Files.Distinct, &out.Network.Events, &out.Network.Distinct,
+		&out.DNS.Events, &out.DNS.Distinct); err != nil {
+		return fmt.Errorf("clickhouse activity totals: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) fileActivity(ctx context.Context, scope string, args []any, limit int) ([]api.FileActivityRow, bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT event_type, JSONExtractString(payload, 'path') AS path, JSONExtractString(payload, 'source_path') AS source_path,
+			pid, `+activityPIDVersion+` AS pv, toInt64(count()), min(timestamp_ns) AS first, max(timestamp_ns)
+		FROM events FINAL
+		WHERE event_type IN `+activityFileTypes+` AND `+scope+`
+		GROUP BY event_type, path, source_path, pid, pv
+		ORDER BY first, path, event_type
+		LIMIT ?`, append(args, limit+1)...)
+	if err != nil {
+		return nil, false, fmt.Errorf("clickhouse file activity: %w", err)
+	}
+	return scanActivity(rows, limit, func(r *api.FileActivityRow) []any {
+		return []any{&r.Operation, &r.Path, &r.SourcePath, &r.PID, &r.PIDVersion, &r.Count, &r.FirstNs, &r.LastNs}
+	})
+}
+
+func (s *Store) networkActivity(ctx context.Context, scope string, args []any, limit int) ([]api.NetworkActivityRow, bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT JSONExtractString(payload, 'remote_address') AS address, JSONExtractInt(payload, 'remote_port') AS port,
+			JSONExtractString(payload, 'protocol') AS protocol,
+			anyIf(JSONExtractString(payload, 'remote_hostname'), JSONExtractString(payload, 'remote_hostname') != ''),
+			pid, `+activityPIDVersion+` AS pv, toInt64(sum(`+activityWeight+`)), min(timestamp_ns) AS first,
+			max(`+activityLastTimestamp+`)
+		FROM events FINAL
+		WHERE event_type = 'network_connect' AND `+scope+`
+		GROUP BY address, port, protocol, pid, pv
+		ORDER BY first, address, port
+		LIMIT ?`, append(args, limit+1)...)
+	if err != nil {
+		return nil, false, fmt.Errorf("clickhouse network activity: %w", err)
+	}
+	return scanActivity(rows, limit, func(r *api.NetworkActivityRow) []any {
+		return []any{&r.RemoteAddress, &r.RemotePort, &r.Protocol, &r.RemoteHostname, &r.PID, &r.PIDVersion, &r.Count, &r.FirstNs, &r.LastNs}
+	})
+}
+
+// dnsActivity lists the names resolved, each with up to 16 of the addresses its answers carried, sorted.
+func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, limit int) ([]api.DNSActivityRow, bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT JSONExtractString(payload, 'query_name') AS name,
+			arraySlice(arraySort(groupUniqArrayArray(JSONExtract(payload, 'response_addresses', 'Array(String)'))), 1, 16),
+			pid, `+activityPIDVersion+` AS pv, toInt64(sum(`+activityWeight+`)), min(timestamp_ns) AS first,
+			max(`+activityLastTimestamp+`)
+		FROM events FINAL
+		WHERE event_type = 'dns_query' AND `+scope+`
+		GROUP BY name, pid, pv
+		ORDER BY first, name
+		LIMIT ?`, append(args, limit+1)...)
+	if err != nil {
+		return nil, false, fmt.Errorf("clickhouse dns activity: %w", err)
+	}
+	return scanActivity(rows, limit, func(r *api.DNSActivityRow) []any {
+		return []any{&r.QueryName, &r.Addresses, &r.PID, &r.PIDVersion, &r.Count, &r.FirstNs, &r.LastNs}
+	})
+}
+
+// scanActivity reads up to limit rows, each through the destinations fields names, and reports whether a row past the limit was
+// there.
+func scanActivity[R any](rows *sql.Rows, limit int, fields func(*R) []any) ([]R, bool, error) {
+	defer rows.Close()
+	out := []R{}
+	truncated := false
+	for rows.Next() {
+		if len(out) == limit {
+			truncated = true
+			break
+		}
+		var r R
+		if err := rows.Scan(fields(&r)...); err != nil {
+			return nil, false, fmt.Errorf("scan activity row: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("iterate activity rows: %w", err)
+	}
+	return out, truncated, nil
+}

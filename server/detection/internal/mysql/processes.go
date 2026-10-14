@@ -937,3 +937,9 @@ func (s *Store) SearchEvents(ctx context.Context, filter visibilityapi.EventSear
 func (s *Store) HostTimeline(ctx context.Context, filter visibilityapi.HostTimelineFilter, cursor string, limit int) (visibilityapi.EventSearchResult, error) {
 	return s.archive.HostTimeline(ctx, filter, cursor, limit)
 }
+
+// ActivityForGenerations delegates the activity rollup (issue #1285) to the visibility EventArchive, the same post-cutover delegation
+// HostTimeline uses: the events live in ClickHouse, and the operator's activity reader seam reaches the detection store.
+func (s *Store) ActivityForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivityRollup, error) {
+	return s.archive.ActivityForGenerations(ctx, filter)
+}

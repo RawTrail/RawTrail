@@ -96,6 +96,7 @@ type Handler struct {
 	eventSearch   EventSearchReader
 	hostTimeline  HostTimelineReader
 	agentSessions AgentSessionLister
+	activity      ActivityReader
 	// processRetentionDays is how many days completed process records are kept, or 0 when retention is disabled. See
 	// SetProcessRetention.
 	processRetentionDays int
@@ -144,6 +145,7 @@ func (h *Handler) RegisterRoutes(mux httpserver.Router) {
 	h.registerEventSearchRoutes(mux)
 	h.registerHostTimelineRoutes(mux)
 	h.registerAgentSessionRoutes(mux)
+	h.registerActivityRoutes(mux)
 	h.registerWebhookRoutes(mux)
 }
 
