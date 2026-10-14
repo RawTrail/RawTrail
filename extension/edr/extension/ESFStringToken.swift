@@ -25,11 +25,7 @@ import Foundation
 /// what the failable initializer wants.
 @inline(__always)
 func esTokenString(_ token: es_string_token_t) -> String {
-    guard let buf = token.data, token.length > 0 else {
-        return ""
-    }
-    let bytes = UnsafeRawBufferPointer(start: buf, count: token.length)
-    return String(bytes: bytes, encoding: .utf8) ?? ""
+    tokenString(token.data, length: token.length)
 }
 
 /// esNewPath joins a NEW_PATH destination's parent directory and filename (a create or a rename to a path that did not exist) into an

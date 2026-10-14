@@ -112,6 +112,8 @@ let package = Package(
                 // legitimately carry no cdhash, and that branch had no test.
                 "extension/CDHashHex.swift",
                 "shared/BlockNotificationContract.swift",
+                // TokenString.swift reads an ES string token's bytes by their length (#1293). Pure Swift; esTokenString applies it.
+                "extension/TokenString.swift",
                 "extension/EventSerializer.swift",
                 "extension/FileEventPayloads.swift",
                 "extension/ProcessLineage.swift",
