@@ -58,6 +58,7 @@ var payloadFixtures = map[string]string{
 	"file_rename":         `{"pid":101,"source_path":"/tmp/staged","path":"/etc/sudoers"}`,
 	"file_truncate":       `{"pid":101,"path":"/etc/sudoers"}`,
 	"file_delete":         `{"pid":101,"path":"/etc/sudoers.d/admins"}`,
+	"file_activity":       `{"pid":101,"pidversion":5445,"operation":"modify","path":"/Users/dev/repo/main.go"}`,
 	"network_connect":     `{"pid":101,"protocol":"tcp","direction":"outbound","remote_address":"93.184.216.34","remote_port":443}`,
 	"dns_query":           `{"pid":101,"query_name":"example.com","query_type":"A"}`,
 	"snapshot_heartbeat":  `{"pid":101}`,
@@ -209,6 +210,41 @@ func TestEventSchema_LineageFields(t *testing.T) {
 			err := validateEnvelope(t, sch, envelopeJSON(t, tc.eventType, tc.payload))
 			if tc.want == "" {
 				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+// TestEventSchema_FileActivity pins the agent file activity payload (issue #1287): a single operation and a rolled-up directory both
+// validate, and a payload without its generation or with an operation outside the four is refused.
+//
+// spec:endpoint-event-collection/agent-scoped-file-activity/an-agent-process-is-observed-from-its-exec
+func TestEventSchema_FileActivity(t *testing.T) {
+	t.Parallel()
+	sch := compileEnvelopeSchema(t)
+
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{name: "single rename", payload: `{"pid":7,"pidversion":9,"operation":"rename","path":"/r/b","source_path":"/r/a"}`},
+		{name: "rolled-up directory", payload: `{"pid":7,"pidversion":9,"operation":"create","path":"/r/node_modules",` +
+			`"coalesced_count":3243,"last_timestamp_ns":1750000003000000000,"rolled_up":true}`},
+		{name: "no generation", payload: `{"pid":7,"operation":"create","path":"/r/a"}`, want: "pidversion"},
+		{name: "unknown operation", payload: `{"pid":7,"pidversion":9,"operation":"open","path":"/r/a"}`, want: "operation"},
+		{name: "zero count", payload: `{"pid":7,"pidversion":9,"operation":"delete","path":"/r/a","coalesced_count":0}`,
+			want: "coalesced_count"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateEnvelope(t, sch, envelopeJSON(t, "file_activity", tc.payload))
+			if tc.want == "" {
+				require.NoError(t, err)
 				return
 			}
 			require.Error(t, err)

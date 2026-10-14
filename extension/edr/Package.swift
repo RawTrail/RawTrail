@@ -76,6 +76,7 @@ let package = Package(
                 "extension/ESFSubscriber+BTM.swift",
                 "extension/ESFSubscriber+AuthExec.swift",
                 "extension/FileTamperSubscriber.swift",
+                "extension/AgentFileSubscriber.swift",
                 "extension/NotificationClient.swift",
                 "extension/ProcessSnapshotEnumerator.swift",
                 "networkextension/Info.plist",
@@ -115,6 +116,9 @@ let package = Package(
                 "extension/FileEventPayloads.swift",
                 "extension/ProcessLineage.swift",
                 "extension/AgentSessionEnv.swift",
+                // AgentFileActivity.swift is the agent-file client's pure half (#1287): which execs start an agent, the observed
+                // process set, and the rollup that bounds what reaches the wire. AgentFileSubscriber applies it.
+                "extension/AgentFileActivity.swift",
                 "extension/FileHashCache.swift",
                 "extension/SigningInfoFallback.swift",
                 // SnapshotSigning.swift reads a running process's signature for the startup snapshot. Security and Darwin only.

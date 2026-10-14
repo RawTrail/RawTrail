@@ -386,7 +386,7 @@ final class ESFSubscriber: Sendable {
             cdhash: cdhash,
             pidVersion: pidVersion,
             lineage: processLineage(of: target, parent: process.parent_audit_token),
-            env: extractAgentSessionEnv(from: &exec)
+            env: Self.sessionMarkers(of: &exec)
         )
 
         if let data = serializer.serialize(eventType: "exec", payload: payload, kernelTimeNs: kernelEventTimeNs(msg.time)) {
@@ -442,8 +442,8 @@ final class ESFSubscriber: Sendable {
     }
 
     /// The exec'd process's agent session markers (issue #1278). The entries are views of the message's own buffers, valid for
-    /// this callback; `agentSessionEnv` copies out only the allowlisted markers.
-    private func extractAgentSessionEnv(from exec: inout es_event_exec_t) -> [String: String]? {
+    /// this callback; `agentSessionEnv` copies out only the allowlisted markers. The agent-file client reads roots through it too (#1287).
+    static func sessionMarkers(of exec: inout es_event_exec_t) -> [String: String]? {
         let entries = (0..<es_exec_env_count(&exec)).map { index in
             let token = es_exec_env(&exec, index)
             return UnsafeRawBufferPointer(start: token.data, count: token.length)
