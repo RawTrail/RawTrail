@@ -113,6 +113,10 @@ describe("SessionView", () => {
     // Both the paired call and the ambiguous one say they are the agent's report; the unpaired command says nothing.
     expect(within(headers[0]).getByText("Reported by agent")).toBeVisible();
     expect(within(headers[1]).getByText("Reported by agent")).toBeVisible();
+    // Both labels say where the report comes from: the outer title on an ambiguous call names its candidates instead.
+    for (const header of headers.slice(0, 2)) {
+      expect(within(header).getByText("Reported by agent")).toHaveAttribute("title", expect.stringContaining("not observed by the sensor"));
+    }
     expect(within(headers[2]).queryByText("Reported by agent")).toBeNull();
     const ambiguous = within(headers[1]).getByText(/One of 2 identical calls made at once/);
     expect(ambiguous).toBeVisible();

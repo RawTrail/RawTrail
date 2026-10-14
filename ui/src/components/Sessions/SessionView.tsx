@@ -376,7 +376,7 @@ function AgentCall({ match }: { readonly match: ToolCallMatch }) {
     const ids = match.candidates.map((c) => c.tool_use_id);
     return (
       <span className="session-view__agent-call" title={`One of: ${ids.join(", ")}`}>
-        <span className="session-view__reported">{REPORTED_LABEL}</span>
+        <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
         One of {match.candidates.length} identical calls made at once
       </span>
     );
