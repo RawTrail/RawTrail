@@ -320,7 +320,7 @@ seed_oidc 1
 stop_server
 echo "$END_GROUP"
 
-echo "::group::Phase 8: catalog and policy specs that had never run in CI (coverage, rule detail, policy editor, process tree)"
+echo "::group::Phase 8: catalog, policy and process specs (coverage, rule detail, policy editor, process tree, agent sessions)"
 start_server "default-env-catalog"
 seed_oidc 1
 (
@@ -330,6 +330,7 @@ seed_oidc 1
     tests/qa/rule-detail.spec.ts \
     tests/qa/policy-editor.spec.ts \
     tests/qa/process-tree-detail.spec.ts \
+    tests/qa/agent-sessions.spec.ts \
     --workers=1
 )
 stop_server
