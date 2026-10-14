@@ -14,6 +14,9 @@ export interface SessionRow {
   // uidChange is set when the process runs as a different user from the process that created it: a privilege change, such as sudo
   // to root, the view badges.
   uidChange?: { from: number; to: number };
+  // folded holds the identical siblings folded into this row, in fork order: processes that ran the same command under the same
+  // creator, ran nothing of their own and were not flagged. The row stands for all of them.
+  folded?: ProcessNode[];
 }
 
 // ToolCall is one group: the processes a single tool call started.
@@ -57,7 +60,7 @@ function byForkTime(a: ProcessNode, b: ProcessNode): number {
 // lastActivityNs is when a process was last seen doing something. Only an observed exit counts: the server synthesizes the others
 // (a stale process closed by its sweep hours later, a pid reused), and their time says when the server noticed, not when the process
 // ran. A re-exec's exit is the moment the next image started.
-function lastActivityNs(node: ProcessNode): number {
+export function lastActivityNs(node: ProcessNode): number {
   const observedExit = node.exit_reason === "event" || node.exit_reason === "reexec" ? node.exit_time_ns : undefined;
   return observedExit ?? node.exec_time_ns ?? node.fork_time_ns;
 }
@@ -89,6 +92,31 @@ function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape)
   return listed;
 }
 
+// foldKey identifies a row that can be folded with its identical siblings: a process that started nothing, changed no privilege and
+// carries no alert. Null for any other row.
+function foldKey(listed: SessionRow, shape: RowShape): string | null {
+  if (listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) return null;
+  return `${listed.node.path}\u0000${commandLine(listed.node.path, listed.node.args)}`;
+}
+
+// foldRows folds identical sibling rows into the first of them, keeping the list's order. A loop that runs the same command a
+// thousand times lists one row that says so, rather than a thousand.
+function foldRows(rows: SessionRow[], shape: RowShape): SessionRow[] {
+  const firstByKey = new Map<string, SessionRow>();
+  const out: SessionRow[] = [];
+  for (const listed of rows) {
+    const key = foldKey(listed, shape);
+    const first = key === null ? undefined : firstByKey.get(key);
+    if (first === undefined) {
+      if (key !== null) firstByKey.set(key, listed);
+      out.push(listed);
+    } else {
+      first.folded = [...(first.folded ?? []), listed.node, ...(listed.folded ?? [])];
+    }
+  }
+  return out;
+}
+
 // visibleRows lists a node's children as the view shows them. A hidden shell copy is replaced by its own children. uid is the user
 // the node runs as: its own when it reports one, else the one it inherited, since a fork that never exec'd reports none.
 function visibleRows(creator: ProcessNode, uid: number | undefined, shape: RowShape): SessionRow[] {
@@ -100,7 +128,7 @@ function visibleRows(creator: ProcessNode, uid: number | undefined, shape: RowSh
       rows.push(row(child, uid, shape));
     }
   }
-  return rows;
+  return foldRows(rows, shape);
 }
 
 // rootRows is what a tool call's root contributes: a hidden wrapper shell is the group's header rather than a row, so its children
@@ -142,6 +170,42 @@ export function buildToolCalls(roots: readonly ProcessNode[], shape: RowShape): 
     into.rows.push(...rootRows(root, shape));
   }
   return calls;
+}
+
+// matches reports whether a process's command line or path contains the query, ignoring case. query is already lower case.
+function matches(node: ProcessNode, query: string): boolean {
+  return commandLine(node.path, node.args).toLowerCase().includes(query) || node.path.toLowerCase().includes(query);
+}
+
+// SearchHits is what a search found in the session: the rows that match, and per tool call how many of its processes match.
+export interface SearchHits {
+  // rows are the listed rows whose process, or a process folded into them, matches.
+  rows: ReadonlySet<SessionRow>;
+  // byCall counts the matching processes in each call, by its key; a call whose command matches counts as one more.
+  byCall: ReadonlyMap<string, number>;
+}
+
+// searchCalls finds a query in the calls as listed. An empty query finds nothing.
+export function searchCalls(calls: readonly ToolCall[], rawQuery: string): SearchHits {
+  const query = rawQuery.trim().toLowerCase();
+  const rows = new Set<SessionRow>();
+  const byCall = new Map<string, number>();
+  if (query === "") return { rows, byCall };
+  const visit = (listed: SessionRow): number => {
+    const own = [listed.node, ...(listed.folded ?? [])].filter((n) => matches(n, query)).length;
+    if (own > 0) rows.add(listed);
+    return listed.children.reduce((sum, child) => sum + visit(child), own);
+  };
+  for (const call of calls) {
+    const count = call.rows.reduce((sum, listed) => sum + visit(listed), call.command.toLowerCase().includes(query) ? 1 : 0);
+    if (count > 0) byCall.set(call.key, count);
+  }
+  return { rows, byCall };
+}
+
+// containsHit reports whether a row or anything under it matched, so a capped list still shows it.
+export function containsHit(listed: SessionRow, hits: SearchHits): boolean {
+  return hits.rows.has(listed) || listed.children.some((child) => containsHit(child, hits));
 }
 
 // summarizeSession reads the header's facts from the session's processes. The agent is named on every stamped process; the project

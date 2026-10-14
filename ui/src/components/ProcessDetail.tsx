@@ -41,6 +41,9 @@ interface Props {
   // currentAlertId is the alert whose page is open (when entered from an alert). Its own row is dropped from "Related alerts" so the
   // panel never links back to the page you are already on; other alerts on the process still show.
   readonly currentAlertId?: number;
+  // timelineHref replaces the "Show in timeline" target, for a page whose own URL carries no host time window to keep (the session
+  // view). The host page leaves it unset and derives the target from its URL.
+  readonly timelineHref?: string;
 }
 
 // VERDICT_BADGE maps the signer category to the panel badge's tone: the two identity-less categories read as attention (high for no
@@ -102,7 +105,7 @@ const VERDICT_BADGE: Record<SigningVerdictKind, BadgeVariant> = {
   signed: "neutral",
 };
 
-export function ProcessDetail({ hostId, node, onClose, currentAlertId }: Props) {
+export function ProcessDetail({ hostId, node, onClose, currentAlertId, timelineHref: timelineHrefOverride }: Props) {
   const [searchParams] = useSearchParams();
   // Show-in-timeline preserves the host page's other params (notably ?at= / ?alert=, which anchor the shared time window) so the
   // graph->timeline pivot keeps the window; it only swaps the graph's ?process= selection for the timeline's view + pid emphasis.
@@ -110,7 +113,7 @@ export function ProcessDetail({ hostId, node, onClose, currentAlertId }: Props) 
   timelineParams.set("view", "timeline");
   timelineParams.set("pid", String(node.pid));
   timelineParams.delete("process");
-  const timelineHref = `/hosts/${encodeURIComponent(hostId)}?${timelineParams.toString()}`;
+  const timelineHref = timelineHrefOverride ?? `/hosts/${encodeURIComponent(hostId)}?${timelineParams.toString()}`;
 
   const [detail, setDetail] = useState<ProcessDetailType | null>(null);
   const [loading, setLoading] = useState(true);

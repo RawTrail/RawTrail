@@ -1,22 +1,37 @@
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
 import { getSessionTree, listAgentSessions, listAlerts } from "../../api";
-import type { AgentSessionSummary, Alert, TreeResponse } from "../../types";
+import type { AgentSessionSummary, Alert, ProcessNode, TreeResponse } from "../../types";
 import { PageHeader } from "../ui/PageHeader";
 import { Toggle } from "../ui/Toggle";
+import { Input } from "../ui/Input";
+import { Button } from "../ui/Button";
+import { ProcessDetail } from "../ProcessDetail";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
 import { formatNs, basename } from "../Search/format";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
-import { buildToolCalls, summarizeSession, type SessionRow, type ToolCall } from "./sessionTree";
+import {
+  buildToolCalls,
+  containsHit,
+  lastActivityNs,
+  searchCalls,
+  summarizeSession,
+  type SearchHits,
+  type SessionRow,
+  type ToolCall,
+} from "./sessionTree";
 import { commandLine } from "./toolCommand";
 
 // AUTO_EXPAND_CALLS is the most tool calls a session can have and still open with every call expanded. A longer session opens with
 // only the calls an alert was raised in expanded, so the operator starts from what was flagged.
 const AUTO_EXPAND_CALLS = 10;
+// ROW_CAP is how many processes a list shows before "Show more": a call that ran a long loop opens on its first rows rather than on
+// all of them. A row that holds a search hit is shown regardless.
+const ROW_CAP = 20;
 // MAX_SESSION_ALERTS bounds the session's alert read. One more is asked for, so a session with more is reported rather than shown as
 // if its first page were all of them.
 const MAX_SESSION_ALERTS = 1000;
@@ -32,6 +47,24 @@ interface SessionRead {
   alertsFailed?: boolean;
   // alertsTruncated is set when the session has more alerts than were read, so some are not badged.
   alertsTruncated?: boolean;
+}
+
+// SessionRowsContext carries what every row of the view needs: the session's alerts by process, the current search's hits, and the
+// selected process, so the nested lists do not thread them through every level.
+interface SessionRows {
+  hostId: string;
+  alertsByProcess: ReadonlyMap<number, Alert[]>;
+  hits: SearchHits;
+  selectedId: number | null;
+  onSelect: (node: ProcessNode) => void;
+}
+
+const SessionRowsContext = createContext<SessionRows | null>(null);
+
+function useSessionRows(): SessionRows {
+  const rows = useContext(SessionRowsContext);
+  if (rows === null) throw new Error("useSessionRows outside SessionView");
+  return rows;
 }
 
 function message(err: unknown): string {
@@ -65,6 +98,8 @@ export function SessionView() {
   const { hostId = "", sessionId = "" } = useParams();
   const hostNames = useHostNames();
   const [verbose, setVerbose] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
   const [read, setRead] = useState<SessionRead | null>(null);
   const current = read?.key === readKey ? read : null;
@@ -86,6 +121,19 @@ export function SessionView() {
     [tree, verbose, alertsByProcess],
   );
   const summary = useMemo(() => summarizeSession(tree?.roots ?? []), [tree]);
+  const hits = useMemo(() => searchCalls(calls, query), [calls, query]);
+  // A selection belongs to the session it was made in.
+  const selectedNode = selected?.key === readKey && tree !== null ? selected.node : null;
+  const rowsContext = useMemo<SessionRows>(
+    () => ({
+      hostId,
+      alertsByProcess,
+      hits,
+      selectedId: selectedNode?.id ?? null,
+      onSelect: (node: ProcessNode) => { setSelected({ key: readKey, node }); },
+    }),
+    [hostId, alertsByProcess, hits, selectedNode, readKey],
+  );
 
   const record = current?.record;
   const agentName = record?.agent_name ?? summary.agentName;
@@ -112,11 +160,45 @@ export function SessionView() {
         title={title}
         subtitle={subtitle}
         actions={(
-          <Toggle id="session-verbose" label="Show shell plumbing" checked={verbose} onChange={(e) => { setVerbose(e.target.checked); }} />
+          <div className="session-view__actions">
+            <Input
+              type="search"
+              aria-label="Search this session"
+              placeholder="Search commands"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); }}
+            />
+            <Toggle
+              id="session-verbose"
+              label="Show shell plumbing"
+              checked={verbose}
+              onChange={(e) => { setVerbose(e.target.checked); }}
+            />
+          </div>
         )}
       />
       <SessionNotices read={current} />
-      <SessionBody read={current} calls={calls} hostId={hostId} alertsByProcess={alertsByProcess} />
+      <SessionRowsContext.Provider value={rowsContext}>
+        <div className="session-view__layout">
+          <div className="session-view__main">
+            <SessionBody read={current} calls={calls} />
+          </div>
+          {selectedNode && (
+            <aside className="session-view__detail">
+              <Link className="session-view__graph-link" to={hostHref(hostId, selectedNode.id, selectedNode.fork_time_ns)}>
+                Open in host graph
+              </Link>
+              <ProcessDetail
+                key={selectedNode.id}
+                hostId={hostId}
+                node={selectedNode}
+                onClose={() => { setSelected(null); }}
+                timelineHref={timelineHref(hostId, selectedNode)}
+              />
+            </aside>
+          )}
+        </div>
+      </SessionRowsContext.Provider>
     </div>
   );
 }
@@ -154,12 +236,8 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
   );
 }
 
-function SessionBody({ read, calls, hostId, alertsByProcess }: {
-  readonly read: SessionRead | null;
-  readonly calls: ToolCall[];
-  readonly hostId: string;
-  readonly alertsByProcess: ReadonlyMap<number, Alert[]>;
-}) {
+function SessionBody({ read, calls }: { readonly read: SessionRead | null; readonly calls: ToolCall[] }) {
+  const { alertsByProcess } = useSessionRows();
   if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
   if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
   if (calls.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
@@ -168,16 +246,7 @@ function SessionBody({ read, calls, hostId, alertsByProcess }: {
     <ol className="session-view__calls">
       {calls.map((call) => {
         const alerts = call.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
-        return (
-          <ToolCallGroup
-            key={call.key}
-            call={call}
-            hostId={hostId}
-            alerts={alerts}
-            alertsByProcess={alertsByProcess}
-            defaultOpen={expandAll || alerts.length > 0}
-          />
-        );
+        return <ToolCallGroup key={call.key} call={call} alerts={alerts} defaultOpen={expandAll || alerts.length > 0} />;
       })}
     </ol>
   );
@@ -188,73 +257,111 @@ function highestSeverity(alerts: readonly Alert[]): string {
   return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
 }
 
-function ToolCallGroup({ call, hostId, alerts, alertsByProcess, defaultOpen }: {
+function plural(count: number, one: string, many: string): string {
+  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+}
+
+// ToolCallGroup is one call. A search that finds something in it opens it, whatever the operator last chose.
+function ToolCallGroup({ call, alerts, defaultOpen }: {
   readonly call: ToolCall;
-  readonly hostId: string;
   readonly alerts: readonly Alert[];
-  readonly alertsByProcess: ReadonlyMap<number, Alert[]>;
   readonly defaultOpen: boolean;
 }) {
+  const { hits } = useSessionRows();
   const [open, setOpen] = useState(defaultOpen);
+  const found = hits.byCall.get(call.key) ?? 0;
+  const expanded = open || found > 0;
   return (
     <li className="session-view__call">
       <button
         type="button"
         className="session-view__call-header"
-        aria-expanded={open}
-        onClick={() => { setOpen(!open); }}
+        aria-expanded={expanded}
+        onClick={() => { setOpen(!expanded); }}
       >
         <code className="session-view__command">{call.command}</code>
         <span className="session-view__meta">
-          {formatNs(call.startNs)} · {call.processCount.toLocaleString()} {call.processCount === 1 ? "process" : "processes"}
+          {formatNs(call.startNs)} · {plural(call.processCount, "process", "processes")}
         </span>
         {alerts.length > 0 && (
-          <Badge variant={severityBadgeVariant(highestSeverity(alerts))}>
-            {alerts.length} {alerts.length === 1 ? "alert" : "alerts"}
-          </Badge>
+          <Badge variant={severityBadgeVariant(highestSeverity(alerts))}>{plural(alerts.length, "alert", "alerts")}</Badge>
         )}
+        {found > 0 && <span className="session-view__found">{plural(found, "match", "matches")}</span>}
       </button>
-      {open && call.rows.length > 0 && <ProcessRows rows={call.rows} hostId={hostId} alertsByProcess={alertsByProcess} />}
+      {expanded && call.rows.length > 0 && <ProcessRows rows={call.rows} />}
     </li>
   );
 }
 
-function ProcessRows({ rows, hostId, alertsByProcess }: {
-  readonly rows: SessionRow[];
-  readonly hostId: string;
-  readonly alertsByProcess: ReadonlyMap<number, Alert[]>;
-}) {
+// ProcessRows lists rows up to ROW_CAP, then offers the rest. A row holding a search hit is listed past the cap.
+function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
+  const { hits } = useSessionRows();
+  const [shown, setShown] = useState(ROW_CAP);
+  const listed = rows.filter((r, i) => i < shown || containsHit(r, hits));
+  const rest = rows.length - listed.length;
   return (
     <ul className="session-view__rows">
-      {rows.map(({ node, children, uidChange }) => (
-        <li key={node.id}>
-          <div className="session-view__row">
-            <Link to={hostHref(hostId, node.id, node.fork_time_ns)} className="session-view__name">{basename(node.path)}</Link>
-            <span className="session-view__mono session-view__cmdline">{commandLine(node.path, node.args)}</span>
-            <span className="session-view__meta">
-              pid {node.pid} · {formatNs(node.fork_time_ns)}
-              {node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
-            </span>
-            {uidChange && (
-              <span title={`Runs as uid ${String(uidChange.to)}; its creator ran as uid ${String(uidChange.from)}`}>
-                <Badge variant="high">{uidChange.to === 0 ? "runs as root" : `runs as uid ${String(uidChange.to)}`}</Badge>
-              </span>
-            )}
-            {(alertsByProcess.get(node.id) ?? []).map((alert) => (
-              <span key={alert.id} className="session-view__alert">
-                <Link to={`/alerts/${String(alert.id)}`}>
-                  <Badge variant={severityBadgeVariant(alert.severity)}>{alert.title}</Badge>
-                </Link>
-                {/* A vendored rule's match owes its author the credit on every surface that shows it (issue #765). */}
-                {alert.origin && <span className="session-view__meta">{alert.origin}</span>}
-              </span>
-            ))}
-          </div>
-          {children.length > 0 && <ProcessRows rows={children} hostId={hostId} alertsByProcess={alertsByProcess} />}
+      {listed.map((r) => <ProcessRow key={r.node.id} listed={r} />)}
+      {rest > 0 && (
+        <li>
+          <Button variant="text-link" onClick={() => { setShown(rows.length); }}>
+            Show {plural(rest, "more process", "more processes")}
+          </Button>
         </li>
-      ))}
+      )}
     </ul>
   );
+}
+
+function ProcessRow({ listed }: { readonly listed: SessionRow }) {
+  const { alertsByProcess, hits, selectedId, onSelect } = useSessionRows();
+  const { node, children, uidChange, folded } = listed;
+  const lastFold = folded ? folded[folded.length - 1] : undefined;
+  const rowClass = `session-view__row${hits.rows.has(listed) ? " session-view__row--hit" : ""}`;
+  return (
+    <li>
+      <div className={rowClass}>
+        <button
+          type="button"
+          className="session-view__name"
+          aria-pressed={selectedId === node.id}
+          onClick={() => { onSelect(node); }}
+        >
+          {basename(node.path)}
+        </button>
+        <span className="session-view__mono session-view__cmdline">{commandLine(node.path, node.args)}</span>
+        {folded && <Badge variant="neutral">{`×${String(folded.length + 1)}`}</Badge>}
+        <span className="session-view__meta">
+          {folded && lastFold
+            ? `${formatNs(node.fork_time_ns)} to ${formatNs(lastFold.fork_time_ns)}`
+            : `pid ${String(node.pid)} · ${formatNs(node.fork_time_ns)}`}
+          {!folded && node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
+        </span>
+        {uidChange && (
+          <span title={`Runs as uid ${String(uidChange.to)}; its creator ran as uid ${String(uidChange.from)}`}>
+            <Badge variant="high">{uidChange.to === 0 ? "runs as root" : `runs as uid ${String(uidChange.to)}`}</Badge>
+          </span>
+        )}
+        {(alertsByProcess.get(node.id) ?? []).map((alert) => (
+          <span key={alert.id} className="session-view__alert">
+            <Link to={`/alerts/${String(alert.id)}`}>
+              <Badge variant={severityBadgeVariant(alert.severity)}>{alert.title}</Badge>
+            </Link>
+            {/* A vendored rule's match owes its author the credit on every surface that shows it (issue #765). */}
+            {alert.origin && <span className="session-view__meta">{alert.origin}</span>}
+          </span>
+        ))}
+      </div>
+      {children.length > 0 && <ProcessRows rows={children} />}
+    </li>
+  );
+}
+
+// timelineHref opens a process's events in its host's timeline, on a window ending just after its last observed activity, so its exec
+// and anything it did after are inside the window.
+function timelineHref(hostId: string, node: ProcessNode): string {
+  const atMs = Math.floor(lastActivityNs(node) / NANOSECONDS_PER_MILLISECOND) + 1;
+  return `/hosts/${encodeURIComponent(hostId)}?view=timeline&pid=${String(node.pid)}&at=${String(atMs)}`;
 }
 
 // hostHref opens a process in its host's graph, selected and anchored at its fork time: the graph's ?process= takes the row id.

@@ -21,6 +21,11 @@ function renderView() {
   );
 }
 
+// names returns the process names listed in an element, in order. A process's name is the button that selects it.
+function names(el: HTMLElement): (string | null)[] {
+  return within(el).queryAllByRole("button", { pressed: false }).map((b) => b.textContent);
+}
+
 // callHeaders returns the tool-call group headers, in the order the page lists them.
 function callHeaders(): HTMLElement[] {
   return screen.getAllByRole("button", { expanded: true });
@@ -102,10 +107,10 @@ describe("SessionView", () => {
     renderView();
     const firstCall = (await screen.findByText("ls /private/tmp | head -3")).closest("li");
     if (!firstCall) throw new Error("no group");
-    expect(within(firstCall).getAllByRole("link").map((l) => l.textContent)).toEqual(["ls", "head"]);
+    expect(names(firstCall)).toEqual(["ls", "head"]);
 
     fireEvent.click(screen.getByRole("switch", { name: "Show shell plumbing" }));
-    expect(within(firstCall).getAllByRole("link").map((l) => l.textContent)).toEqual(["zsh", "ls", "head"]);
+    expect(names(firstCall)).toEqual(["zsh", "ls", "head"]);
   });
 
   it("collapses and expands a tool call", async () => {
@@ -114,18 +119,31 @@ describe("SessionView", () => {
     renderView();
     const header = (await screen.findByText("ls /private/tmp | head -3")).closest("button");
     if (!header) throw new Error("no header");
-    expect(screen.getByRole("link", { name: "ls" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "ls" })).toBeVisible();
     fireEvent.click(header);
     expect(header).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("link", { name: "ls" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ls" })).not.toBeInTheDocument();
   });
 
-  it("opens a process in its host's graph, selected at its fork time", async () => {
+  // spec:web-ui/ai-agent-session-view-navigation/a-process-opens-its-detail-beside-the-session
+  it("opens a selected process's detail beside the session, with its host graph and timeline", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    const detail = vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
     renderView();
-    // The fixture's ls forked at 101 ms; the anchor is the next millisecond, so the fork is inside the window.
-    expect(await screen.findByRole("link", { name: "ls" })).toHaveAttribute("href", "/hosts/H1?process=2298323&at=102");
+    const ls = await screen.findByRole("button", { name: "ls" });
+    expect(screen.queryByRole("heading", { name: "Process detail" })).not.toBeInTheDocument();
+    fireEvent.click(ls);
+    expect(ls).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
+    expect(detail).toHaveBeenCalledWith("H1", 80728, expect.any(Number), undefined);
+    // The fixture's ls forked at 101 ms and exited at 106 ms. The graph's window ends just after the fork, which selects it; the
+    // timeline's ends just after the exit, so the process's own events are inside it.
+    expect(screen.getByRole("link", { name: "Open in host graph" })).toHaveAttribute("href", "/hosts/H1?process=2298323&at=102");
+    expect(screen.getByRole("link", { name: "Show in timeline" })).toHaveAttribute("href", "/hosts/H1?view=timeline&pid=80728&at=107");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("heading", { name: "Process detail" })).not.toBeInTheDocument();
   });
 
   it("says when the session has more processes than were read", async () => {
@@ -187,7 +205,9 @@ describe("SessionView", () => {
     renderView();
     const firstCall = (await screen.findByRole("link", { name: "System discovery" })).closest(".session-view__call");
     if (!(firstCall instanceof HTMLElement)) throw new Error("no group");
-    expect(within(firstCall).getAllByRole("link").map((l) => l.textContent)).toEqual(["zsh", "System discovery", "ls", "head"]);
+    expect(names(firstCall)).toEqual(["zsh", "ls", "head"]);
+    expect(within(firstCall).getByRole("link", { name: "System discovery" }).closest("li")?.querySelector(".session-view__name")
+      ?.textContent).toBe("zsh");
   });
 
   // spec:web-ui/ai-agent-session-view-badges/a-long-session-opens-on-its-alerts
@@ -221,7 +241,7 @@ describe("SessionView", () => {
     const badge = await screen.findByText("runs as root");
     expect(badge).toBeVisible();
     expect(screen.getAllByText("runs as root")).toHaveLength(1);
-    expect(badge.closest("li")?.querySelector("a")?.textContent).toBe("sudo");
+    expect(badge.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("sudo");
   });
 
   it("says when the session has more alerts than were read", async () => {
@@ -262,6 +282,54 @@ describe("SessionView", () => {
     expect(screen.getByText("/private/tmp")).toBeVisible();
   });
 
+  // spec:web-ui/ai-agent-session-view-navigation/search-expands-to-what-it-finds
+  it("expands a collapsed call to what a search finds, and says how much it found", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(11) }));
+    renderView();
+    await screen.findByText("step 7");
+    expect(screen.queryByRole("button", { name: "echo" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "echo 7" } });
+    const header = screen.getByText("step 7").closest("button");
+    if (!header) throw new Error("no header");
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(within(header).getByText("1 match")).toBeVisible();
+    expect(screen.getAllByRole("button", { expanded: true })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "echo" }).closest(".session-view__row")).toHaveClass("session-view__row--hit");
+  });
+
+  // spec:web-ui/ai-agent-session-view-navigation/a-long-list-shows-more-on-request
+  it("lists the first 20 processes of a long list and the rest on request, past the cap for a search hit", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc f*'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    renderView();
+    await screen.findByText("wc f0");
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(20);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "wc f23" } });
+    expect(screen.getByText("wc f23")).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(21);
+    fireEvent.click(screen.getByRole("button", { name: "Show 4 more processes" }));
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(25);
+    expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/ai-agent-session-view-navigation/identical-processes-are-folded
+  it("shows identical processes as one row with their count and time span", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 3 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'loop'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    renderView();
+    const wc = await screen.findByRole("button", { name: "wc" });
+    const row = wc.closest(".session-view__row");
+    if (!(row instanceof HTMLElement)) throw new Error("no row");
+    expect(within(row).getByText("×3")).toBeVisible();
+    expect(row).toHaveTextContent(/to/);
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(1);
+  });
+
   it("says how many processes there are at least when the server capped its count", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, total_matched: 10_000, total_matched_capped: true }));
@@ -286,6 +354,26 @@ describe("SessionView", () => {
     fireEvent.click(screen.getByRole("link", { name: "next" }));
     expect(await screen.findByText("Loading...")).toBeVisible();
     expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
+  });
+
+  it("closes a process's detail when moving to another session", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
+    render(
+      <MemoryRouter initialEntries={[`/sessions/H1/${SESSION}`]}>
+        <Link to="/sessions/H1/other-session">next</Link>
+        <Routes>
+          <Route path="/sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "ls" }));
+    expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
+    fireEvent.click(screen.getByRole("link", { name: "next" }));
+    expect(await screen.findByRole("button", { name: "ls" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Process detail" })).not.toBeInTheDocument();
   });
 
   it("does not show the previous session's error after moving to another session", async () => {

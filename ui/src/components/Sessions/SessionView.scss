@@ -96,7 +96,69 @@
   }
 
   &__name {
+    background: none;
+    border: 0;
+    border-radius: 4px;
+    color: $core-fleet-green;
+    cursor: pointer;
+    font: inherit;
     font-weight: 600;
+    padding: 0 0.2rem;
+
+    &:hover {
+      text-decoration: underline;
+    }
+
+    &[aria-pressed="true"] {
+      background: $ui-fleet-black-10;
+      color: $core-fleet-black;
+    }
+  }
+
+  &__row--hit {
+    background: rgba($core-vibrant-blue, 0.08);
+    border-radius: 4px;
+  }
+
+  &__found {
+    color: $core-vibrant-blue;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  &__actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+
+    .field {
+      margin: 0;
+    }
+  }
+
+  &__layout {
+    align-items: flex-start;
+    display: flex;
+    gap: 1rem;
+  }
+
+  &__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__detail {
+    flex-shrink: 0;
+    position: sticky;
+    top: 1rem;
+    width: 480px;
+  }
+
+  &__graph-link {
+    display: inline-block;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
   }
 
   &__cmdline {
