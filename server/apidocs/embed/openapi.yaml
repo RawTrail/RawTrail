@@ -2674,6 +2674,7 @@ components:
             - file_truncate
             - file_delete
             - file_activity
+            - agent_tool_call
             - network_connect
             - dns_query
             - application_control_block

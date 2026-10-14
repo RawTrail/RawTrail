@@ -299,9 +299,10 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 // pins to the schema. The server does not reject other values, so this set is what keeps the event_type attribute bounded.
 var ingestedEventTypes = map[string]bool{
 	"exec": true, "fork": true, "exit": true, "open": true, "file_rename": true, "file_truncate": true, "file_delete": true,
-	"file_activity": true, "network_connect": true, "dns_query": true, "application_control_block": true,
-	"application_control_would_block": true, "application_control_undecided": true, "application_control_resync": true, "snapshot_heartbeat": true,
-	"btm_launch_item_add": true, "sensor_provider_transition": true, "sensor_recovery_failed": true, "tcc_modify": true,
+	"file_activity": true, "agent_tool_call": true, "network_connect": true, "dns_query": true, "application_control_block": true,
+	"application_control_would_block": true, "application_control_undecided": true, "application_control_resync": true,
+	"snapshot_heartbeat": true, "btm_launch_item_add": true, "sensor_provider_transition": true, "sensor_recovery_failed": true,
+	"tcc_modify": true,
 }
 
 // otherEventType is the event_type attribute for any value outside ingestedEventTypes.
