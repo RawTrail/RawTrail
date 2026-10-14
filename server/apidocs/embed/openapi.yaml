@@ -554,12 +554,12 @@ paths:
                       properties:
                         tool_use_id: {type: string}
                         tool_name: {type: string, description: "The tool called, e.g. Bash, Edit, Write or Read."}
-                        command: {type: string, description: A Bash call's command, at most 8 KiB.}
+                        command: {type: string, description: "A Bash call's command, at most 8 KiB."}
                         description: {type: string, description: The description the agent gave a Bash call.}
                         file_path: {type: string, description: The path a file tool acted on.}
                         sidechain: {type: boolean, description: True when a subagent made the call.}
                         truncated: {type: boolean, description: True when the command was cut to its 8 KiB limit.}
-                        called_at_ns: {type: integer, format: int64, description: When the agent made the call, ns since epoch.}
+                        called_at_ns: {type: integer, format: int64, description: "When the agent made the call, ns since epoch."}
                         uid: {type: integer, description: "The uid owning the transcript the call was read from; a call is trusted only for that user's processes."}
                   truncated: {type: boolean, description: True when the session recorded more calls than are listed.}
         "404":
