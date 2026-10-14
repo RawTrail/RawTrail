@@ -943,3 +943,10 @@ func (s *Store) HostTimeline(ctx context.Context, filter visibilityapi.HostTimel
 func (s *Store) ActivityForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivityRollup, error) {
 	return s.archive.ActivityForGenerations(ctx, filter)
 }
+
+// AgentToolCalls delegates the tool calls a session recorded (issue #1288) to the visibility EventArchive.
+func (s *Store) AgentToolCalls(
+	ctx context.Context, filter visibilityapi.AgentToolCallFilter,
+) ([]visibilityapi.AgentToolCall, bool, error) {
+	return s.archive.AgentToolCalls(ctx, filter)
+}

@@ -28,6 +28,8 @@ export interface ToolCall {
   key: string;
   // command is what the agent ran: the wrapper's eval argument, or the root's own command line when it is not such a wrapper.
   command: string;
+  // fromAgent is set when the group's root is the agent's wrapper shell, so its command is one the agent ran as a Bash call.
+  fromAgent: boolean;
   startNs: number;
   // lastNs is the group's last observed activity: its latest exit, exec or fork.
   lastNs: number;
@@ -165,9 +167,11 @@ export function buildToolCalls(roots: readonly ProcessNode[], shape: RowShape): 
     const key = root.tool_call_group;
     let call = key === undefined || root.pid === key ? undefined : latestByKey.get(key);
     if (call === undefined) {
+      const agentCommand = toolCommand(root.args);
       call = {
         key: `row:${String(root.id)}`,
-        command: toolCommand(root.args) ?? commandLine(root.path, root.args),
+        command: agentCommand ?? commandLine(root.path, root.args),
+        fromAgent: agentCommand !== null,
         startNs: root.fork_time_ns,
         lastNs: root.fork_time_ns,
         processCount: 0,

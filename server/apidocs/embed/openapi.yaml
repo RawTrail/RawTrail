@@ -518,6 +518,55 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls:
+    get:
+      tags: [Hosts]
+      summary: The tool calls an AI agent session recorded
+      description: >-
+        The tool calls the agent recorded in its session transcript, read by the agent from the transcript on disk and stored in the
+        event archive, oldest first and each once. Only tool-call metadata is held: never prompt text, model output or tool results.
+        The list is capped, and a cut list says so.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+      responses:
+        "200":
+          description: The session's tool calls
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tool_calls, truncated]
+                properties:
+                  tool_calls:
+                    type: array
+                    items:
+                      type: object
+                      required: [tool_use_id, tool_name, called_at_ns]
+                      properties:
+                        tool_use_id: {type: string}
+                        tool_name: {type: string, description: "The tool called, e.g. Bash, Edit, Write or Read."}
+                        command: {type: string, description: A Bash call's command, at most 8 KiB.}
+                        description: {type: string, description: The description the agent gave a Bash call.}
+                        file_path: {type: string, description: The path a file tool acted on.}
+                        sidechain: {type: boolean, description: True when a subagent made the call.}
+                        truncated: {type: boolean, description: True when the command was cut to its 8 KiB limit.}
+                        called_at_ns: {type: integer, format: int64, description: When the agent made the call, ns since epoch.}
+                  truncated: {type: boolean, description: True when the session recorded more calls than are listed.}
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/agent-sessions:
     get:
       tags: [Hosts]

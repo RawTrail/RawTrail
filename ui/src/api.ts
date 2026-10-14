@@ -13,6 +13,7 @@ import type {
   ProcessSearchResult,
   AgentSessionResult,
   ActivityResponse,
+  AgentToolCallsResponse,
   EventSearchResult,
   HostTimelineResult,
   HostHealth,
@@ -378,6 +379,13 @@ export async function getActivity(hostId: string, scope: ActivityScopeQuery): Pr
     query.set("process", String(scope.process));
   }
   return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${query.toString()}`);
+}
+
+// getAgentToolCalls reads the tool calls an AI agent session recorded in its transcript (issue #1288), oldest first.
+export async function getAgentToolCalls(hostId: string, sessionId: string): Promise<AgentToolCallsResponse> {
+  return fetchJSON<AgentToolCallsResponse>(
+    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/tool-calls`,
+  );
 }
 
 export async function getHostDetail(hostId: string): Promise<HostDetail> {

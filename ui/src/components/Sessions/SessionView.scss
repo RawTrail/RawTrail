@@ -69,6 +69,22 @@
     white-space: pre-wrap;
   }
 
+  // The tool call that started the group (issue #1288): a full-width line of the header, under its command.
+  &__agent-call {
+    color: $ui-fleet-black-75;
+    display: flex;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    gap: 0.5rem;
+  }
+
+  &__tool-use-id {
+    color: $ui-fleet-black-50;
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+  }
+
   &__meta {
     color: $ui-fleet-black-50;
     font-size: 0.8rem;

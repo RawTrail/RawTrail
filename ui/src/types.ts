@@ -229,6 +229,24 @@ export interface ActivityScope {
 
 // ActivityResponse is GET /api/hosts/{id}/activity: what a process, its subtree or a session touched, with the scope's processes
 // so a row's (pid, pidversion) can be named.
+// AgentToolCall is one tool call an AI agent session recorded in its transcript (issue #1288).
+export interface AgentToolCall {
+  tool_use_id: string;
+  tool_name: string;
+  command?: string;
+  description?: string;
+  file_path?: string;
+  sidechain?: boolean;
+  // truncated marks a command cut to the agent's 8 KiB limit.
+  truncated?: boolean;
+  called_at_ns: number;
+}
+
+export interface AgentToolCallsResponse {
+  tool_calls: AgentToolCall[];
+  truncated: boolean;
+}
+
 export interface ActivityResponse {
   files: ActivityClass<FileActivityRow>;
   network: ActivityClass<NetworkActivityRow>;

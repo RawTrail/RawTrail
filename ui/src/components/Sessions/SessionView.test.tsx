@@ -31,11 +31,12 @@ function callHeaders(): HTMLElement[] {
   return screen.getAllByRole("button", { expanded: true });
 }
 
-// The record and alert reads decorate the tree; by default the session has a record and no alerts, and each test overrides what it
-// is about.
+// The record, alert and tool-call reads decorate the tree; by default the session has no record, alerts or calls, and each test
+// overrides what it is about.
 beforeEach(() => {
   vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
   vi.spyOn(api, "listAlerts").mockResolvedValue([]);
+  vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({ tool_calls: [], truncated: false });
 });
 
 // lsActivity is a session activity read naming the capture's ls (row 2298323) as the one process that connected anywhere.
@@ -92,6 +93,37 @@ function manyCalls(n: number): ProcessNode[] {
 }
 
 describe("SessionView", () => {
+  // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
+  // spec:web-ui/tool-calls-beside-their-processes/calls-that-cannot-be-told-apart-are-marked-ambiguous
+  it("shows each group's tool call, and calls it cannot tell apart as ambiguous", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(3) }));
+    const call = (id: string, command: string, at: number, description?: string) =>
+      ({ tool_use_id: id, tool_name: "Bash", command, called_at_ns: at, description });
+    const spy = vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({
+      tool_calls: [call("toolu_a", "step 0", 90, "First step"), call("toolu_b", "step 1", 190), call("toolu_c", "step 1", 190)],
+      truncated: false,
+    });
+    renderView();
+    const headers = await screen.findAllByRole("button", { expanded: true });
+    expect(spy).toHaveBeenCalledWith("H1", SESSION);
+    expect(within(headers[0]).getByText("First step")).toBeVisible();
+    expect(within(headers[0]).getByText("toolu_a")).toBeVisible();
+    const ambiguous = within(headers[1]).getByText("One of 2 identical calls made at once");
+    expect(ambiguous).toBeVisible();
+    expect(ambiguous).toHaveAttribute("title", "One of: toolu_b, toolu_c");
+    expect(within(headers[2]).queryByText(/toolu_/)).toBeNull();
+  });
+
+  it("lists the calls without their tool calls when the transcript read fails", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentToolCalls").mockRejectedValue(new Error("down"));
+    renderView();
+    expect(await screen.findAllByRole("button", { expanded: true })).toHaveLength(2);
+    expect(screen.queryByText(/toolu_/)).toBeNull();
+  });
+
   // spec:web-ui/ai-agent-session-view/tool-calls-are-labelled-with-the-command-the-agent-ran
   it("reads the session and lists one group per tool call, labelled with its command", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([{ host_id: "H1", hostname: "qa-1280-vm" } as never]);

@@ -25,6 +25,7 @@ test.describe("agent sessions", () => {
   // spec:web-ui/activity-tabs/a-session-s-network-tab-lists-every-destination-with-its-process
   // spec:web-ui/inferred-launches-in-the-ui/a-session-lists-a-launch-under-the-call-that-asked
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
+  // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
   test("a Claude Code session is listed with its project and opens to its tool calls", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
@@ -59,10 +60,14 @@ test.describe("agent sessions", () => {
     const calls = page.locator(".session-view__call");
     // Four calls: TextEdit is listed under the open that asked for it, not as a call of its own.
     await expect(calls).toHaveCount(4);
-    await expect(calls.nth(0).locator("code")).toHaveText("git status");
-    await expect(calls.nth(1).locator("code")).toHaveText("(sleep 47 &)");
-    await expect(calls.nth(2).locator("code")).toHaveText("sudo id");
-    await expect(calls.nth(3).locator("code")).toHaveText("open -a TextEdit");
+    await expect(calls.nth(0).locator("code").first()).toHaveText("git status");
+    await expect(calls.nth(1).locator("code").first()).toHaveText("(sleep 47 &)");
+    await expect(calls.nth(2).locator("code").first()).toHaveText("sudo id");
+    await expect(calls.nth(3).locator("code").first()).toHaveText("open -a TextEdit");
+    // Each call names the Bash tool call that started it, from the transcript: its description and tool_use_id.
+    await expect(calls.nth(0).locator(".session-view__agent-call")).toContainText("Show working tree status");
+    await expect(calls.nth(0).locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_git");
+    await expect(calls.nth(3).locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_open");
     const launch = calls.nth(3).locator("li", { hasText: "inferred launch" }).last();
     await expect(launch.locator(".session-view__name")).toHaveText("TextEdit");
     // Under the open that asked for it, not beside it: the launch's row list belongs to open's row.

@@ -65,6 +65,10 @@ func (f *fakeEventArchive) ActivityForGenerations(context.Context, api.ActivityF
 	return api.ActivityRollup{}, nil
 }
 
+func (f *fakeEventArchive) AgentToolCalls(context.Context, visibilityapi.AgentToolCallFilter) ([]visibilityapi.AgentToolCall, bool, error) {
+	return nil, false, nil
+}
+
 // fakeEventLog records the events handed to Append and can be made to fail.
 type fakeEventLog struct {
 	appended  [][]api.Event

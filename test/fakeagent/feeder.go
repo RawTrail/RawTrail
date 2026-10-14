@@ -270,6 +270,15 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			out.CoalescedCount = ev.Count
 		}
 		return json.Marshal(out)
+	case "agent_tool_call":
+		return json.Marshal(struct {
+			AgentSessionID string `json:"agent_session_id"`
+			ToolUseID      string `json:"tool_use_id"`
+			ToolName       string `json:"tool_name"`
+			Command        string `json:"command,omitempty"`
+			Description    string `json:"description,omitempty"`
+			FilePath       string `json:"file_path,omitempty"`
+		}{ev.AgentSessionID, ev.ToolUseID, ev.ToolName, ev.Command, ev.Description, ev.Path})
 	case "network_connect":
 		out := struct {
 			PID           int     `json:"pid"`
