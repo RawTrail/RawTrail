@@ -2,7 +2,7 @@
 
 ### Requirement: AI agent session view badges
 
-The session view SHALL read its header from the session's record and SHALL say when the session began before the retention cutoff. It SHALL badge each alert on the process it was raised on and on its tool call, and SHALL never hide such a process as shell plumbing. It SHALL badge a process that runs as a different user from its creator, and SHALL credit each alert's rule author beside it. A session of more than 10 tool calls SHALL open with only its alerted calls expanded.
+The session view SHALL read its header from the session's record and SHALL say when the session began before the retention cutoff. It SHALL badge each alert on the process it was raised on and on its command, and SHALL never hide such a process as shell plumbing. It SHALL badge a process that runs as a different user from its creator, and SHALL credit each alert's rule author beside it. A session of more than 10 commands SHALL open with only its alerted commands expanded.
 
 #### Scenario: The header reads the session's record
 
@@ -22,7 +22,7 @@ The session view SHALL read its header from the session's record and SHALL say w
 - **GIVEN** a critical alert raised on a process of a session's first tool call
 - **WHEN** the operator opens the session's view
 - **THEN** the process carries the alert's badge, linking to the alert
-- **AND** the tool call's header carries "1 alert" in the critical style
+- **AND** the command's header carries "1 alert" in the critical style
 
 #### Scenario: An alerted process is never hidden as plumbing
 

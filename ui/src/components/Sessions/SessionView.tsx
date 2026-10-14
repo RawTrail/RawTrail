@@ -18,26 +18,31 @@ import { applyLaunchLinks } from "../launchLinks";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import {
-  buildToolCalls,
+  buildCommands,
   containsHit,
   containsProcess,
   forkSpan,
   lastActivityNs,
-  searchCalls,
+  searchCommands,
   summarizeSession,
   type SearchHits,
   type SessionRow,
-  type ToolCall,
+  type Command,
 } from "./sessionTree";
 import { commandLine } from "./toolCommand";
 import { joinToolCalls, type ToolCallMatch } from "./toolCallJoin";
 
-// AUTO_EXPAND_CALLS is the most tool calls a session can have and still open with every call expanded. A longer session opens with
-// only the calls an alert was raised in expanded, so the operator starts from what was flagged.
-const AUTO_EXPAND_CALLS = 10;
-// ROW_CAP is how many processes a list shows before "Show more": a call that ran a long loop opens on its first rows rather than on
+// AUTO_EXPAND_GROUPS is the most commands a session can have and still open with every one expanded. A longer session opens with
+// only the commands an alert was raised in expanded, so the operator starts from what was flagged.
+const AUTO_EXPAND_GROUPS = 10;
+// ROW_CAP is how many processes a list shows before "Show more": a command that ran a long loop opens on its first rows rather than on
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
+
+// REPORTED_LABEL marks what the agent reported about a command, as distinct from what the sensor observed (issue #1333).
+const REPORTED_LABEL = "Reported by agent";
+const REPORTED_TITLE = "From the agent's session transcript, which the agent and its user can write; not observed by the sensor";
+
 // INFERRED_LAUNCH_TITLE explains an inferred launch's badge: the row is listed under its launcher, which is not its creator.
 const INFERRED_LAUNCH_TITLE =
   "Started by launchd moments after the process it is listed under asked for it: linked by timing and target, not lineage";
@@ -56,7 +61,7 @@ interface SessionRead {
   alertsFailed?: boolean;
   // alertsTruncated is set when the session has more alerts than were read, so some are not badged.
   alertsTruncated?: boolean;
-  // toolCalls are the calls the session recorded in its transcript (issue #1288). Unread, the groups simply carry no call.
+  // toolCalls are the tool calls the agent reported in its transcript (issue #1288). Unread, the groups simply carry no call.
   toolCalls?: AgentToolCall[];
   // toolCallsTruncated is set when the session recorded more calls than were read, so some groups may show none.
   toolCallsTruncated?: boolean;
@@ -106,17 +111,18 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
   };
 }
 
-// SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its tool calls ran, one
-// group per call labelled with the command the agent ran, and under it everything that call started, daemons included. The shell
-// plumbing that runs a call is hidden unless the operator turns on verbose. Alerts and privilege changes are badged where they
-// happened, and a call an alert was raised in opens expanded.
+// SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its commands ran, one
+// group per command the agent ran, and under it everything that command started, daemons included. The shell plumbing that runs a
+// command is hidden unless the operator turns on verbose. Alerts and privilege changes are badged where they happened, and a command
+// an alert was raised in opens expanded. A group is what the sensor observed; the tool call the agent reported for it is labelled as
+// reported (issue #1333).
 export function SessionView() {
   const { hostId = "", sessionId = "" } = useParams();
   const hostNames = useHostNames();
   const [verbose, setVerbose] = useState(false);
   const [query, setQuery] = useState("");
-  // view picks what the session's main column shows: its tool calls, or the totals of what it touched (issue #1285).
-  const [view, setView] = useState<"calls" | "activity">("calls");
+  // view picks what the session's main column shows: its commands, or the totals of what it touched (issue #1285).
+  const [view, setView] = useState<"commands" | "activity">("commands");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
   const [read, setRead] = useState<SessionRead | null>(null);
@@ -134,19 +140,19 @@ export function SessionView() {
     for (const alert of current?.alerts ?? []) byProcess.set(alert.process_id, [...(byProcess.get(alert.process_id) ?? []), alert]);
     return byProcess;
   }, [current?.alerts]);
-  const calls = useMemo(
+  const groups = useMemo(
     () => {
       if (!tree) return [];
       const incomplete = tree.truncated || current === null || current.alertsFailed === true || current.alertsTruncated === true
         || beganBeforeRetention(current);
-      // What launchd started for a call's open or launchctl is listed under it, marked inferred (issue #1286).
+      // What launchd started for a command's open or launchctl is listed under it, marked inferred (issue #1286).
       const logical = applyLaunchLinks(tree.roots, tree.links);
-      return buildToolCalls(logical.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred });
+      return buildCommands(logical.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred });
     },
     [tree, verbose, alertsByProcess, current],
   );
   const summary = useMemo(() => summarizeSession(tree?.roots ?? []), [tree]);
-  const hits = useMemo(() => searchCalls(calls, query), [calls, query]);
+  const hits = useMemo(() => searchCommands(groups, query), [groups, query]);
   // A selection belongs to the session it was made in.
   const selectedNode = selected?.key === readKey && tree !== null ? selected.node : null;
   const rowsContext = useMemo<SessionRows>(
@@ -207,7 +213,7 @@ export function SessionView() {
         <div className="session-view__layout">
           <div className="session-view__main">
             <div role="group" aria-label="Session view" className="session-view__views">
-              {(["calls", "activity"] as const).map((v) => (
+              {(["commands", "activity"] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -215,12 +221,12 @@ export function SessionView() {
                   className="session-view__view"
                   onClick={() => { setView(v); }}
                 >
-                  {v === "calls" ? "Tool calls" : "Activity"}
+                  {v === "commands" ? "Commands" : "Activity"}
                 </button>
               ))}
             </div>
-            {view === "calls" ? (
-              <SessionBody read={current} calls={calls} />
+            {view === "commands" ? (
+              <SessionBody read={current} groups={groups} />
             ) : (
               <ActivityTabs
                 label="Session activity"
@@ -284,7 +290,8 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
       )}
       {read.toolCallsTruncated && (
         <p className="session-view__notice" role="status">
-          This session recorded more tool calls than are read, so some calls may show without the tool call that started them.
+          The agent reported more tool calls than are read, so some commands may show without the tool call the agent reported for
+          them.
         </p>
       )}
       {read.alertsTruncated && (
@@ -297,22 +304,22 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
   );
 }
 
-function SessionBody({ read, calls }: { readonly read: SessionRead | null; readonly calls: ToolCall[] }) {
+function SessionBody({ read, groups }: { readonly read: SessionRead | null; readonly groups: Command[] }) {
   const { alertsByProcess } = useSessionRows();
   if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
   if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
-  if (calls.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
-  const expandAll = calls.length <= AUTO_EXPAND_CALLS;
-  const matches = joinToolCalls(calls, read.toolCalls ?? []);
+  if (groups.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
+  const expandAll = groups.length <= AUTO_EXPAND_GROUPS;
+  const matches = joinToolCalls(groups, read.toolCalls ?? []);
   return (
     <ol className="session-view__calls">
-      {calls.map((call) => {
-        const alerts = call.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
+      {groups.map((group) => {
+        const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
         return (
-          <ToolCallGroup
-            key={call.key}
-            call={call}
-            match={matches.get(call.key)}
+          <CommandGroup
+            key={group.key}
+            group={group}
+            match={matches.get(group.key)}
             alerts={alerts}
             defaultOpen={expandAll || alerts.length > 0}
           />
@@ -327,16 +334,16 @@ function highestSeverity(alerts: readonly Alert[]): string {
   return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
 }
 
-// ToolCallGroup is one call. A search that finds something in it opens it, whatever the operator last chose.
-function ToolCallGroup({ call, match, alerts, defaultOpen }: {
-  readonly call: ToolCall;
+// CommandGroup is one command. A search that finds something in it opens it, whatever the operator last chose.
+function CommandGroup({ group, match, alerts, defaultOpen }: {
+  readonly group: Command;
   readonly match: ToolCallMatch | undefined;
   readonly alerts: readonly Alert[];
   readonly defaultOpen: boolean;
 }) {
   const { hits } = useSessionRows();
   const [open, setOpen] = useState(defaultOpen);
-  const found = hits.byCall.get(call.key) ?? 0;
+  const found = hits.byGroup.get(group.key) ?? 0;
   const expanded = open || found > 0;
   return (
     <li className="session-view__call">
@@ -346,9 +353,9 @@ function ToolCallGroup({ call, match, alerts, defaultOpen }: {
         aria-expanded={expanded}
         onClick={() => { setOpen(!expanded); }}
       >
-        <code className="session-view__command">{call.command}</code>
+        <code className="session-view__command">{group.command}</code>
         <span className="session-view__meta">
-          {formatNs(call.startNs)} · {plural(call.processCount, "process", "processes")}
+          {formatNs(group.startNs)} · {plural(group.processCount, "process", "processes")}
         </span>
         {alerts.length > 0 && (
           <Badge variant={severityBadgeVariant(highestSeverity(alerts))}>{plural(alerts.length, "alert", "alerts")}</Badge>
@@ -356,24 +363,27 @@ function ToolCallGroup({ call, match, alerts, defaultOpen }: {
         {found > 0 && <span className="session-view__found">{plural(found, "match", "matches")}</span>}
         {match && <AgentCall match={match} />}
       </button>
-      {expanded && call.rows.length > 0 && <ProcessRows rows={call.rows} />}
+      {expanded && group.rows.length > 0 && <ProcessRows rows={group.rows} />}
     </li>
   );
 }
 
-// AgentCall names the tool call that started a group (issue #1288): the description the agent gave it and its tool_use_id, or, for
-// identical calls of one turn that cannot be told apart, the calls it is one of.
+// AgentCall names the tool call the agent reported for a group (issue #1288): the description the agent gave it and its tool_use_id,
+// or, for identical calls of one turn that cannot be told apart, the calls it is one of. It is labelled as reported (issue #1333):
+// it comes from the agent's transcript, a file the agent and its user can write, not from the sensor.
 function AgentCall({ match }: { readonly match: ToolCallMatch }) {
   if (match.kind === "ambiguous") {
     const ids = match.candidates.map((c) => c.tool_use_id);
     return (
       <span className="session-view__agent-call" title={`One of: ${ids.join(", ")}`}>
+        <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
         One of {match.candidates.length} identical calls made at once
       </span>
     );
   }
   return (
     <span className="session-view__agent-call">
+      <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
       {match.call.description && <span>{match.call.description}</span>}
       <code className="session-view__tool-use-id">{match.call.tool_use_id}</code>
     </span>
@@ -381,7 +391,7 @@ function AgentCall({ match }: { readonly match: ToolCallMatch }) {
 }
 
 // ProcessRows lists rows up to ROW_CAP, then offers the rest. A row holding a search hit or an alert is listed past the cap, since
-// the call opened, or the search expanded it, to show that row.
+// the command opened, or the search expanded it, to show that row.
 function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
   const { hits, alertsByProcess } = useSessionRows();
   const [shown, setShown] = useState(ROW_CAP);

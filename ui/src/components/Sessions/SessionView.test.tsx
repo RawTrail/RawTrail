@@ -95,7 +95,8 @@ function manyCalls(n: number): ProcessNode[] {
 describe("SessionView", () => {
   // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
   // spec:web-ui/tool-calls-beside-their-processes/calls-that-cannot-be-told-apart-are-marked-ambiguous
-  it("shows each group's tool call, and calls it cannot tell apart as ambiguous", async () => {
+  // spec:web-ui/observed-commands-and-reported-tool-calls-are-named-apart/a-reported-tool-call-is-labelled-as-the-agent-s
+  it("shows each command's reported tool call, and calls it cannot tell apart as ambiguous", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(3) }));
     const call = (id: string, command: string, at: number, description?: string) =>
@@ -109,18 +110,26 @@ describe("SessionView", () => {
     expect(spy).toHaveBeenCalledWith("H1", SESSION);
     expect(within(headers[0]).getByText("First step")).toBeVisible();
     expect(within(headers[0]).getByText("toolu_a")).toBeVisible();
-    const ambiguous = within(headers[1]).getByText("One of 2 identical calls made at once");
+    // Both the paired call and the ambiguous one say they are the agent's report; the unpaired command says nothing.
+    expect(within(headers[0]).getByText("Reported by agent")).toBeVisible();
+    expect(within(headers[1]).getByText("Reported by agent")).toBeVisible();
+    // Both labels say where the report comes from: the outer title on an ambiguous call names its candidates instead.
+    for (const header of headers.slice(0, 2)) {
+      expect(within(header).getByText("Reported by agent")).toHaveAttribute("title", expect.stringContaining("not observed by the sensor"));
+    }
+    expect(within(headers[2]).queryByText("Reported by agent")).toBeNull();
+    const ambiguous = within(headers[1]).getByText(/One of 2 identical calls made at once/);
     expect(ambiguous).toBeVisible();
     expect(ambiguous).toHaveAttribute("title", "One of: toolu_b, toolu_c");
     expect(within(headers[2]).queryByText(/toolu_/)).toBeNull();
   });
 
-  it("says when the session recorded more tool calls than were read", async () => {
+  it("says when the agent reported more tool calls than were read", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(1) }));
     vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({ tool_calls: [], truncated: true });
     renderView();
-    expect(await screen.findByText(/recorded more tool calls than are read/)).toBeVisible();
+    expect(await screen.findByText(/reported more tool calls than are read/)).toBeVisible();
   });
 
   it("lists the calls without their tool calls when the transcript read fails", async () => {
@@ -434,7 +443,7 @@ describe("SessionView", () => {
     expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ls (80728)" }));
     expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Tool calls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Commands" }));
     expect(screen.getByText("ls /private/tmp | head -3")).toBeVisible();
   });
 
