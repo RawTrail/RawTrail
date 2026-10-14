@@ -12,6 +12,7 @@ import type {
   HostDetail,
   ProcessSearchResult,
   AgentSessionResult,
+  ActivityResponse,
   EventSearchResult,
   HostTimelineResult,
   HostHealth,
@@ -355,10 +356,28 @@ export async function getProcessTree(
 }
 
 // getSessionTree reads one AI agent session's processes as the raw forest by creator (issue #1284): no time window, since a session is
-// read by its index, and no sibling aggregation, since the session view groups the processes itself. limit bounds the rows.
-export async function getSessionTree(hostId: string, sessionId: string, limit = 2000): Promise<TreeResponse> {
+// read by its index, and no sibling aggregation, since the session view groups the processes itself. limit bounds the rows; its
+// default is the server's cap, the same bound the session's activity read resolves its processes with, so every process the activity
+// names is in the tree the view can open it from.
+export async function getSessionTree(hostId: string, sessionId: string, limit = 5000): Promise<TreeResponse> {
   const query = new URLSearchParams({ scope: "session", session: sessionId, flatten: "1", limit: String(limit) });
   return fetchJSON<TreeResponse>(`/hosts/${encodeURIComponent(hostId)}/tree?${query.toString()}`);
+}
+
+// ActivityScopeQuery names what an activity read totals: one process or its subtree by row id, or an agent session.
+export type ActivityScopeQuery =
+  | { kind: "process" | "subtree"; process: number }
+  | { kind: "session"; session: string };
+
+// getActivity reads what a scope touched on a host: its files, network destinations and DNS names (issue #1285).
+export async function getActivity(hostId: string, scope: ActivityScopeQuery): Promise<ActivityResponse> {
+  const query = new URLSearchParams({ scope: scope.kind });
+  if (scope.kind === "session") {
+    query.set("session", scope.session);
+  } else {
+    query.set("process", String(scope.process));
+  }
+  return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${query.toString()}`);
 }
 
 export async function getHostDetail(hostId: string): Promise<HostDetail> {

@@ -55,8 +55,9 @@ export interface ScenarioEvent {
   cwd?: string;
   // exec: the AI agent session markers the production agent forwards from the environment, emitted only when set.
   env?: Record<string, string>;
-  // Lineage (issue #1280), emitted on fork and exec only, and only when set: the generation of the process (the child on a fork) and
-  // of its creator, and, on exec, the process group it ran in. Mirrors the Go ScenarioEvent struct.
+  // Lineage (issue #1280), emitted only when set: the generation of the process (the child on a fork), on fork, exec, network_connect
+  // and dns_query; on fork and exec the creator's generation; and on exec the process group it ran in. Mirrors the Go ScenarioEvent
+  // struct.
   pidversion?: number;
   parent_pidversion?: number;
   group_id?: number;
@@ -271,11 +272,12 @@ export function stringifyEnvelopes(envelopes: Envelope[]): string {
   return raw.replace(/"@@BIGINT@@(\d+)@@BIGINT@@"/g, "$1");
 }
 
-// lineage is an event's generation fields, each only when the scenario set it.
+// lineage is an event's generation fields, each only when the scenario set it. Presence, not truthiness: generation 0 is a real
+// kernel generation, and dropping it would send the event as one that carries none.
 function lineage(ev: ScenarioEvent): Record<string, number> {
   return {
-    ...(ev.pidversion ? { pidversion: ev.pidversion } : {}),
-    ...(ev.parent_pidversion ? { parent_pidversion: ev.parent_pidversion } : {}),
+    ...(ev.pidversion !== undefined ? { pidversion: ev.pidversion } : {}),
+    ...(ev.parent_pidversion !== undefined ? { parent_pidversion: ev.parent_pidversion } : {}),
   };
 }
 
@@ -324,6 +326,7 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
       // !== undefined so an explicitly-provided local_port: 0 isn't dropped by JS truthy semantics. Same shape for the address
       // wouldn't matter (empty string is falsy + meaningless), so the local_address truthy check stays.
       if (ev.local_port !== undefined) p.local_port = ev.local_port;
+      Object.assign(p, lineage(ev));
       return p;
     }
     case "dns_query": {
@@ -334,6 +337,7 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
       };
       if (ev.response_addresses) p.response_addresses = ev.response_addresses;
       if (ev.protocol) p.protocol = ev.protocol;
+      Object.assign(p, lineage(ev));
       return p;
     }
     case "snapshot_heartbeat":

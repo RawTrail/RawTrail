@@ -245,3 +245,30 @@ func TestBuildPayload_ExecCarriesAPackageSignatureOnlyWhenSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(payload), "package_signing")
 }
+
+// Generation 0 is a real kernel generation: a scenario that sets it must send it, or the event reads as one carrying none and a
+// flow would be attributed by the legacy window instead of by its generation.
+func TestBuildPayload_SendsGenerationZero(t *testing.T) {
+	t.Parallel()
+	zero := uint32(0)
+	for _, ev := range []Event{
+		{Type: "fork", ChildPID: 2, ParentPID: 1, PIDVersion: &zero, ParentPIDVersion: &zero},
+		{Type: "exec", PID: 2, PPID: 1, Path: "/bin/sh", PIDVersion: &zero, ParentPIDVersion: &zero},
+		{Type: "network_connect", PID: 2, Protocol: "tcp", Direction: "outbound", RemoteAddress: "1.1.1.1", RemotePort: 443, PIDVersion: &zero},
+		{Type: "dns_query", PID: 2, QueryName: "example.com", QueryType: "A", PIDVersion: &zero},
+	} {
+		t.Run(ev.Type, func(t *testing.T) {
+			t.Parallel()
+			raw, err := buildPayload(ev)
+			require.NoError(t, err)
+			var got map[string]any
+			require.NoError(t, json.Unmarshal(raw, &got))
+			assert.Contains(t, got, "pidversion")
+			assert.InDelta(t, 0, got["pidversion"], 0)
+			ev.PIDVersion = nil
+			raw, err = buildPayload(ev)
+			require.NoError(t, err)
+			assert.NotContains(t, string(raw), `"pidversion"`, "an unset generation is absent")
+		})
+	}
+}

@@ -38,6 +38,18 @@ beforeEach(() => {
   vi.spyOn(api, "listAlerts").mockResolvedValue([]);
 });
 
+// lsActivity is a session activity read naming the capture's ls (row 2298323) as the one process that connected anywhere.
+const lsActivity = {
+  files: { events: 0, distinct: 0, truncated: false, rows: [] },
+  network: {
+    events: 1, distinct: 1, truncated: false,
+    rows: [{ pid: 80728, pidversion: 7, count: 1, first_ns: 1, last_ns: 1, remote_address: "1.1.1.1", remote_port: 443, protocol: "tcp" }],
+  },
+  dns: { events: 0, distinct: 0, truncated: false, rows: [] },
+  scope: { applied: true, processes: 16, unmatched: 0, truncated: false },
+  processes: [{ id: 2298323, pid: 80728, pidversion: 7, path: "/bin/ls" }],
+};
+
 afterEach(() => { vi.restoreAllMocks(); });
 
 function record(over: Partial<AgentSessionSummary> = {}): AgentSessionSummary {
@@ -364,6 +376,26 @@ describe("SessionView", () => {
     // They all exited 0, so the folded row says so.
     expect(row).toHaveTextContent(/exit 0/);
     expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(1);
+  });
+
+  // spec:web-ui/activity-tabs/a-session-s-network-tab-lists-every-destination-with-its-process
+  it("switches to the session's activity, and opens the detail of a process named there", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
+    const activity = vi.spyOn(api, "getActivity").mockResolvedValue(lsActivity);
+    renderView();
+    await screen.findByText("ls /private/tmp | head -3");
+    expect(activity).not.toHaveBeenCalledWith("H1", { kind: "session", session: SESSION });
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(await screen.findByText("1 connection to 1 destination")).toBeVisible();
+    expect(activity).toHaveBeenCalledWith("H1", { kind: "session", session: SESSION });
+    expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ls (80728)" }));
+    expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Tool calls" }));
+    expect(screen.getByText("ls /private/tmp | head -3")).toBeVisible();
   });
 
   it("says how many processes there are at least when the server capped its count", async () => {

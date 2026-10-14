@@ -1,9 +1,9 @@
-# A Claude Code session's three Bash tool calls, each run the way Claude Code 2.1.296 runs one: a zsh -c whose script restores the
-# shell snapshot and evals the model's command. The first runs `git status`; the second backgrounds `sleep 47` from a subshell, so
-# zsh forks a copy of itself that never execs and the sleep outlives the call; the third runs `sudo id`. The agent (pid 5000) is never seen, so each call's
-# shell is a root. Every exec carries the session markers the production agent forwards from the environment. Every fork and exec
-# carries the kernel generations the server resolves a creator by, and each call's shell leads its own process group, which keys the
-# tool call.
+# A Claude Code session's three Bash tool calls, each run the way Claude Code 2.1.296 runs one: a zsh -c whose script restores the shell
+# snapshot and evals the model's command. The first runs `git status`; the second backgrounds `sleep 47` from a subshell, so zsh forks a
+# copy of itself that never execs and the sleep outlives the call; the third runs `sudo id`. The agent (pid 5000) is never seen, so each
+# call's shell is a root. Every exec carries the session markers the production agent forwards from the environment. Every fork and exec
+# carries the kernel generations the server resolves a creator by, and each call's shell leads its own process group, which keys the tool
+# call. git's connection and lookup carry its generation, as the production agent's flows do.
 name: "Claude Code session: three Bash tool calls"
 host:
   id: AAAA0007-0000-0000-0000-000000000007
@@ -53,6 +53,22 @@ timeline:
     uid: 501
     gid: 20
     env: *markers
+  # git resolves its remote and connects to it, so the session's activity has one name and one destination, both git's.
+  - at: 10ms
+    type: dns_query
+    pid: 5002
+    pidversion: 21
+    query_name: github.com
+    query_type: A
+    response_addresses: ["140.82.112.3"]
+  - at: 12ms
+    type: network_connect
+    pid: 5002
+    pidversion: 21
+    protocol: tcp
+    direction: outbound
+    remote_address: 140.82.112.3
+    remote_port: 443
   - at: 30ms
     type: exit
     pid: 5002

@@ -8,10 +8,12 @@ import { Toggle } from "../ui/Toggle";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { ProcessDetail } from "../ProcessDetail";
+import { ActivityTabs } from "../Activity/ActivityTabs";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
-import { formatNs, basename } from "../Search/format";
+import { formatNs, basename, plural } from "../Search/format";
+import { findNodeByDbId } from "../ProcessTree.helpers";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import {
@@ -101,6 +103,8 @@ export function SessionView() {
   const hostNames = useHostNames();
   const [verbose, setVerbose] = useState(false);
   const [query, setQuery] = useState("");
+  // view picks what the session's main column shows: its tool calls, or the totals of what it touched (issue #1285).
+  const [view, setView] = useState<"calls" | "activity">("calls");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
   const [read, setRead] = useState<SessionRead | null>(null);
@@ -188,7 +192,32 @@ export function SessionView() {
       <SessionRowsContext.Provider value={rowsContext}>
         <div className="session-view__layout">
           <div className="session-view__main">
-            <SessionBody read={current} calls={calls} />
+            <div role="group" aria-label="Session view" className="session-view__views">
+              {(["calls", "activity"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={view === v}
+                  className="session-view__view"
+                  onClick={() => { setView(v); }}
+                >
+                  {v === "calls" ? "Tool calls" : "Activity"}
+                </button>
+              ))}
+            </div>
+            {view === "calls" ? (
+              <SessionBody read={current} calls={calls} />
+            ) : (
+              <ActivityTabs
+                label="Session activity"
+                hostId={hostId}
+                scope={{ kind: "session", session: sessionId }}
+                onProcess={(id) => {
+                  const node = tree ? findNodeByDbId(tree.roots, id) : null;
+                  if (node) rowsContext.onSelect(node);
+                }}
+              />
+            )}
           </div>
           {selectedNode && (
             <aside className="session-view__detail">
@@ -268,10 +297,6 @@ function SessionBody({ read, calls }: { readonly read: SessionRead | null; reado
 // highestSeverity is the most severe of the alerts' severities, for the group's badge.
 function highestSeverity(alerts: readonly Alert[]): string {
   return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
-}
-
-function plural(count: number, one: string, many: string): string {
-  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
 }
 
 // ToolCallGroup is one call. A search that finds something in it opens it, whatever the operator last chose.

@@ -223,3 +223,43 @@
     }
   }
 }
+
+.process-detail__activity {
+  border-top: 1px solid $ui-fleet-black-10;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+}
+
+.process-detail__activity-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.process-detail__activity-title {
+  margin: 0;
+}
+
+.process-detail__activity-scope {
+  border: 1px solid $ui-fleet-black-10;
+  border-radius: 4px;
+  display: inline-flex;
+  overflow: hidden;
+}
+
+.process-detail__activity-option {
+  background: $core-fleet-white;
+  border: 0;
+  color: $ui-fleet-black-75;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+
+  &[aria-pressed="true"] {
+    background: $ui-fleet-black-10;
+    color: $core-fleet-black;
+    font-weight: 600;
+  }
+}

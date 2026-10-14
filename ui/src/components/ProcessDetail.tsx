@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import { useReauthRetry } from "../hooks/useReauthRetry";
 import { NetworkConnections } from "./NetworkConnections";
+import { ActivityTabs } from "./Activity/ActivityTabs";
 import { ReauthModal } from "./ReauthModal";
 import { Card } from "./ui/Card";
 import { CopyButton } from "./ui/CopyButton";
@@ -409,6 +410,8 @@ export function ProcessDetail({ hostId, node, onClose, currentAlertId, timelineH
         />
       )}
 
+      <ProcessActivity hostId={hostId} processId={node.id} />
+
       {/* Related alerts are references, not a second copy of the alert. Each row links to the alert page, which owns the alert's
           severity/description and its triage (acknowledge / resolve) actions. Restating the full alert card here duplicated what the
           alert breadcrumb + detail already show one panel over. The technique tags stay because they link to the rule doc page (the
@@ -443,4 +446,35 @@ export function ProcessDetail({ hostId, node, onClose, currentAlertId, timelineH
 
 function formatTimestamp(ns: number): string {
   return new Date(ns / NANOSECONDS_PER_MILLISECOND).toLocaleTimeString();
+}
+
+// ProcessActivity totals what this process, or it with everything under it, touched (issue #1285). The subtree is what a shell or an
+// agent's tool call did through the commands it ran, which the process alone never shows.
+function ProcessActivity({ hostId, processId }: { readonly hostId: string; readonly processId: number }) {
+  const [subtree, setSubtree] = useState(false);
+  return (
+    <div className="process-detail__activity">
+      <div className="process-detail__activity-header">
+        <h4 className="process-detail__activity-title">Activity</h4>
+        <div role="group" aria-label="Activity scope" className="process-detail__activity-scope">
+          {[false, true].map((whole) => (
+            <button
+              key={String(whole)}
+              type="button"
+              aria-pressed={subtree === whole}
+              className="process-detail__activity-option"
+              onClick={() => { setSubtree(whole); }}
+            >
+              {whole ? "Whole subtree" : "This process"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <ActivityTabs
+        label="Process activity"
+        hostId={hostId}
+        scope={{ kind: subtree ? "subtree" : "process", process: processId }}
+      />
+    </div>
+  );
 }

@@ -1,0 +1,72 @@
+@use "../../styles/var/colors" as *;
+
+.activity-tabs {
+  &__list {
+    border-bottom: 1px solid $ui-fleet-black-10;
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  &__tab {
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: $ui-fleet-black-50;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.9rem;
+    margin-bottom: -1px;
+    padding: 0.4rem 0.1rem;
+
+    &:hover {
+      color: $core-fleet-blue;
+    }
+
+    &[aria-pressed="true"] {
+      border-bottom-color: $core-vibrant-blue;
+      color: $core-fleet-blue;
+      font-weight: 600;
+    }
+  }
+
+  &__count {
+    color: $ui-fleet-black-50;
+    font-size: 0.8rem;
+    font-weight: 400;
+  }
+
+  &__summary {
+    color: $ui-fleet-black-75;
+    font-size: 0.85rem;
+    margin: 0 0 0.5rem;
+  }
+
+  &__note {
+    color: $ui-fleet-black-75;
+    font-size: 0.85rem;
+    margin: 0 0 0.5rem;
+  }
+
+  &__mono {
+    font-family: ui-monospace, sfmono-regular, Menlo, monospace;
+    overflow-wrap: anywhere;
+  }
+
+  &__hostname {
+    color: $ui-fleet-black-50;
+  }
+
+  &__process {
+    background: none;
+    border: 0;
+    color: $core-fleet-green;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
