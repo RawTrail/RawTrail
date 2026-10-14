@@ -1,11 +1,12 @@
-import { useCallback, useMemo } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useCallback } from "react";
+import { Link } from "react-router";
 import { searchProcesses, type ProcessSearchFilter } from "../../api";
 import type { Process } from "../../types";
 import { Table } from "../ui/Table";
 import { Badge } from "../ui/Badge";
 import { FilterChips, type FilterField } from "./FilterChips";
 import { useCursorList, type CursorPage } from "./useCursorList";
+import { useUrlFilter } from "./useUrlFilter";
 import { SearchResultsFrame } from "./SearchResultsFrame";
 import { formatNs, basename } from "./format";
 import { deriveSigningVerdict } from "../../signing";
@@ -38,17 +39,9 @@ const FILTER_KEYS = FILTER_FIELDS.map((f) => f.key);
 // keyset-paginated result table, and rows that pivot into the host's process tree. Its filter state lives in the URL so a pivot is a
 // link and the page is bookmarkable. hostNames (resolved once by the parent) decorates rows with a name over the bare host id.
 export function ProcessSearch({ hostNames }: { readonly hostNames: Map<string, string> }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  // The active filter is exactly the whitelisted params present in the URL, as a plain key->value record (built with
-  // Object.fromEntries to avoid a computed-index write). Serialized as the cursor-list key so any filter change resets and refetches;
-  // it doubles as the ProcessSearchFilter passed to the endpoint (every field is an optional string).
-  const activeFilter = useMemo<Record<string, string>>(() => {
-    const entries = FILTER_KEYS.map((key): [string, string] => [key, searchParams.get(key) ?? ""]).filter(([, v]) => v !== "");
-    return Object.fromEntries(entries);
-  }, [searchParams]);
+  const { activeFilter, filterKey, setFilter } = useUrlFilter(FILTER_KEYS);
+  // The active filter doubles as the ProcessSearchFilter passed to the endpoint (every field is an optional string).
   const filter = activeFilter as ProcessSearchFilter;
-  const filterKey = useMemo(() => JSON.stringify(activeFilter), [activeFilter]);
 
   const fetchPage = useCallback(
     async (cursor: string): Promise<CursorPage<Process>> => {
@@ -58,16 +51,6 @@ export function ProcessSearch({ hostNames }: { readonly hostNames: Map<string, s
     [filterKey], // eslint-disable-line react-hooks/exhaustive-deps -- filter is captured; filterKey is its stable identity
   );
   const { rows, total, loading, error, hasMore, loadMore } = useCursorList(filterKey, fetchPage);
-
-  const setFilter = (key: string, value: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (value) {
-      next.set(key, value);
-    } else {
-      next.delete(key);
-    }
-    setSearchParams(next);
-  };
 
   return (
     <>

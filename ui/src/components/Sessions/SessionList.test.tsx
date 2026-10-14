@@ -54,8 +54,8 @@ describe("SessionList", () => {
   // spec:web-ui/ai-agent-sessions-page/a-session-opens-its-activity
   it("opens the session's host on a window ending at its last activity", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
-    // 9,000,000,001 ns is just past 9,000 ms: the anchor rounds up so the last event stays inside the window.
-    const row = session({ host_id: "H 1", last_seen_ns: 9_000_000_001 });
+    // A time on an exact millisecond still moves to the next one: a JSON number can read an event a few ns after it as this value.
+    const row = session({ host_id: "H 1", last_seen_ns: 9_000_000_000 });
     vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [row], total_matched: 1 });
     renderList();
     const link = await screen.findByRole("link", { name: "claude-code" });
@@ -72,6 +72,21 @@ describe("SessionList", () => {
     await waitFor(() => { expect(spy).toHaveBeenCalled(); });
     expect(spy.mock.calls[0][0]).toEqual({ host_id: "H1", agent: "claude-code", from: String(3 * 24 * 3_600_000 * 1_000_000) });
     expect(spy.mock.calls[0][1]).toBeUndefined();
+  });
+
+  // spec:web-ui/ai-agent-sessions-page/filters-and-paging-are-applied-by-the-server
+  it("keeps the first page's window for every later page", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const now = vi.spyOn(Date, "now").mockReturnValue(10 * 24 * 3_600_000);
+    const spy = vi.spyOn(api, "listAgentSessions")
+      .mockResolvedValueOnce({ rows: [session()], next_cursor: "page-2", total_matched: 2 })
+      .mockResolvedValueOnce({ rows: [session({ agent_session_id: "s2", agent_name: "codex" })], total_matched: 2 });
+    renderList("/sessions?active=1d");
+    const loadMore = await screen.findByRole("button", { name: "Load more" });
+    now.mockReturnValue(11 * 24 * 3_600_000);
+    fireEvent.click(loadMore);
+    expect(await screen.findByRole("link", { name: "codex" })).toBeVisible();
+    expect(spy.mock.calls[1]).toEqual([{ from: String(9 * 24 * 3_600_000 * 1_000_000) }, "page-2"]);
   });
 
   it("removing a filter refetches without it", async () => {

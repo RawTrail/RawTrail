@@ -1,10 +1,10 @@
-import { useCallback, useMemo } from "react";
-import { useSearchParams } from "react-router";
+import { useCallback } from "react";
 import { searchEvents, eventArtifactParam, type EventSearchMode } from "../../api";
 import type { EventRecord, NetworkConnectPayload, DNSQueryPayload } from "../../types";
 import { Table } from "../ui/Table";
 import { FilterChips, type FilterField } from "./FilterChips";
 import { useCursorList, type CursorPage } from "./useCursorList";
+import { useUrlFilter } from "./useUrlFilter";
 import { SearchResultsFrame } from "./SearchResultsFrame";
 import { formatNs, basename, hostPort } from "./format";
 
@@ -30,25 +30,19 @@ function modeCopy(mode: EventSearchMode) {
 // and narrows once an artifact is supplied, rather than sitting blank behind a prompt. Results are keyset-paginated on the shared frame.
 // hostNames (resolved once by the parent) decorates rows with a name over the bare host id.
 export function EventSearch({ mode, hostNames }: { readonly mode: EventSearchMode; readonly hostNames: Map<string, string> }) {
-  const [searchParams, setSearchParams] = useSearchParams();
   const copy = modeCopy(mode);
   const artifactParam = eventArtifactParam(mode);
-  const value = searchParams.get(artifactParam) ?? "";
-  const hostId = searchParams.get("host_id") ?? "";
+  const { activeFilter, filterKey: urlKey, setFilter } = useUrlFilter([artifactParam, "host_id"]);
+  // An absent param reads as "": the list then opens on the fleet's most recent events rather than narrowing.
+  const { [artifactParam]: value = "", host_id: hostId = "" } = activeFilter;
 
   const fields: FilterField[] = [
     { key: artifactParam, label: copy.artifactLabel },
     { key: "host_id", label: "Host" },
   ];
-  const activeFilter = useMemo<Record<string, string>>(() => {
-    const entries: [string, string][] = [];
-    if (value) entries.push([artifactParam, value]);
-    if (hostId) entries.push(["host_id", hostId]);
-    return Object.fromEntries(entries);
-  }, [artifactParam, value, hostId]);
 
-  // The cursor-list key folds in the mode so switching modes resets the list; JSON.stringify gives it a stable identity.
-  const filterKey = useMemo(() => JSON.stringify({ mode, value, hostId }), [mode, value, hostId]);
+  // The cursor-list key folds in the mode so switching modes resets the list.
+  const filterKey = `${mode}:${urlKey}`;
 
   const fetchPage = useCallback(
     async (cursor: string): Promise<CursorPage<EventRecord>> => {
@@ -60,16 +54,6 @@ export function EventSearch({ mode, hostNames }: { readonly mode: EventSearchMod
     [filterKey], // eslint-disable-line react-hooks/exhaustive-deps -- mode/value/hostId are captured; filterKey is their stable identity
   );
   const { rows, total, loading, error, hasMore, loadMore } = useCursorList(filterKey, fetchPage);
-
-  const setFilter = (key: string, val: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (val) {
-      next.set(key, val);
-    } else {
-      next.delete(key);
-    }
-    setSearchParams(next);
-  };
 
   return (
     <>
