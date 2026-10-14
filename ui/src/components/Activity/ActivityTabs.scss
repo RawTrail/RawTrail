@@ -48,9 +48,14 @@
     margin: 0 0 0.5rem;
   }
 
+  // A cell keeps to one line, so a long path reads whole and the table's wrapper scrolls sideways. Wrapping anywhere let a narrow
+  // panel squeeze the path column to a few characters per line.
+  td {
+    white-space: nowrap;
+  }
+
   &__mono {
     font-family: ui-monospace, sfmono-regular, Menlo, monospace;
-    overflow-wrap: anywhere;
   }
 
   &__hostname {
