@@ -18,6 +18,7 @@ timeline:
     agent_session_id: 169b5bb1-29b5-41da-9a54-92cd72599ad9
     tool_use_id: toolu_e2e_git
     tool_name: Bash
+    uid: 501
     command: "git status"
     description: Show working tree status
   - at: 0ms
@@ -102,6 +103,7 @@ timeline:
     agent_session_id: 169b5bb1-29b5-41da-9a54-92cd72599ad9
     tool_use_id: toolu_e2e_sleep
     tool_name: Bash
+    uid: 501
     command: "(sleep 47 &)"
     description: Background a sleep
   - at: 100ms
@@ -165,6 +167,7 @@ timeline:
     agent_session_id: 169b5bb1-29b5-41da-9a54-92cd72599ad9
     tool_use_id: toolu_e2e_sudo
     tool_name: Bash
+    uid: 501
     command: "sudo id"
     description: Show root identity
   - at: 200ms
@@ -245,6 +248,7 @@ timeline:
     agent_session_id: 169b5bb1-29b5-41da-9a54-92cd72599ad9
     tool_use_id: toolu_e2e_open
     tool_name: Bash
+    uid: 501
     command: "open -a TextEdit"
     description: Open TextEdit
   - at: 300ms

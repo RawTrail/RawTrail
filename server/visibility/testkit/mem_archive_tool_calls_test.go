@@ -17,7 +17,7 @@ func TestMemArchive_AgentToolCalls(t *testing.T) {
 	t.Parallel()
 	call := func(id, host, session, toolUseID string, ts int64) api.Event {
 		payload, err := json.Marshal(map[string]any{"agent_session_id": session, "tool_use_id": toolUseID, "tool_name": "Bash",
-			"command": "ls"})
+			"command": "ls", "uid": 501})
 		require.NoError(t, err)
 		return api.Event{EventID: id, HostID: host, TimestampNs: ts, IngestedAtNs: ts, EventType: "agent_tool_call", Payload: payload}
 	}
@@ -34,8 +34,8 @@ func TestMemArchive_AgentToolCalls(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, truncated)
 	assert.Equal(t, []api.AgentToolCall{
-		{ToolUseID: "toolu_a", ToolName: "Bash", Command: "ls", CalledAtNs: 10},
-		{ToolUseID: "toolu_b", ToolName: "Bash", Command: "ls", CalledAtNs: 20},
+		{ToolUseID: "toolu_a", ToolName: "Bash", Command: "ls", CalledAtNs: 10, UID: 501},
+		{ToolUseID: "toolu_b", ToolName: "Bash", Command: "ls", CalledAtNs: 20, UID: 501},
 	}, got)
 
 	cut, truncated, err := arch.AgentToolCalls(context.Background(),

@@ -5,6 +5,9 @@
 // pairing is by order rather than by a tight window: each group takes the nearest unclaimed call before it that ran its command.
 // A call with no group (one the user refused) is passed over by the group after it, which takes a later call.
 //
+// A transcript is its user's to write, so a call pairs only with a group its owner ran: another user cannot label this session's
+// processes by writing lines into their own transcript.
+//
 // Calls the agent made in one turn share the turn's time, so identical commands in one turn cannot be told apart by time. Their groups
 // are marked ambiguous, naming the candidates, rather than paired by a guess.
 
@@ -31,8 +34,8 @@ export function joinToolCalls(groups: readonly ToolCall[], calls: readonly Agent
   const claimed = new Set<string>();
   const matches = new Map<string, ToolCallMatch>();
   for (const group of [...groups].filter((g) => g.fromAgent).sort((a, b) => a.startNs - b.startNs)) {
-    const candidates = bash.filter((c) => !claimed.has(c.tool_use_id) && runs(c, group) && c.called_at_ns <= group.startNs
-      && group.startNs - c.called_at_ns <= MATCH_WINDOW_NS);
+    const candidates = bash.filter((c) => !claimed.has(c.tool_use_id) && c.uid === group.uid && runs(c, group)
+      && c.called_at_ns <= group.startNs && group.startNs - c.called_at_ns <= MATCH_WINDOW_NS);
     if (candidates.length === 0) continue;
     const nearest = Math.max(...candidates.map((c) => c.called_at_ns));
     const tied = candidates.filter((c) => c.called_at_ns === nearest);

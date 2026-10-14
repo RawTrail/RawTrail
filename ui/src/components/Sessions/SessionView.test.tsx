@@ -99,7 +99,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(3) }));
     const call = (id: string, command: string, at: number, description?: string) =>
-      ({ tool_use_id: id, tool_name: "Bash", command, called_at_ns: at, description });
+      ({ tool_use_id: id, tool_name: "Bash", command, called_at_ns: at, description, uid: 501 });
     const spy = vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({
       tool_calls: [call("toolu_a", "step 0", 90, "First step"), call("toolu_b", "step 1", 190), call("toolu_c", "step 1", 190)],
       truncated: false,

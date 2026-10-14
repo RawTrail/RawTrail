@@ -6,24 +6,37 @@ import type { AgentToolCall } from "../../types";
 
 const MS = 1_000_000;
 
+const UID = 501;
+
 function group(key: string, command: string, startNs: number, fromAgent = true): ToolCall {
-  return { key, command, fromAgent, startNs, lastNs: startNs, processCount: 1, processIds: [], rows: [] };
+  return { key, command, fromAgent, uid: UID, startNs, lastNs: startNs, processCount: 1, processIds: [], rows: [] };
 }
 
 function call(id: string, command: string, atNs: number, over: Partial<AgentToolCall> = {}): AgentToolCall {
-  return { tool_use_id: id, tool_name: "Bash", command, called_at_ns: atNs, ...over };
+  return { tool_use_id: id, tool_name: "Bash", command, called_at_ns: atNs, uid: UID, ...over };
 }
 
 describe("joinToolCalls", () => {
   // spec:web-ui/tool-calls-beside-their-processes/repeated-identical-commands-pair-in-order
   it("pairs repeated identical commands in order, as the edr-dev session ran ls, pwd, ls", () => {
     // Times from the edr-dev session: each shell started 5 to 70 ms after its call.
-    const groups = [group("g1", "ls", 1_000 * MS + 69 * MS), group("g2", "pwd", 2_000 * MS + 5 * MS), group("g3", "ls", 3_000 * MS + 25 * MS)];
+    const groups = [
+      group("g1", "ls", 1_000 * MS + 69 * MS), group("g2", "pwd", 2_000 * MS + 5 * MS), group("g3", "ls", 3_000 * MS + 25 * MS),
+    ];
     const calls = [call("toolu_a", "ls", 1_000 * MS), call("toolu_b", "pwd", 2_000 * MS), call("toolu_c", "ls", 3_000 * MS)];
     const matches = joinToolCalls(groups, calls);
     expect(matches.get("g1")).toEqual({ kind: "matched", call: calls[0] });
     expect(matches.get("g2")).toEqual({ kind: "matched", call: calls[1] });
     expect(matches.get("g3")).toEqual({ kind: "matched", call: calls[2] });
+  });
+
+  // spec:web-ui/tool-calls-beside-their-processes/another-user-s-transcript-cannot-label-a-session
+  it("pairs a call only with a group its transcript's owner ran", () => {
+    // Another user wrote a line with the same command into their own transcript, just before the real call's shell started.
+    const real = call("toolu_real", "ls", 1_000 * MS);
+    const forged = call("toolu_forged", "ls", 1_005 * MS, { uid: 502 });
+    expect(joinToolCalls([group("g", "ls", 1_010 * MS)], [real, forged]).get("g")).toEqual({ kind: "matched", call: real });
+    expect(joinToolCalls([group("g", "ls", 1_010 * MS)], [forged]).has("g")).toBe(false);
   });
 
   it("pairs a call with one group at most", () => {

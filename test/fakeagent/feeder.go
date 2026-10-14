@@ -278,7 +278,8 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			Command        string `json:"command,omitempty"`
 			Description    string `json:"description,omitempty"`
 			FilePath       string `json:"file_path,omitempty"`
-		}{ev.AgentSessionID, ev.ToolUseID, ev.ToolName, ev.Command, ev.Description, ev.Path})
+			UID            int    `json:"uid"`
+		}{ev.AgentSessionID, ev.ToolUseID, ev.ToolName, ev.Command, ev.Description, ev.Path, ev.UID})
 	case "network_connect":
 		out := struct {
 			PID           int     `json:"pid"`

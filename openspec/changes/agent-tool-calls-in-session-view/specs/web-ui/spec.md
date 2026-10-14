@@ -2,7 +2,7 @@
 
 ### Requirement: Tool calls beside their processes
 
-The session view SHALL pair each group an agent's wrapper shell started with the Bash call that ran its command, taking the nearest unclaimed call made before the group started, and SHALL show that call's description and `tool_use_id`. Groups whose candidate calls share one time SHALL be marked as one of several identical calls, naming them, and not paired.
+The session view SHALL pair each group an agent's wrapper shell started with the Bash call that ran its command, taking the nearest unclaimed call of the group's user made before the group started, and SHALL show that call's description and `tool_use_id`. Groups whose candidate calls share one time SHALL be marked as one of several identical calls, naming them, and not paired.
 
 #### Scenario: Each Bash group shows its tool call
 
@@ -21,3 +21,9 @@ The session view SHALL pair each group an agent's wrapper shell started with the
 - **GIVEN** two identical Bash calls the agent made in one turn, so with one time
 - **WHEN** the session view lists their groups
 - **THEN** each group says it is one of two identical calls made at once, naming both, and neither is paired
+
+#### Scenario: Another user's transcript cannot label a session
+
+- **GIVEN** another user wrote a line naming this session and the same command into a transcript of their own
+- **WHEN** the session view pairs the group the session's user ran
+- **THEN** the group shows its own user's call, and the forged call labels nothing

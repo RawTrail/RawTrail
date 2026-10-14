@@ -513,12 +513,16 @@ func (m *MemArchive) ActivityForGenerations(context.Context, api.ActivityFilter)
 	return api.ActivityRollup{}, errActivityUnsupported
 }
 
-// AgentToolCalls mirrors the ClickHouse store: one session's tool calls, one per tool_use_id at the time it was first recorded,
-// oldest first, cut at the limit.
+// AgentToolCalls mirrors the ClickHouse store: one session's tool calls, one per tool_use_id and owner at the time it was first
+// recorded, oldest first, cut at the limit.
 func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallFilter) ([]api.AgentToolCall, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	first := map[string]api.AgentToolCall{}
+	type callKey struct {
+		id  string
+		uid int64
+	}
+	first := map[callKey]api.AgentToolCall{}
 	for _, id := range m.order {
 		e := m.byID[id]
 		if e.HostID != filter.HostID || e.EventType != "agent_tool_call" ||
@@ -533,8 +537,9 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 			continue
 		}
 		p.CalledAtNs = e.TimestampNs
-		if prior, seen := first[p.ToolUseID]; !seen || p.CalledAtNs < prior.CalledAtNs {
-			first[p.ToolUseID] = p.AgentToolCall
+		key := callKey{p.ToolUseID, p.UID}
+		if prior, seen := first[key]; !seen || p.CalledAtNs < prior.CalledAtNs {
+			first[key] = p.AgentToolCall
 		}
 	}
 	calls := make([]api.AgentToolCall, 0, len(first))
@@ -542,7 +547,7 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 		calls = append(calls, c)
 	}
 	slices.SortFunc(calls, func(a, b api.AgentToolCall) int {
-		return cmp.Or(cmp.Compare(a.CalledAtNs, b.CalledAtNs), cmp.Compare(a.ToolUseID, b.ToolUseID))
+		return cmp.Or(cmp.Compare(a.CalledAtNs, b.CalledAtNs), cmp.Compare(a.ToolUseID, b.ToolUseID), cmp.Compare(a.UID, b.UID))
 	})
 	if len(calls) > filter.Limit {
 		return calls[:filter.Limit], true, nil

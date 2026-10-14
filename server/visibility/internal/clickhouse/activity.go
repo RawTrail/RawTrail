@@ -163,8 +163,9 @@ func scanActivity[R any](rows *sql.Rows, limit int, fields func(*R) []any) ([]R,
 	return out, truncated, nil
 }
 
-// AgentToolCalls lists one session's tool calls (issue #1288). The agent re-reads a transcript after a restart and reports its calls
-// again under new event ids, so calls are grouped by tool_use_id and each is listed once, at the time the agent first recorded it.
+// AgentToolCalls lists one session's tool calls (issue #1288). Calls are grouped by tool_use_id and the transcript's owner, so a call
+// reported again is listed once, at the time the agent first recorded it, and a line another user forged with the same ids is listed
+// apart, under its own uid.
 func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilter) ([]api.AgentToolCall, bool, error) {
 	where := hostPredicate + ` AND event_type = 'agent_tool_call' AND JSONExtractString(payload, 'agent_session_id') = ?`
 	args := []any{filter.HostID, filter.SessionID}
@@ -180,16 +181,16 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 		SELECT JSONExtractString(payload, 'tool_use_id') AS id, any(JSONExtractString(payload, 'tool_name')),
 			any(JSONExtractString(payload, 'command')), any(JSONExtractString(payload, 'description')),
 			any(JSONExtractString(payload, 'file_path')), toBool(any(JSONExtractBool(payload, 'sidechain'))),
-			toBool(any(JSONExtractBool(payload, 'truncated'))), min(timestamp_ns) AS at
+			toBool(any(JSONExtractBool(payload, 'truncated'))), min(timestamp_ns) AS at, JSONExtractInt(payload, 'uid') AS uid
 		FROM events FINAL
 		WHERE `+where+`
-		GROUP BY id
-		ORDER BY at, id
+		GROUP BY id, uid
+		ORDER BY at, id, uid
 		LIMIT ?`, append(args, filter.Limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse agent tool calls: %w", err)
 	}
 	return scanActivity(rows, filter.Limit, func(c *api.AgentToolCall) []any {
-		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs}
+		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID}
 	})
 }

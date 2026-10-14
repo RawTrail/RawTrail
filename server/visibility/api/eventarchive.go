@@ -83,8 +83,8 @@ type EventArchive interface {
 	// later process that reused a pid, is never counted. See ActivityRollup for what each class reports.
 	ActivityForGenerations(ctx context.Context, filter ActivityFilter) (ActivityRollup, error)
 
-	// AgentToolCalls lists the tool calls an AI agent session recorded on one host (issue #1288), oldest first, one per tool_use_id
-	// however many times the agent reported it, and reports whether more than the limit were recorded.
+	// AgentToolCalls lists the tool calls an AI agent session recorded on one host (issue #1288), oldest first, one per tool_use_id and
+	// transcript owner however many times the agent reported it, and reports whether more than the limit were recorded.
 	AgentToolCalls(ctx context.Context, filter AgentToolCallFilter) ([]AgentToolCall, bool, error)
 }
 
@@ -306,4 +306,7 @@ type AgentToolCall struct {
 	Sidechain  bool  `json:"sidechain,omitempty"`
 	Truncated  bool  `json:"truncated,omitempty"`
 	CalledAtNs int64 `json:"called_at_ns"`
+	// UID is the uid of the transcript the call was read from. A transcript is its user's to write, so a call is trusted only for the
+	// processes of the user who owns it.
+	UID int64 `json:"uid"`
 }

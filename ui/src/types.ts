@@ -240,6 +240,8 @@ export interface AgentToolCall {
   // truncated marks a command cut to the agent's 8 KiB limit.
   truncated?: boolean;
   called_at_ns: number;
+  // uid owns the transcript the call was read from; a call is trusted only for that user's processes.
+  uid: number;
 }
 
 export interface AgentToolCallsResponse {

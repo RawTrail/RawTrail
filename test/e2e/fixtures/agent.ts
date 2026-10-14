@@ -344,6 +344,7 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
         agent_session_id: ev.agent_session_id ?? "",
         tool_use_id: ev.tool_use_id ?? "",
         tool_name: ev.tool_name ?? "",
+        uid: ev.uid ?? 0,
       };
       if (ev.command) p.command = ev.command;
       if (ev.description) p.description = ev.description;

@@ -164,7 +164,7 @@ func TestEventArchive_AgentToolCalls(t *testing.T) {
 	at := func(s int64) int64 { return base + s*int64(time.Second) }
 	call := func(id, session, toolUseID, extra string, ts int64) visibilityapi.Event {
 		return activityEvent(id, "h1", "agent_tool_call", ts, `{"agent_session_id":"`+session+`","tool_use_id":"`+toolUseID+`",`+
-			`"tool_name":"Bash"`+extra+`}`)
+			`"tool_name":"Bash","uid":501`+extra+`}`)
 	}
 	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
 		call("c1", "s1", "toolu_a", `,"command":"ls","description":"List files"`, at(1)),
@@ -172,6 +172,9 @@ func TestEventArchive_AgentToolCalls(t *testing.T) {
 		// The agent restarted and reported toolu_a again, later.
 		call("c3", "s1", "toolu_a", `,"command":"ls","description":"List files"`, at(9)),
 		call("c4", "s1", "toolu_c", `,"command":"ls","truncated":true`, at(3)),
+		// Another user forged a line with this session's and toolu_b's ids: it is listed apart, under its own uid.
+		activityEvent("c7", "h1", "agent_tool_call", at(6), `{"agent_session_id":"s1","tool_use_id":"toolu_b","tool_name":"Bash",`+
+			`"command":"rm -rf /","uid":502}`),
 		// Another session's call and another host's are not this session's.
 		call("c5", "s2", "toolu_d", `,"command":"ls"`, at(4)),
 		activityEvent("c6", "h2", "agent_tool_call", at(5), `{"agent_session_id":"s1","tool_use_id":"toolu_e","tool_name":"Bash"}`),
@@ -182,12 +185,13 @@ func TestEventArchive_AgentToolCalls(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var err error
 		got, _, err = arch.AgentToolCalls(ctx, filter)
-		return err == nil && len(got) == 3
+		return err == nil && len(got) == 4
 	}, 5*time.Second, 100*time.Millisecond)
 	assert.Equal(t, []visibilityapi.AgentToolCall{
-		{ToolUseID: "toolu_a", ToolName: "Bash", Command: "ls", Description: "List files", CalledAtNs: at(1)},
-		{ToolUseID: "toolu_b", ToolName: "Bash", Command: "pwd", Sidechain: true, CalledAtNs: at(2)},
-		{ToolUseID: "toolu_c", ToolName: "Bash", Command: "ls", Truncated: true, CalledAtNs: at(3)},
+		{ToolUseID: "toolu_a", ToolName: "Bash", Command: "ls", Description: "List files", CalledAtNs: at(1), UID: 501},
+		{ToolUseID: "toolu_b", ToolName: "Bash", Command: "pwd", Sidechain: true, CalledAtNs: at(2), UID: 501},
+		{ToolUseID: "toolu_c", ToolName: "Bash", Command: "ls", Truncated: true, CalledAtNs: at(3), UID: 501},
+		{ToolUseID: "toolu_b", ToolName: "Bash", Command: "rm -rf /", CalledAtNs: at(6), UID: 502},
 	}, got)
 
 	t.Run("a window and a limit", func(t *testing.T) {

@@ -30,6 +30,8 @@ export interface ToolCall {
   command: string;
   // fromAgent is set when the group's root is the agent's wrapper shell, so its command is one the agent ran as a Bash call.
   fromAgent: boolean;
+  // uid is the user the group's root ran as.
+  uid?: number;
   startNs: number;
   // lastNs is the group's last observed activity: its latest exit, exec or fork.
   lastNs: number;
@@ -172,6 +174,7 @@ export function buildToolCalls(roots: readonly ProcessNode[], shape: RowShape): 
         key: `row:${String(root.id)}`,
         command: agentCommand ?? commandLine(root.path, root.args),
         fromAgent: agentCommand !== null,
+        uid: root.uid,
         startNs: root.fork_time_ns,
         lastNs: root.fork_time_ns,
         processCount: 0,
