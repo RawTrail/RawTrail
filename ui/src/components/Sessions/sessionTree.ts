@@ -1,8 +1,9 @@
-// Shaping an AI agent session's process forest into what the session view shows (issue #1284): one group per tool call, labelled
-// with the command the agent ran, with the shell plumbing that ran it hidden unless the operator asks for it.
+// Shaping an AI agent session's process forest into what the session view shows (issue #1284): one group per command the agent ran,
+// labelled with that command, with the shell plumbing that ran it hidden unless the operator asks for it. A group is what the sensor
+// observed; the tool call the agent reported for it, read from its transcript, is paired with it separately (toolCallJoin.ts, #1333).
 //
-// The server reads the session as a forest built by creator. The agent process itself carries no session marker, so each tool call's
-// shell is a root, and everything that call started (a pipeline's commands, a daemon it double-forked or nohup'ed) hangs under it.
+// The server reads the session as a forest built by creator. The agent process itself carries no session marker, so each command's
+// shell is a root, and everything that command started (a pipeline's commands, a daemon it double-forked or nohup'ed) hangs under it.
 
 import type { ProcessNode } from "../../types";
 import { commandLine, isShellPath, toolCommand } from "./toolCommand";
@@ -22,8 +23,8 @@ export interface SessionRow {
   folded?: ProcessNode[];
 }
 
-// ToolCall is one group: the processes a single tool call started.
-export interface ToolCall {
+// Command is one group: the processes a single command the agent ran started.
+export interface Command {
   // key identifies the group by the row of the root that started it.
   key: string;
   // command is what the agent ran: the wrapper's eval argument, or the root's own command line when it is not such a wrapper.
@@ -58,7 +59,7 @@ export interface RowShape {
 export interface SessionSummary {
   agentName?: string;
   agentVersion?: string;
-  // project is the working directory of the session's first tool call.
+  // project is the working directory of the session's first command.
   project?: string;
   firstNs?: number;
   lastNs?: number;
@@ -151,26 +152,26 @@ function visibleRows(creator: ProcessNode, uid: number | undefined, shape: RowSh
   return foldRows(rows, shape);
 }
 
-// rootRows is what a tool call's root contributes: a hidden wrapper shell is the group's header rather than a row, so its children
+// rootRows is what a command's root contributes: a hidden wrapper shell is the group's header rather than a row, so its children
 // stand in its place. The root's creator is the agent, which the session does not hold.
 function rootRows(root: ProcessNode, shape: RowShape): SessionRow[] {
   if (hidden(root, toolCommand(root.args) !== null, shape)) return visibleRows(root, root.uid, shape);
   return [row(root, undefined, shape)];
 }
 
-// buildToolCalls groups the session's forest by tool call, in the order the calls started. Each call's leader (the shell that leads
-// the process group keying the call) starts a group. A root whose creator was not read joins the latest call its key names that
-// started before it, so a call stays one group even when part of its tree arrived without its parent. The key is a process-group id,
+// buildCommands groups the session's forest by command, in the order the commands started. Each command's leader (the shell that
+// leads the process group keying it) starts a group. A root whose creator was not read joins the latest group its key names that
+// started before it, so a command stays one group even when part of its tree arrived without its parent. The key is a process-group id,
 // which a long session can reuse, so a later leader with the same key starts a group of its own rather than joining the earlier one.
-export function buildToolCalls(roots: readonly ProcessNode[], shape: RowShape): ToolCall[] {
-  const calls: ToolCall[] = [];
-  const latestByKey = new Map<number, ToolCall>();
+export function buildCommands(roots: readonly ProcessNode[], shape: RowShape): Command[] {
+  const groups: Command[] = [];
+  const latestByKey = new Map<number, Command>();
   for (const root of [...roots].sort(byForkTime)) {
     const key = root.tool_call_group;
-    let call = key === undefined || root.pid === key ? undefined : latestByKey.get(key);
-    if (call === undefined) {
+    let group = key === undefined || root.pid === key ? undefined : latestByKey.get(key);
+    if (group === undefined) {
       const agentCommand = toolCommand(root.args);
-      call = {
+      group = {
         key: `row:${String(root.id)}`,
         command: agentCommand ?? commandLine(root.path, root.args),
         fromAgent: agentCommand !== null,
@@ -181,10 +182,10 @@ export function buildToolCalls(roots: readonly ProcessNode[], shape: RowShape): 
         processIds: [],
         rows: [],
       };
-      calls.push(call);
-      if (key !== undefined) latestByKey.set(key, call);
+      groups.push(group);
+      if (key !== undefined) latestByKey.set(key, group);
     }
-    const into = call;
+    const into = group;
     walk(root, (n) => {
       into.processCount += 1;
       into.processIds.push(n.id);
@@ -192,7 +193,7 @@ export function buildToolCalls(roots: readonly ProcessNode[], shape: RowShape): 
     });
     into.rows.push(...rootRows(root, shape));
   }
-  return calls;
+  return groups;
 }
 
 // matches reports whether a process's command line or path contains the query, ignoring case. query is already lower case.
@@ -200,30 +201,30 @@ function matches(node: ProcessNode, query: string): boolean {
   return commandLine(node.path, node.args).toLowerCase().includes(query) || node.path.toLowerCase().includes(query);
 }
 
-// SearchHits is what a search found in the session: the rows that match, and per tool call how many of its processes match.
+// SearchHits is what a search found in the session: the rows that match, and per command how many of its processes match.
 export interface SearchHits {
   // rows are the listed rows whose process, or a process folded into them, matches.
   rows: ReadonlySet<SessionRow>;
-  // byCall counts the matching processes in each call, by its key; a call whose command matches counts as one more.
-  byCall: ReadonlyMap<string, number>;
+  // byGroup counts the matching processes in each group, by its key; a group whose command matches counts as one more.
+  byGroup: ReadonlyMap<string, number>;
 }
 
-// searchCalls finds a query in the calls as listed. An empty query finds nothing.
-export function searchCalls(calls: readonly ToolCall[], rawQuery: string): SearchHits {
+// searchCommands finds a query in the groups as listed. An empty query finds nothing.
+export function searchCommands(groups: readonly Command[], rawQuery: string): SearchHits {
   const query = rawQuery.trim().toLowerCase();
   const rows = new Set<SessionRow>();
-  const byCall = new Map<string, number>();
-  if (query === "") return { rows, byCall };
+  const byGroup = new Map<string, number>();
+  if (query === "") return { rows, byGroup };
   const visit = (listed: SessionRow): number => {
     const own = [listed.node, ...(listed.folded ?? [])].filter((n) => matches(n, query)).length;
     if (own > 0) rows.add(listed);
     return listed.children.reduce((sum, child) => sum + visit(child), own);
   };
-  for (const call of calls) {
-    const count = call.rows.reduce((sum, listed) => sum + visit(listed), call.command.toLowerCase().includes(query) ? 1 : 0);
-    if (count > 0) byCall.set(call.key, count);
+  for (const group of groups) {
+    const count = group.rows.reduce((sum, listed) => sum + visit(listed), group.command.toLowerCase().includes(query) ? 1 : 0);
+    if (count > 0) byGroup.set(group.key, count);
   }
-  return { rows, byCall };
+  return { rows, byGroup };
 }
 
 // containsHit reports whether a row or anything under it matched, so a capped list still shows it.
@@ -244,7 +245,7 @@ export function forkSpan(listed: SessionRow): { firstNs: number; lastNs: number 
 }
 
 // summarizeSession reads the header's facts from the session's processes. The agent is named on every stamped process; the project
-// is where the first tool call ran.
+// is where the first command ran.
 export function summarizeSession(roots: readonly ProcessNode[]): SessionSummary {
   const summary: SessionSummary = { processCount: 0 };
   const first = [...roots].sort(byForkTime)[0] as ProcessNode | undefined;

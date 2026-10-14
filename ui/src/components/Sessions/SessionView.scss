@@ -79,6 +79,15 @@
     gap: 0.5rem;
   }
 
+  // What the agent reported, set apart from what the sensor observed (issue #1333).
+  &__reported {
+    border: 1px solid $ui-fleet-black-25;
+    border-radius: 3px;
+    color: $ui-fleet-black-50;
+    font-size: 0.7rem;
+    padding: 0 0.3rem;
+  }
+
   &__tool-use-id {
     color: $ui-fleet-black-50;
     font-size: 0.75rem;

@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
 
 import { joinToolCalls } from "./toolCallJoin";
-import type { ToolCall } from "./sessionTree";
+import type { Command } from "./sessionTree";
 import type { AgentToolCall } from "../../types";
 
 const MS = 1_000_000;
 
 const UID = 501;
 
-function group(key: string, command: string, startNs: number, fromAgent = true): ToolCall {
+function group(key: string, command: string, startNs: number, fromAgent = true): Command {
   return { key, command, fromAgent, uid: UID, startNs, lastNs: startNs, processCount: 1, processIds: [], rows: [] };
 }
 
@@ -93,7 +93,7 @@ describe("joinToolCalls", () => {
     const commands = ["ls", "pwd", "git status"];
     for (let round = 0; round < 300; round += 1) {
       const calls: AgentToolCall[] = [];
-      const groups: ToolCall[] = [];
+      const groups: Command[] = [];
       const truth = new Map<string, string>();
       let t = 0;
       for (let i = 0; i < Math.floor(random() * 12); i += 1) {

@@ -2,7 +2,7 @@
 
 ### Requirement: AI agent session view
 
-The UI SHALL offer a view of one AI agent session listing its processes in the order its tool calls ran, one group per tool call. Each group SHALL be labelled with the command the agent ran and SHALL contain every process the call started, including a daemon it backgrounded. The shells that run a call SHALL be hidden unless the operator asks to see them. Each process SHALL open in its host's process graph.
+The UI SHALL offer a view of one AI agent session listing its processes in the order its commands ran, one group per command the agent ran. Each group SHALL be labelled with that command and SHALL contain every process it started, including a daemon it backgrounded. The shells that run a command SHALL be hidden unless the operator asks to see them. Each process SHALL open in its host's process graph.
 
 #### Scenario: Tool calls are labelled with the command the agent ran
 

@@ -14,7 +14,7 @@
 // are marked ambiguous, naming the candidates, rather than paired by a guess.
 
 import type { AgentToolCall } from "../../types";
-import type { ToolCall } from "./sessionTree";
+import type { Command } from "./sessionTree";
 
 // MATCH_WINDOW_NS is the longest a group may start after its call: an hour of waiting for the user's approval.
 const MATCH_WINDOW_NS = 3_600_000_000_000;
@@ -24,14 +24,14 @@ export type ToolCallMatch =
   | { kind: "ambiguous"; candidates: AgentToolCall[] };
 
 // runs reports whether a group ran a call's command. A command cut to the agent's limit matches the group whose command begins with it.
-function runs(call: AgentToolCall, group: ToolCall): boolean {
+function runs(call: AgentToolCall, group: Command): boolean {
   if (!call.command) return false;
   return call.truncated ? group.command.startsWith(call.command) : group.command === call.command;
 }
 
 // joinToolCalls pairs each of the groups an agent's wrapper shell started with its Bash call, keyed by group. A group with no call
 // before it that ran its command is left out.
-export function joinToolCalls(groups: readonly ToolCall[], calls: readonly AgentToolCall[]): Map<string, ToolCallMatch> {
+export function joinToolCalls(groups: readonly Command[], calls: readonly AgentToolCall[]): Map<string, ToolCallMatch> {
   const bash = calls.filter((c) => c.tool_name === "Bash");
   const claimed = new Set<string>();
   // tieUses counts the groups each set of tied calls has been offered to: a set of n calls ran n groups at most, so it is claimed

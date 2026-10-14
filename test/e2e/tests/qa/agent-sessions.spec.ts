@@ -1,6 +1,6 @@
 // The AI agent sessions page (issue #1283) and session view (issue #1284), driven from a real ingest: the fake agent posts a Claude
 // Code session's four Bash tool calls with the session markers the production agent forwards, the server records the session, and the
-// operator finds it on the Agent sessions page, narrows the list to it, and opens it to see what each tool call ran.
+// operator finds it on the Agent sessions page, narrows the list to it, and opens it to see what each command ran.
 //
 // The host id is fresh per run and the list is filtered to it, so rows other specs or an operator left on the dev database cannot
 // stand in for this session.
@@ -27,7 +27,7 @@ test.describe("agent sessions", () => {
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
   // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
   // spec:web-ui/activity-table-cells-stay-on-one-line/a-file-path-in-the-process-detail-panel-reads-whole
-  test("a Claude Code session is listed with its project and opens to its tool calls", async ({ page, agent }) => {
+  test("a Claude Code session is listed with its project and opens to its commands", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
     await agent.runScenario("claude-code-session.yaml", { hostIdOverride: hostId });
@@ -57,32 +57,34 @@ test.describe("agent sessions", () => {
     await expect(page).toHaveURL(new RegExp(`/ui/agent-sessions/${hostId}/${SESSION_ID}$`));
     await expect(page.getByRole("heading", { name: "claude-code 2.1.296" })).toBeVisible({ timeout: 10_000 });
 
-    // One group per tool call, in order, labelled with the command the agent ran rather than its wrapper script.
-    const calls = page.locator(".session-view__call");
-    // Four calls: TextEdit is listed under the open that asked for it, not as a call of its own.
-    await expect(calls).toHaveCount(4);
-    await expect(calls.nth(0).locator("code").first()).toHaveText("git status");
-    await expect(calls.nth(1).locator("code").first()).toHaveText("(sleep 47 &)");
-    await expect(calls.nth(2).locator("code").first()).toHaveText("sudo id");
-    await expect(calls.nth(3).locator("code").first()).toHaveText("open -a TextEdit");
-    // Each call names the Bash tool call that started it, from the transcript: its description and tool_use_id.
-    await expect(calls.nth(0).locator(".session-view__agent-call")).toContainText("Show working tree status");
-    await expect(calls.nth(0).locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_git");
-    await expect(calls.nth(3).locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_open");
-    const launch = calls.nth(3).locator("li", { hasText: "inferred launch" }).last();
+    // One group per command the agent ran, in order, labelled with that command rather than its wrapper script.
+    const commands = page.locator(".session-view__call");
+    // Four commands: TextEdit is listed under the open that asked for it, not as a command of its own.
+    await expect(commands).toHaveCount(4);
+    await expect(commands.nth(0).locator("code").first()).toHaveText("git status");
+    await expect(commands.nth(1).locator("code").first()).toHaveText("(sleep 47 &)");
+    await expect(commands.nth(2).locator("code").first()).toHaveText("sudo id");
+    await expect(commands.nth(3).locator("code").first()).toHaveText("open -a TextEdit");
+    // Each command names the Bash tool call the agent reported for it in its transcript, its description and tool_use_id, marked as
+    // the agent's report rather than what the sensor saw.
+    await expect(commands.nth(0).locator(".session-view__agent-call")).toContainText("Show working tree status");
+    await expect(commands.nth(0).locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_git");
+    await expect(commands.nth(0).locator(".session-view__reported")).toHaveText("Reported by agent");
+    await expect(commands.nth(3).locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_open");
+    const launch = commands.nth(3).locator("li", { hasText: "inferred launch" }).last();
     await expect(launch.locator(".session-view__name")).toHaveText("TextEdit");
     // Under the open that asked for it, not beside it: the launch's row list belongs to open's row.
     await expect(launch.locator("xpath=../../div/button[contains(@class, 'session-view__name')]")).toHaveText("open");
     // sudo runs as root under the agent's uid-501 shell; id runs as sudo did, so only sudo is badged.
-    await expect(calls.nth(2).getByText("runs as root")).toHaveCount(1);
-    await expect(calls.nth(2).locator("li", { hasText: "runs as root" }).first().locator(".session-view__name").first()).toHaveText("sudo");
+    await expect(commands.nth(2).getByText("runs as root")).toHaveCount(1);
+    await expect(commands.nth(2).locator("li", { hasText: "runs as root" }).first().locator(".session-view__name").first()).toHaveText("sudo");
     // The backgrounded sleep is inside its call; the wrapper and the subshell's copy of zsh are plumbing, hidden by default.
-    await expect(calls.nth(1).locator(".session-view__name")).toHaveText(["sleep"]);
+    await expect(commands.nth(1).locator(".session-view__name")).toHaveText(["sleep"]);
     await page.getByText("Show shell plumbing").click();
-    await expect(calls.nth(1).locator(".session-view__name")).toHaveText(["zsh", "zsh", "sleep"]);
+    await expect(commands.nth(1).locator(".session-view__name")).toHaveText(["zsh", "zsh", "sleep"]);
 
     // Selecting a process opens its detail beside the session.
-    await calls.nth(1).getByRole("button", { name: "sleep", exact: true }).click();
+    await commands.nth(1).getByRole("button", { name: "sleep", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Process detail" })).toBeVisible();
     const graphLink = page.getByRole("link", { name: "Open in host graph" });
     await expect(graphLink).toHaveAttribute("href", new RegExp(`/hosts/${hostId}\\?process=\\d+&at=\\d+$`));
@@ -104,11 +106,11 @@ test.describe("agent sessions", () => {
     await expect(edit).toContainText("/Users/dev/project/.git/index");
     await expect(edit).toContainText("git (5002)");
 
-    // The same edit in git's process detail panel, at a width that puts the panel below the calls: the path keeps to one line and
+    // The same edit in git's process detail panel, at a width that puts the panel below the commands: the path keeps to one line and
     // the table scrolls sideways, rather than wrapping the path a few characters at a time.
     await page.setViewportSize({ width: 800, height: 900 });
-    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Tool calls" }).click();
-    await calls.nth(0).getByRole("button", { name: "git", exact: true }).click();
+    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Commands" }).click();
+    await commands.nth(0).getByRole("button", { name: "git", exact: true }).click();
     await page.getByRole("group", { name: "Process activity" }).getByRole("button", { name: /^Files/ }).click();
     const panelRow = page.locator(".process-detail__activity .activity-tabs__panel").getByRole("row").nth(1);
     await expect(panelRow).toContainText("/Users/dev/project/.git/index");
