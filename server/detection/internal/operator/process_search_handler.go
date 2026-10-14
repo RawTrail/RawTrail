@@ -119,6 +119,11 @@ func (h *Handler) parseProcessSearchRequest(ctx context.Context, w http.Response
 		h.writeError(ctx, w, http.StatusBadRequest, errInvalidProcess)
 		return filter, 0, false
 	}
+	// A session id names a session only on its host, as the alerts filter holds.
+	if filter.AgentSession != "" && filter.HostID == "" {
+		h.writeError(ctx, w, http.StatusBadRequest, errSessionNeedsHost)
+		return filter, 0, false
+	}
 	if raw := q.Get("uid"); raw != "" {
 		uid, err := strconv.Atoi(raw)
 		if err != nil || uid < 0 {

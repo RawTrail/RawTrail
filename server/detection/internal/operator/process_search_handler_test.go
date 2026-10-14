@@ -185,12 +185,22 @@ func TestHandleProcessSearch_LineageFilters(t *testing.T) {
 		return api.ProcessSearchResult{}, nil
 	}}
 	srv := newSearchServer(t, sr, allowAllAuthZ{})
-	resp := doGet(t, srv, "/api/search/processes?agent_session=47abb2a1&agent=claude-code&story_root=875325&ancestor=875400&args=example.com")
+	resp := doGet(t, srv,
+		"/api/search/processes?host_id=H1&agent_session=47abb2a1&agent=claude-code&story_root=875325&ancestor=875400&args=example.com")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, api.ProcessSearchFilter{
-		AgentSession: "47abb2a1", Agent: "claude-code", StoryRoot: 875325, Ancestor: 875400, Args: "example.com",
+		HostID: "H1", AgentSession: "47abb2a1", Agent: "claude-code", StoryRoot: 875325, Ancestor: 875400, Args: "example.com",
 	}, got)
+
+	t.Run("a session without its host", func(t *testing.T) {
+		t.Parallel()
+		resp := doGet(t, srv, "/api/search/processes?agent_session=47abb2a1")
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a session id names a session only on its host")
+		body, _ := io.ReadAll(resp.Body)
+		assert.Contains(t, string(body), errSessionNeedsHost)
+	})
 
 	for _, query := range []string{"story_root=0", "story_root=x", "ancestor=-4", "ancestor=1.5"} {
 		t.Run(query, func(t *testing.T) {
