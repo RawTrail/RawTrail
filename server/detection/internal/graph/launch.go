@@ -21,8 +21,8 @@ const (
 	launchWindow = 5 * time.Second
 	// maxLaunchers bounds how many launchers one read infers for, the oldest kept.
 	maxLaunchers = 50
-	// maxLaunchCandidates bounds the launchd children read for all of a read's launchers at once.
-	maxLaunchCandidates = 2000
+	// maxLaunchCandidates bounds the launchd children read for each launcher's window, so one busy window cannot starve another.
+	maxLaunchCandidates = 200
 	// maxLaunchStory bounds the rows a scoped read adds for the programs its launchers started; past it the read reports truncation.
 	maxLaunchStory = 2000
 	// The launchers, by their canonical paths: a binary elsewhere that happens to be named open or launchctl is not Apple's.

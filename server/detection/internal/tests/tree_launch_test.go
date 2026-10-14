@@ -77,6 +77,8 @@ func seedLaunches(t *testing.T, store *mysql.Store, db *sqlx.DB, host string) la
 	insert(api.Process{PID: 22851, PPID: 1, Path: "/bin/sleep", ForkTimeNs: at(3.15), ExecTimeNs: new(at(3.15)),
 		ExecLineage: api.ExecLineage{Reparented: true}})
 	seed.xpcSleep, seed.sleep = launchdChild(22809, 3.2, "/bin/sleep", api.AgentSession{})
+	// A second sleep launchd starts later in the same window, as a relaunched job would: the earliest is the one asked for.
+	launchdChild(22811, 4.5, "/bin/sleep", api.AgentSession{})
 	// What the job started carries the session's markers, so the session holds it already: added under the job, it must not be
 	// listed twice.
 	seed.sleepChild = insert(api.Process{PID: 22810, PPID: 22809, Path: "/usr/bin/caffeinate", ForkTimeNs: at(4), ParentProcessID: &seed.sleep,
@@ -170,4 +172,23 @@ func TestLaunchLinks_LaunchedStoryCutIsReported(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Truncated, "the launched job's descendants were cut")
 	assert.Equal(t, 1, forestIDs(res.Roots)[seed.sleep])
+}
+
+// A window crowded with launchd children cannot use up the candidates another launcher's window needs.
+func TestLaunchLinks_BusyWindowDoesNotStarveAnother(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	host := "launch-" + t.Name()
+	seed := seedLaunches(t, store, db, host)
+	// 201 unrelated launchd children inside the first open's window, all before the launchctl asks.
+	_, err := db.ExecContext(t.Context(), `
+		INSERT INTO processes (host_id, pid, ppid, path, fork_time_ns)
+		WITH RECURSIVE n (i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 200)
+		SELECT ?, 40000 + i, 1, '/usr/libexec/busy', ? + i FROM n`, host, at(1.05))
+	require.NoError(t, err)
+
+	res, err := graph.NewQuery(store).BuildScopedTree(t.Context(), host, api.TreeScope{AgentSessionID: launchSession}, 2000, true, 0)
+	require.NoError(t, err)
+	assert.Contains(t, res.Links, api.ProcessLink{From: seed.launchctl, To: seed.sleep, Kind: api.ProcessLinkInferredLaunch})
+	assert.Contains(t, res.Links, api.ProcessLink{From: seed.open, To: seed.textEdit, Kind: api.ProcessLinkInferredLaunch})
 }
