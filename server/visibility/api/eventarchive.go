@@ -83,6 +83,11 @@ type EventArchive interface {
 	// later process that reused a pid, is never counted. See ActivityRollup for what each class reports.
 	ActivityForGenerations(ctx context.Context, filter ActivityFilter) (ActivityRollup, error)
 
+	// SessionTouches lists, for one process generation, the first time it touched a path of each AI agent session (issue #1319),
+	// from its agent file activity: Claude Code's transcript ~/.claude/projects/<project>/<session id>.jsonl, and the session's
+	// directories.
+	SessionTouches(ctx context.Context, hostID string, generation ProcessGeneration) ([]SessionTouch, error)
+
 	// AgentToolCalls lists the tool calls an AI agent session recorded on one host (issue #1288), oldest first, one per tool_use_id and
 	// transcript owner however many times the agent reported it, and reports whether more than the limit were recorded.
 	AgentToolCalls(ctx context.Context, filter AgentToolCallFilter) ([]AgentToolCall, bool, error)
@@ -207,7 +212,25 @@ var ErrInvalidEventCursor = errors.New("visibility: invalid event search cursor"
 type ActivityFilter struct {
 	HostID      string
 	Generations []ProcessGeneration
-	Limit       int
+	// Spans are generations whose events count only inside a span of time (issue #1319): an AI agent process that served several
+	// sessions belongs to each only while it served it. A generation is listed in Generations or in Spans, not both.
+	Spans []GenerationSpan
+	Limit int
+}
+
+// GenerationSpan is a process generation and the span its events are counted in: from FromNs, up to but excluding ToNs, zero ToNs
+// meaning open-ended.
+type GenerationSpan struct {
+	ProcessGeneration
+	FromNs int64
+	ToNs   int64
+}
+
+// SessionTouch is the first time a process generation created or changed a path an AI agent names after a session (issue #1319):
+// its transcript, or one of its directories.
+type SessionTouch struct {
+	SessionID string
+	FirstNs   int64
 }
 
 // ActivityRollup is what a set of process generations touched, by class.

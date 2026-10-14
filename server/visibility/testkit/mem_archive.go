@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/fleetdm/edr/server/httpserver"
 	"github.com/fleetdm/edr/server/visibility/api"
+	"github.com/fleetdm/edr/server/visibility/internal/clickhouse"
 )
 
 // MemArchive is an in-memory EventArchive for tests: it satisfies the visibility EventArchive contract without a ClickHouse container,
@@ -553,4 +555,43 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 		return calls[:filter.Limit], true, nil
 	}
 	return calls, false, nil
+}
+
+// sessionPath is the ClickHouse store's own match of a path Claude Code names after a session, so the two cannot drift.
+var sessionPath = regexp.MustCompile(clickhouse.SessionPathPattern)
+
+// SessionTouches mirrors the ClickHouse store: the first time the generation touched a path of each session, oldest first.
+func (m *MemArchive) SessionTouches(_ context.Context, hostID string, generation api.ProcessGeneration) ([]api.SessionTouch, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	first := map[string]int64{}
+	for _, id := range m.order {
+		e := m.byID[id]
+		if e.HostID != hostID || e.EventType != "file_activity" {
+			continue
+		}
+		var p struct {
+			PID        int64  `json:"pid"`
+			PIDVersion *int64 `json:"pidversion"`
+			Path       string `json:"path"`
+		}
+		if json.Unmarshal(e.Payload, &p) != nil || p.PID != generation.PID || p.PIDVersion == nil || *p.PIDVersion != generation.PIDVersion {
+			continue
+		}
+		match := sessionPath.FindStringSubmatch(p.Path)
+		if match == nil {
+			continue
+		}
+		if at, seen := first[match[1]]; !seen || e.TimestampNs < at {
+			first[match[1]] = e.TimestampNs
+		}
+	}
+	touches := make([]api.SessionTouch, 0, len(first))
+	for session, at := range first {
+		touches = append(touches, api.SessionTouch{SessionID: session, FirstNs: at})
+	}
+	slices.SortFunc(touches, func(a, b api.SessionTouch) int {
+		return cmp.Or(cmp.Compare(a.FirstNs, b.FirstNs), cmp.Compare(a.SessionID, b.SessionID))
+	})
+	return touches, nil
 }

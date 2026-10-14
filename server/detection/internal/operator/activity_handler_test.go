@@ -21,6 +21,9 @@ type fakeActivityReader struct {
 	filter *visibilityapi.ActivityFilter
 	result visibilityapi.ActivityRollup
 	err    error
+	// touches are what SessionTouches answers, by pid; touchesErr fails it.
+	touches    map[int64][]visibilityapi.SessionTouch
+	touchesErr error
 	// processes are the rows GetProcessByID answers from, by id; processErr fails it.
 	processes  map[int64]api.Process
 	processErr error
@@ -35,6 +38,12 @@ func (f *fakeActivityReader) GetProcessByID(_ context.Context, hostID string, id
 		return nil, nil
 	}
 	return &p, nil
+}
+
+func (f *fakeActivityReader) SessionTouches(
+	_ context.Context, _ string, generation visibilityapi.ProcessGeneration,
+) ([]visibilityapi.SessionTouch, error) {
+	return f.touches[generation.PID], f.touchesErr
 }
 
 func (f *fakeActivityReader) ActivityForGenerations(
@@ -213,9 +222,9 @@ func TestActivityHandler_SessionIncludesTheAgent(t *testing.T) {
 		status, out := getActivity(t, srv, "scope=session&session=47abb2a1")
 		require.Equal(t, http.StatusOK, status)
 		assert.Equal(t, []visibilityapi.ProcessGeneration{
-			{PID: 5001, PIDVersion: 1}, {PID: 5002, PIDVersion: 2}, {PID: 5003, PIDVersion: 3}, {PID: int64(agentPID), PIDVersion: 9},
+			{PID: int64(agentPID), PIDVersion: 9}, {PID: 5001, PIDVersion: 1}, {PID: 5002, PIDVersion: 2}, {PID: 5003, PIDVersion: 3},
 		}, generationsOf(reader.filter))
-		assert.Equal(t, agentRow, out.Processes[3].ID)
+		assert.Equal(t, agentRow, out.Processes[0].ID)
 	})
 
 	for _, tc := range []struct {
@@ -311,4 +320,92 @@ func TestActivityHandler_Errors(t *testing.T) {
 			assert.Equal(t, tc.want, status)
 		})
 	}
+}
+
+// spec:server-rest-api/agent-activity-bounded-to-its-session/a-reused-agent-counts-in-each-session-only-while-serving-it
+func TestSessionSpan(t *testing.T) {
+	t.Parallel()
+	// The edr-dev capture: one claude served 4f5b9ea2, then 07c2d66d after /clear; a third session is added for the middle case.
+	touches := []visibilityapi.SessionTouch{
+		{SessionID: "4f5b9ea2", FirstNs: 633}, {SessionID: "07c2d66d", FirstNs: 673}, {SessionID: "9a1c", FirstNs: 900},
+	}
+	for _, tc := range []struct {
+		name    string
+		touches []visibilityapi.SessionTouch
+		session string
+		want    visibilityapi.GenerationSpan
+		bounded bool
+	}{
+		{"the first session keeps the process's start", touches, "4f5b9ea2", visibilityapi.GenerationSpan{ToNs: 673}, true},
+		{"a middle session runs between its first touch and the next", touches, "07c2d66d",
+			visibilityapi.GenerationSpan{FromNs: 673, ToNs: 900}, true},
+		{"the last session is open-ended", touches, "9a1c", visibilityapi.GenerationSpan{FromNs: 900}, true},
+		{"one session in the process is not bounded", touches[:1], "4f5b9ea2", visibilityapi.GenerationSpan{}, false},
+		{"a session whose transcript was never seen is not bounded", touches, "missing", visibilityapi.GenerationSpan{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, bounded := sessionSpan(tc.touches, tc.session)
+			assert.Equal(t, tc.bounded, bounded)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// spec:server-rest-api/agent-activity-bounded-to-its-session/a-reused-agent-counts-in-each-session-only-while-serving-it
+func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
+	t.Parallel()
+	agentRow, agentPID, agentVersion := int64(50), 4911, uint32(9)
+	agentProc := api.Process{ID: agentRow, HostID: "h1", PID: agentPID, PIDVersion: &agentVersion, Path: "/opt/claude/2.1.296"}
+	sessionID := "07c2d66d"
+	shell := activityNode(1, 5001, 1)
+	shell.ParentProcessID = &agentRow
+	shell.AgentSessionID = &sessionID
+	// A program the session had launchd run is a root without the session's marker too, but it is not the agent: it stays whole even
+	// when it touched session paths of its own.
+	launched := activityNode(2, 6001, 2)
+	sessions := api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: sessionID, AgentPID: &agentPID}}}
+	serveRoots := func(reader *fakeActivityReader, roots []api.ProcessNode) int {
+		readScope := func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+			return api.ProcessTreeResult{Roots: roots}, nil
+		}
+		h := New(fakeService{buildScopedTree: readScope}, allowAllAuthZ{}, slog.Default())
+		h.SetActivity(reader)
+		h.SetAgentSessions(&fakeSessionLister{result: sessions})
+		mux := http.NewServeMux()
+		h.RegisterRoutes(mux)
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		status, _ := getActivity(t, srv, "scope=session&session="+sessionID)
+		return status
+	}
+	serve := func(reader *fakeActivityReader) int { return serveRoots(reader, []api.ProcessNode{shell, launched}) }
+
+	reader := &fakeActivityReader{
+		processes: map[int64]api.Process{agentRow: agentProc},
+		touches: map[int64][]visibilityapi.SessionTouch{
+			int64(agentPID): {{SessionID: "4f5b9ea2", FirstNs: 633}, {SessionID: sessionID, FirstNs: 673}},
+			6001:            {{SessionID: "4f5b9ea2", FirstNs: 640}, {SessionID: sessionID, FirstNs: 690}},
+		},
+	}
+	require.Equal(t, http.StatusOK, serve(reader))
+	require.NotNil(t, reader.filter)
+	assert.Equal(t, []visibilityapi.ProcessGeneration{{PID: 5001, PIDVersion: 1}, {PID: 6001, PIDVersion: 2}}, reader.filter.Generations,
+		"the session's own processes and what it launched stay whole")
+	assert.Equal(t, []visibilityapi.GenerationSpan{
+		{ProcessGeneration: visibilityapi.ProcessGeneration{PID: int64(agentPID), PIDVersion: 9}, FromNs: 673},
+	}, reader.filter.Spans, "the agent counts only from its first touch of this session's transcript")
+
+	failing := &fakeActivityReader{processes: map[int64]api.Process{agentRow: agentProc}, touchesErr: errors.New("ch")}
+	assert.Equal(t, http.StatusInternalServerError, serve(failing))
+
+	// A session over the generation cap is cut from its tail, and the agent is not what is cut.
+	crowded := []api.ProcessNode{shell}
+	for i := range maxTimelineChain {
+		crowded = append(crowded, activityNode(int64(100+i), 10_000+i, 1))
+	}
+	capped := &fakeActivityReader{processes: reader.processes, touches: reader.touches}
+	require.Equal(t, http.StatusOK, serveRoots(capped, crowded))
+	assert.Len(t, capped.filter.Generations, maxTimelineChain-1, "the agent's generation is the one the cap made room for")
+	assert.Equal(t, reader.filter.Spans, capped.filter.Spans, "a crowded session still bounds its agent")
 }
