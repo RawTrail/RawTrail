@@ -1,6 +1,6 @@
 // Issue #1287: the agent-file client observes an AI agent's subtree for file activity. These tests pin its pure half: which execs
 // start an agent, the observed set's lifecycle (add on fork, re-key on exec, release on exit), and the rollup that bounds a window.
-// The Endpoint Security wiring (mute inversion, the subscriptions) is exercised on the VM.
+// The Endpoint Security wiring (the subscriptions and the handler's filter against the set) is exercised on the VM.
 
 import Foundation
 @testable import EDRExtensionLogic
@@ -104,6 +104,15 @@ final class AgentFileActivityTests: XCTestCase {
         XCTAssertNil(rename.coalescedCount, "a single operation omits the count")
         XCTAssertNil(rename.lastTimestampNs)
         XCTAssertTrue(rollup.flush().isEmpty, "a flush starts an empty window")
+
+        // A rename repeated from one source keeps it; one from another source leaves the row naming none.
+        rollup.add(record(.rename, "/repo/a.go", at: 1, from: "/repo/.a.tmp"))
+        rollup.add(record(.rename, "/repo/a.go", at: 2, from: "/repo/.a.tmp"))
+        rollup.add(record(.rename, "/repo/b.go", at: 3, from: "/repo/.b.tmp"))
+        rollup.add(record(.rename, "/repo/b.go", at: 4, from: "/repo/.b2.tmp"))
+        let renames = rollup.flush().map(\.payload)
+        XCTAssertEqual(renames.map(\.sourcePath), ["/repo/.a.tmp", nil])
+        XCTAssertEqual(renames.map(\.coalescedCount), [2, 2])
     }
 
     // spec:endpoint-event-collection/agent-scoped-file-activity/a-busy-window-rolls-up-into-directories

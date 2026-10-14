@@ -88,7 +88,8 @@ struct FileActivityPayload: Codable, Sendable, Equatable {
     let operation: FileOperation
     /// The file operated on, or, when rolledUp, the directory whose contents the counts cover.
     var path: String
-    /// Where a single renamed file came from. Omitted for every other operation and for a rolled-up rename.
+    /// Where the renamed file came from, which every rename the row folds shares. Omitted for every other operation, for a row folding
+    /// renames from different sources, and for a rolled-up rename.
     var sourcePath: String?
     /// How many operations the row stands for. Omitted when one.
     var coalescedCount: Int?

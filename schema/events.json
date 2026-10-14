@@ -313,7 +313,7 @@
         "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Kernel PID generation of the acting process, so the event joins the exact process row under pid reuse." },
         "operation": { "type": "string", "enum": ["create", "modify", "rename", "delete"], "description": "What the process did: created a file or directory, closed a file it had changed, renamed one to path, or removed one." },
         "path": { "type": "string", "description": "Absolute path operated on, or when rolled_up is true, the directory whose contents the counts cover." },
-        "source_path": { "type": "string", "description": "Optional. Where a single renamed file came from. Absent for other operations and for a rolled-up rename." },
+        "source_path": { "type": "string", "description": "Optional. Where the renamed file came from, shared by every rename the event folds. Absent for other operations, for an event folding renames from different sources, and for a rolled-up rename." },
         "coalesced_count": { "type": "integer", "minimum": 1, "description": "Optional. How many operations the event stands for. Absent or 1 means one. The envelope timestamp_ns is the earliest." },
         "last_timestamp_ns": { "type": "integer", "description": "Optional. Timestamp (ns since Unix epoch) of the latest operation the event stands for. Present only when coalesced_count is greater than 1." },
         "rolled_up": { "type": "boolean", "description": "Optional. True when the window held more rows than the extension sends a second, and path is a directory folding the operations on the paths under it." }

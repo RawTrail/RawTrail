@@ -24,13 +24,15 @@ final class AgentFileSubscriber: Sendable {
     private let serializer = EventSerializer()
     nonisolated(unsafe) var onEvent: ((Data) -> Void)?
 
-    /// queue serializes the process set and the rollup between the ES callbacks and the flush timer.
+    /// queue guards the process set and the rollup's open window. The ES callbacks hold it for a lookup or an add, and the flush only
+    /// long enough to swap the window out, so folding and serializing never delay delivery of the host's other events.
     private let queue = DispatchQueue(label: "com.fleetdm.edr.agentfiles")
+    /// flushQueue runs the flush timer: folding, serializing and sending a window taken off queue.
+    private let flushQueue = DispatchQueue(label: "com.fleetdm.edr.agentfiles.flush")
     private nonisolated(unsafe) var processes = AgentProcessSet(capacity: maxProcesses)
     private nonisolated(unsafe) var rollup = FileActivityRollup(budget: rowsPerFlush, maxPending: maxPendingRows)
     private nonisolated(unsafe) var flushTimer: DispatchSourceTimer?
-    /// reportedDrops and reportedRefusals are the totals already logged, so each flush logs only what is new.
-    private nonisolated(unsafe) var reportedDrops = 0
+    /// reportedRefusals is the refusal total already logged, so each flush logs only what is new. Read and written on flushQueue.
     private nonisolated(unsafe) var reportedRefusals = 0
 
     /// maxProcesses bounds the observed set. An agent subtree is a handful of shells and tools; thousands at once is a runaway build,
@@ -72,7 +74,7 @@ final class AgentFileSubscriber: Sendable {
             logger.error("agent-file subscribe failed")
             return
         }
-        let timer = DispatchSource.makeTimerSource(queue: queue)
+        let timer = DispatchSource.makeTimerSource(queue: flushQueue)
         timer.schedule(deadline: .now() + Self.flushInterval, repeating: Self.flushInterval)
         timer.setEventHandler { [weak self] in self?.flush() }
         timer.resume()
@@ -165,24 +167,29 @@ final class AgentFileSubscriber: Sendable {
         }
     }
 
-    /// flush sends the window's rows. Runs on queue, from the timer.
+    /// flush takes the open window off queue, then folds it and sends its rows. Runs on flushQueue, from the timer.
     private func flush() {
-        for row in rollup.flush() {
+        let (taken, refused, observed) = queue.sync {
+            let window = rollup
+            rollup = FileActivityRollup(budget: Self.rowsPerFlush, maxPending: Self.maxPendingRows)
+            return (window, processes.refused, processes.count)
+        }
+        var window = taken
+        for row in window.flush() {
             if let data = serializer.serialize(eventType: "file_activity", payload: row.payload, kernelTimeNs: row.firstNs) {
                 onEvent?(data)
             }
         }
-        if rollup.dropped > reportedDrops || processes.refused > reportedRefusals {
-            let summary = "agent-file client over budget: \(rollup.dropped - reportedDrops) operations dropped, " +
-                "\(processes.refused - reportedRefusals) processes unobserved (\(processes.count) observed)"
+        if window.dropped > 0 || refused > reportedRefusals {
+            let summary = "agent-file client over budget: \(window.dropped) operations dropped, " +
+                "\(refused - reportedRefusals) processes unobserved (\(observed) observed)"
             logger.error("\(summary, privacy: .public)")
-            reportedDrops = rollup.dropped
-            reportedRefusals = processes.refused
+            reportedRefusals = refused
         }
     }
 
     func stop() {
-        queue.sync { flushTimer?.cancel() }
+        flushQueue.sync { flushTimer?.cancel() }
         es_unsubscribe_all(client)
         es_delete_client(client)
     }
