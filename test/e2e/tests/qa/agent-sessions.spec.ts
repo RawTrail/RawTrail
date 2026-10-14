@@ -64,6 +64,8 @@ test.describe("agent sessions", () => {
     await expect(calls.nth(3).locator("code")).toHaveText("open -a TextEdit");
     const launch = calls.nth(3).locator("li", { hasText: "inferred launch" }).last();
     await expect(launch.locator(".session-view__name")).toHaveText("TextEdit");
+    // Under the open that asked for it, not beside it: the launch's row list belongs to open's row.
+    await expect(launch.locator("xpath=../../div/button[contains(@class, 'session-view__name')]")).toHaveText("open");
     // sudo runs as root under the agent's uid-501 shell; id runs as sudo did, so only sudo is badged.
     await expect(calls.nth(2).getByText("runs as root")).toHaveCount(1);
     await expect(calls.nth(2).locator("li", { hasText: "runs as root" }).first().locator(".session-view__name").first()).toHaveText("sudo");

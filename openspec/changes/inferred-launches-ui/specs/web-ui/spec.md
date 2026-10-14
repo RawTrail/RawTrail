@@ -2,7 +2,7 @@
 
 ### Requirement: Inferred launches in the UI
 
-The session view SHALL list a process launchd started for a call's `open` or `launchctl` under that launcher, marked as an inferred launch. The host graph SHALL offer a logical tree, when the read carries links, that hangs each launched process under its launcher with a distinct edge and label, the strict tree remaining the default. An inferred launch SHALL never be drawn as parentage.
+The session view SHALL list a process launchd started for a call's `open -a` or `launchctl submit` under that launcher, marked as an inferred launch. The host graph SHALL offer a logical tree, when the read carries links, that hangs each launched process under its launcher with a distinct edge and label, the strict tree remaining the default. An inferred launch SHALL never be drawn as parentage.
 
 #### Scenario: A launched process hangs under its launcher
 
