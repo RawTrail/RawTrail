@@ -180,6 +180,7 @@ enum WatchedPaths {
             }
             // A directory-service account can come without a home, and reading a NULL pw_dir would crash the extension.
             if let directory = entry.pointee.pw_dir {
+                // pw_dir is a NUL-terminated C string from the directory service, not an ES token.
                 accounts.append((entry.pointee.pw_uid, String(cString: directory)))
             }
         }

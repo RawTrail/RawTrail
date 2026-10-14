@@ -92,7 +92,7 @@ enum SnapshotSigning {
         guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else {
             return nil
         }
-        return String(cString: buf)
+        return String(cString: buf) // proc_pidpath NUL-terminates within the buffer, which starts zeroed
     }
 
     private static func processStartTime(pid: pid_t) -> timeval? {

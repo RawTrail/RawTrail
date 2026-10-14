@@ -129,13 +129,13 @@ final class NotificationClient {
         // createDirectory call was a no-op (the path already existed)
         // and we'd otherwise keep writing into a user-owned dir.
         if chown(blockNotificationDropDir, 0, 0) != 0 {
-            let err = String(cString: strerror(errno))
+            let err = String(cString: strerror(errno)) // strerror returns a NUL-terminated C string
             logger.error("notification drop directory chown failed: \(err, privacy: .public)")
         }
         // Force-correct mode to sticky 1777 in case the dir
         // pre-existed with looser/tighter perms.
         if chmod(blockNotificationDropDir, S_ISVTX | S_IRWXU | S_IRWXG | S_IRWXO) != 0 {
-            let err = String(cString: strerror(errno))
+            let err = String(cString: strerror(errno)) // strerror returns a NUL-terminated C string
             logger.error("notification drop directory chmod failed: \(err, privacy: .public)")
         }
     }
@@ -179,7 +179,7 @@ final class NotificationClient {
             let mtime = Date(timeIntervalSince1970: TimeInterval(entrySt.st_mtimespec.tv_sec))
             if mtime < cutoff {
                 if unlink(entry.path) != 0 {
-                    let err = String(cString: strerror(errno))
+                    let err = String(cString: strerror(errno)) // strerror returns a NUL-terminated C string
                     logger.error("notification purge unlink \(entry.lastPathComponent, privacy: .public): \(err, privacy: .public)")
                 }
             }

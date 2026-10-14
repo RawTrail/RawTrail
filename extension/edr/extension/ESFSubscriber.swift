@@ -353,7 +353,7 @@ final class ESFSubscriber: Sendable {
         // Kernel PID generation of the exec'd process, so the server can correlate flows to this exact generation across PID
         // reuse rather than by a time window (issue #403). bitPattern avoids a trap on a theoretical negative.
         let pidVersion = UInt32(bitPattern: audit_token_to_pidversion(target.audit_token))
-        let path = String(cString: target.executable.pointee.path.data)
+        let path = esTokenString(target.executable.pointee.path)
         let args = extractArgs(from: &exec)
         let uid = audit_token_to_euid(target.audit_token)
         let gid = audit_token_to_egid(target.audit_token)
@@ -456,7 +456,7 @@ final class ESFSubscriber: Sendable {
         var args: [String] = []
         for i in 0..<count {
             let arg = es_exec_arg(&exec, i)
-            args.append(String(cString: arg.data))
+            args.append(esTokenString(arg))
         }
         return args
     }
