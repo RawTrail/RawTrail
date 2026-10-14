@@ -40,6 +40,9 @@ export interface ToolCall {
 export interface RowShape {
   verbose: boolean;
   keep?: ReadonlySet<number>;
+  // incomplete is set when the read left out processes or alerts (a truncated tree, a failed or capped alert read). Folding is then
+  // off: a row that looks identical to its siblings may have started a process or carried an alert the view never saw.
+  incomplete?: boolean;
 }
 
 // SessionSummary is what the view's header says about the whole session, read from its processes.
@@ -95,7 +98,7 @@ function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape)
 // foldKey identifies a row that can be folded with its identical siblings: a process that started nothing, changed no privilege and
 // carries no alert. Null for any other row.
 function foldKey(listed: SessionRow, shape: RowShape): string | null {
-  if (listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) return null;
+  if (shape.incomplete || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) return null;
   return `${listed.node.path}\u0000${commandLine(listed.node.path, listed.node.args)}`;
 }
 
@@ -111,7 +114,9 @@ function foldRows(rows: SessionRow[], shape: RowShape): SessionRow[] {
       if (key !== null) firstByKey.set(key, listed);
       out.push(listed);
     } else {
-      first.folded = [...(first.folded ?? []), listed.node, ...(listed.folded ?? [])];
+      // Appended in place, so folding a long loop stays linear.
+      first.folded ??= [];
+      first.folded.push(listed.node, ...(listed.folded ?? []));
     }
   }
   return out;
@@ -206,6 +211,18 @@ export function searchCalls(calls: readonly ToolCall[], rawQuery: string): Searc
 // containsHit reports whether a row or anything under it matched, so a capped list still shows it.
 export function containsHit(listed: SessionRow, hits: SearchHits): boolean {
   return hits.rows.has(listed) || listed.children.some((child) => containsHit(child, hits));
+}
+
+// containsProcess reports whether a row or anything under it is one of ids, so a capped list still shows a flagged process.
+export function containsProcess(listed: SessionRow, ids: ReadonlyMap<number, unknown>): boolean {
+  return ids.has(listed.node.id) || listed.children.some((child) => containsProcess(child, ids));
+}
+
+// forkSpan is the first and last fork time of a row and every process folded into it. Folded members are not in fork order: a run
+// hoisted out of a hidden shell copy joins the run before it.
+export function forkSpan(listed: SessionRow): { firstNs: number; lastNs: number } {
+  const forks = [listed.node, ...(listed.folded ?? [])].map((n) => n.fork_time_ns);
+  return { firstNs: Math.min(...forks), lastNs: Math.max(...forks) };
 }
 
 // summarizeSession reads the header's facts from the session's processes. The agent is named on every stamped process; the project

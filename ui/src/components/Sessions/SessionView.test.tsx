@@ -315,6 +315,28 @@ describe("SessionView", () => {
     expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
   });
 
+  it("lists an alerted process past the cap, since the call opened to show it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc f*'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    vi.spyOn(api, "listAlerts").mockResolvedValue([alert({ process_id: 123 })]);
+    renderView();
+    expect(await screen.findByRole("link", { name: "System discovery" })).toBeVisible();
+    expect(screen.getByText("wc f23")).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(21);
+  });
+
+  it("does not fold a truncated session's processes", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 3 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'loop'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], truncated: true, total_matched: 5000 }));
+    renderView();
+    await screen.findByRole("status");
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(3);
+  });
+
   // spec:web-ui/ai-agent-session-view-navigation/identical-processes-are-folded
   it("shows identical processes as one row with their count and time span", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);

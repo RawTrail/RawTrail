@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 
-import { buildToolCalls, containsHit, searchCalls, summarizeSession, type RowShape, type SessionRow } from "./sessionTree";
+import {
+  buildToolCalls,
+  containsHit,
+  forkSpan,
+  searchCalls,
+  summarizeSession,
+  type RowShape,
+  type SessionRow,
+} from "./sessionTree";
 import type { ProcessNode } from "../../types";
 import { MS, proc, realSession } from "../../test/agentSession";
 
@@ -211,7 +219,8 @@ describe("folding", () => {
   it("folds identical processes at every level, and merges a folded run hoisted from a shell copy into its siblings", () => {
     // The call's shell ran wc twice itself and twice more from a subshell, whose copy of the shell is hidden: one row of four.
     const wc = (id: number, at: number) => proc(id, id, at, "/usr/bin/wc", ["wc", "-l", "f"]);
-    const copy = proc(20, 20, 20, "/bin/zsh", undefined, [wc(21, 21), wc(22, 22)]);
+    // The subshell started at 20 but its wcs ran at 100 and 101, after the direct wc at 40.
+    const copy = proc(20, 20, 20, "/bin/zsh", undefined, [wc(21, 100), wc(22, 101)]);
     // A pipeline the call ran nests three identical cats under xargs.
     const xargs = proc(30, 30, 30, "/usr/bin/xargs", ["xargs", "cat"], [proc(31, 31, 31, "/bin/cat", ["cat", "f"]),
       proc(32, 32, 32, "/bin/cat", ["cat", "f"]), proc(33, 33, 33, "/bin/cat", ["cat", "f"])]);
@@ -219,7 +228,15 @@ describe("folding", () => {
     const [call] = buildToolCalls([root], QUIET);
     expect(outline(call.rows)).toEqual(["/usr/bin/wc", "/usr/bin/xargs", "  /bin/cat"]);
     expect(call.rows[0].folded?.map((n) => n.id)).toEqual([21, 22, 11]);
+    // Hoisting put the subshell's run (100, 101) ahead of the direct wc at 40, so the span is read across all of them, not from the last.
+    expect(forkSpan(call.rows[0])).toEqual({ firstNs: 10 * MS, lastNs: 101 * MS });
     expect(call.rows[1].children[0].folded?.map((n) => n.id)).toEqual([32, 33]);
+  });
+
+  it("does not fold when the read left processes or alerts out", () => {
+    const [call] = buildToolCalls([loop(5)], { verbose: false, incomplete: true });
+    expect(call.rows.filter((r) => r.node.path === "/usr/bin/wc")).toHaveLength(5);
+    expect(call.rows.some((r) => r.folded)).toBe(false);
   });
 
   it("does not fold processes that ran different commands", () => {

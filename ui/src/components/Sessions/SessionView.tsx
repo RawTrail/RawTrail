@@ -17,6 +17,8 @@ import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import {
   buildToolCalls,
   containsHit,
+  containsProcess,
+  forkSpan,
   lastActivityNs,
   searchCalls,
   summarizeSession,
@@ -117,8 +119,12 @@ export function SessionView() {
     return byProcess;
   }, [current?.alerts]);
   const calls = useMemo(
-    () => (tree ? buildToolCalls(tree.roots, { verbose, keep: new Set(alertsByProcess.keys()) }) : []),
-    [tree, verbose, alertsByProcess],
+    () => {
+      if (!tree) return [];
+      const incomplete = tree.truncated || (current?.alertsFailed ?? false) || (current?.alertsTruncated ?? false);
+      return buildToolCalls(tree.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete });
+    },
+    [tree, verbose, alertsByProcess, current?.alertsFailed, current?.alertsTruncated],
   );
   const summary = useMemo(() => summarizeSession(tree?.roots ?? []), [tree]);
   const hits = useMemo(() => searchCalls(calls, query), [calls, query]);
@@ -293,11 +299,12 @@ function ToolCallGroup({ call, alerts, defaultOpen }: {
   );
 }
 
-// ProcessRows lists rows up to ROW_CAP, then offers the rest. A row holding a search hit is listed past the cap.
+// ProcessRows lists rows up to ROW_CAP, then offers the rest. A row holding a search hit or an alert is listed past the cap, since
+// the call opened, or the search expanded it, to show that row.
 function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
-  const { hits } = useSessionRows();
+  const { hits, alertsByProcess } = useSessionRows();
   const [shown, setShown] = useState(ROW_CAP);
-  const listed = rows.filter((r, i) => i < shown || containsHit(r, hits));
+  const listed = rows.filter((r, i) => i < shown || containsHit(r, hits) || containsProcess(r, alertsByProcess));
   const rest = rows.length - listed.length;
   return (
     <ul className="session-view__rows">
@@ -316,7 +323,7 @@ function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
 function ProcessRow({ listed }: { readonly listed: SessionRow }) {
   const { alertsByProcess, hits, selectedId, onSelect } = useSessionRows();
   const { node, children, uidChange, folded } = listed;
-  const lastFold = folded ? folded[folded.length - 1] : undefined;
+  const span = folded ? forkSpan(listed) : null;
   const rowClass = `session-view__row${hits.rows.has(listed) ? " session-view__row--hit" : ""}`;
   return (
     <li>
@@ -332,8 +339,8 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
         <span className="session-view__mono session-view__cmdline">{commandLine(node.path, node.args)}</span>
         {folded && <Badge variant="neutral">{`×${String(folded.length + 1)}`}</Badge>}
         <span className="session-view__meta">
-          {folded && lastFold
-            ? `${formatNs(node.fork_time_ns)} to ${formatNs(lastFold.fork_time_ns)}`
+          {span
+            ? `${formatNs(span.firstNs)} to ${formatNs(span.lastNs)}`
             : `pid ${String(node.pid)} · ${formatNs(node.fork_time_ns)}`}
           {!folded && node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
         </span>

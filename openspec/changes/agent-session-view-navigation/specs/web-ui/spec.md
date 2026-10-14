@@ -2,7 +2,7 @@
 
 ### Requirement: AI agent session view navigation
 
-The session view SHALL fold identical processes under one creator that started nothing, changed no privilege and carry no alert into one row with their count and time span. It SHALL list at most 20 rows per list until asked for more, except rows holding a search hit. A search SHALL expand the calls it finds something in and count the matches per call. Selecting a process SHALL open its detail beside the session.
+The session view SHALL fold identical processes under one creator that started nothing, changed no privilege and carry no alert into one row with their count and time span, and SHALL NOT fold when its read left processes or alerts out. It SHALL list at most 20 rows per list until asked for more, except rows holding a search hit or an alert. A search SHALL expand the calls it finds something in and count the matches per call. Selecting a process SHALL open its detail beside the session.
 
 #### Scenario: Identical processes are folded
 
