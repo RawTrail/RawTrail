@@ -1,0 +1,51 @@
+# A Claude Code session's tool calls: the agent (pid 5000) runs a shell for a Bash tool call, and the shell runs git. Each exec carries
+# the session markers the production agent forwards from the environment, so the server records one agent session working in
+# /Users/dev/project with both processes stamped with it.
+name: "Claude Code session: shell runs git"
+host:
+  id: AAAA0007-0000-0000-0000-000000000007
+  hostname: dev-laptop.local
+  os: macOS 15.5
+timeline:
+  - at: 0ms
+    type: fork
+    child_pid: 5001
+    parent_pid: 5000
+  - at: 2ms
+    type: exec
+    pid: 5001
+    ppid: 5000
+    path: /bin/zsh
+    args: ["/bin/zsh", "-c", "git status"]
+    cwd: /Users/dev/project
+    uid: 501
+    gid: 20
+    env:
+      CLAUDE_CODE_SESSION_ID: 169b5bb1-29b5-41da-9a54-92cd72599ad9
+      CLAUDE_PID: "5000"
+      AI_AGENT: claude-code_2-1-296_agent
+  - at: 5ms
+    type: fork
+    child_pid: 5002
+    parent_pid: 5001
+  - at: 7ms
+    type: exec
+    pid: 5002
+    ppid: 5001
+    path: /usr/bin/git
+    args: ["git", "status"]
+    cwd: /Users/dev/project
+    uid: 501
+    gid: 20
+    env:
+      CLAUDE_CODE_SESSION_ID: 169b5bb1-29b5-41da-9a54-92cd72599ad9
+      CLAUDE_PID: "5000"
+      AI_AGENT: claude-code_2-1-296_agent
+  - at: 30ms
+    type: exit
+    pid: 5002
+    exit_code: 0
+  - at: 32ms
+    type: exit
+    pid: 5001
+    exit_code: 0

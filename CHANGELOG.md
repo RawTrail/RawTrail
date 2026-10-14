@@ -10,6 +10,7 @@ Notable changes to Fleet EDR, newest first. This project follows [Semantic Versi
 
 ### Added
 
+- **AI agent sessions.** A new Sessions page lists each Claude Code session the agents saw: the project it worked in, when it ran, and how many processes and alerts it produced. Filter by host, agent or recent activity, and open a session to see its host's activity. `GET /api/agent-sessions` serves the same list.
 - **SigNoz alert rules.** Nine ready-made rules cover a silent server, stalled ingest, audit write failures, skipped detection rules, withdrawn event batches, failed maintenance sweeps and break-glass guessing. Apply them with `tools/signoz-alerts.sh`; see `docs/operations.md`.
 - **SigNoz and Datadog users: set `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta`.** Without it those backends miss the first increment of each counter, so a rarely-moving counter such as audit write failures can increase without alerting. The quickstart compose now forwards this variable and `OTEL_EXPORTER_OTLP_COMPRESSION`.
 

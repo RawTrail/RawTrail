@@ -6,6 +6,7 @@ import {
   getProcessDetail,
   createAppControlRule,
   searchProcesses,
+  listAgentSessions,
   searchEvents,
   getHostTimeline,
   setForbiddenHandler,
@@ -548,5 +549,23 @@ describe("rule content writes", () => {
     const err = await putRuleContentDocument("authored/x.yml", "title: x", "why").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RuleContentApiError);
     expect(err).toMatchObject({ code: "rule_content.refused", status: 422, message: "detection: missing condition" });
+  });
+});
+
+describe("listAgentSessions query-string composition", () => {
+  it("sends every set filter and the cursor, and nothing for unset ones", async () => {
+    const fetchMock = stubFetch({ rows: [], total_matched: 0 });
+    await listAgentSessions({ host_id: "host-a", agent: "claude-code", from: "1000", to: "" }, "CURSOR");
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/agent-sessions$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ host_id: "host-a", agent: "claude-code", from: "1000", cursor: "CURSOR" });
+  });
+
+  it("emits no query string for an empty filter on the first page", async () => {
+    const fetchMock = stubFetch({ rows: [], total_matched: 0 });
+    await listAgentSessions({});
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    expect(target.toString()).toMatch(/\/agent-sessions$/);
   });
 });
