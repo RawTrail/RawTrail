@@ -55,6 +55,9 @@ func (s *Store) ListAgentSessions(
 	if filter.HostID != "" {
 		where, args = append(where, "host_id = ?"), append(args, filter.HostID)
 	}
+	if filter.AgentSessionID != "" {
+		where, args = append(where, "agent_session_id = ?"), append(args, filter.AgentSessionID)
+	}
 	if filter.AgentName != "" {
 		where, args = append(where, "agent_name = ?"), append(args, filter.AgentName)
 	}

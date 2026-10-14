@@ -557,6 +557,30 @@ func TestHandleListAlerts(t *testing.T) {
 		assert.Equal(t, errInternal, readErrorEnvelope(t, resp))
 	})
 
+	// spec:server-rest-api/alerts-by-agent-session/a-session-s-alerts-are-listed
+	t.Run("agent_session reaches the service filter with its host", func(t *testing.T) {
+		t.Parallel()
+		var got api.AlertFilter
+		svc := fakeService{listAlerts: func(_ context.Context, f api.AlertFilter) ([]api.Alert, error) { got = f; return nil, nil }}
+		resp := doGet(t, newOperatorServer(t, svc, allowAllAuthZ{}), "/api/alerts?host_id=h1&agent_session=s1")
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "h1", got.HostID)
+		assert.Equal(t, "s1", got.AgentSessionID)
+	})
+
+	// spec:server-rest-api/alerts-by-agent-session/a-session-filter-without-its-host-is-rejected
+	t.Run("agent_session without host_id is rejected before the service", func(t *testing.T) {
+		t.Parallel()
+		called := false
+		svc := fakeService{listAlerts: func(context.Context, api.AlertFilter) ([]api.Alert, error) { called = true; return nil, nil }}
+		resp := doGet(t, newOperatorServer(t, svc, allowAllAuthZ{}), "/api/alerts?agent_session=s1")
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Equal(t, errSessionNeedsHost, readErrorEnvelope(t, resp))
+		assert.False(t, called)
+	})
+
 	t.Run("nil alerts normalized to empty array", func(t *testing.T) {
 		t.Parallel()
 		svc := fakeService{listAlerts: func(context.Context, api.AlertFilter) ([]api.Alert, error) { return nil, nil }}

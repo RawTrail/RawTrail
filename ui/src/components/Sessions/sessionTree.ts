@@ -11,6 +11,9 @@ import { commandLine, isShellPath, toolCommand } from "./toolCommand";
 export interface SessionRow {
   node: ProcessNode;
   children: SessionRow[];
+  // uidChange is set when the process runs as a different user from the process that created it: a privilege change, such as sudo
+  // to root, the view badges.
+  uidChange?: { from: number; to: number };
 }
 
 // ToolCall is one group: the processes a single tool call started.
@@ -24,7 +27,16 @@ export interface ToolCall {
   lastNs: number;
   // processCount counts every process in the group, including the plumbing the view hides.
   processCount: number;
+  // processIds are the rows of every process in the group, hidden plumbing included, so the view can count the group's alerts.
+  processIds: number[];
   rows: SessionRow[];
+}
+
+// RowShape is how rows are listed: verbose lists the shell plumbing too, and keep names processes never hidden as plumbing, so a
+// process an alert was raised on is always listed.
+export interface RowShape {
+  verbose: boolean;
+  keep?: ReadonlySet<number>;
 }
 
 // SessionSummary is what the view's header says about the whole session, read from its processes.
@@ -57,36 +69,52 @@ function walk(node: ProcessNode, visit: (n: ProcessNode) => void): void {
 }
 
 // isShellCopy reports a fork of a shell that never exec'd: the copy a shell makes to run a subshell or a background job. It carries
-// its creator's image and no command of its own.
-function isShellCopy(node: ProcessNode, creator: ProcessNode): boolean {
-  return node.exec_time_ns === undefined && node.path === creator.path && isShellPath(node.path);
+// its creator's image and no command of its own. A fork carries no user of its own either, so it runs as its creator did; one that
+// reports another user changed privilege, which is not plumbing.
+function isShellCopy(node: ProcessNode, creator: ProcessNode, creatorUid: number | undefined): boolean {
+  const sameUser = node.uid === undefined || node.uid === creatorUid;
+  return node.exec_time_ns === undefined && node.path === creator.path && sameUser && isShellPath(node.path);
 }
 
-// visibleRows lists a node's children as the view shows them. Unless verbose, a shell copy is replaced by its own children.
-function visibleRows(creator: ProcessNode, verbose: boolean): SessionRow[] {
+function hidden(node: ProcessNode, isPlumbing: boolean, shape: RowShape): boolean {
+  return isPlumbing && !shape.verbose && !(shape.keep?.has(node.id) ?? false);
+}
+
+// row lists a process. creatorUid is the user its creator ran as, when known, for the privilege comparison.
+function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape): SessionRow {
+  const listed: SessionRow = { node, children: visibleRows(node, node.uid ?? creatorUid, shape) };
+  if (creatorUid !== undefined && node.uid !== undefined && node.uid !== creatorUid) {
+    listed.uidChange = { from: creatorUid, to: node.uid };
+  }
+  return listed;
+}
+
+// visibleRows lists a node's children as the view shows them. A hidden shell copy is replaced by its own children. uid is the user
+// the node runs as: its own when it reports one, else the one it inherited, since a fork that never exec'd reports none.
+function visibleRows(creator: ProcessNode, uid: number | undefined, shape: RowShape): SessionRow[] {
   const rows: SessionRow[] = [];
   for (const child of [...(creator.children ?? [])].sort(byForkTime)) {
-    if (!verbose && isShellCopy(child, creator)) {
-      rows.push(...visibleRows(child, verbose));
+    if (hidden(child, isShellCopy(child, creator, uid), shape)) {
+      rows.push(...visibleRows(child, child.uid ?? uid, shape));
     } else {
-      rows.push({ node: child, children: visibleRows(child, verbose) });
+      rows.push(row(child, uid, shape));
     }
   }
   return rows;
 }
 
-// rootRows is what a tool call's root contributes: unless verbose, a wrapper shell is the group's header rather than a row, so its
-// children stand in its place.
-function rootRows(root: ProcessNode, verbose: boolean): SessionRow[] {
-  if (!verbose && toolCommand(root.args) !== null) return visibleRows(root, verbose);
-  return [{ node: root, children: visibleRows(root, verbose) }];
+// rootRows is what a tool call's root contributes: a hidden wrapper shell is the group's header rather than a row, so its children
+// stand in its place. The root's creator is the agent, which the session does not hold.
+function rootRows(root: ProcessNode, shape: RowShape): SessionRow[] {
+  if (hidden(root, toolCommand(root.args) !== null, shape)) return visibleRows(root, root.uid, shape);
+  return [row(root, undefined, shape)];
 }
 
 // buildToolCalls groups the session's forest by tool call, in the order the calls started. Each call's leader (the shell that leads
 // the process group keying the call) starts a group. A root whose creator was not read joins the latest call its key names that
 // started before it, so a call stays one group even when part of its tree arrived without its parent. The key is a process-group id,
 // which a long session can reuse, so a later leader with the same key starts a group of its own rather than joining the earlier one.
-export function buildToolCalls(roots: readonly ProcessNode[], verbose: boolean): ToolCall[] {
+export function buildToolCalls(roots: readonly ProcessNode[], shape: RowShape): ToolCall[] {
   const calls: ToolCall[] = [];
   const latestByKey = new Map<number, ToolCall>();
   for (const root of [...roots].sort(byForkTime)) {
@@ -99,6 +127,7 @@ export function buildToolCalls(roots: readonly ProcessNode[], verbose: boolean):
         startNs: root.fork_time_ns,
         lastNs: root.fork_time_ns,
         processCount: 0,
+        processIds: [],
         rows: [],
       };
       calls.push(call);
@@ -107,9 +136,10 @@ export function buildToolCalls(roots: readonly ProcessNode[], verbose: boolean):
     const into = call;
     walk(root, (n) => {
       into.processCount += 1;
+      into.processIds.push(n.id);
       into.lastNs = Math.max(into.lastNs, lastActivityNs(n));
     });
-    into.rows.push(...rootRows(root, verbose));
+    into.rows.push(...rootRows(root, shape));
   }
   return calls;
 }

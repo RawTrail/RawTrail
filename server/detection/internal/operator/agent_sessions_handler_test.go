@@ -50,10 +50,11 @@ func TestAgentSessionsHandler_PassesFiltersAndPaging(t *testing.T) {
 		NextCursor: "next", TotalMatched: 9,
 	}}
 	srv := newSessionsServer(t, lister, allowAllAuthZ{})
-	resp := doGet(t, srv, "/api/agent-sessions?host_id=h1&agent=claude-code&from=100&to=900&cursor=abc&limit=25")
+	resp := doGet(t, srv, "/api/agent-sessions?host_id=h1&session=s1&agent=claude-code&from=100&to=900&cursor=abc&limit=25")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, api.AgentSessionFilter{HostID: "h1", AgentName: "claude-code", FromNs: 100, ToNs: 900}, lister.filter)
+	assert.Equal(t, api.AgentSessionFilter{HostID: "h1", AgentSessionID: "s1", AgentName: "claude-code", FromNs: 100, ToNs: 900},
+		lister.filter)
 	assert.Equal(t, "abc", lister.cursor)
 	assert.Equal(t, 25, lister.limit)
 	var body api.AgentSessionResult

@@ -105,3 +105,8 @@
     overflow-wrap: anywhere;
   }
 }
+
+// An alert's title is shown as the rule wrote it: the badge's capitalization would mangle paths and commands in it.
+.session-view__alert .badge {
+  text-transform: none;
+}

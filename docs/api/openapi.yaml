@@ -470,6 +470,10 @@ paths:
         - name: host_id
           in: query
           schema: {type: string}
+        - name: session
+          in: query
+          description: The agent's session id, for example Claude Code's `CLAUDE_CODE_SESSION_ID`. With `host_id`, reads one session's record.
+          schema: {type: string}
         - name: agent
           in: query
           description: The agent's name, as its AI_AGENT marker reports it, for example `claude-code`.
@@ -825,6 +829,12 @@ paths:
         - name: process_id
           in: query
           schema: {type: integer, format: int64}
+        - name: agent_session
+          in: query
+          description: >-
+            An AI agent session's id. Selects the alerts raised on that session's processes. Requires `host_id`, since a session id
+            names a session only on its host; without it the request is rejected with `agent_session_requires_host_id`.
+          schema: {type: string}
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, default: 100}

@@ -164,14 +164,15 @@ type TreeScope struct {
 	AgentSessionID string
 }
 
-// AgentSessionFilter selects agent sessions for the sessions list (issue #1283). Every field is optional: HostID and AgentName match
-// exactly, and FromNs/ToNs keep the sessions active in the window (last seen at or after FromNs, first seen at or before ToNs), zero
-// meaning unbounded on that side.
+// AgentSessionFilter selects agent sessions for the sessions list (issue #1283). Every field is optional: HostID, AgentSessionID and
+// AgentName match exactly, and FromNs/ToNs keep the sessions active in the window (last seen at or after FromNs, first seen at or
+// before ToNs), zero meaning unbounded on that side. AgentSessionID with HostID reads one session's record (issue #1284).
 type AgentSessionFilter struct {
-	HostID    string
-	AgentName string
-	FromNs    int64
-	ToNs      int64
+	HostID         string
+	AgentSessionID string
+	AgentName      string
+	FromNs         int64
+	ToNs           int64
 }
 
 // AgentSessionSummary is one row of the sessions list: the session's own record, with how much it did.
@@ -707,7 +708,10 @@ type AlertFilter struct {
 	// receives one.
 	Disposition AlertDisposition
 	ProcessID   int64
-	Limit       int
+	// AgentSessionID selects the alerts raised on the processes of one AI agent session on HostID (issue #1284). It requires HostID,
+	// since a session id names a session only on its host.
+	AgentSessionID string
+	Limit          int
 }
 
 // ProcessTreeResult is one process-tree read plus the metadata that lets a client be honest about what it is NOT showing (issue

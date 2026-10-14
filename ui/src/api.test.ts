@@ -581,3 +581,19 @@ describe("getSessionTree", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({ scope: "session", session: "169b5bb1-29b5", flatten: "1", limit: "2000" });
   });
 });
+
+describe("session filters", () => {
+  it("reads one session's record with the session filter", async () => {
+    const fetchMock = stubFetch({ rows: [], total_matched: 0 });
+    await listAgentSessions({ host_id: "host-a", session: "s1" });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    expect(Object.fromEntries(new URL(target.toString()).searchParams)).toEqual({ host_id: "host-a", session: "s1" });
+  });
+
+  it("lists a session's alerts with its host", async () => {
+    const fetchMock = stubFetch([]);
+    await listAlerts({ host_id: "host-a", agent_session: "s1", limit: 1000 });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    expect(Object.fromEntries(new URL(target.toString()).searchParams)).toEqual({ host_id: "host-a", agent_session: "s1", limit: "1000" });
+  });
+});

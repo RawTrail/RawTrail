@@ -94,6 +94,7 @@ func TestAgentSessionsList_Filters(t *testing.T) {
 		want   []string
 	}{
 		{"by host", api.AgentSessionFilter{HostID: "host-a"}, []string{"host-a/s2", "host-a/s1"}},
+		{"one session's record", api.AgentSessionFilter{HostID: "host-a", AgentSessionID: "s2"}, []string{"host-a/s2"}},
 		{"by agent", api.AgentSessionFilter{AgentName: "claude-code"}, []string{"host-b/s3", "host-a/s1"}},
 		{"active in a window", api.AgentSessionFilter{FromNs: 350, ToNs: 550}, []string{"host-b/s3", "host-a/s2"}},
 		{"active since", api.AgentSessionFilter{FromNs: 450}, []string{"host-b/s3"}},
@@ -154,4 +155,39 @@ func TestAgentSessionsList_Paging(t *testing.T) {
 		_, err := store.ListAgentSessions(t.Context(), api.AgentSessionFilter{}, token, 3)
 		assert.ErrorIs(t, err, api.ErrInvalidCursor, bad)
 	}
+}
+
+// spec:server-rest-api/alerts-by-agent-session/a-session-s-alerts-are-listed
+func TestListAlerts_ByAgentSession(t *testing.T) {
+	t.Parallel()
+	store, _ := openProcessStore(t)
+	inSession := seedSessionProcesses(t, store, "host-a", "s1", 2)
+	sameIDOtherHost := seedSessionProcesses(t, store, "host-b", "s1", 1)
+	otherSession := seedSessionProcesses(t, store, "host-a", "s2", 1)
+	raise := func(host string, processID int64, rule string, disposition api.AlertDisposition) int64 {
+		id, _, err := store.InsertAlert(t.Context(), api.Alert{HostID: host, RuleID: rule, Source: api.AlertSourceDetection,
+			Severity: api.SeverityHigh, Title: "t", Description: "d", ProcessID: processID, Subject: rule, Disposition: disposition}, nil)
+		require.NoError(t, err)
+		return id
+	}
+	want := []int64{
+		raise("host-a", inSession[0], "r-a", api.AlertDispositionAlert),
+		raise("host-a", inSession[1], "r-b", api.AlertDispositionAlert),
+	}
+	raise("host-a", inSession[0], "r-monitor", api.AlertDispositionMonitor)
+	raise("host-b", sameIDOtherHost[0], "r-c", api.AlertDispositionAlert)
+	raise("host-a", otherSession[0], "r-d", api.AlertDispositionAlert)
+
+	alerts, err := store.ListAlerts(t.Context(), api.AlertFilter{HostID: "host-a", AgentSessionID: "s1"})
+	require.NoError(t, err)
+	var got []int64
+	for _, a := range alerts {
+		got = append(got, a.ID)
+	}
+	assert.ElementsMatch(t, want, got, "the session's alerts on its own host: not its monitor records, another host's or another session's")
+
+	monitor, err := store.ListAlerts(t.Context(),
+		api.AlertFilter{HostID: "host-a", AgentSessionID: "s1", Disposition: api.AlertDispositionMonitor})
+	require.NoError(t, err)
+	assert.Len(t, monitor, 1, "the disposition filter still applies")
 }

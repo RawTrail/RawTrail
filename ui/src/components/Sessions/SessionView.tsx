@@ -1,54 +1,106 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
-import { getSessionTree } from "../../api";
-import type { TreeResponse } from "../../types";
+import { getSessionTree, listAgentSessions, listAlerts } from "../../api";
+import type { AgentSessionSummary, Alert, TreeResponse } from "../../types";
 import { PageHeader } from "../ui/PageHeader";
 import { Toggle } from "../ui/Toggle";
+import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/Table";
+import { severityBadgeVariant, severityRank } from "../ui/severity";
 import { formatNs, basename } from "../Search/format";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import { buildToolCalls, summarizeSession, type SessionRow, type ToolCall } from "./sessionTree";
 import { commandLine } from "./toolCommand";
 
+// AUTO_EXPAND_CALLS is the most tool calls a session can have and still open with every call expanded. A longer session opens with
+// only the calls an alert was raised in expanded, so the operator starts from what was flagged.
+const AUTO_EXPAND_CALLS = 10;
+// MAX_SESSION_ALERTS bounds the session's alert read. One more is asked for, so a session with more is reported rather than shown as
+// if its first page were all of them.
+const MAX_SESSION_ALERTS = 1000;
+
+// SessionRead is everything the view reads for one session, kept with the session it was for so another session's results are never
+// shown. The tree is required; the record and the alerts decorate it, and their failures are reported without hiding the tree.
+interface SessionRead {
+  key: string;
+  tree?: TreeResponse;
+  error?: string;
+  record?: AgentSessionSummary;
+  alerts?: Alert[];
+  alertsFailed?: boolean;
+  // alertsTruncated is set when the session has more alerts than were read, so some are not badged.
+  alertsTruncated?: boolean;
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : "Unknown error";
+}
+
+async function readSession(key: string, hostId: string, sessionId: string): Promise<SessionRead> {
+  const [tree, record, alerts] = await Promise.all([
+    getSessionTree(hostId, sessionId).catch((err: unknown) => message(err)),
+    listAgentSessions({ host_id: hostId, session: sessionId })
+      .then((res) => res.rows[0] as AgentSessionSummary | undefined)
+      .catch(() => undefined),
+    listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
+  ]);
+  if (typeof tree === "string") return { key, error: tree };
+  return {
+    key,
+    tree,
+    record,
+    alerts: (alerts ?? []).slice(0, MAX_SESSION_ALERTS),
+    alertsFailed: alerts === null,
+    alertsTruncated: (alerts?.length ?? 0) > MAX_SESSION_ALERTS,
+  };
+}
+
 // SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its tool calls ran, one
 // group per call labelled with the command the agent ran, and under it everything that call started, daemons included. The shell
-// plumbing that runs a call is hidden unless the operator turns on verbose.
+// plumbing that runs a call is hidden unless the operator turns on verbose. Alerts and privilege changes are badged where they
+// happened, and a call an alert was raised in opens expanded.
 export function SessionView() {
   const { hostId = "", sessionId = "" } = useParams();
   const hostNames = useHostNames();
   const [verbose, setVerbose] = useState(false);
-  // The read's outcome is kept with the session it was for, so navigating to another session shows neither the previous session's
-  // processes nor its error while the new read is in flight.
   const readKey = `${hostId}/${sessionId}`;
-  const [read, setRead] = useState<{ key: string; tree?: TreeResponse; error?: string } | null>(null);
-  const tree = read?.key === readKey ? (read.tree ?? null) : null;
-  const error = read?.key === readKey ? (read.error ?? null) : null;
+  const [read, setRead] = useState<SessionRead | null>(null);
+  const current = read?.key === readKey ? read : null;
+  const tree = current?.tree ?? null;
 
   useEffect(() => {
     let cancelled = false;
-    getSessionTree(hostId, sessionId)
-      .then((res) => { if (!cancelled) setRead({ key: readKey, tree: res }); })
-      .catch((err: unknown) => {
-        if (!cancelled) setRead({ key: readKey, error: err instanceof Error ? err.message : "Unknown error" });
-      });
+    void readSession(readKey, hostId, sessionId).then((res) => { if (!cancelled) setRead(res); });
     return () => { cancelled = true; };
   }, [hostId, sessionId, readKey]);
 
-  const calls = useMemo(() => (tree ? buildToolCalls(tree.roots, verbose) : []), [tree, verbose]);
+  const alertsByProcess = useMemo(() => {
+    const byProcess = new Map<number, Alert[]>();
+    for (const alert of current?.alerts ?? []) byProcess.set(alert.process_id, [...(byProcess.get(alert.process_id) ?? []), alert]);
+    return byProcess;
+  }, [current?.alerts]);
+  const calls = useMemo(
+    () => (tree ? buildToolCalls(tree.roots, { verbose, keep: new Set(alertsByProcess.keys()) }) : []),
+    [tree, verbose, alertsByProcess],
+  );
   const summary = useMemo(() => summarizeSession(tree?.roots ?? []), [tree]);
 
-  const title = summary.agentName ? `${summary.agentName}${summary.agentVersion ? ` ${summary.agentVersion}` : ""}` : "Agent session";
-  const span = summary.firstNs === undefined || summary.lastNs === undefined
-    ? undefined
-    : `${formatNs(summary.firstNs)} to ${formatNs(summary.lastNs)}`;
+  const record = current?.record;
+  const agentName = record?.agent_name ?? summary.agentName;
+  const agentVersion = record?.agent_version ?? summary.agentVersion;
+  const title = agentName ? `${agentName}${agentVersion ? ` ${agentVersion}` : ""}` : "Agent session";
+  const firstNs = record?.first_seen_ns ?? summary.firstNs;
+  const lastNs = Math.max(record?.last_seen_ns ?? 0, summary.lastNs ?? 0) || undefined;
+  const project = record?.cwd ?? summary.project;
   const subtitle = (
     <span className="session-view__facts">
-      {summary.project && <span className="session-view__mono">{summary.project}</span>}
+      {project && <span className="session-view__mono">{project}</span>}
       <span>{hostNames.get(hostId) ?? hostId}</span>
-      {span && <span>{span}</span>}
+      {firstNs !== undefined && lastNs !== undefined && <span>{`${formatNs(firstNs)} to ${formatNs(lastNs)}`}</span>}
       {tree && <span>{summary.processCount.toLocaleString()} processes</span>}
+      {record?.agent_pid !== undefined && <span>agent pid {record.agent_pid}</span>}
       <span className="session-view__mono" title={sessionId}>Session {sessionId}</span>
     </span>
   );
@@ -63,35 +115,87 @@ export function SessionView() {
           <Toggle id="session-verbose" label="Show shell plumbing" checked={verbose} onChange={(e) => { setVerbose(e.target.checked); }} />
         )}
       />
-      {tree?.truncated && (
+      <SessionNotices read={current} />
+      <SessionBody read={current} calls={calls} hostId={hostId} alertsByProcess={alertsByProcess} />
+    </div>
+  );
+}
+
+// SessionNotices says what the view is not showing: processes past the read's limit, processes retention removed, and alerts that
+// could not be read.
+function SessionNotices({ read }: { readonly read: SessionRead | null }) {
+  const tree = read?.tree;
+  if (!tree) return null;
+  const retainedFrom = tree.retained_from_ns;
+  const beganBeforeRetention = retainedFrom !== undefined && read.record !== undefined && read.record.first_seen_ns < retainedFrom;
+  return (
+    <>
+      {tree.truncated && (
         <p className="session-view__notice" role="status">
           Showing the first {tree.returned.toLocaleString()} of {tree.total_matched_capped ? "more than " : ""}
           {tree.total_matched.toLocaleString()} processes in this session.
         </p>
       )}
-      <SessionBody tree={tree} error={error} calls={calls} hostId={hostId} />
-    </div>
+      {beganBeforeRetention && (
+        <p className="session-view__notice" role="status">
+          This session began before {formatNs(retainedFrom)}, and processes that finished before then have been removed by retention.
+        </p>
+      )}
+      {read.alertsFailed && (
+        <p className="session-view__notice" role="status">This session&apos;s alerts could not be loaded, so none are shown.</p>
+      )}
+      {read.alertsTruncated && (
+        <p className="session-view__notice" role="status">
+          This session has more than {MAX_SESSION_ALERTS.toLocaleString()} alerts; only the {MAX_SESSION_ALERTS.toLocaleString()} most
+          recent are badged.
+        </p>
+      )}
+    </>
   );
 }
 
-function SessionBody({ tree, error, calls, hostId }: {
-  readonly tree: TreeResponse | null;
-  readonly error: string | null;
+function SessionBody({ read, calls, hostId, alertsByProcess }: {
+  readonly read: SessionRead | null;
   readonly calls: ToolCall[];
   readonly hostId: string;
+  readonly alertsByProcess: ReadonlyMap<number, Alert[]>;
 }) {
-  if (error) return <EmptyState>Error: {error}</EmptyState>;
-  if (!tree) return <EmptyState>Loading...</EmptyState>;
+  if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
+  if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
   if (calls.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
+  const expandAll = calls.length <= AUTO_EXPAND_CALLS;
   return (
     <ol className="session-view__calls">
-      {calls.map((call) => <ToolCallGroup key={call.key} call={call} hostId={hostId} />)}
+      {calls.map((call) => {
+        const alerts = call.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
+        return (
+          <ToolCallGroup
+            key={call.key}
+            call={call}
+            hostId={hostId}
+            alerts={alerts}
+            alertsByProcess={alertsByProcess}
+            defaultOpen={expandAll || alerts.length > 0}
+          />
+        );
+      })}
     </ol>
   );
 }
 
-function ToolCallGroup({ call, hostId }: { readonly call: ToolCall; readonly hostId: string }) {
-  const [open, setOpen] = useState(true);
+// highestSeverity is the most severe of the alerts' severities, for the group's badge.
+function highestSeverity(alerts: readonly Alert[]): string {
+  return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
+}
+
+function ToolCallGroup({ call, hostId, alerts, alertsByProcess, defaultOpen }: {
+  readonly call: ToolCall;
+  readonly hostId: string;
+  readonly alerts: readonly Alert[];
+  readonly alertsByProcess: ReadonlyMap<number, Alert[]>;
+  readonly defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <li className="session-view__call">
       <button
@@ -104,16 +208,25 @@ function ToolCallGroup({ call, hostId }: { readonly call: ToolCall; readonly hos
         <span className="session-view__meta">
           {formatNs(call.startNs)} · {call.processCount.toLocaleString()} {call.processCount === 1 ? "process" : "processes"}
         </span>
+        {alerts.length > 0 && (
+          <Badge variant={severityBadgeVariant(highestSeverity(alerts))}>
+            {alerts.length} {alerts.length === 1 ? "alert" : "alerts"}
+          </Badge>
+        )}
       </button>
-      {open && call.rows.length > 0 && <ProcessRows rows={call.rows} hostId={hostId} />}
+      {open && call.rows.length > 0 && <ProcessRows rows={call.rows} hostId={hostId} alertsByProcess={alertsByProcess} />}
     </li>
   );
 }
 
-function ProcessRows({ rows, hostId }: { readonly rows: SessionRow[]; readonly hostId: string }) {
+function ProcessRows({ rows, hostId, alertsByProcess }: {
+  readonly rows: SessionRow[];
+  readonly hostId: string;
+  readonly alertsByProcess: ReadonlyMap<number, Alert[]>;
+}) {
   return (
     <ul className="session-view__rows">
-      {rows.map(({ node, children }) => (
+      {rows.map(({ node, children, uidChange }) => (
         <li key={node.id}>
           <div className="session-view__row">
             <Link to={hostHref(hostId, node.id, node.fork_time_ns)} className="session-view__name">{basename(node.path)}</Link>
@@ -122,8 +235,22 @@ function ProcessRows({ rows, hostId }: { readonly rows: SessionRow[]; readonly h
               pid {node.pid} · {formatNs(node.fork_time_ns)}
               {node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
             </span>
+            {uidChange && (
+              <span title={`Runs as uid ${String(uidChange.to)}; its creator ran as uid ${String(uidChange.from)}`}>
+                <Badge variant="high">{uidChange.to === 0 ? "runs as root" : `runs as uid ${String(uidChange.to)}`}</Badge>
+              </span>
+            )}
+            {(alertsByProcess.get(node.id) ?? []).map((alert) => (
+              <span key={alert.id} className="session-view__alert">
+                <Link to={`/alerts/${String(alert.id)}`}>
+                  <Badge variant={severityBadgeVariant(alert.severity)}>{alert.title}</Badge>
+                </Link>
+                {/* A vendored rule's match owes its author the credit on every surface that shows it (issue #765). */}
+                {alert.origin && <span className="session-view__meta">{alert.origin}</span>}
+              </span>
+            ))}
           </div>
-          {children.length > 0 && <ProcessRows rows={children} hostId={hostId} />}
+          {children.length > 0 && <ProcessRows rows={children} hostId={hostId} alertsByProcess={alertsByProcess} />}
         </li>
       ))}
     </ul>
