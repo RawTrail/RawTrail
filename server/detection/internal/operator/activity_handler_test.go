@@ -21,6 +21,20 @@ type fakeActivityReader struct {
 	filter *visibilityapi.ActivityFilter
 	result visibilityapi.ActivityRollup
 	err    error
+	// processes are the rows GetProcessByID answers from, by id; processErr fails it.
+	processes  map[int64]api.Process
+	processErr error
+}
+
+func (f *fakeActivityReader) GetProcessByID(_ context.Context, hostID string, id int64) (*api.Process, error) {
+	if f.processErr != nil {
+		return nil, f.processErr
+	}
+	p, ok := f.processes[id]
+	if !ok || p.HostID != hostID {
+		return nil, nil
+	}
+	return &p, nil
 }
 
 func (f *fakeActivityReader) ActivityForGenerations(
@@ -78,55 +92,49 @@ func generationsOf(f *visibilityapi.ActivityFilter) []visibilityapi.ProcessGener
 }
 
 // spec:server-rest-api/process-activity-rollup/a-process-or-its-subtree-is-totalled
-func TestActivityHandler_ProcessAndSubtree(t *testing.T) {
+func TestActivityHandler_ProcessAlone(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		name    string
-		query   string
-		want    []visibilityapi.ProcessGeneration
-		scope   timelineScope
-		process []int64
-	}{
-		{
-			name:  "the process alone, without its ancestors or children",
-			query: "scope=process&process=2",
-			want:  []visibilityapi.ProcessGeneration{{PID: 20, PIDVersion: 200}},
-			scope: timelineScope{Applied: true, Processes: 1}, process: []int64{2},
-		},
-		{
-			name:  "the process and its descendants, without its ancestors",
-			query: "scope=subtree&process=2",
-			want:  []visibilityapi.ProcessGeneration{{PID: 20, PIDVersion: 200}, {PID: 30, PIDVersion: 300}},
-			scope: timelineScope{Applied: true, Processes: 3, Unmatched: 1}, process: []int64{2, 3},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			var gotPin int64
-			readChain := func(_ context.Context, hostID string, _ api.TimeRange, pin int64, flatten bool) (api.ProcessTreeResult, error) {
-				assert.Equal(t, "h1", hostID)
-				assert.True(t, flatten, "generations are read from the raw forest")
-				gotPin = pin
-				return activityChain(), nil
-			}
-			svc := fakeService{buildChainTree: readChain}
-			reader := &fakeActivityReader{result: visibilityapi.ActivityRollup{Network: visibilityapi.NetworkActivity{
-				ActivityTotals: visibilityapi.ActivityTotals{Events: 5, Distinct: 2},
-			}}}
-			status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), tc.query)
-			require.Equal(t, http.StatusOK, status)
-			assert.Equal(t, int64(2), gotPin)
-			assert.Equal(t, tc.want, generationsOf(reader.filter))
-			assert.Equal(t, "h1", reader.filter.HostID)
-			assert.Equal(t, tc.scope, out.Scope)
-			var ids []int64
-			for _, p := range out.Processes {
-				ids = append(ids, p.ID)
-			}
-			assert.Equal(t, tc.process, ids)
-			assert.Equal(t, int64(5), out.Network.Events, "the rollup is passed through")
-		})
+	// The process alone is one row by its id: no tree read at all.
+	svc := fakeService{buildChainTree: func(context.Context, string, api.TimeRange, int64, bool) (api.ProcessTreeResult, error) {
+		t.Error("a process scope must not read the chain")
+		return api.ProcessTreeResult{}, nil
+	}}
+	pv := uint32(200)
+	reader := &fakeActivityReader{processes: map[int64]api.Process{2: {ID: 2, HostID: "h1", PID: 20, PIDVersion: &pv, Path: "/bin/zsh"}}}
+	status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), "scope=process&process=2")
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []visibilityapi.ProcessGeneration{{PID: 20, PIDVersion: 200}}, generationsOf(reader.filter))
+	assert.Equal(t, timelineScope{Applied: true, Processes: 1}, out.Scope)
+	assert.Equal(t, []activityProcess{{ID: 2, PID: 20, PIDVersion: 200, Path: "/bin/zsh"}}, out.Processes)
+}
+
+// spec:server-rest-api/process-activity-rollup/a-process-or-its-subtree-is-totalled
+func TestActivityHandler_Subtree(t *testing.T) {
+	t.Parallel()
+	var gotPin int64
+	readChain := func(_ context.Context, hostID string, _ api.TimeRange, pin int64, flatten bool) (api.ProcessTreeResult, error) {
+		assert.Equal(t, "h1", hostID)
+		assert.True(t, flatten, "generations are read from the raw forest")
+		gotPin = pin
+		return activityChain(), nil
 	}
+	reader := &fakeActivityReader{result: visibilityapi.ActivityRollup{Network: visibilityapi.NetworkActivity{
+		ActivityTotals: visibilityapi.ActivityTotals{Events: 5, Distinct: 2},
+	}}}
+	srv := newActivityServer(t, fakeService{buildChainTree: readChain}, reader, allowAllAuthZ{})
+	status, out := getActivity(t, srv, "scope=subtree&process=2")
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, int64(2), gotPin)
+	// The process and its descendants, without its ancestor; the child without a generation is counted as unmatched.
+	assert.Equal(t, []visibilityapi.ProcessGeneration{{PID: 20, PIDVersion: 200}, {PID: 30, PIDVersion: 300}}, generationsOf(reader.filter))
+	assert.Equal(t, "h1", reader.filter.HostID)
+	assert.Equal(t, timelineScope{Applied: true, Processes: 3, Unmatched: 1}, out.Scope)
+	var ids []int64
+	for _, p := range out.Processes {
+		ids = append(ids, p.ID)
+	}
+	assert.Equal(t, []int64{2, 3}, ids)
+	assert.Equal(t, int64(5), out.Network.Events, "the rollup is passed through")
 }
 
 // spec:server-rest-api/process-activity-rollup/a-session-or-story-is-totalled
@@ -163,18 +171,24 @@ func TestActivityHandler_SessionAndStory(t *testing.T) {
 	}
 }
 
-// A process the chain read does not hold is a scope of nothing, not the host's whole activity.
+// A process that is not stored, or that belongs to another host, is a scope of nothing, not the host's whole activity.
 func TestActivityHandler_UnknownProcessTotalsNothing(t *testing.T) {
 	t.Parallel()
 	svc := fakeService{buildChainTree: func(context.Context, string, api.TimeRange, int64, bool) (api.ProcessTreeResult, error) {
 		return activityChain(), nil
 	}}
-	reader := &fakeActivityReader{}
-	status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), "scope=process&process=99")
-	require.Equal(t, http.StatusOK, status)
-	assert.Empty(t, generationsOf(reader.filter))
-	assert.Equal(t, timelineScope{}, out.Scope)
-	assert.NotNil(t, out.Processes)
+	pv := uint32(1)
+	for _, query := range []string{"scope=process&process=99", "scope=process&process=7", "scope=subtree&process=99"} {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			reader := &fakeActivityReader{processes: map[int64]api.Process{7: {ID: 7, HostID: "other-host", PID: 70, PIDVersion: &pv}}}
+			status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), query)
+			require.Equal(t, http.StatusOK, status)
+			assert.Empty(t, generationsOf(reader.filter))
+			assert.Equal(t, timelineScope{}, out.Scope)
+			assert.NotNil(t, out.Processes)
+		})
+	}
 }
 
 // spec:server-rest-api/process-activity-rollup/a-malformed-activity-scope-is-rejected
@@ -203,9 +217,11 @@ func TestActivityHandler_Errors(t *testing.T) {
 		{name: "a chain is not an activity scope", svc: chain, reader: reader(), az: allow, query: "scope=chain&pin=2",
 			want: http.StatusBadRequest},
 		{name: "session without an id", svc: chain, reader: reader(), az: allow, query: "scope=session", want: http.StatusBadRequest},
-		{name: "tree read fails", svc: failingTree, reader: reader(), az: allow, query: "scope=process&process=2",
+		{name: "tree read fails", svc: failingTree, reader: reader(), az: allow, query: "scope=subtree&process=2",
 			want: http.StatusInternalServerError},
-		{name: "archive read fails", svc: chain, reader: failingReader, az: allow, query: "scope=process&process=2",
+		{name: "process read fails", svc: chain, reader: &fakeActivityReader{processErr: errors.New("boom")}, az: allow,
+			query: "scope=process&process=2", want: http.StatusInternalServerError},
+		{name: "archive read fails", svc: chain, reader: failingReader, az: allow, query: "scope=subtree&process=2",
 			want: http.StatusInternalServerError},
 		{name: "surface not wired", svc: chain, az: allow, query: "scope=process&process=2", want: http.StatusServiceUnavailable},
 		{name: "process read not granted", svc: chain, reader: reader(), az: denyAllAuthZ{}, query: "scope=process&process=2",

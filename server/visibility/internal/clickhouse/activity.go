@@ -115,11 +115,12 @@ func (s *Store) networkActivity(ctx context.Context, scope string, args []any, l
 	})
 }
 
-// dnsActivity lists the names resolved, each with up to 16 of the addresses its answers carried, sorted.
+// dnsActivity lists the names resolved, each with up to 16 of the addresses its answers carried, sorted. The bound is inside the
+// aggregate, so a name whose answers rotate through many addresses does not collect all of them only to keep 16.
 func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, limit int) ([]api.DNSActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT JSONExtractString(payload, 'query_name') AS name,
-			arraySlice(arraySort(groupUniqArrayArray(JSONExtract(payload, 'response_addresses', 'Array(String)'))), 1, 16),
+			arraySort(groupUniqArrayArray(16)(JSONExtract(payload, 'response_addresses', 'Array(String)'))),
 			pid, `+activityPIDVersion+` AS pv, toInt64(sum(`+activityWeight+`)), min(timestamp_ns) AS first,
 			max(`+activityLastTimestamp+`)
 		FROM events FINAL

@@ -2729,7 +2729,7 @@ components:
                             description: Up to 16 of the addresses the answers carried, sorted.
                             items: {type: string}
         scope:
-          $ref: "#/components/schemas/TimelineScope"
+          $ref: "#/components/schemas/ActivityScope"
         processes:
           type: array
           description: The scope's processes that carry a generation, mapping a row's `pid` and `pidversion` to the process.
@@ -2741,6 +2741,25 @@ components:
               pid: {type: integer}
               pidversion: {type: integer, format: int64}
               path: {type: string}
+    ActivityScope:
+      type: object
+      description: How far an activity read's scope reached.
+      required: [applied, processes, unmatched, truncated]
+      properties:
+        applied:
+          type: boolean
+          description: >-
+            At least one of the scope's processes carries a generation. When false the activity is empty, never the host's: 0
+            `processes` means the scope names nothing stored, and otherwise none of its processes can be matched.
+        processes:
+          type: integer
+          description: The scope's processes.
+        unmatched:
+          type: integer
+          description: Processes in the scope with no generation, whose activity cannot be selected and is missing from the totals.
+        truncated:
+          type: boolean
+          description: The scope had more processes than are read (5,000 generations), so the activity reflects part of it.
     ActivityTotals:
       type: object
       required: [events, distinct, truncated]

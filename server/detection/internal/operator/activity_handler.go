@@ -13,9 +13,11 @@ import (
 	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
 )
 
-// ActivityReader is the activity rollup read surface (issue #1285): what a set of process generations touched, from the archive.
+// ActivityReader is the activity rollup read surface (issue #1285): what a set of process generations touched, from the archive, and
+// the one process a process scope names, read by its row id.
 type ActivityReader interface {
 	ActivityForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivityRollup, error)
+	GetProcessByID(ctx context.Context, hostID string, id int64) (*api.Process, error)
 }
 
 // SetActivity installs the activity read surface. Bootstrap wires it with the detection store in ModeFull; unset, the route answers
@@ -99,12 +101,20 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, r, activityResponse{ActivityRollup: rollup, Scope: *scope, Processes: processes})
 }
 
-// activityScopeProcesses reads the scope's processes. A process or its subtree is read from the chain pinned at it, whose descendants
-// come from the story index (issue #1282), and cut at the pinned process: its ancestors did not do what the process did.
+// activityScopeProcesses reads the scope's processes. A process alone is read by its row id. Its subtree is read from the chain
+// pinned at it, whose descendants come from the story index (issue #1282), and cut at the pinned process: its ancestors did not do
+// what the process did.
 func (h *Handler) activityScopeProcesses(ctx context.Context, hostID string, req activityScopeRequest) ([]api.ProcessNode, bool, error) {
-	if req.process == 0 {
+	switch {
+	case req.process == 0:
 		res, err := h.svc.BuildScopedTree(ctx, hostID, req.tree, maxTimelineChain, true, 0)
 		return res.Roots, res.Truncated, err
+	case !req.subtree:
+		proc, err := h.activity.GetProcessByID(ctx, hostID, req.process)
+		if err != nil || proc == nil {
+			return nil, false, err
+		}
+		return []api.ProcessNode{{Process: *proc}}, false, nil
 	}
 	res, err := h.svc.BuildChainTree(ctx, hostID, api.TimeRange{ToNs: math.MaxInt64}, req.process, true)
 	if err != nil {
@@ -113,11 +123,6 @@ func (h *Handler) activityScopeProcesses(ctx context.Context, hostID string, req
 	pinned := findProcessNode(res.Roots, req.process)
 	if pinned == nil {
 		return nil, false, nil
-	}
-	if !req.subtree {
-		alone := *pinned
-		alone.Children = nil
-		return []api.ProcessNode{alone}, false, nil
 	}
 	return []api.ProcessNode{*pinned}, res.Truncated, nil
 }
