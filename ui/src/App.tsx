@@ -197,15 +197,15 @@ export function AuthedApp() {
             )}
           />
           <Route
-            path="/sessions"
+            path="/agent-sessions"
             element={(
-              <RequirePermission action={PermissionAction.ProcessRead} surface="Sessions">
+              <RequirePermission action={PermissionAction.ProcessRead} surface="Agent sessions">
                 <SessionList />
               </RequirePermission>
             )}
           />
           <Route
-            path="/sessions/:hostId/:sessionId"
+            path="/agent-sessions/:hostId/:sessionId"
             element={(
               <RequirePermission action={PermissionAction.ProcessRead} surface="Session">
                 <SessionView />

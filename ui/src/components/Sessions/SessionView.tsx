@@ -180,7 +180,7 @@ export function SessionView() {
 
   return (
     <div className="session-view">
-      <Link to="/sessions" className="session-view__back">All sessions</Link>
+      <Link to="/agent-sessions" className="session-view__back">All agent sessions</Link>
       <PageHeader
         title={title}
         subtitle={subtitle}

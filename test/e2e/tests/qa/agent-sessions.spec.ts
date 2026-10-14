@@ -1,6 +1,6 @@
 // The AI agent sessions page (issue #1283) and session view (issue #1284), driven from a real ingest: the fake agent posts a Claude
 // Code session's four Bash tool calls with the session markers the production agent forwards, the server records the session, and the
-// operator finds it on the Sessions page, narrows the list to it, and opens it to see what each tool call ran.
+// operator finds it on the Agent sessions page, narrows the list to it, and opens it to see what each tool call ran.
 //
 // The host id is fresh per run and the list is filtered to it, so rows other specs or an operator left on the dev database cannot
 // stand in for this session.
@@ -33,8 +33,8 @@ test.describe("agent sessions", () => {
     await waitForSession(hostId);
 
     await page.goto("/ui/alerts");
-    await page.getByRole("link", { name: "Sessions", exact: true }).click();
-    await expect(page).toHaveURL(/\/ui\/sessions$/);
+    await page.getByRole("link", { name: "Agent sessions", exact: true }).click();
+    await expect(page).toHaveURL(/\/ui\/agent-sessions$/);
 
     // Narrow to this run's host through the page's own filter, which the server applies.
     await page.getByLabel("Add filter field").selectOption("host_id");
@@ -53,7 +53,7 @@ test.describe("agent sessions", () => {
     await expect(cells.nth(7)).toHaveText(SESSION_ID.slice(0, 8));
 
     await rows.first().getByRole("link", { name: "claude-code" }).click();
-    await expect(page).toHaveURL(new RegExp(`/ui/sessions/${hostId}/${SESSION_ID}$`));
+    await expect(page).toHaveURL(new RegExp(`/ui/agent-sessions/${hostId}/${SESSION_ID}$`));
     await expect(page.getByRole("heading", { name: "claude-code 2.1.296" })).toBeVisible({ timeout: 10_000 });
 
     // One group per tool call, in order, labelled with the command the agent ran rather than its wrapper script.

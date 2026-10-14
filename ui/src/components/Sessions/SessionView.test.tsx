@@ -13,9 +13,9 @@ function tree(over: Partial<TreeResponse> = {}): TreeResponse {
 
 function renderView() {
   return render(
-    <MemoryRouter initialEntries={[`/sessions/H1/${SESSION}`]}>
+    <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
       <Routes>
-        <Route path="/sessions/:hostId/:sessionId" element={<SessionView />} />
+        <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -483,10 +483,10 @@ describe("SessionView", () => {
       .mockResolvedValueOnce(tree())
       .mockImplementationOnce(() => new Promise(() => undefined));
     render(
-      <MemoryRouter initialEntries={[`/sessions/H1/${SESSION}`]}>
-        <Link to="/sessions/H1/other-session">next</Link>
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
+        <Link to="/agent-sessions/H1/other-session">next</Link>
         <Routes>
-          <Route path="/sessions/:hostId/:sessionId" element={<SessionView />} />
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
         </Routes>
       </MemoryRouter>,
     );
@@ -502,10 +502,10 @@ describe("SessionView", () => {
     vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
     vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
     render(
-      <MemoryRouter initialEntries={[`/sessions/H1/${SESSION}`]}>
-        <Link to="/sessions/H1/other-session">next</Link>
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
+        <Link to="/agent-sessions/H1/other-session">next</Link>
         <Routes>
-          <Route path="/sessions/:hostId/:sessionId" element={<SessionView />} />
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
         </Routes>
       </MemoryRouter>,
     );
@@ -523,10 +523,10 @@ describe("SessionView", () => {
       .mockRejectedValueOnce(new Error("boom"))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }));
     render(
-      <MemoryRouter initialEntries={[`/sessions/H1/${SESSION}`]}>
-        <Link to="/sessions/H1/other-session">next</Link>
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
+        <Link to="/agent-sessions/H1/other-session">next</Link>
         <Routes>
-          <Route path="/sessions/:hostId/:sessionId" element={<SessionView />} />
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
         </Routes>
       </MemoryRouter>,
     );
