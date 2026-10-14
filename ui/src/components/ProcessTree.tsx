@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback, type RefObject } fro
 import { useParams, useSearchParams, useLocation, Link } from "react-router";
 import * as d3 from "d3";
 import { APP_CONTROL_RULE_PREFIX, fetchRuleDocs, getAlertDetail, getAppControlRule, getProcessTree, listAlerts } from "../api";
-import type { AlertDetail, ProcessNode } from "../types";
+import type { AlertDetail, ProcessNode, ProcessLink } from "../types";
 import {
   NANOSECONDS_PER_MILLISECOND,
 } from "../constants";
@@ -35,8 +35,12 @@ import {
   type D3PointNode,
 } from "./ProcessTree.helpers";
 import { renderTree, TREE_MARGIN_PX } from "./ProcessTree.render";
+import { applyLaunchLinks } from "./launchLinks";
 import { formatNs } from "./Search/format";
 import "./ProcessTree.scss";
+
+// NO_INFERRED is the strict tree's empty set of inferred rows, shared so the render effect does not rerun for a fresh empty set.
+const NO_INFERRED: ReadonlySet<number> = new Set();
 
 // Evidence tooltip layout (issue #580): how far the hover card sits from the pointer, and the room reserved so a card near the
 // right/bottom viewport edge clamps back into view instead of rendering off-screen (width tracks the card's 34rem max-width).
@@ -73,7 +77,16 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
   const searchInputRef = useRef<HTMLInputElement>(null);
   const layoutNodesRef = useRef<D3PointNode[]>([]);
   const matchesRef = useRef<D3PointNode[]>([]);
-  const [roots, setRoots] = useState<ProcessNode[]>([]);
+  const [rawRoots, setRoots] = useState<ProcessNode[]>([]);
+  // links are the read's inferred launches (issue #1286). The logical tree hangs each launched process under the open or launchctl
+  // that asked for it; the strict tree, the default, keeps the parentage the OS reported.
+  const [links, setLinks] = useState<ProcessLink[]>([]);
+  const [logicalTree, setLogicalTree] = useState(false);
+  const logical = useMemo(
+    () => (logicalTree ? applyLaunchLinks(rawRoots, links) : { roots: rawRoots, inferred: NO_INFERRED }),
+    [rawRoots, links, logicalTree],
+  );
+  const roots = logical.roots;
   const [selectedNode, setSelectedNode] = useState<ProcessNode | null>(null);
   // The page's single time source (issue #581). Arriving from an alert anchors a wide window at the alert time (the alert-pivot
   // requirement's default); otherwise a live 1h window. Every consumer (tree fetch, histogram, control label) reads windowBounds
@@ -310,6 +323,7 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
       .then((res) => {
         if (cancelled) return;
         setRoots(res.roots);
+        setLinks(res.links ?? []);
         setTruncation(
           res.truncated ? { returned: res.returned, totalMatched: res.total_matched, capped: res.total_matched_capped } : null,
         );
@@ -389,6 +403,7 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
     /* eslint-enable react-hooks/set-state-in-effect */
     const result = renderTree(svgRef.current, visibleRoots, setSelectedNode, {
       alertProcessIds,
+      inferredIds: logical.inferred,
       techniquesByNodeId,
       onToggleCollapsed: toggleCollapsed,
       expandedAggIds,
@@ -396,7 +411,7 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
       onHover: setHoverTip,
     });
     layoutNodesRef.current = result.nodes;
-  }, [visibleRoots, alertProcessIds, techniquesByNodeId, toggleCollapsed, expandedAggIds, toggleAggExpanded]);
+  }, [visibleRoots, alertProcessIds, techniquesByNodeId, toggleCollapsed, expandedAggIds, toggleAggExpanded, logical.inferred]);
 
   // Focus the currently-active match: scroll the canvas so the match sits near the
   // vertical centre, preserving the user's current zoom level and scroll position
@@ -539,6 +554,21 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
       </div>
       {/* Only offer the toggle when it would change the rendered tree. On an alert chain whose only system-path nodes are the alerted
           process and its ancestors (kept regardless), flipping it does nothing, so a dead switch is hidden rather than shown. */}
+      {links.length > 0 && (
+        <label
+          className="process-tree__toggle"
+          title="Hang what launchd started under the open or launchctl that asked for it, linked by timing and target"
+        >
+          <input
+            type="checkbox"
+            className="process-tree__toggle-input"
+            checked={logicalTree}
+            onChange={(e) => { setLogicalTree(e.target.checked); }}
+          />
+          <span className="process-tree__toggle-switch" aria-hidden="true" />
+          <span className="process-tree__toggle-label">Logical tree</span>
+        </label>
+      )}
       {systemToggleChangesView && (
         <label
           className="process-tree__toggle"

@@ -14,6 +14,7 @@ import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
 import { formatNs, basename, plural } from "../Search/format";
 import { findNodeByDbId } from "../ProcessTree.helpers";
+import { applyLaunchLinks } from "../launchLinks";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import {
@@ -36,6 +37,9 @@ const AUTO_EXPAND_CALLS = 10;
 // ROW_CAP is how many processes a list shows before "Show more": a call that ran a long loop opens on its first rows rather than on
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
+// INFERRED_LAUNCH_TITLE explains an inferred launch's badge: the row is listed under its launcher, which is not its creator.
+const INFERRED_LAUNCH_TITLE =
+  "Started by launchd moments after the process it is listed under asked for it: linked by timing and target, not lineage";
 // MAX_SESSION_ALERTS bounds the session's alert read. One more is asked for, so a session with more is reported rather than shown as
 // if its first page were all of them.
 const MAX_SESSION_ALERTS = 1000;
@@ -127,7 +131,9 @@ export function SessionView() {
       if (!tree) return [];
       const incomplete = tree.truncated || current === null || current.alertsFailed === true || current.alertsTruncated === true
         || beganBeforeRetention(current);
-      return buildToolCalls(tree.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete });
+      // What launchd started for a call's open or launchctl is listed under it, marked inferred (issue #1286).
+      const logical = applyLaunchLinks(tree.roots, tree.links);
+      return buildToolCalls(logical.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred });
     },
     [tree, verbose, alertsByProcess, current],
   );
@@ -354,7 +360,7 @@ function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
 
 function ProcessRow({ listed }: { readonly listed: SessionRow }) {
   const { alertsByProcess, hits, selectedId, onSelect } = useSessionRows();
-  const { node, children, uidChange, folded } = listed;
+  const { node, children, uidChange, folded, inferred } = listed;
   const span = folded ? forkSpan(listed) : null;
   const rowClass = `session-view__row${hits.rows.has(listed) ? " session-view__row--hit" : ""}`;
   return (
@@ -376,6 +382,11 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
             : `pid ${String(node.pid)} · ${formatNs(node.fork_time_ns)}`}
           {node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
         </span>
+        {inferred && (
+          <span title={INFERRED_LAUNCH_TITLE}>
+            <Badge variant="info">inferred launch</Badge>
+          </span>
+        )}
         {uidChange && (
           <span title={`Runs as uid ${String(uidChange.to)}; its creator ran as uid ${String(uidChange.from)}`}>
             <Badge variant="high">{uidChange.to === 0 ? "runs as root" : `runs as uid ${String(uidChange.to)}`}</Badge>

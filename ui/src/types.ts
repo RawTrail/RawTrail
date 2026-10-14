@@ -358,6 +358,14 @@ export interface ProcessDetail {
   flows_truncated?: boolean;
 }
 
+// ProcessLink is an edge between two process rows that parentage does not hold (issue #1286). inferred_launch links an open or
+// launchctl exec to the process launchd started for it, inferred from timing and target rather than lineage.
+export interface ProcessLink {
+  from: number;
+  to: number;
+  kind: "inferred_launch";
+}
+
 // TreeResponse is the response from GET /api/hosts/{host_id}/tree: the forest plus the metadata that lets the page say what it is
 // NOT showing (issue #423). returned counts the process rows the server's limit admitted, before sibling aggregation folded any of
 // them into "×N" nodes; total_matched counts rows overlapping the window, independent of the ROW limit but bounded by the server's
@@ -369,6 +377,8 @@ export interface ProcessDetail {
 // rendered nodes undercounts because aggregation collapses siblings.
 export interface TreeResponse {
   roots: ProcessNode[];
+  // links are the read's inferred launches; absent when there are none.
+  links?: ProcessLink[];
   returned: number;
   total_matched: number;
   total_matched_capped: boolean;
