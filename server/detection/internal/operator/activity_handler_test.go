@@ -222,9 +222,9 @@ func TestActivityHandler_SessionIncludesTheAgent(t *testing.T) {
 		status, out := getActivity(t, srv, "scope=session&session=47abb2a1")
 		require.Equal(t, http.StatusOK, status)
 		assert.Equal(t, []visibilityapi.ProcessGeneration{
-			{PID: 5001, PIDVersion: 1}, {PID: 5002, PIDVersion: 2}, {PID: 5003, PIDVersion: 3}, {PID: int64(agentPID), PIDVersion: 9},
+			{PID: int64(agentPID), PIDVersion: 9}, {PID: 5001, PIDVersion: 1}, {PID: 5002, PIDVersion: 2}, {PID: 5003, PIDVersion: 3},
 		}, generationsOf(reader.filter))
-		assert.Equal(t, agentRow, out.Processes[3].ID)
+		assert.Equal(t, agentRow, out.Processes[0].ID)
 	})
 
 	for _, tc := range []struct {
@@ -364,11 +364,11 @@ func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
 	// A program the session had launchd run is a root without the session's marker too, but it is not the agent: it stays whole even
 	// when it touched session paths of its own.
 	launched := activityNode(2, 6001, 2)
-	readScope := func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
-		return api.ProcessTreeResult{Roots: []api.ProcessNode{shell, launched}}, nil
-	}
 	sessions := api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: sessionID, AgentPID: &agentPID}}}
-	serve := func(reader *fakeActivityReader) int {
+	serveRoots := func(reader *fakeActivityReader, roots []api.ProcessNode) int {
+		readScope := func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+			return api.ProcessTreeResult{Roots: roots}, nil
+		}
 		h := New(fakeService{buildScopedTree: readScope}, allowAllAuthZ{}, slog.Default())
 		h.SetActivity(reader)
 		h.SetAgentSessions(&fakeSessionLister{result: sessions})
@@ -379,6 +379,7 @@ func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
 		status, _ := getActivity(t, srv, "scope=session&session="+sessionID)
 		return status
 	}
+	serve := func(reader *fakeActivityReader) int { return serveRoots(reader, []api.ProcessNode{shell, launched}) }
 
 	reader := &fakeActivityReader{
 		processes: map[int64]api.Process{agentRow: agentProc},
@@ -397,4 +398,14 @@ func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
 
 	failing := &fakeActivityReader{processes: map[int64]api.Process{agentRow: agentProc}, touchesErr: errors.New("ch")}
 	assert.Equal(t, http.StatusInternalServerError, serve(failing))
+
+	// A session over the generation cap is cut from its tail, and the agent is not what is cut.
+	crowded := []api.ProcessNode{shell}
+	for i := range maxTimelineChain {
+		crowded = append(crowded, activityNode(int64(100+i), 10_000+i, 1))
+	}
+	capped := &fakeActivityReader{processes: reader.processes, touches: reader.touches}
+	require.Equal(t, http.StatusOK, serveRoots(capped, crowded))
+	assert.Len(t, capped.filter.Generations, maxTimelineChain-1, "the agent's generation is the one the cap made room for")
+	assert.Equal(t, reader.filter.Spans, capped.filter.Spans, "a crowded session still bounds its agent")
 }

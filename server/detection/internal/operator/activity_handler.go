@@ -113,7 +113,8 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 
 // activityScopeProcesses reads the scope's processes. A process alone is read by its row id. Its subtree is read from the chain
 // pinned at it, whose descendants come from the story index (issue #1282), and cut at the pinned process: its ancestors did not do
-// what the process did. For a session it also returns the agent processes it added to the session's own, which are among the roots.
+// what the process did. For a session it also returns the agent processes it added to the session's own, which lead the roots: a
+// scope over the generation cap is cut from its tail, and the agent, whose Read, Edit and Write run inside it, must not be what goes.
 func (h *Handler) activityScopeProcesses(
 	ctx context.Context, hostID string, req activityScopeRequest,
 ) (roots, agents []api.ProcessNode, truncated bool, err error) {
@@ -124,7 +125,7 @@ func (h *Handler) activityScopeProcesses(
 			return res.Roots, nil, res.Truncated, err
 		}
 		agents, err := h.sessionAgents(ctx, hostID, req.tree.AgentSessionID, res.Roots)
-		return append(res.Roots, agents...), agents, res.Truncated, err
+		return append(slices.Clone(agents), res.Roots...), agents, res.Truncated, err
 	case !req.subtree:
 		proc, err := h.activity.GetProcessByID(ctx, hostID, req.process)
 		if err != nil || proc == nil {
