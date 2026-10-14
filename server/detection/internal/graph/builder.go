@@ -261,13 +261,19 @@ func (b *Builder) handleFork(ctx context.Context, w processStore, evt api.Event)
 	// The signing identity is inherited with the path, from that same image. A forked child runs its parent's binary until it
 	// execs, so the identity is as much its own as the path is, and recording the path without it left every signature exclusion
 	// missing a forked process while matching an exec'd one (issue #1123). An exec on this pid overwrites all of it.
-	parentImage, err := w.GetParentImage(ctx, evt.HostID, p.ParentPID, evt.TimestampNs)
-	if err != nil {
-		b.logger.WarnContext(ctx, "failed to get parent image", "host_id", evt.HostID, "parent_pid", p.ParentPID, "err", err)
-	}
+	//
+	// When the fork named its creator exactly, by (parent_pid, parent_pidversion), the image is that row's (issue #1298): exec bumps
+	// the pidversion, so the row is the image the creator was running when it forked. Picking by time instead can disagree with it
+	// once the parent's pid is reused, and a child linked to its real creator would inherit the pid's next process's binary.
 	creator, err := resolveCreator(ctx, w, evt, p.ParentPID, p.ParentPIDVersion)
 	if err != nil {
 		return err
+	}
+	parentImage := creatorImage(creator, evt.TimestampNs)
+	if creator == nil {
+		if parentImage, err = w.GetParentImage(ctx, evt.HostID, p.ParentPID, evt.TimestampNs); err != nil {
+			b.logger.WarnContext(ctx, "failed to get parent image", "host_id", evt.HostID, "parent_pid", p.ParentPID, "err", err)
+		}
 	}
 	inherited := inheritFrom(creator)
 	storyRoot := inherited.storyRoot
@@ -307,6 +313,16 @@ func resolveCreator(ctx context.Context, w processStore, evt api.Event, pid int,
 		return nil, nil
 	}
 	return w.ResolveParent(ctx, evt.HostID, pid, *pidversion, evt.TimestampNs)
+}
+
+// creatorImage is the image a forked child inherits from its resolved creator: the creator row's binary, with its signing identity
+// only if that identity was in force at the fork, by the rule the time-based lookup applies too. Zero without a creator.
+func creatorImage(creator *api.Process, forkNs int64) mysql.ParentImage {
+	if creator == nil {
+		return mysql.ParentImage{}
+	}
+	image := mysql.ParentImage{Path: creator.Path, CodeSigning: creator.CodeSigning, SHA256: creator.SHA256, CDHash: creator.CDHash}
+	return image.IdentityInForceAt(creator.ExecTimeNs, forkNs)
 }
 
 // launchdPID is launchd's pid. A process whose fork-time parent it is starts a story (issue #1281).
