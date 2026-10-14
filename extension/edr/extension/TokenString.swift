@@ -1,3 +1,5 @@
+import Foundation
+
 /// tokenString reads exactly `length` bytes at `data` as UTF-8: the bytes of an Endpoint Security string token, which carries its
 /// length and is not guaranteed to be NUL-terminated (issue #1293). It never reads past `length`, so a NUL inside the bytes is kept
 /// and a missing one is not looked for. No bytes, or bytes that are not valid UTF-8, read as the empty string rather than as text with
