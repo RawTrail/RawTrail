@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
 
-import { buildToolCalls, summarizeSession, type RowShape, type SessionRow } from "./sessionTree";
+import {
+  buildToolCalls,
+  containsHit,
+  forkSpan,
+  searchCalls,
+  summarizeSession,
+  type RowShape,
+  type SessionRow,
+} from "./sessionTree";
+import type { ProcessNode } from "../../types";
 import { MS, proc, realSession } from "../../test/agentSession";
 
 const QUIET: RowShape = { verbose: false };
@@ -171,5 +180,111 @@ describe("summarizeSession", () => {
 
   it("is empty for an empty session", () => {
     expect(summarizeSession([])).toEqual({ processCount: 0 });
+  });
+});
+
+// loop is one tool call, `for f in ...; do wc -l $f; done`, that ran wc n times and then sort once, as children of its shell.
+function loop(n: number, over: (i: number) => Partial<ProcessNode> = () => ({})): ProcessNode {
+  const wcs = Array.from({ length: n }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"], [], over(i)));
+  const sort = proc(99, 99, 10 + n, "/usr/bin/sort", ["sort"]);
+  return proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'for f in *; do wc -l f; done | sort'"], [...wcs, sort], {
+    tool_call_group: 1,
+  });
+}
+
+describe("folding", () => {
+  // spec:web-ui/ai-agent-session-view-navigation/identical-processes-are-folded
+  it("folds identical processes into one row that keeps the others, in order", () => {
+    const [call] = buildToolCalls([loop(5)], QUIET);
+    expect(outline(call.rows)).toEqual(["/usr/bin/wc", "/usr/bin/sort"]);
+    expect(call.rows[0].node.id).toBe(100);
+    expect(call.rows[0].folded?.map((n) => n.id)).toEqual([101, 102, 103, 104]);
+    expect(call.rows[1].folded).toBeUndefined();
+    expect(call.processCount).toBe(7);
+  });
+
+  it("does not fold a process that was flagged, changed privilege, or started anything", () => {
+    const keep = new Set([102]);
+    const tree = loop(5, (i) => {
+      if (i === 3) return { uid: 0 };
+      if (i === 4) return { children: [proc(200, 200, 30, "/bin/cat", ["cat"])] };
+      return {};
+    });
+    tree.uid = 501;
+    const [call] = buildToolCalls([tree], { verbose: false, keep });
+    expect(outline(call.rows)).toEqual(["/usr/bin/wc", "/usr/bin/wc", "/usr/bin/wc", "/usr/bin/wc", "  /bin/cat", "/usr/bin/sort"]);
+    expect(call.rows[0].folded?.map((n) => n.id)).toEqual([101]);
+  });
+
+  it("folds identical processes at every level, and merges a folded run hoisted from a shell copy into its siblings", () => {
+    // The call's shell ran wc twice itself and twice more from a subshell, whose copy of the shell is hidden: one row of four.
+    const wc = (id: number, at: number) => proc(id, id, at, "/usr/bin/wc", ["wc", "-l", "f"]);
+    // The subshell started at 20 but its wcs ran at 100 and 101, after the direct wc at 40.
+    const copy = proc(20, 20, 20, "/bin/zsh", undefined, [wc(21, 100), wc(22, 101)]);
+    // A pipeline the call ran nests three identical cats under xargs.
+    const xargs = proc(30, 30, 30, "/usr/bin/xargs", ["xargs", "cat"], [proc(31, 31, 31, "/bin/cat", ["cat", "f"]),
+      proc(32, 32, 32, "/bin/cat", ["cat", "f"]), proc(33, 33, 33, "/bin/cat", ["cat", "f"])]);
+    const root = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'x'"], [wc(10, 10), copy, wc(11, 40), xargs], { tool_call_group: 1 });
+    const [call] = buildToolCalls([root], QUIET);
+    expect(outline(call.rows)).toEqual(["/usr/bin/wc", "/usr/bin/xargs", "  /bin/cat"]);
+    expect(call.rows[0].folded?.map((n) => n.id)).toEqual([21, 22, 11]);
+    // Hoisting put the subshell's run (100, 101) ahead of the direct wc at 40, so the span is read across all of them, not from the last.
+    expect(forkSpan(call.rows[0])).toEqual({ firstNs: 10 * MS, lastNs: 101 * MS });
+    expect(call.rows[1].children[0].folded?.map((n) => n.id)).toEqual([32, 33]);
+  });
+
+  // spec:web-ui/ai-agent-session-view-navigation/runs-that-ended-differently-are-not-folded-together
+  it("keeps runs that ended differently apart, so a failure is not hidden behind a success", () => {
+    const [call] = buildToolCalls([loop(4, (i) => ({ exit_reason: "event", exit_code: i === 2 ? 1 : 0 }))], QUIET);
+    const wcs = call.rows.filter((r) => r.node.path === "/usr/bin/wc");
+    expect(wcs.map((r) => [r.node.exit_code, 1 + (r.folded?.length ?? 0)])).toEqual([[0, 3], [1, 1]]);
+  });
+
+  // spec:web-ui/ai-agent-session-view-navigation/nothing-is-folded-when-the-read-is-incomplete
+  it("does not fold when the read left processes or alerts out", () => {
+    const [call] = buildToolCalls([loop(5)], { verbose: false, incomplete: true });
+    expect(call.rows.filter((r) => r.node.path === "/usr/bin/wc")).toHaveLength(5);
+    expect(call.rows.some((r) => r.folded)).toBe(false);
+  });
+
+  it("does not fold processes that ran different commands", () => {
+    const [call] = buildToolCalls([loop(3, (i) => ({ args: ["wc", "-l", `f${String(i)}`] }))], QUIET);
+    expect(call.rows.filter((r) => r.node.path === "/usr/bin/wc")).toHaveLength(3);
+  });
+});
+
+describe("searchCalls", () => {
+  // spec:web-ui/ai-agent-session-view-navigation/search-expands-to-what-it-finds
+  it("finds matching processes, folded ones included, and counts them per call", () => {
+    const calls = buildToolCalls([...realSession(), loop(4)], QUIET);
+    const hits = searchCalls(calls, "  SLEEP ");
+    // Each call's own command counts once: (sleep 47 &) and its sleep; nohup sleep 48's command, nohup and sleep; and the sh -c call's
+    // command, sh and bash (both running "sleep 1; ..."), and its sleep.
+    expect(hits.byCall).toEqual(new Map([["row:2298325", 2], ["row:2298439", 3], ["row:2298447", 4]]));
+    const wc = searchCalls(calls, "wc -l");
+    expect(wc.byCall.get("row:1")).toBe(5);
+    expect([...wc.rows].map((r) => r.node.id)).toEqual([100]);
+  });
+
+  it("matches regardless of case", () => {
+    const shout = proc(5, 5, 5, "/bin/echo", ["echo", "Hello World"], [], { tool_call_group: 5 });
+    expect(searchCalls(buildToolCalls([shout], QUIET), "hello world").byCall.get("row:5")).toBe(2);
+  });
+
+  it("finds nothing for an empty query", () => {
+    const hits = searchCalls(buildToolCalls(realSession(), QUIET), "   ");
+    expect(hits.rows.size).toBe(0);
+    expect(hits.byCall.size).toBe(0);
+  });
+
+  it("reports a row whose descendant matched, so a capped list keeps it", () => {
+    const calls = buildToolCalls(realSession(), QUIET);
+    // Only the sleep matches its path; the bash above it runs "sleep 1; ..." but is not /bin/sleep.
+    const hits = searchCalls(calls, "/bin/sleep");
+    const bash = calls[4].rows[1];
+    expect(hits.rows.has(bash)).toBe(false);
+    expect(containsHit(bash, hits)).toBe(true);
+    expect(containsHit(bash.children[0], hits)).toBe(true);
+    expect(containsHit(calls[0].rows[0], hits)).toBe(false);
   });
 });

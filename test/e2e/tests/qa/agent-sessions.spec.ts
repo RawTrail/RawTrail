@@ -21,6 +21,7 @@ test.describe("agent sessions", () => {
   // spec:web-ui/ai-agent-session-view/tool-calls-are-labelled-with-the-command-the-agent-ran
   // spec:web-ui/ai-agent-session-view/a-daemon-the-agent-started-stays-in-its-tool-call
   // spec:web-ui/ai-agent-session-view-badges/a-privilege-change-is-badged
+  // spec:web-ui/ai-agent-session-view-navigation/a-process-opens-its-detail-beside-the-session
   test("a Claude Code session is listed with its project and opens to its tool calls", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
@@ -59,11 +60,17 @@ test.describe("agent sessions", () => {
     await expect(calls.nth(2).locator("code")).toHaveText("sudo id");
     // sudo runs as root under the agent's uid-501 shell; id runs as sudo did, so only sudo is badged.
     await expect(calls.nth(2).getByText("runs as root")).toHaveCount(1);
-    await expect(calls.nth(2).locator("li", { hasText: "runs as root" }).first().getByRole("link").first()).toHaveText("sudo");
+    await expect(calls.nth(2).locator("li", { hasText: "runs as root" }).first().locator(".session-view__name").first()).toHaveText("sudo");
     // The backgrounded sleep is inside its call; the wrapper and the subshell's copy of zsh are plumbing, hidden by default.
-    await expect(calls.nth(1).getByRole("link")).toHaveText(["sleep"]);
+    await expect(calls.nth(1).locator(".session-view__name")).toHaveText(["sleep"]);
     await page.getByText("Show shell plumbing").click();
-    await expect(calls.nth(1).getByRole("link")).toHaveText(["zsh", "zsh", "sleep"]);
+    await expect(calls.nth(1).locator(".session-view__name")).toHaveText(["zsh", "zsh", "sleep"]);
+
+    // Selecting a process opens its detail beside the session.
+    await calls.nth(1).getByRole("button", { name: "sleep", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Process detail" })).toBeVisible();
+    const graphLink = page.getByRole("link", { name: "Open in host graph" });
+    await expect(graphLink).toHaveAttribute("href", new RegExp(`/hosts/${hostId}\\?process=\\d+&at=\\d+$`));
   });
 });
 
