@@ -34,7 +34,9 @@ describe("ProcessSearch", () => {
     renderProc("/search?path=curl&agent=claude-code&since=7d");
     await waitFor(() => { expect(spy).toHaveBeenCalled(); });
     const weekAgoNs = (Date.parse("2026-10-14T12:00:00Z") - 7 * 24 * 3_600_000) * 1_000_000;
-    expect(spy.mock.calls[0][0]).toEqual({ path: "curl", agent: "claude-code", from: String(weekAgoNs) });
+    expect(spy.mock.calls[0][0]).toEqual({
+      path: "curl", agent: "claude-code", from: String(weekAgoNs), to: String(Date.parse("2026-10-14T12:00:00Z") * 1_000_000),
+    });
     expect(screen.getByText("Claude Code", { exact: false })).toBeVisible();
     vi.useRealTimers();
   });

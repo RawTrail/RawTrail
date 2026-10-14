@@ -16,11 +16,13 @@ export const SINCE_CHOICES: readonly { value: string; label: string; reachMs: nu
   { value: "30d", label: "Last 30 days", reachMs: DAYS_PER_MONTH * MILLISECONDS_PER_DAY },
 ];
 
-// searchFilter is the endpoint's filter for the URL's: a "since" choice becomes from, the start of the relative window that ends at
-// nowMs. A "since" that names no choice (a hand-edited URL) is dropped rather than read as some window.
+// searchFilter is the endpoint's filter for the URL's: a "since" choice becomes from and to, the bounds of the relative window that ends
+// at nowMs, so every page and its total read one fixed window. A "since" that names no choice (a hand-edited URL) is dropped rather
+// than read as some window.
 export function searchFilter(active: Record<string, string>, nowMs: number): ProcessSearchFilter {
   const { since, ...rest } = active;
   const choice = SINCE_CHOICES.find((c) => c.value === since);
   if (!choice) return rest;
-  return { ...rest, from: String(windowBounds({ kind: "relative", ms: choice.reachMs }, nowMs).fromNs) };
+  const { fromNs, toNs } = windowBounds({ kind: "relative", ms: choice.reachMs }, nowMs);
+  return { ...rest, from: String(fromNs), to: String(toNs) };
 }

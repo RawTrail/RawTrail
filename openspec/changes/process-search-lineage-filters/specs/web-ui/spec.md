@@ -8,7 +8,7 @@ The fleet search page SHALL offer Agent, Agent session, Story root, Descendant o
 
 - **GIVEN** the search page with Path `curl`, Agent Claude Code and Since Last week
 - **WHEN** it searches
-- **THEN** one request asks for `path=curl`, `agent=claude-code` and a `from` a week before the search ran
+- **THEN** one request asks for `path=curl`, `agent=claude-code`, a `from` a week before the search ran and a `to` when it ran
 
 #### Scenario: A session, story or ancestor chip narrows the search
 
