@@ -31,3 +31,11 @@ func esTokenString(_ token: es_string_token_t) -> String {
     let bytes = UnsafeRawBufferPointer(start: buf, count: token.length)
     return String(bytes: bytes, encoding: .utf8) ?? ""
 }
+
+/// esNewPath joins a NEW_PATH destination's parent directory and filename (a create or a rename to a path that did not exist) into an
+/// absolute path.
+func esNewPath(_ dir: UnsafeMutablePointer<es_file_t>, _ filename: es_string_token_t) -> String {
+    let parent = esTokenString(dir.pointee.path)
+    let name = esTokenString(filename)
+    return parent.hasSuffix("/") ? parent + name : parent + "/" + name
+}

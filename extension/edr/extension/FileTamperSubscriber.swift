@@ -267,7 +267,7 @@ final class FileTamperSubscriber: Sendable {
         let destination: String
         switch rename.destination_type {
         case ES_DESTINATION_TYPE_NEW_PATH:
-            destination = Self.joinDir(rename.destination.new_path.dir, rename.destination.new_path.filename)
+            destination = esNewPath(rename.destination.new_path.dir, rename.destination.new_path.filename)
         case ES_DESTINATION_TYPE_EXISTING_FILE:
             destination = esTokenString(rename.destination.existing_file.pointee.path)
         default:
@@ -333,7 +333,7 @@ final class FileTamperSubscriber: Sendable {
     }
 
     /// targetPath returns the file path a CREATE/WRITE event acts on (the destination for create), or nil for an event shape
-    /// we don't map. The create destination union is read per destination_type; the NEW_PATH dir+filename join is via joinDir.
+    /// we don't map. The create destination union is read per destination_type; the NEW_PATH dir+filename join is via esNewPath.
     private static func targetPath(of msg: es_message_t) -> String? {
         switch msg.event_type {
         case ES_EVENT_TYPE_NOTIFY_WRITE:
@@ -342,7 +342,7 @@ final class FileTamperSubscriber: Sendable {
             let create = msg.event.create
             switch create.destination_type {
             case ES_DESTINATION_TYPE_NEW_PATH:
-                return joinDir(create.destination.new_path.dir, create.destination.new_path.filename)
+                return esNewPath(create.destination.new_path.dir, create.destination.new_path.filename)
             case ES_DESTINATION_TYPE_EXISTING_FILE:
                 return esTokenString(create.destination.existing_file.pointee.path)
             default:
@@ -351,12 +351,5 @@ final class FileTamperSubscriber: Sendable {
         default:
             return nil
         }
-    }
-
-    /// joinDir joins a NEW_PATH destination's parent directory and filename into an absolute path.
-    private static func joinDir(_ dir: UnsafeMutablePointer<es_file_t>, _ filename: es_string_token_t) -> String {
-        let parent = esTokenString(dir.pointee.path)
-        let name = esTokenString(filename)
-        return parent.hasSuffix("/") ? parent + name : parent + "/" + name
     }
 }

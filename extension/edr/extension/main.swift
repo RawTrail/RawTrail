@@ -59,6 +59,11 @@ ApplicationControlStore.shared.resyncReporter = { payload in
 
 server.start()
 
+// The agent-file client (#1287) reports file activity by an AI agent's subtree, and nothing for the rest of the host.
+let agentFiles = AgentFileSubscriber()
+agentFiles.onEvent = { data in server.send(data: data) }
+agentFiles.start()
+
 let subscriber = ESFSubscriber()
 subscriber.onEvent = { data in server.send(data: data) }
 subscriber.start()
