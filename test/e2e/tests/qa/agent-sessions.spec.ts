@@ -1,5 +1,5 @@
 // The AI agent sessions page (issue #1283) and session view (issue #1284), driven from a real ingest: the fake agent posts a Claude
-// Code session's two Bash tool calls with the session markers the production agent forwards, the server records the session, and the
+// Code session's three Bash tool calls with the session markers the production agent forwards, the server records the session, and the
 // operator finds it on the Sessions page, narrows the list to it, and opens it to see what each tool call ran.
 //
 // The host id is fresh per run and the list is filtered to it, so rows other specs or an operator left on the dev database cannot
@@ -20,6 +20,7 @@ test.describe("agent sessions", () => {
   // spec:web-ui/ai-agent-sessions-page/a-session-opens-its-activity
   // spec:web-ui/ai-agent-session-view/tool-calls-are-labelled-with-the-command-the-agent-ran
   // spec:web-ui/ai-agent-session-view/a-daemon-the-agent-started-stays-in-its-tool-call
+  // spec:web-ui/ai-agent-session-view-badges/a-privilege-change-is-badged
   test("a Claude Code session is listed with its project and opens to its tool calls", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
@@ -41,8 +42,9 @@ test.describe("agent sessions", () => {
     const cells = rows.first().locator("td");
     await expect(cells.nth(0)).toHaveText("claude-code 2.1.296");
     await expect(cells.nth(1)).toHaveText("/Users/dev/project");
-    // Every process carries the session: two wrapper shells, the git, the subshell's copy of zsh and the sleep it backgrounded.
-    await expect(cells.nth(5)).toHaveText("5");
+    // Every process carries the session: three wrapper shells, the git, the subshell's copy of zsh, the sleep it backgrounded, and
+    // sudo and the id it ran.
+    await expect(cells.nth(5)).toHaveText("8");
     await expect(cells.nth(7)).toHaveText(SESSION_ID.slice(0, 8));
 
     await rows.first().getByRole("link", { name: "claude-code" }).click();
@@ -51,9 +53,13 @@ test.describe("agent sessions", () => {
 
     // One group per tool call, in order, labelled with the command the agent ran rather than its wrapper script.
     const calls = page.locator(".session-view__call");
-    await expect(calls).toHaveCount(2);
+    await expect(calls).toHaveCount(3);
     await expect(calls.nth(0).locator("code")).toHaveText("git status");
     await expect(calls.nth(1).locator("code")).toHaveText("(sleep 47 &)");
+    await expect(calls.nth(2).locator("code")).toHaveText("sudo id");
+    // sudo runs as root under the agent's uid-501 shell; id runs as sudo did, so only sudo is badged.
+    await expect(calls.nth(2).getByText("runs as root")).toHaveCount(1);
+    await expect(calls.nth(2).locator("li", { hasText: "runs as root" }).first().getByRole("link").first()).toHaveText("sudo");
     // The backgrounded sleep is inside its call; the wrapper and the subshell's copy of zsh are plumbing, hidden by default.
     await expect(calls.nth(1).getByRole("link")).toHaveText(["sleep"]);
     await page.getByText("Show shell plumbing").click();
@@ -61,7 +67,7 @@ test.describe("agent sessions", () => {
   });
 });
 
-// waitForSession polls until the graph builder has recorded the session and stamped all five of its processes. The page is not
+// waitForSession polls until the graph builder has recorded the session and stamped all eight of its processes. The page is not
 // opened before that: an empty list would be the ingest's latency, not the page's behavior.
 async function waitForSession(hostId: string): Promise<void> {
   const db = await openDB();
@@ -77,9 +83,9 @@ async function waitForSession(hostId: string): Promise<void> {
           )) as [Array<{ sessions: number | string; processes: number | string }>, unknown];
           return `${String(rows[0].sessions)}/${String(rows[0].processes)}`;
         },
-        { timeout: 30_000, message: "the session and its five processes were never recorded" },
+        { timeout: 30_000, message: "the session and its eight processes were never recorded" },
       )
-      .toBe("1/5");
+      .toBe("1/8");
   } finally {
     await db.end();
   }

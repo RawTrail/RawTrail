@@ -39,6 +39,7 @@ const (
 	errInvalidExitReason  = "invalid_exit_reason"
 	errInvalidEventType   = "invalid_event_type"
 	errInvalidScope       = "invalid_scope"
+	errSessionNeedsHost   = "agent_session_requires_host_id"
 
 	// maxSessionIDLen is the widest agent session id a process row stores (migration 00019), so a longer one names no session.
 	maxSessionIDLen = 256
@@ -296,14 +297,20 @@ func (h *Handler) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := api.AlertFilter{
-		HostID:      r.URL.Query().Get("host_id"),
-		Status:      api.AlertStatus(r.URL.Query().Get("status")),
-		Severity:    r.URL.Query().Get("severity"),
-		Source:      r.URL.Query().Get("source"),
-		RuleID:      r.URL.Query().Get("rule_id"),
-		Disposition: disposition,
-		ProcessID:   httpserver.ParseInt64Param(r, "process_id", 0),
-		Limit:       httpserver.ParseIntParam(r, "limit", 100),
+		HostID:         r.URL.Query().Get("host_id"),
+		Status:         api.AlertStatus(r.URL.Query().Get("status")),
+		Severity:       r.URL.Query().Get("severity"),
+		Source:         r.URL.Query().Get("source"),
+		RuleID:         r.URL.Query().Get("rule_id"),
+		Disposition:    disposition,
+		ProcessID:      httpserver.ParseInt64Param(r, "process_id", 0),
+		AgentSessionID: r.URL.Query().Get("agent_session"),
+		Limit:          httpserver.ParseIntParam(r, "limit", 100),
+	}
+	// A session id names a session only on its host, so the session filter needs the host to mean anything.
+	if f.AgentSessionID != "" && f.HostID == "" {
+		h.writeError(ctx, w, http.StatusBadRequest, errSessionNeedsHost)
+		return
 	}
 
 	alerts, err := h.svc.ListAlerts(ctx, f)

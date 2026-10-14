@@ -430,6 +430,8 @@ export async function searchProcesses(filter: ProcessSearchFilter, cursor?: stri
 // sessions active in that window. Empty values are omitted from the query.
 export interface AgentSessionFilter {
   host_id?: string;
+  // session with host_id reads one session's record.
+  session?: string;
   agent?: string;
   from?: string;
   to?: string;
@@ -522,6 +524,8 @@ export async function listAlerts(params?: {
   // disposition selects monitor records instead of alerts; the server defaults to alerts when it is omitted.
   disposition?: "alert" | "monitor";
   process_id?: number;
+  // agent_session selects the alerts on one AI agent session's processes; the server requires host_id with it.
+  agent_session?: string;
   limit?: number;
 }): Promise<Alert[]> {
   const query = new URLSearchParams();
@@ -532,6 +536,7 @@ export async function listAlerts(params?: {
   if (params?.rule_id) query.set("rule_id", params.rule_id);
   if (params?.disposition) query.set("disposition", params.disposition);
   if (params?.process_id) query.set("process_id", String(params.process_id));
+  if (params?.agent_session) query.set("agent_session", params.agent_session);
   if (params?.limit) query.set("limit", String(params.limit));
   const qs = query.toString();
   const suffix = qs ? `?${qs}` : "";

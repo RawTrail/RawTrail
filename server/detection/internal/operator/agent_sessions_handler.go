@@ -42,7 +42,9 @@ func (h *Handler) handleListAgentSessions(w http.ResponseWriter, r *http.Request
 		h.writeError(ctx, w, http.StatusBadRequest, errBadWindow)
 		return
 	}
-	filter := api.AgentSessionFilter{HostID: q.Get("host_id"), AgentName: q.Get("agent"), FromNs: fromNs, ToNs: toNs}
+	filter := api.AgentSessionFilter{
+		HostID: q.Get("host_id"), AgentSessionID: q.Get("session"), AgentName: q.Get("agent"), FromNs: fromNs, ToNs: toNs,
+	}
 	result, err := h.agentSessions.ListAgentSessions(ctx, filter, q.Get("cursor"), parseSearchLimit(q))
 	if err != nil {
 		if errors.Is(err, api.ErrInvalidCursor) {

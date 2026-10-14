@@ -2,7 +2,7 @@
 
 ### Requirement: Agent sessions list
 
-`GET /api/agent-sessions` SHALL list AI agent sessions most recently active first, each with its agent, version, session id, host, project directory, first and last seen, and retained process and alert counts, filtered by host, agent and the window it was active in, paged by an opaque keyset cursor with the filtered total. It SHALL require fleet-wide process read and reject a malformed cursor or an inverted window.
+`GET /api/agent-sessions` SHALL list AI agent sessions most recently active first, each with its agent, version, session id, host, project directory, first and last seen, and retained process and alert counts, filtered by host, session id, agent and the window it was active in, paged by an opaque keyset cursor with the filtered total. It SHALL require fleet-wide process read and reject a malformed cursor or an inverted window.
 
 #### Scenario: Sessions are listed with what they did
 
@@ -14,7 +14,7 @@
 #### Scenario: Filters narrow the list
 
 - **GIVEN** sessions of different agents on different hosts at different times
-- **WHEN** the list is read with a host, an agent, or a window
+- **WHEN** the list is read with a host, a host and session id, an agent, or a window
 - **THEN** only matching sessions are returned, with their total
 
 #### Scenario: The list pages by cursor

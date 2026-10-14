@@ -1,10 +1,10 @@
-# A Claude Code session's two Bash tool calls, each run the way Claude Code 2.1.296 runs one: a zsh -c whose script restores the
+# A Claude Code session's three Bash tool calls, each run the way Claude Code 2.1.296 runs one: a zsh -c whose script restores the
 # shell snapshot and evals the model's command. The first runs `git status`; the second backgrounds `sleep 47` from a subshell, so
-# zsh forks a copy of itself that never execs and the sleep outlives the call. The agent (pid 5000) is never seen, so each call's
+# zsh forks a copy of itself that never execs and the sleep outlives the call; the third runs `sudo id`. The agent (pid 5000) is never seen, so each call's
 # shell is a root. Every exec carries the session markers the production agent forwards from the environment. Every fork and exec
 # carries the kernel generations the server resolves a creator by, and each call's shell leads its own process group, which keys the
 # tool call.
-name: "Claude Code session: two Bash tool calls"
+name: "Claude Code session: three Bash tool calls"
 host:
   id: AAAA0007-0000-0000-0000-000000000007
   hostname: dev-laptop.local
@@ -114,4 +114,75 @@ timeline:
   - at: 115ms
     type: exit
     pid: 5003
+    exit_code: 0
+  # The third call runs `sudo id`: sudo is setuid, so its exec reports uid 0 under the agent's uid-501 shell, a privilege change.
+  - at: 200ms
+    type: fork
+    child_pid: 5006
+    parent_pid: 5000
+    pidversion: 61
+    parent_pidversion: 10
+  - at: 202ms
+    type: exec
+    pid: 5006
+    ppid: 5000
+    pidversion: 61
+    parent_pidversion: 10
+    group_id: 5006
+    path: /bin/zsh
+    args:
+      - /bin/zsh
+      - -c
+      - "source /Users/dev/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'sudo id' < /dev/null && pwd -P >| /tmp/claude-5e6f-cwd"
+    cwd: /Users/dev/project
+    uid: 501
+    gid: 20
+    env: *markers
+  - at: 205ms
+    type: fork
+    child_pid: 5007
+    parent_pid: 5006
+    pidversion: 71
+    parent_pidversion: 61
+  - at: 207ms
+    type: exec
+    pid: 5007
+    ppid: 5006
+    pidversion: 71
+    parent_pidversion: 61
+    path: /usr/bin/sudo
+    args: ["sudo", "id"]
+    cwd: /Users/dev/project
+    uid: 0
+    gid: 20
+    env: *markers
+  - at: 210ms
+    type: fork
+    child_pid: 5008
+    parent_pid: 5007
+    pidversion: 81
+    parent_pidversion: 71
+  - at: 212ms
+    type: exec
+    pid: 5008
+    ppid: 5007
+    pidversion: 81
+    parent_pidversion: 71
+    path: /usr/bin/id
+    args: ["id"]
+    cwd: /Users/dev/project
+    uid: 0
+    gid: 0
+    env: *markers
+  - at: 220ms
+    type: exit
+    pid: 5008
+    exit_code: 0
+  - at: 222ms
+    type: exit
+    pid: 5007
+    exit_code: 0
+  - at: 225ms
+    type: exit
+    pid: 5006
     exit_code: 0
