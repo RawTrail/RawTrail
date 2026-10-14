@@ -55,8 +55,8 @@ export interface ScenarioEvent {
   cwd?: string;
   // exec: the AI agent session markers the production agent forwards from the environment, emitted only when set.
   env?: Record<string, string>;
-  // Lineage (issue #1280), emitted only when set: the generation of the process (the child on a fork) and of its creator, and the
-  // process group an exec ran in. Mirrors the Go ScenarioEvent struct.
+  // Lineage (issue #1280), emitted on fork and exec only, and only when set: the generation of the process (the child on a fork) and
+  // of its creator, and, on exec, the process group it ran in. Mirrors the Go ScenarioEvent struct.
   pidversion?: number;
   parent_pidversion?: number;
   group_id?: number;

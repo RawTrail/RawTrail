@@ -18,17 +18,23 @@ import { commandLine } from "./toolCommand";
 export function SessionView() {
   const { hostId = "", sessionId = "" } = useParams();
   const hostNames = useHostNames();
-  const [tree, setTree] = useState<TreeResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [verbose, setVerbose] = useState(false);
+  // The read's outcome is kept with the session it was for, so navigating to another session shows neither the previous session's
+  // processes nor its error while the new read is in flight.
+  const readKey = `${hostId}/${sessionId}`;
+  const [read, setRead] = useState<{ key: string; tree?: TreeResponse; error?: string } | null>(null);
+  const tree = read?.key === readKey ? (read.tree ?? null) : null;
+  const error = read?.key === readKey ? (read.error ?? null) : null;
 
   useEffect(() => {
     let cancelled = false;
     getSessionTree(hostId, sessionId)
-      .then((res) => { if (!cancelled) setTree(res); })
-      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : "Unknown error"); });
+      .then((res) => { if (!cancelled) setRead({ key: readKey, tree: res }); })
+      .catch((err: unknown) => {
+        if (!cancelled) setRead({ key: readKey, error: err instanceof Error ? err.message : "Unknown error" });
+      });
     return () => { cancelled = true; };
-  }, [hostId, sessionId]);
+  }, [hostId, sessionId, readKey]);
 
   const calls = useMemo(() => (tree ? buildToolCalls(tree.roots, verbose) : []), [tree, verbose]);
   const summary = useMemo(() => summarizeSession(tree?.roots ?? []), [tree]);
@@ -59,7 +65,8 @@ export function SessionView() {
       />
       {tree?.truncated && (
         <p className="session-view__notice" role="status">
-          Showing the first {tree.returned.toLocaleString()} of {tree.total_matched.toLocaleString()} processes in this session.
+          Showing the first {tree.returned.toLocaleString()} of {tree.total_matched_capped ? "more than " : ""}
+          {tree.total_matched.toLocaleString()} processes in this session.
         </p>
       )}
       <SessionBody tree={tree} error={error} calls={calls} hostId={hostId} />

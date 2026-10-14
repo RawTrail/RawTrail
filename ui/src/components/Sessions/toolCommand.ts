@@ -7,14 +7,12 @@
 //
 // The command is the eval's argument, one shell word written as single-quoted runs with any embedded quote escaped as '\''.
 
+import { basename } from "../Search/format";
+
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
 const EVAL_PREFIX = "eval ";
 // SHELL_C_ARGC is the length of a `<shell> -c <script>` argv.
 const SHELL_C_ARGC = 3;
-
-function basename(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
-}
 
 // isShellPath reports whether an executable is one of the common shells, by its basename.
 export function isShellPath(path: string): boolean {
@@ -72,7 +70,8 @@ function lastTopLevelEval(script: string): number | null {
     } else if (script.charAt(i) === "\\") {
       i += 2;
     } else {
-      if (script.startsWith(EVAL_PREFIX, i)) last = i;
+      // A word boundary, so a word that merely ends in "eval" (retrieval) is not taken for the command.
+      if (script.startsWith(EVAL_PREFIX, i) && (i === 0 || /[\s;&|({]/.test(script.charAt(i - 1)))) last = i;
       i += 1;
     }
   }

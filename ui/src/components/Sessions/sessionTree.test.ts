@@ -19,7 +19,7 @@ describe("buildToolCalls", () => {
       "env -i /bin/echo qa1280",
       `/bin/sh -c "sleep 1; echo qa1280-done"`,
     ]);
-    expect(calls.map((c) => c.key)).toEqual(["call:80727", "call:80730", "call:80838", "call:80840", "call:80843"]);
+    expect(calls.map((c) => c.key)).toEqual(["row:2298322", "row:2298325", "row:2298439", "row:2298442", "row:2298447"]);
   });
 
   // spec:web-ui/ai-agent-session-view/a-daemon-the-agent-started-stays-in-its-tool-call
@@ -71,6 +71,16 @@ describe("buildToolCalls", () => {
     expect(calls).toHaveLength(5);
     expect(outline(calls[0].rows)).toEqual(["/bin/ls", "/usr/bin/head", "/usr/bin/git"]);
     expect(calls[0].processCount).toBe(4);
+  });
+
+  it("starts a new group when a later call's leader reuses an earlier call's process group", () => {
+    const first = proc(1, 700, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'git status'"], [], { tool_call_group: 700 });
+    const reused = proc(2, 700, 900, "/bin/zsh", ["/bin/zsh", "-c", "eval 'make test'"], [], { tool_call_group: 700 });
+    // A process of the later call whose creator was not read joins the later call, not the earlier one.
+    const orphan = proc(3, 701, 950, "/usr/bin/make", ["make", "test"], [], { tool_call_group: 700 });
+    const calls = buildToolCalls([orphan, reused, first], false);
+    expect(calls.map((c) => c.command)).toEqual(["git status", "make test"]);
+    expect(outline(calls[1].rows)).toEqual(["/usr/bin/make"]);
   });
 
   it("gives a root without a tool-call group a group of its own, labelled with its command line", () => {

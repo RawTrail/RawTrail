@@ -40,7 +40,7 @@ describe("toolCommand", () => {
   });
 
   it("reads the wrapper's eval when the command itself runs eval", () => {
-    expect(toolCommand(wrap(`'eval '\\''echo hi'\\'' && retrieval x'`))).toBe("eval 'echo hi' && retrieval x");
+    expect(toolCommand(wrap(`'cd /tmp && eval '\\''echo hi'\\'''`))).toBe("cd /tmp && eval 'echo hi'");
   });
 
   it.each([
@@ -51,6 +51,7 @@ describe("toolCommand", () => {
     ["a non-shell -c", ["/usr/bin/python3", "-c", "eval 'x'"]],
     ["a shell script with no eval", ["/bin/zsh", "-c", "git status"]],
     ["an unterminated quote", ["/bin/zsh", "-c", "eval 'git status"]],
+    ["a word that only ends in eval", ["/bin/zsh", "-c", "echo retrieval payload"]],
   ])("returns null for %s", (_name, args) => {
     expect(toolCommand(args)).toBeNull();
   });

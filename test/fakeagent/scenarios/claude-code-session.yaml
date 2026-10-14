@@ -1,8 +1,9 @@
 # A Claude Code session's two Bash tool calls, each run the way Claude Code 2.1.296 runs one: a zsh -c whose script restores the
 # shell snapshot and evals the model's command. The first runs `git status`; the second backgrounds `sleep 47` from a subshell, so
 # zsh forks a copy of itself that never execs and the sleep outlives the call. The agent (pid 5000) is never seen, so each call's
-# shell is a root. Every exec carries the session markers the production agent forwards from the environment, and every event the
-# kernel generations the server resolves a creator by; each call's shell leads its own process group, which keys the tool call.
+# shell is a root. Every exec carries the session markers the production agent forwards from the environment. Every fork and exec
+# carries the kernel generations the server resolves a creator by, and each call's shell leads its own process group, which keys the
+# tool call.
 name: "Claude Code session: two Bash tool calls"
 host:
   id: AAAA0007-0000-0000-0000-000000000007

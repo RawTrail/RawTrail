@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router";
+import { MemoryRouter, Routes, Route, Link } from "react-router";
 
 import { SessionView } from "./SessionView";
 import * as api from "../../api";
@@ -87,6 +87,54 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, returned: 16, total_matched: 2500 }));
     renderView();
     expect(await screen.findByRole("status")).toHaveTextContent("Showing the first 16 of 2,500 processes in this session.");
+  });
+
+  it("says how many processes there are at least when the server capped its count", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, total_matched: 10_000, total_matched_capped: true }));
+    renderView();
+    expect(await screen.findByRole("status")).toHaveTextContent("Showing the first 16 of more than 10,000 processes in this session.");
+  });
+
+  it("does not show the previous session's processes while the next session loads", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree")
+      .mockResolvedValueOnce(tree())
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    render(
+      <MemoryRouter initialEntries={[`/sessions/H1/${SESSION}`]}>
+        <Link to="/sessions/H1/other-session">next</Link>
+        <Routes>
+          <Route path="/sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("ls /private/tmp | head -3")).toBeVisible();
+    fireEvent.click(screen.getByRole("link", { name: "next" }));
+    expect(await screen.findByText("Loading...")).toBeVisible();
+    expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
+  });
+
+  it("does not show the previous session's error after moving to another session", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    let resolveNext: (t: TreeResponse) => void = () => undefined;
+    vi.spyOn(api, "getSessionTree")
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }));
+    render(
+      <MemoryRouter initialEntries={[`/sessions/H1/${SESSION}`]}>
+        <Link to="/sessions/H1/other-session">next</Link>
+        <Routes>
+          <Route path="/sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Error: boom")).toBeVisible();
+    fireEvent.click(screen.getByRole("link", { name: "next" }));
+    expect(await screen.findByText("Loading...")).toBeVisible();
+    expect(screen.queryByText("Error: boom")).not.toBeInTheDocument();
+    resolveNext(tree());
+    expect(await screen.findByText("ls /private/tmp | head -3")).toBeVisible();
   });
 
   it.each([

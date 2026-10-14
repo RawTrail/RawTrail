@@ -15,7 +15,7 @@ export interface SessionRow {
 
 // ToolCall is one group: the processes a single tool call started.
 export interface ToolCall {
-  // key identifies the group: its tool-call group when the server assigned one, else its first shell's row.
+  // key identifies the group by the row of the root that started it.
   key: string;
   // command is what the agent ran: the wrapper's eval argument, or the root's own command line when it is not such a wrapper.
   command: string;
@@ -82,32 +82,36 @@ function rootRows(root: ProcessNode, verbose: boolean): SessionRow[] {
   return [{ node: root, children: visibleRows(root, verbose) }];
 }
 
-// buildToolCalls groups the session's forest by tool call, in the order the calls started. A root whose creator was not read joins
-// the group its tool-call key names, so a call stays one group even when part of its tree arrived without its parent.
+// buildToolCalls groups the session's forest by tool call, in the order the calls started. Each call's leader (the shell that leads
+// the process group keying the call) starts a group. A root whose creator was not read joins the latest call its key names that
+// started before it, so a call stays one group even when part of its tree arrived without its parent. The key is a process-group id,
+// which a long session can reuse, so a later leader with the same key starts a group of its own rather than joining the earlier one.
 export function buildToolCalls(roots: readonly ProcessNode[], verbose: boolean): ToolCall[] {
-  const groups = new Map<string, ToolCall>();
+  const calls: ToolCall[] = [];
+  const latestByKey = new Map<number, ToolCall>();
   for (const root of [...roots].sort(byForkTime)) {
-    const key = root.tool_call_group === undefined ? `row:${String(root.id)}` : `call:${String(root.tool_call_group)}`;
-    let group = groups.get(key);
-    if (group === undefined) {
-      group = {
-        key,
+    const key = root.tool_call_group;
+    let call = key === undefined || root.pid === key ? undefined : latestByKey.get(key);
+    if (call === undefined) {
+      call = {
+        key: `row:${String(root.id)}`,
         command: toolCommand(root.args) ?? commandLine(root.path, root.args),
         startNs: root.fork_time_ns,
         lastNs: root.fork_time_ns,
         processCount: 0,
         rows: [],
       };
-      groups.set(key, group);
+      calls.push(call);
+      if (key !== undefined) latestByKey.set(key, call);
     }
-    const into = group;
+    const into = call;
     walk(root, (n) => {
       into.processCount += 1;
       into.lastNs = Math.max(into.lastNs, lastActivityNs(n));
     });
     into.rows.push(...rootRows(root, verbose));
   }
-  return [...groups.values()];
+  return calls;
 }
 
 // summarizeSession reads the header's facts from the session's processes. The agent is named on every stamped process; the project
