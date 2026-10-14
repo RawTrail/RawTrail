@@ -247,6 +247,17 @@ describe("folding", () => {
     expect(call.rows.some((r) => r.folded)).toBe(false);
   });
 
+  it("draws no privilege change across an inferred launch, whose launcher is not its creator", () => {
+    // A uid-501 open asked, and launchd started the app as root: that is launchd's doing, not a privilege change by the open.
+    const app = proc(12, 12, 12, "/Applications/Helper.app/Contents/MacOS/Helper", ["Helper"], [], { uid: 0 });
+    const open = proc(11, 11, 11, "/usr/bin/open", ["open", "-a", "Helper"], [app], { uid: 501 });
+    const root = proc(10, 10, 10, "/bin/zsh", ["/bin/zsh", "-c", "eval 'open -a Helper'"], [open], { tool_call_group: 10, uid: 501 });
+    const [call] = buildToolCalls([root], { verbose: false, inferred: new Set([12]) });
+    const launched = call.rows[0].children[0];
+    expect(launched.inferred).toBe(true);
+    expect(launched.uidChange).toBeUndefined();
+  });
+
   it("marks an inferred launch and never folds it with an identical sibling", () => {
     const tree = loop(3);
     const [call] = buildToolCalls([tree], { verbose: false, inferred: new Set([101]) });

@@ -37,6 +37,9 @@ const AUTO_EXPAND_CALLS = 10;
 // ROW_CAP is how many processes a list shows before "Show more": a call that ran a long loop opens on its first rows rather than on
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
+// INFERRED_LAUNCH_TITLE explains an inferred launch's badge: the row is listed under its launcher, which is not its creator.
+const INFERRED_LAUNCH_TITLE =
+  "Started by launchd moments after the process it is listed under asked for it: linked by timing and target, not lineage";
 // MAX_SESSION_ALERTS bounds the session's alert read. One more is asked for, so a session with more is reported rather than shown as
 // if its first page were all of them.
 const MAX_SESSION_ALERTS = 1000;
@@ -380,7 +383,7 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
           {node.exit_code !== undefined && node.exit_reason === "event" ? ` · exit ${String(node.exit_code)}` : ""}
         </span>
         {inferred && (
-          <span title="Started by launchd moments after the process above asked for it: linked by timing and target, not lineage">
+          <span title={INFERRED_LAUNCH_TITLE}>
             <Badge variant="info">inferred launch</Badge>
           </span>
         )}

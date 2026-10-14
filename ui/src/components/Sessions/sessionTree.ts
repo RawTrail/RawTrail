@@ -95,7 +95,8 @@ function hidden(node: ProcessNode, isPlumbing: boolean, shape: RowShape): boolea
 function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape): SessionRow {
   const listed: SessionRow = { node, children: visibleRows(node, node.uid ?? creatorUid, shape) };
   if (shape.inferred?.has(node.id)) listed.inferred = true;
-  if (creatorUid !== undefined && node.uid !== undefined && node.uid !== creatorUid) {
+  // An inferred launch's launcher is not its creator (launchd is), so a different user across that edge is no privilege change.
+  if (!listed.inferred && creatorUid !== undefined && node.uid !== undefined && node.uid !== creatorUid) {
     listed.uidChange = { from: creatorUid, to: node.uid };
   }
   return listed;
