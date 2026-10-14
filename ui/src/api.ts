@@ -431,6 +431,12 @@ export interface ProcessSearchFilter {
   signing?: string;
   from?: string;
   to?: string;
+  // The agent, story, ancestor and argument filters (issue #1289).
+  agent_session?: string;
+  agent?: string;
+  story_root?: string;
+  ancestor?: string;
+  args?: string;
 }
 
 export async function searchProcesses(filter: ProcessSearchFilter, cursor?: string): Promise<ProcessSearchResult> {
@@ -443,6 +449,11 @@ export async function searchProcesses(filter: ProcessSearchFilter, cursor?: stri
   set("signing", filter.signing);
   set("from", filter.from);
   set("to", filter.to);
+  set("agent_session", filter.agent_session);
+  set("agent", filter.agent);
+  set("story_root", filter.story_root);
+  set("ancestor", filter.ancestor);
+  set("args", filter.args);
   set("cursor", cursor);
   const qs = query.toString();
   const suffix = qs ? `?${qs}` : "";

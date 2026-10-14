@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -173,4 +174,42 @@ func TestHandleProcessSearch_DeniedByAuthz(t *testing.T) {
 	resp := doGet(t, srv, "/api/search/processes")
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// spec:server-rest-api/process-search-by-lineage/a-search-keeps-a-session-a-story-or-a-process-s-descendants
+func TestHandleProcessSearch_LineageFilters(t *testing.T) {
+	t.Parallel()
+	var got api.ProcessSearchFilter
+	sr := fakeProcessSearch{fn: func(_ context.Context, filter api.ProcessSearchFilter, _ string, _ int) (api.ProcessSearchResult, error) {
+		got = filter
+		return api.ProcessSearchResult{}, nil
+	}}
+	srv := newSearchServer(t, sr, allowAllAuthZ{})
+	resp := doGet(t, srv,
+		"/api/search/processes?host_id=H1&agent_session=47abb2a1&agent=claude-code&story_root=875325&ancestor=875400&args=example.com")
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, api.ProcessSearchFilter{
+		HostID: "H1", AgentSession: "47abb2a1", Agent: "claude-code", StoryRoot: 875325, Ancestor: 875400, Args: "example.com",
+	}, got)
+
+	t.Run("a session without its host", func(t *testing.T) {
+		t.Parallel()
+		resp := doGet(t, srv, "/api/search/processes?agent_session=47abb2a1")
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a session id names a session only on its host")
+		body, _ := io.ReadAll(resp.Body)
+		assert.Contains(t, string(body), errSessionNeedsHost)
+	})
+
+	for _, query := range []string{"story_root=0", "story_root=x", "ancestor=-4", "ancestor=1.5"} {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			resp := doGet(t, srv, "/api/search/processes?"+query)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a bad process id is refused, not dropped into a fleet-wide search")
+			body, _ := io.ReadAll(resp.Body)
+			assert.Contains(t, string(body), errInvalidProcess)
+		})
+	}
 }

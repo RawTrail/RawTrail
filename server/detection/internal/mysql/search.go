@@ -117,8 +117,56 @@ func buildSearchWhere(filter api.ProcessSearchFilter) ([]string, []any) {
 	if pred, ok := signingClassSQL(filter.Signing); ok {
 		where = append(where, pred)
 	}
+	return lineageWhere(filter, where, args)
+}
+
+// lineageWhere adds the agent, story, ancestor and argument filters (issue #1289).
+func lineageWhere(filter api.ProcessSearchFilter, where []string, args []any) ([]string, []any) {
+	if filter.AgentSession != "" {
+		where = append(where, "agent_session_id = ?")
+		args = append(args, filter.AgentSession)
+	}
+	if filter.Agent != "" {
+		where = append(where, "agent_name = ?")
+		args = append(args, filter.Agent)
+	}
+	if filter.StoryRoot > 0 {
+		where = append(where, "story_root_id = ?")
+		args = append(args, filter.StoryRoot)
+	}
+	if filter.Ancestor > 0 {
+		where = append(where, descendantsSQL)
+		args = append(args, filter.Ancestor, maxDescendantDepth, filter.Ancestor)
+	}
+	if filter.Args != "" {
+		// Each argument is matched on its own, so a search finds what one argument holds; JSON_SEARCH compares in the JSON column's
+		// binary collation, so the match is case-sensitive, as arguments are to the program that reads them.
+		where = append(where, `JSON_SEARCH(args, 'one', ?, '\\') IS NOT NULL`)
+		args = append(args, "%"+escapeLike(filter.Args)+"%")
+	}
 	return where, args
 }
+
+// maxDescendantDepth bounds how deep below the ancestor the walk goes, under MySQL's default recursion limit of 1000.
+const maxDescendantDepth = 900
+
+// descendantsSQL keeps the rows below the ancestor: walking down the creator edges (parent_process_id) and the re-exec chain
+// (previous_exec_id) from it. A re-exec row keeps its prior generation's creator, so it is reached by its re-exec edge only: each row
+// then has one way in, and the walk visits each process once however its generations branch. A descendant inherits its creator's
+// story, so the walk stays inside the ancestor's story, which is indexed; an ancestor whose story was not seen is walked over its host
+// instead. The ancestor itself is not its own descendant.
+const descendantsSQL = `id IN (
+	WITH RECURSIVE below (id, host_id, scope, depth) AS (
+		SELECT id, host_id, story_root_id, 0 FROM processes WHERE id = ?
+		UNION ALL
+		SELECT p.id, p.host_id, below.scope, below.depth + 1
+		FROM below JOIN processes p
+			ON p.host_id = below.host_id AND (below.scope IS NULL OR p.story_root_id = below.scope)
+			AND ((p.parent_process_id = below.id AND p.previous_exec_id IS NULL) OR p.previous_exec_id = below.id)
+		WHERE below.depth < ?
+	)
+	SELECT id FROM below WHERE id <> ?
+)`
 
 // Signing-class SQL fragments over the code_signing JSON, built once and composed below so no predicate literal repeats. Each uses
 // COALESCE so a missing or partial JSON key (e.g. an empty {} block) takes a definite default rather than NULL (which would make

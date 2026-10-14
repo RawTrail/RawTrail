@@ -267,7 +267,10 @@ describe("searchProcesses query-string composition", () => {
   it("includes every set filter plus the cursor and omits the unset ones", async () => {
     const fetchMock = stubFetch({ rows: [], total_matched: 0 });
     await searchProcesses(
-      { host_id: "host-a", path: "/usr/bin/grep", hash: "abc123", uid: "0", signing: "unsigned", from: "1000", to: "2000" },
+      {
+        host_id: "host-a", path: "/usr/bin/grep", hash: "abc123", uid: "0", signing: "unsigned", from: "1000", to: "2000",
+        agent_session: "47abb2a1", agent: "claude-code", story_root: "875325", ancestor: "875400", args: "example.com",
+      },
       "CURSOR_TOKEN",
     );
     const [target] = fetchMock.mock.calls[0] as [URL];
@@ -280,6 +283,11 @@ describe("searchProcesses query-string composition", () => {
     expect(url).toContain("signing=unsigned");
     expect(url).toContain("from=1000");
     expect(url).toContain("to=2000");
+    expect(url).toContain("agent_session=47abb2a1");
+    expect(url).toContain("agent=claude-code");
+    expect(url).toContain("story_root=875325");
+    expect(url).toContain("ancestor=875400");
+    expect(url).toContain("args=example.com");
     expect(url).toContain("cursor=CURSOR_TOKEN");
   });
 
