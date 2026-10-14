@@ -118,5 +118,5 @@ export function SessionList() {
 
 // sessionHref opens the session's own view.
 function sessionHref(s: AgentSessionSummary): string {
-  return `/sessions/${encodeURIComponent(s.host_id)}/${encodeURIComponent(s.agent_session_id)}`;
+  return `/agent-sessions/${encodeURIComponent(s.host_id)}/${encodeURIComponent(s.agent_session_id)}`;
 }

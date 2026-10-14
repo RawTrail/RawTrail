@@ -4,7 +4,7 @@ The server lists AI agent sessions (`agent-sessions-list-api`, #1283), but nothi
 
 ## What changes
 
-- A "Sessions" page in the top navigation, gated on process read like the endpoint. It lists sessions most recently active first, with agent and version, project directory, host, first and last seen, process count, alert count and a short session id.
+- An "Agent sessions" page in the top navigation, gated on process read like the endpoint. It lists sessions most recently active first, with agent and version, project directory, host, first and last seen, process count, alert count and a short session id.
 - The host, agent and "active in" filters live in the URL and are applied by the server, which also pages the list ("Load more").
 - A session opens its session view (`agent-session-view`).
 - The navigation order gains Sessions after Hosts.

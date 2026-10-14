@@ -74,10 +74,10 @@ describe("TopNav capability gating", () => {
 
 describe("TopNav alert-first order and active state", () => {
   // spec:web-ui/alert-first-navigation-order/navigation-lists-alerts-first
-  it("lists entries in the order Alerts, Hosts, Sessions, Search, Application control, Rules", () => {
+  it("lists entries in the order Alerts, Hosts, Agent sessions, Search, Application control, Rules", () => {
     renderNav(ALL_NAV_PERMISSIONS);
     const labels = screen.getAllByRole("link").map((link) => link.textContent);
-    expect(labels).toEqual(["Alerts", "Hosts", "Sessions", "Search", "Application control", "Rules"]);
+    expect(labels).toEqual(["Alerts", "Hosts", "Agent sessions", "Search", "Application control", "Rules"]);
   });
 
   // spec:web-ui/alert-first-navigation-order/the-rules-entry-stays-active-on-coverage

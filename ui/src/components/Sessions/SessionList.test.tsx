@@ -21,11 +21,11 @@ function session(over: Partial<AgentSessionSummary> = {}): AgentSessionSummary {
   };
 }
 
-function renderList(initial = "/sessions") {
+function renderList(initial = "/agent-sessions") {
   return render(
     <MemoryRouter initialEntries={[initial]}>
       <Routes>
-        <Route path="/sessions" element={<SessionList />} />
+        <Route path="/agent-sessions" element={<SessionList />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -56,7 +56,7 @@ describe("SessionList", () => {
     vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session({ host_id: "H 1" })], total_matched: 1 });
     renderList();
     const link = await screen.findByRole("link", { name: "claude-code" });
-    expect(link).toHaveAttribute("href", "/sessions/H%201/169b5bb1-29b5-41da-9a54-92cd72599ad9");
+    expect(link).toHaveAttribute("href", "/agent-sessions/H%201/169b5bb1-29b5-41da-9a54-92cd72599ad9");
     expect(screen.getByText("H 1")).toBeVisible();
   });
 
@@ -65,7 +65,7 @@ describe("SessionList", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(Date, "now").mockReturnValue(10 * 24 * 3_600_000);
     const spy = vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session()], total_matched: 1 });
-    renderList("/sessions?host_id=H1&agent=claude-code&active=7d");
+    renderList("/agent-sessions?host_id=H1&agent=claude-code&active=7d");
     await waitFor(() => { expect(spy).toHaveBeenCalled(); });
     expect(spy.mock.calls[0][0]).toEqual({ host_id: "H1", agent: "claude-code", from: String(3 * 24 * 3_600_000 * 1_000_000) });
     expect(spy.mock.calls[0][1]).toBeUndefined();
@@ -78,7 +78,7 @@ describe("SessionList", () => {
     const spy = vi.spyOn(api, "listAgentSessions")
       .mockResolvedValueOnce({ rows: [session()], next_cursor: "page-2", total_matched: 2 })
       .mockResolvedValueOnce({ rows: [session({ agent_session_id: "s2", agent_name: "codex" })], total_matched: 2 });
-    renderList("/sessions?active=1d");
+    renderList("/agent-sessions?active=1d");
     const loadMore = await screen.findByRole("button", { name: "Load more" });
     now.mockReturnValue(11 * 24 * 3_600_000);
     fireEvent.click(loadMore);
@@ -89,7 +89,7 @@ describe("SessionList", () => {
   it("removing a filter refetches without it", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const spy = vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session()], total_matched: 1 });
-    renderList("/sessions?agent=claude-code&active=1d");
+    renderList("/agent-sessions?agent=claude-code&active=1d");
     await waitFor(() => { expect(spy).toHaveBeenCalled(); });
     fireEvent.click(screen.getByRole("button", { name: "Remove Agent filter" }));
     await waitFor(() => {
