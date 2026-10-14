@@ -227,8 +227,6 @@ export interface ActivityScope {
   truncated: boolean;
 }
 
-// ActivityResponse is GET /api/hosts/{id}/activity: what a process, its subtree or a session touched, with the scope's processes
-// so a row's (pid, pidversion) can be named.
 // AgentToolCall is one tool call an AI agent session recorded in its transcript (issue #1288).
 export interface AgentToolCall {
   tool_use_id: string;
@@ -249,6 +247,8 @@ export interface AgentToolCallsResponse {
   truncated: boolean;
 }
 
+// ActivityResponse is GET /api/hosts/{id}/activity: what a process, its subtree or a session touched, with the scope's processes
+// so a row's (pid, pidversion) can be named.
 export interface ActivityResponse {
   files: ActivityClass<FileActivityRow>;
   network: ActivityClass<NetworkActivityRow>;

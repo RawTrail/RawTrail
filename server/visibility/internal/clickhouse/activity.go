@@ -177,14 +177,19 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 		where += " AND timestamp_ns <= ?"
 		args = append(args, filter.ToNs)
 	}
+	// One argMin over the whole record, so every field comes from the first recording, as the time does.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT JSONExtractString(payload, 'tool_use_id') AS id, any(JSONExtractString(payload, 'tool_name')),
-			any(JSONExtractString(payload, 'command')), any(JSONExtractString(payload, 'description')),
-			any(JSONExtractString(payload, 'file_path')), toBool(any(JSONExtractBool(payload, 'sidechain'))),
-			toBool(any(JSONExtractBool(payload, 'truncated'))), min(timestamp_ns) AS at, JSONExtractInt(payload, 'uid') AS uid
-		FROM events FINAL
-		WHERE `+where+`
-		GROUP BY id, uid
+		SELECT id, first.1, first.2, first.3, first.4, toBool(first.5), toBool(first.6), at, uid
+		FROM (
+			SELECT JSONExtractString(payload, 'tool_use_id') AS id, JSONExtractInt(payload, 'uid') AS uid,
+				argMin((JSONExtractString(payload, 'tool_name'), JSONExtractString(payload, 'command'),
+					JSONExtractString(payload, 'description'), JSONExtractString(payload, 'file_path'),
+					JSONExtractBool(payload, 'sidechain'), JSONExtractBool(payload, 'truncated')), (timestamp_ns, event_id)) AS first,
+				min(timestamp_ns) AS at
+			FROM events FINAL
+			WHERE `+where+`
+			GROUP BY id, uid
+		)
 		ORDER BY at, id, uid
 		LIMIT ?`, append(args, filter.Limit+1)...)
 	if err != nil {

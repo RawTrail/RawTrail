@@ -169,8 +169,8 @@ func TestEventArchive_AgentToolCalls(t *testing.T) {
 	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
 		call("c1", "s1", "toolu_a", `,"command":"ls","description":"List files"`, at(1)),
 		call("c2", "s1", "toolu_b", `,"command":"pwd","sidechain":true`, at(2)),
-		// The agent restarted and reported toolu_a again, later.
-		call("c3", "s1", "toolu_a", `,"command":"ls","description":"List files"`, at(9)),
+		// The agent restarted and reported toolu_a again, later and from a transcript since edited: the first recording is kept whole.
+		call("c3", "s1", "toolu_a", `,"command":"ls -la","description":"Edited later"`, at(9)),
 		call("c4", "s1", "toolu_c", `,"command":"ls","truncated":true`, at(3)),
 		// Another user forged a line with this session's and toolu_b's ids: it is listed apart, under its own uid.
 		activityEvent("c7", "h1", "agent_tool_call", at(6), `{"agent_session_id":"s1","tool_use_id":"toolu_b","tool_name":"Bash",`+

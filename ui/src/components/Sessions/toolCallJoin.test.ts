@@ -39,6 +39,14 @@ describe("joinToolCalls", () => {
     expect(joinToolCalls([group("g", "ls", 1_010 * MS)], [forged]).has("g")).toBe(false);
   });
 
+  it("lets a set of tied calls label only as many groups as it holds", () => {
+    const calls = [call("toolu_a", "ls", 1_000 * MS), call("toolu_b", "ls", 1_000 * MS)];
+    const matches = joinToolCalls([group("g1", "ls", 1_010 * MS), group("g2", "ls", 1_012 * MS), group("g3", "ls", 9_000 * MS)], calls);
+    expect(matches.get("g1")?.kind).toBe("ambiguous");
+    expect(matches.get("g2")?.kind).toBe("ambiguous");
+    expect(matches.has("g3")).toBe(false);
+  });
+
   it("pairs a call with one group at most", () => {
     // A transcript line the agent could not read leaves the second ls without its call; it must not take the first group's.
     const calls = [call("toolu_a", "ls", 1_000 * MS)];

@@ -58,6 +58,8 @@ interface SessionRead {
   alertsTruncated?: boolean;
   // toolCalls are the calls the session recorded in its transcript (issue #1288). Unread, the groups simply carry no call.
   toolCalls?: AgentToolCall[];
+  // toolCallsTruncated is set when the session recorded more calls than were read, so some groups may show none.
+  toolCallsTruncated?: boolean;
 }
 
 // SessionRowsContext carries what every row of the view needs: the session's alerts by process, the current search's hits, and the
@@ -89,7 +91,7 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
       .then((res) => res.rows[0] as AgentSessionSummary | undefined)
       .catch(() => undefined),
     listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
-    getAgentToolCalls(hostId, sessionId).then((res) => res.tool_calls).catch(() => undefined),
+    getAgentToolCalls(hostId, sessionId).catch(() => undefined),
   ]);
   if (typeof tree === "string") return { key, error: tree };
   return {
@@ -99,7 +101,8 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
     alerts: (alerts ?? []).slice(0, MAX_SESSION_ALERTS),
     alertsFailed: alerts === null,
     alertsTruncated: (alerts?.length ?? 0) > MAX_SESSION_ALERTS,
-    toolCalls,
+    toolCalls: toolCalls?.tool_calls,
+    toolCallsTruncated: toolCalls?.truncated,
   };
 }
 
@@ -278,6 +281,11 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
       )}
       {read.alertsFailed && (
         <p className="session-view__notice" role="status">This session&apos;s alerts could not be loaded, so none are shown.</p>
+      )}
+      {read.toolCallsTruncated && (
+        <p className="session-view__notice" role="status">
+          This session recorded more tool calls than are read, so some calls may show without the tool call that started them.
+        </p>
       )}
       {read.alertsTruncated && (
         <p className="session-view__notice" role="status">

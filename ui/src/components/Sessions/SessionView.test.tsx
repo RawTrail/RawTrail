@@ -115,6 +115,14 @@ describe("SessionView", () => {
     expect(within(headers[2]).queryByText(/toolu_/)).toBeNull();
   });
 
+  it("says when the session recorded more tool calls than were read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(1) }));
+    vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({ tool_calls: [], truncated: true });
+    renderView();
+    expect(await screen.findByText(/recorded more tool calls than are read/)).toBeVisible();
+  });
+
   it("lists the calls without their tool calls when the transcript read fails", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
