@@ -1,0 +1,141 @@
+package operator
+
+import (
+	"context"
+	"math"
+	"net/http"
+	"net/url"
+	"strconv"
+
+	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/fleetdm/edr/server/httpserver"
+	identityapi "github.com/fleetdm/edr/server/identity/api"
+	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+)
+
+// ActivityReader is the activity rollup read surface (issue #1285): what a set of process generations touched, from the archive, and
+// the one process a process scope names, read by its row id.
+type ActivityReader interface {
+	ActivityForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivityRollup, error)
+	GetProcessByID(ctx context.Context, hostID string, id int64) (*api.Process, error)
+}
+
+// SetActivity installs the activity read surface. Bootstrap wires it with the detection store in ModeFull; unset, the route answers
+// 503.
+func (h *Handler) SetActivity(r ActivityReader) { h.activity = r }
+
+func (h *Handler) registerActivityRoutes(mux httpserver.Router) {
+	mux.HandleFunc("GET /api/hosts/{host_id}/activity", h.handleActivity)
+}
+
+// activityProcess names a process of the scope, so a client can say which process touched each artifact: rows carry the (pid,
+// pidversion) they were matched by, and this maps it to the process's row and image.
+type activityProcess struct {
+	ID         int64  `json:"id"`
+	PID        int    `json:"pid"`
+	PIDVersion uint32 `json:"pidversion"`
+	Path       string `json:"path"`
+}
+
+// activityResponse is the rollup with the report of how far the scope reached and the scope's processes.
+type activityResponse struct {
+	visibilityapi.ActivityRollup
+	Scope     timelineScope     `json:"scope"`
+	Processes []activityProcess `json:"processes"`
+}
+
+// activityScopeRequest is the scope ?scope= names: one process or its whole subtree by the process's row id, or a story or session
+// as the tree reads them.
+type activityScopeRequest struct {
+	process int64
+	subtree bool
+	tree    api.TreeScope
+}
+
+// parseActivityScope reads ?scope=process|subtree&process=<id>, ?scope=session&session=<id> or ?scope=story&root=<id>. A scope is
+// required: without one there is nothing to total.
+func parseActivityScope(q url.Values) (activityScopeRequest, bool) {
+	switch q.Get("scope") {
+	case "process", "subtree":
+		id, err := strconv.ParseInt(q.Get("process"), 10, 64)
+		return activityScopeRequest{process: id, subtree: q.Get("scope") == "subtree"}, err == nil && id > 0
+	}
+	tree, scoped, valid := parseTreeScope(q)
+	return activityScopeRequest{tree: tree}, scoped && valid
+}
+
+func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	hostID := r.PathValue("host_id")
+	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionProcessRead, identityapi.Resource{Type: "process", ID: hostID}) {
+		return
+	}
+	if h.activity == nil {
+		h.writeError(ctx, w, http.StatusServiceUnavailable, errInternal)
+		return
+	}
+	req, ok := parseActivityScope(r.URL.Query())
+	if !ok {
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidScope)
+		return
+	}
+	roots, truncated, err := h.activityScopeProcesses(ctx, hostID, req)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "resolve activity scope", "host_id", hostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	generations, scope, matched := scopeGenerations(roots, truncated)
+	// A scope with no generation to match is answered with nothing, not with the host's whole activity: the totals would claim the
+	// scope touched what other processes did.
+	rollup, err := h.activity.ActivityForGenerations(ctx, visibilityapi.ActivityFilter{HostID: hostID, Generations: generations})
+	if err != nil {
+		h.logger.ErrorContext(ctx, "activity rollup", "host_id", hostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	processes := make([]activityProcess, 0, len(matched))
+	for _, n := range matched {
+		processes = append(processes, activityProcess{ID: n.ID, PID: n.PID, PIDVersion: *n.PIDVersion, Path: n.Path})
+	}
+	h.writeJSON(w, r, activityResponse{ActivityRollup: rollup, Scope: *scope, Processes: processes})
+}
+
+// activityScopeProcesses reads the scope's processes. A process alone is read by its row id. Its subtree is read from the chain
+// pinned at it, whose descendants come from the story index (issue #1282), and cut at the pinned process: its ancestors did not do
+// what the process did.
+func (h *Handler) activityScopeProcesses(ctx context.Context, hostID string, req activityScopeRequest) ([]api.ProcessNode, bool, error) {
+	switch {
+	case req.process == 0:
+		res, err := h.svc.BuildScopedTree(ctx, hostID, req.tree, maxTimelineChain, true, 0)
+		return res.Roots, res.Truncated, err
+	case !req.subtree:
+		proc, err := h.activity.GetProcessByID(ctx, hostID, req.process)
+		if err != nil || proc == nil {
+			return nil, false, err
+		}
+		return []api.ProcessNode{{Process: *proc}}, false, nil
+	}
+	res, err := h.svc.BuildChainTree(ctx, hostID, api.TimeRange{ToNs: math.MaxInt64}, req.process, true)
+	if err != nil {
+		return nil, false, err
+	}
+	pinned := findProcessNode(res.Roots, req.process)
+	if pinned == nil {
+		return nil, false, nil
+	}
+	return []api.ProcessNode{*pinned}, res.Truncated, nil
+}
+
+// findProcessNode returns the node of the process with the given row id, or nil when the forest does not hold it.
+func findProcessNode(nodes []api.ProcessNode, id int64) *api.ProcessNode {
+	for i := range nodes {
+		if nodes[i].ID == id {
+			return &nodes[i]
+		}
+		if found := findProcessNode(nodes[i].Children, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}

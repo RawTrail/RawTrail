@@ -43,6 +43,13 @@ type EventSearchResult = visibilityapi.EventSearchResult
 // HostTimelineFilter aliases the visibility host-event-timeline filter (issue #583), the same re-export pattern the search types use.
 type HostTimelineFilter = visibilityapi.HostTimelineFilter
 
+// ActivityFilter and ActivityRollup alias the visibility activity rollup (issue #1285), the same re-export pattern, so the activity
+// reader seam's signature stays within the detection context.
+type (
+	ActivityFilter = visibilityapi.ActivityFilter
+	ActivityRollup = visibilityapi.ActivityRollup
+)
+
 // TelemetryActivity aliases the visibility telemetry-freshness read type (issue #677), the same re-export pattern the search and
 // timeline types use.
 type TelemetryActivity = visibilityapi.TelemetryActivity

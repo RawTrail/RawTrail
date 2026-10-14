@@ -61,6 +61,10 @@ func (f *fakeEventArchive) HostTimeline(context.Context, api.HostTimelineFilter,
 	return api.EventSearchResult{}, nil
 }
 
+func (f *fakeEventArchive) ActivityForGenerations(context.Context, api.ActivityFilter) (api.ActivityRollup, error) {
+	return api.ActivityRollup{}, nil
+}
+
 // fakeEventLog records the events handed to Append and can be made to fail.
 type fakeEventLog struct {
 	appended  [][]api.Event

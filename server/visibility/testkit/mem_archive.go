@@ -3,6 +3,7 @@ package testkit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -499,4 +500,14 @@ func payloadPID(payload json.RawMessage) int {
 	}
 	_ = json.Unmarshal(payload, &p)
 	return p.PID
+}
+
+// errActivityUnsupported is what the in-memory archive answers an activity rollup with: the rollup is aggregation SQL, exercised
+// against a real ClickHouse by the visibility integration tests, and a fake that answered with an empty rollup would let a test pass
+// on a read it never made.
+var errActivityUnsupported = errors.New("mem archive: the activity rollup is served by the ClickHouse archive only")
+
+// ActivityForGenerations is not mirrored in memory; see errActivityUnsupported.
+func (m *MemArchive) ActivityForGenerations(context.Context, api.ActivityFilter) (api.ActivityRollup, error) {
+	return api.ActivityRollup{}, errActivityUnsupported
 }
