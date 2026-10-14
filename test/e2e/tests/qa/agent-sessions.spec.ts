@@ -26,6 +26,7 @@ test.describe("agent sessions", () => {
   // spec:web-ui/inferred-launches-in-the-ui/a-session-lists-a-launch-under-the-call-that-asked
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
   // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
+  // spec:web-ui/activity-table-cells-stay-on-one-line/a-file-path-in-the-process-detail-panel-reads-whole
   test("a Claude Code session is listed with its project and opens to its tool calls", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
@@ -102,6 +103,23 @@ test.describe("agent sessions", () => {
     await expect(edit).toContainText("modify");
     await expect(edit).toContainText("/Users/dev/project/.git/index");
     await expect(edit).toContainText("git (5002)");
+
+    // The same edit in git's process detail panel, at a width that puts the panel below the calls: the path keeps to one line and
+    // the table scrolls sideways, rather than wrapping the path a few characters at a time.
+    await page.setViewportSize({ width: 800, height: 900 });
+    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Tool calls" }).click();
+    await calls.nth(0).getByRole("button", { name: "git", exact: true }).click();
+    await page.getByRole("group", { name: "Process activity" }).getByRole("button", { name: /^Files/ }).click();
+    const panelRow = page.locator(".process-detail__activity .activity-tabs__panel").getByRole("row").nth(1);
+    await expect(panelRow).toContainText("/Users/dev/project/.git/index");
+    // The lines the path's text sits on, by the distinct tops of its rendered boxes: cells share their row's height, so a cell's own
+    // box cannot tell one line from several.
+    const pathLines = await panelRow.locator("td").nth(1).evaluate((cell) => {
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      return new Set(Array.from(range.getClientRects(), (r) => Math.round(r.top))).size;
+    });
+    expect(pathLines).toBe(1);
   });
 });
 
