@@ -1,6 +1,6 @@
-// The AI agent sessions page (issue #1283), driven from a real ingest: the fake agent posts a Claude Code session's execs with the
-// session markers the production agent forwards, the server records the session, and the operator finds it on the Sessions page,
-// narrows the list to it, and opens it.
+// The AI agent sessions page (issue #1283) and session view (issue #1284), driven from a real ingest: the fake agent posts a Claude
+// Code session's two Bash tool calls with the session markers the production agent forwards, the server records the session, and the
+// operator finds it on the Sessions page, narrows the list to it, and opens it to see what each tool call ran.
 //
 // The host id is fresh per run and the list is filtered to it, so rows other specs or an operator left on the dev database cannot
 // stand in for this session.
@@ -18,7 +18,9 @@ test.describe("agent sessions", () => {
 
   // spec:web-ui/ai-agent-sessions-page/sessions-are-listed-with-their-project-and-activity
   // spec:web-ui/ai-agent-sessions-page/a-session-opens-its-activity
-  test("a Claude Code session is listed with its project and opens its host", async ({ page, agent }) => {
+  // spec:web-ui/ai-agent-session-view/tool-calls-are-labelled-with-the-command-the-agent-ran
+  // spec:web-ui/ai-agent-session-view/a-daemon-the-agent-started-stays-in-its-tool-call
+  test("a Claude Code session is listed with its project and opens to its tool calls", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
     await agent.runScenario("claude-code-session.yaml", { hostIdOverride: hostId });
@@ -39,21 +41,28 @@ test.describe("agent sessions", () => {
     const cells = rows.first().locator("td");
     await expect(cells.nth(0)).toHaveText("claude-code 2.1.296");
     await expect(cells.nth(1)).toHaveText("/Users/dev/project");
-    // Both tool-call processes carry the session: the shell and the git it ran.
-    await expect(cells.nth(5)).toHaveText("2");
+    // Every process carries the session: two wrapper shells, the git, the subshell's copy of zsh and the sleep it backgrounded.
+    await expect(cells.nth(5)).toHaveText("5");
     await expect(cells.nth(7)).toHaveText(SESSION_ID.slice(0, 8));
 
     await rows.first().getByRole("link", { name: "claude-code" }).click();
-    await expect(page).toHaveURL(new RegExp(`/ui/hosts/${hostId}\\?at=\\d+$`));
-    const details = page.getByRole("button", { name: "Details" });
-    await expect(details).toBeVisible({ timeout: 15_000 });
-    await details.click();
-    await expect(page.getByText(hostId)).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/ui/sessions/${hostId}/${SESSION_ID}$`));
+    await expect(page.getByRole("heading", { name: "claude-code 2.1.296" })).toBeVisible({ timeout: 10_000 });
+
+    // One group per tool call, in order, labelled with the command the agent ran rather than its wrapper script.
+    const calls = page.locator(".session-view__call");
+    await expect(calls).toHaveCount(2);
+    await expect(calls.nth(0).locator("code")).toHaveText("git status");
+    await expect(calls.nth(1).locator("code")).toHaveText("(sleep 47 &)");
+    // The backgrounded sleep is inside its call; the wrapper and the subshell's copy of zsh are plumbing, hidden by default.
+    await expect(calls.nth(1).getByRole("link")).toHaveText(["sleep"]);
+    await page.getByText("Show shell plumbing").click();
+    await expect(calls.nth(1).getByRole("link")).toHaveText(["zsh", "zsh", "sleep"]);
   });
 });
 
-// waitForSession polls until the graph builder has recorded the session and stamped both of its processes. The page is not opened
-// before that: an empty list would be the ingest's latency, not the page's behavior.
+// waitForSession polls until the graph builder has recorded the session and stamped all five of its processes. The page is not
+// opened before that: an empty list would be the ingest's latency, not the page's behavior.
 async function waitForSession(hostId: string): Promise<void> {
   const db = await openDB();
   try {
@@ -68,9 +77,9 @@ async function waitForSession(hostId: string): Promise<void> {
           )) as [Array<{ sessions: number | string; processes: number | string }>, unknown];
           return `${String(rows[0].sessions)}/${String(rows[0].processes)}`;
         },
-        { timeout: 30_000, message: "the session and its two processes were never recorded" },
+        { timeout: 30_000, message: "the session and its five processes were never recorded" },
       )
-      .toBe("1/2");
+      .toBe("1/5");
   } finally {
     await db.end();
   }

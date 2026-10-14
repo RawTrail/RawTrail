@@ -7,6 +7,7 @@ import {
   createAppControlRule,
   searchProcesses,
   listAgentSessions,
+  getSessionTree,
   searchEvents,
   getHostTimeline,
   setForbiddenHandler,
@@ -567,5 +568,16 @@ describe("listAgentSessions query-string composition", () => {
     await listAgentSessions({});
     const [target] = fetchMock.mock.calls[0] as [URL];
     expect(target.toString()).toMatch(/\/agent-sessions$/);
+  });
+});
+
+describe("getSessionTree", () => {
+  it("reads the session by its index as the raw forest", async () => {
+    const fetchMock = stubFetch({ roots: [], returned: 0, total_matched: 0, total_matched_capped: false, truncated: false });
+    await getSessionTree("host-a", "169b5bb1-29b5");
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host-a\/tree$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ scope: "session", session: "169b5bb1-29b5", flatten: "1", limit: "2000" });
   });
 });

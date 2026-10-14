@@ -195,21 +195,29 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 	switch ev.Type {
 	case "exec":
 		return json.Marshal(struct {
-			PID            int               `json:"pid"`
-			PPID           int               `json:"ppid"`
-			Path           string            `json:"path"`
-			Args           []string          `json:"args"`
-			CWD            string            `json:"cwd"`
-			UID            int               `json:"uid"`
-			GID            int               `json:"gid"`
-			PackageSigning *PackageSigning   `json:"package_signing,omitempty"`
-			Env            map[string]string `json:"env,omitempty"`
-		}{ev.PID, ev.PPID, ev.Path, ev.Args, ev.CWD, ev.UID, ev.GID, ev.PackageSigning, ev.Env})
+			PID              int               `json:"pid"`
+			PPID             int               `json:"ppid"`
+			Path             string            `json:"path"`
+			Args             []string          `json:"args"`
+			CWD              string            `json:"cwd"`
+			UID              int               `json:"uid"`
+			GID              int               `json:"gid"`
+			PackageSigning   *PackageSigning   `json:"package_signing,omitempty"`
+			Env              map[string]string `json:"env,omitempty"`
+			PIDVersion       uint32            `json:"pidversion,omitempty"`
+			ParentPIDVersion uint32            `json:"parent_pidversion,omitempty"`
+			GroupID          int               `json:"group_id,omitempty"`
+		}{
+			ev.PID, ev.PPID, ev.Path, ev.Args, ev.CWD, ev.UID, ev.GID, ev.PackageSigning, ev.Env,
+			ev.PIDVersion, ev.ParentPIDVersion, ev.GroupID,
+		})
 	case "fork":
 		return json.Marshal(struct {
-			ChildPID  int `json:"child_pid"`
-			ParentPID int `json:"parent_pid"`
-		}{ev.ChildPID, ev.ParentPID})
+			ChildPID         int    `json:"child_pid"`
+			ParentPID        int    `json:"parent_pid"`
+			PIDVersion       uint32 `json:"pidversion,omitempty"`
+			ParentPIDVersion uint32 `json:"parent_pidversion,omitempty"`
+		}{ev.ChildPID, ev.ParentPID, ev.PIDVersion, ev.ParentPIDVersion})
 	case "exit":
 		out := struct {
 			PID        int    `json:"pid"`

@@ -138,6 +138,14 @@ export interface Process {
   start_time_ns?: number;
   cwd?: string;
   reparented?: boolean;
+  // AI agent attribution (issue #1281). agent_session_id names the session an exec's markers stamped or the row inherited from its
+  // creator, with the agent's name and version. tool_call_group keys the agent tool call that started the process, and story_root_id
+  // is the row of its nearest ancestor launchd started. Each is absent outside an agent session or when the chain was not seen.
+  agent_session_id?: string;
+  agent_name?: string;
+  agent_version?: string;
+  tool_call_group?: number;
+  story_root_id?: number;
 }
 
 // ProcessSearchResult is the response from GET /api/search/processes (issue #582): a page of matching processes across all hosts,

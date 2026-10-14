@@ -71,6 +71,12 @@ type Event struct {
 	ChildPID  int `json:"child_pid,omitempty"`
 	ParentPID int `json:"parent_pid,omitempty"`
 
+	// Lineage (issue #1280), emitted only when set: the kernel generation of the process (the child on a fork) and of its creator,
+	// which the server resolves a creator by, and the process group the exec ran in, which keys an agent's tool call.
+	PIDVersion       uint32 `json:"pidversion,omitempty"`
+	ParentPIDVersion uint32 `json:"parent_pidversion,omitempty"`
+	GroupID          int    `json:"group_id,omitempty"`
+
 	// file_rename specifics. Path carries the DESTINATION for a rename, the same way it carries the target for an open, so
 	// only the origin needs a field of its own.
 	SourcePath string `json:"source_path,omitempty"`

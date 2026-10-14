@@ -9,6 +9,7 @@ import { ApplicationControlRoutes } from "./components/ApplicationControl/Applic
 import { DetectionConfig } from "./components/DetectionConfig/DetectionConfig";
 import { SearchPage } from "./components/Search/SearchPage";
 import { SessionList } from "./components/Sessions/SessionList";
+import { SessionView } from "./components/Sessions/SessionView";
 import { RuleDetail } from "./components/RuleDetail";
 import { RulesCatalog } from "./components/RulesCatalog";
 import { RuleEditor } from "./components/RuleEditor";
@@ -200,6 +201,14 @@ export function AuthedApp() {
             element={(
               <RequirePermission action={PermissionAction.ProcessRead} surface="Sessions">
                 <SessionList />
+              </RequirePermission>
+            )}
+          />
+          <Route
+            path="/sessions/:hostId/:sessionId"
+            element={(
+              <RequirePermission action={PermissionAction.ProcessRead} surface="Session">
+                <SessionView />
               </RequirePermission>
             )}
           />

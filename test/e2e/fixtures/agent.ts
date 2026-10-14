@@ -55,6 +55,11 @@ export interface ScenarioEvent {
   cwd?: string;
   // exec: the AI agent session markers the production agent forwards from the environment, emitted only when set.
   env?: Record<string, string>;
+  // Lineage (issue #1280), emitted only when set: the generation of the process (the child on a fork) and of its creator, and the
+  // process group an exec ran in. Mirrors the Go ScenarioEvent struct.
+  pidversion?: number;
+  parent_pidversion?: number;
+  group_id?: number;
   exit_code?: number;
   exit_reason?: string; // schema/events.json exit_payload.exit_reason, matches the Go ScenarioEvent struct.
   flags?: number;
@@ -266,6 +271,14 @@ export function stringifyEnvelopes(envelopes: Envelope[]): string {
   return raw.replace(/"@@BIGINT@@(\d+)@@BIGINT@@"/g, "$1");
 }
 
+// lineage is an event's generation fields, each only when the scenario set it.
+function lineage(ev: ScenarioEvent): Record<string, number> {
+  return {
+    ...(ev.pidversion ? { pidversion: ev.pidversion } : {}),
+    ...(ev.parent_pidversion ? { parent_pidversion: ev.parent_pidversion } : {}),
+  };
+}
+
 // buildPayload picks the right field subset for each event_type and emits exactly the schema/events.json-required shape. Order +
 // shape mirrors test/fakeagent/feeder.go's buildPayload so the two implementations stay byte-identical for the same input.
 function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
@@ -280,9 +293,11 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
         uid: ev.uid ?? 0,
         gid: ev.gid ?? 0,
         ...(ev.env ? { env: ev.env } : {}),
+        ...lineage(ev),
+        ...(ev.group_id ? { group_id: ev.group_id } : {}),
       };
     case "fork":
-      return { child_pid: ev.child_pid ?? 0, parent_pid: ev.parent_pid ?? 0 };
+      return { child_pid: ev.child_pid ?? 0, parent_pid: ev.parent_pid ?? 0, ...lineage(ev) };
     case "exit": {
       const p: Record<string, unknown> = { pid: ev.pid ?? 0, exit_code: ev.exit_code ?? 0 };
       // exit_reason is schema/events.json's optional discriminator between "event" (kernel-observed) and "host_reconciled" (synthetic).

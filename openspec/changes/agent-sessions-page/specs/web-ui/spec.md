@@ -2,7 +2,7 @@
 
 ### Requirement: AI agent sessions page
 
-The UI SHALL offer a Sessions page listing AI agent sessions most recently active first, showing per session the agent and its version, the project directory, the host, first and last seen, and its process and alert counts. Its host, agent and activity-window filters SHALL live in the URL and be applied by the server, which SHALL also page the list. A session SHALL open its host's activity.
+The UI SHALL offer a Sessions page listing AI agent sessions most recently active first, showing per session the agent and its version, the project directory, the host, first and last seen, and its process and alert counts. Its host, agent and activity-window filters SHALL live in the URL and be applied by the server, which SHALL also page the list. A session SHALL open its session view.
 
 #### Scenario: Sessions are listed with their project and activity
 
@@ -21,7 +21,7 @@ The UI SHALL offer a Sessions page listing AI agent sessions most recently activ
 
 - **GIVEN** a listed session
 - **WHEN** the operator activates it
-- **THEN** the host's page opens on a time window that ends at, and includes, the session's last activity
+- **THEN** that session's view opens
 
 ## MODIFIED Requirements
 
