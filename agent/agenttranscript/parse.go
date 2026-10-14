@@ -9,10 +9,12 @@
 package agenttranscript
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"time"
 	"unicode/utf8"
+	"uuid"
 )
 
 // EventType is the wire event type of one tool call.
@@ -38,6 +40,17 @@ type ToolCall struct {
 	At        time.Time
 }
 
+// EventID is the call's event id, the same however many times the call is read: the archive keeps one event per id, so a transcript
+// read again after a restart adds nothing. A version 8 UUID over the session and the tool_use_id.
+func (c ToolCall) EventID() string {
+	sum := sha256.Sum256([]byte(EventType + "\x00" + c.SessionID + "\x00" + c.ToolUseID))
+	var id uuid.UUID
+	copy(id[:], sum[:len(id)])
+	id[6] = id[6]&uuidLowNibble | uuidVersion8
+	id[8] = id[8]&uuidVariantBits | uuidVariantRFC
+	return id.String()
+}
+
 // Payload is the call's wire payload; empty fields are left out.
 func (c ToolCall) Payload() map[string]any {
 	p := map[string]any{"agent_session_id": c.SessionID, "tool_use_id": c.ToolUseID, "tool_name": c.ToolName}
@@ -54,6 +67,15 @@ func (c ToolCall) Payload() map[string]any {
 	}
 	return p
 }
+
+// The bits RFC 9562 fixes in a UUID: byte 6's high nibble holds the version, 8 for a vendor-specific UUID (section 5.8), and byte 8's
+// two high bits the variant, 0b10.
+const (
+	uuidLowNibble   = 0x0f
+	uuidVersion8    = 0x80
+	uuidVariantBits = 0x3f
+	uuidVariantRFC  = 0x80
+)
 
 // errUnreadable is a line that is not a transcript entry this parser understands.
 var errUnreadable = errors.New("unreadable transcript line")

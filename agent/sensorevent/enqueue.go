@@ -19,11 +19,11 @@ type envelope struct {
 	Payload     map[string]any `json:"payload"`
 }
 
-// Marshal builds one agent-synthesised event's wire envelope under a fresh event id, for an event stamped with a time of its own
-// rather than the time it is enqueued.
-func Marshal(hostID, eventType string, timestampNs int64, payload map[string]any) ([]byte, error) {
+// Marshal builds one agent-synthesised event's wire envelope, for an event that carries an id and a time of its own rather than a
+// fresh id and the time it is enqueued.
+func Marshal(eventID, hostID, eventType string, timestampNs int64, payload map[string]any) ([]byte, error) {
 	body, err := json.Marshal(envelope{
-		EventID: uuid.New().String(), HostID: hostID, TimestampNs: timestampNs, EventType: eventType, Payload: payload,
+		EventID: eventID, HostID: hostID, TimestampNs: timestampNs, EventType: eventType, Payload: payload,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal %s: %w", eventType, err)
@@ -45,7 +45,7 @@ func NewEnqueueEmitter(hostID func() string, enqueue func(context.Context, []byt
 			// state is re-observed once enrollment lands.
 			return errors.New("no host id yet")
 		}
-		body, err := Marshal(host, eventType, nowNs(), payload)
+		body, err := Marshal(uuid.New().String(), host, eventType, nowNs(), payload)
 		if err != nil {
 			return err
 		}

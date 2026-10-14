@@ -10,9 +10,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -146,6 +148,85 @@ func TestReader_ReadsOnlyRegularFiles(t *testing.T) {
 	assert.Equal(t, []string{"toolu_01"}, q.toolUseIDs(), "the symlinked file was not read")
 }
 
+// The home is the user's to arrange: a .claude/projects or project directory linked outside it is not followed out of it.
+func TestReader_StaysInsideTheHome(t *testing.T) {
+	t.Parallel()
+	outside := t.TempDir()
+	project := filepath.Join(outside, "-Users-dev-project")
+	require.NoError(t, os.MkdirAll(project, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(project, "s.jsonl"), []byte(bashLine("toolu_outside", "id")), 0o600))
+	for name, link := range map[string]string{
+		"a linked projects directory": filepath.Join(".claude", "projects"),
+		"a linked project directory":  filepath.Join(".claude", "projects", "-Users-dev-project"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			at := filepath.Join(root, "dev", link)
+			require.NoError(t, os.MkdirAll(filepath.Dir(at), 0o700))
+			target := outside
+			if filepath.Base(link) != "projects" {
+				target = project
+			}
+			require.NoError(t, os.Symlink(target, at))
+			q := &recordingQueue{}
+			r := New(root, func() string { return "H1" }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			assert.Equal(t, PassStats{}, r.RunOnce(context.Background()))
+			assert.Empty(t, q.events)
+		})
+	}
+}
+
+// A line longer than a pass reads is skipped and counted, and the calls after it are still read.
+func TestReader_SkipsAnOversizedLine(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	huge := `{"type":"user","message":{"content":"` + strings.Repeat("x", maxBytesPerPass+10) + `"}}` + "\n"
+	appendTo(t, path, bashLine("toolu_01", "ls")+huge+bashLine("toolu_02", "pwd"))
+	var total PassStats
+	for range 4 {
+		stats := r.RunOnce(context.Background())
+		total.Calls += stats.Calls
+		total.Unreadable += stats.Unreadable
+	}
+	assert.Equal(t, PassStats{Calls: 2, Unreadable: 1}, total)
+	assert.Equal(t, []string{"toolu_01", "toolu_02"}, q.toolUseIDs())
+}
+
+// A transcript replaced by another file of the same size or larger is read from its start, not from where the old one was left.
+func TestReader_ReplacementOfAnySizeIsReadFromItsStart(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, bashLine("toolu_01", "ls"))
+	r.RunOnce(context.Background())
+	replacement := path + ".new"
+	require.NoError(t, os.WriteFile(replacement, []byte(bashLine("toolu_02", "ps")), 0o600)) // the same length as the first
+	require.NoError(t, os.Rename(replacement, path))
+	r.RunOnce(context.Background())
+	assert.Equal(t, []string{"toolu_01", "toolu_02"}, q.toolUseIDs())
+}
+
+// A transcript read again, by a restarted agent, gives each call the event id it had, so the archive keeps it once.
+func TestReader_EventIDsAreStable(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, bashLine("toolu_01", "ls")+bashLine("toolu_02", "pwd"))
+	r.RunOnce(context.Background())
+	restarted := New(r.root, r.hostID, q.enqueue, r.logger)
+	restarted.RunOnce(context.Background())
+	require.Len(t, q.events, 4)
+	assert.Equal(t, q.events[0]["event_id"], q.events[2]["event_id"])
+	assert.Equal(t, q.events[1]["event_id"], q.events[3]["event_id"])
+	assert.NotEqual(t, q.events[0]["event_id"], q.events[1]["event_id"])
+	id, _ := q.events[0]["event_id"].(string)
+	parsed, err := uuid.Parse(id)
+	require.NoError(t, err)
+	assert.Equal(t, id, parsed.String(), "a canonical UUID, as the schema's format asks")
+}
+
 func TestReader_SkipsWhatItCannotAttribute(t *testing.T) {
 	t.Parallel()
 	t.Run("no host id yet", func(t *testing.T) {
@@ -162,11 +243,11 @@ func TestReader_SkipsWhatItCannotAttribute(t *testing.T) {
 		r, path := newTestReader(t, q, "H1")
 		appendTo(t, path, bashLine("toolu_01", "ls"))
 		r.RunOnce(context.Background())
-		require.Len(t, r.offsets, 1)
+		require.Len(t, r.files, 1)
 		appendTo(t, path, bashLine("toolu_02", "pwd"))
 		old := time.Now().Add(-2 * recentWindow)
 		require.NoError(t, os.Chtimes(path, old, old))
 		assert.Equal(t, PassStats{}, r.RunOnce(context.Background()), "a transcript gone quiet is not read")
-		assert.Empty(t, r.offsets, "and its offset is forgotten")
+		assert.Empty(t, r.files, "and its position is forgotten")
 	})
 }
