@@ -164,6 +164,42 @@ type TreeScope struct {
 	AgentSessionID string
 }
 
+// AgentSessionFilter selects agent sessions for the sessions list (issue #1283). Every field is optional: HostID and AgentName match
+// exactly, and FromNs/ToNs keep the sessions active in the window (last seen at or after FromNs, first seen at or before ToNs), zero
+// meaning unbounded on that side.
+type AgentSessionFilter struct {
+	HostID    string
+	AgentName string
+	FromNs    int64
+	ToNs      int64
+}
+
+// AgentSessionSummary is one row of the sessions list: the session's own record, with how much it did.
+type AgentSessionSummary struct {
+	HostID         string  `db:"host_id" json:"host_id"`
+	AgentSessionID string  `db:"agent_session_id" json:"agent_session_id"`
+	AgentName      string  `db:"agent_name" json:"agent_name"`
+	AgentVersion   *string `db:"agent_version" json:"agent_version,omitempty"`
+	AgentPID       *int    `db:"agent_pid" json:"agent_pid,omitempty"`
+	// CWD is the working directory of the session's earliest tool call: the project the agent was working in.
+	CWD         *string `db:"cwd" json:"cwd,omitempty"`
+	FirstSeenNs int64   `db:"first_seen_ns" json:"first_seen_ns"`
+	LastSeenNs  int64   `db:"last_seen_ns" json:"last_seen_ns"`
+	// ProcessCount counts the processes stamped with the session that are still retained, and AlertCount the retained alerts (not
+	// monitor records) raised on them. The session row outlives process and alert retention, so an old session's counts shrink as
+	// its rows are pruned.
+	ProcessCount int64 `db:"-" json:"process_count"`
+	AlertCount   int64 `db:"-" json:"alert_count"`
+}
+
+// AgentSessionResult is one page of the sessions list, with the cursor for the next page (absent on the last) and the number of
+// sessions the filter matched.
+type AgentSessionResult struct {
+	Rows         []AgentSessionSummary `json:"rows"`
+	NextCursor   string                `json:"next_cursor,omitempty"`
+	TotalMatched int64                 `json:"total_matched"`
+}
+
 // AgentSession names the AI agent session a process belongs to (issue #1281). An exec carrying the agent's session marker stamps it,
 // and every other row inherits its creator's, so a child whose environment was stripped (sudo, env -i) stays attributed. The zero
 // value means the process is outside any agent session, or its creator was never seen.

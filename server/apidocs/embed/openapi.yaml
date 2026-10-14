@@ -456,6 +456,65 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/agent-sessions:
+    get:
+      tags: [Hosts]
+      summary: AI agent sessions
+      description: >-
+        AI agent sessions across the fleet, most recently active first, keyset-paged. A session is every process stamped with the
+        agent's session id, including children that sudo or env -i stripped of the markers.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - name: host_id
+          in: query
+          schema: {type: string}
+        - name: agent
+          in: query
+          description: The agent's name, as its AI_AGENT marker reports it, for example `claude-code`.
+          schema: {type: string}
+        - name: from
+          in: query
+          description: Keep sessions last active at or after this time, ns since epoch. 0 or absent is unbounded.
+          schema: {type: integer, format: int64, minimum: 0}
+        - name: to
+          in: query
+          description: Keep sessions first active at or before this time, ns since epoch. 0 or absent is unbounded.
+          schema: {type: integer, format: int64, minimum: 0}
+        - name: cursor
+          in: query
+          description: The `next_cursor` of the previous page.
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+      responses:
+        "200":
+          description: A page of sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows, total_matched]
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AgentSessionSummary"
+                  next_cursor:
+                    type: string
+                    description: Present when another page follows.
+                  total_matched:
+                    type: integer
+                    format: int64
+        "400":
+          description: "`bad_window` or `invalid_cursor`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/hosts/{host_id}/processes/{pid}:
     get:
       tags: [Hosts]
@@ -2521,6 +2580,26 @@ components:
         event_count: {type: integer, format: int64}
         last_seen_ns: {type: integer, format: int64}
 
+    AgentSessionSummary:
+      type: object
+      required: [host_id, agent_session_id, agent_name, first_seen_ns, last_seen_ns, process_count, alert_count]
+      properties:
+        host_id: {type: string}
+        agent_session_id: {type: string}
+        agent_name: {type: string, example: claude-code}
+        agent_version: {type: string, example: 2.1.296}
+        agent_pid: {type: integer, description: The agent process's pid.}
+        cwd: {type: string, description: "The working directory of the session's earliest tool call: the project it worked in."}
+        first_seen_ns: {type: integer, format: int64}
+        last_seen_ns: {type: integer, format: int64}
+        process_count:
+          type: integer
+          format: int64
+          description: The session's processes still retained. The session outlives process retention, so this shrinks as rows are pruned.
+        alert_count:
+          type: integer
+          format: int64
+          description: Retained alerts raised on the session's processes; monitor records are not counted.
     TimelineEvent:
       type: object
       required: [event_id, host_id, timestamp_ns, event_type, payload]

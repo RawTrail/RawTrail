@@ -1,0 +1,139 @@
+package mysql
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/fleetdm/edr/server/detection/api"
+)
+
+// sessionCursor is the keyset position of the sessions list: the last row of the previous page by its sort key. Session ids are the
+// agent's own strings and can hold any separator, so the cursor is JSON rather than a delimited pair.
+type sessionCursor struct {
+	LastSeenNs int64  `json:"l"`
+	HostID     string `json:"h"`
+	SessionID  string `json:"s"`
+}
+
+func encodeSessionCursor(c sessionCursor) string {
+	raw, err := json.Marshal(c)
+	if err != nil {
+		panic(err) // unreachable: a struct of an int and two strings always marshals
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeSessionCursor(token string) (sessionCursor, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return sessionCursor{}, fmt.Errorf("%w: not base64url: %w", api.ErrInvalidCursor, err)
+	}
+	var c sessionCursor
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return sessionCursor{}, fmt.Errorf("%w: not a session cursor: %w", api.ErrInvalidCursor, err)
+	}
+	// JSON leaves a missing member at its zero value, and no row has a zero last-seen or an empty host or session, so a cursor
+	// missing any of them names no position: reject it rather than page from nowhere.
+	if c.LastSeenNs <= 0 || c.HostID == "" || c.SessionID == "" {
+		return sessionCursor{}, fmt.Errorf("%w: incomplete session cursor", api.ErrInvalidCursor)
+	}
+	return c, nil
+}
+
+// ListAgentSessions returns one page of agent sessions (issue #1283), most recently active first, keyset-paged on (last_seen_ns,
+// host_id, agent_session_id), which is idx_agent_sessions_last_seen's order (InnoDB appends the primary key), so a page reads only
+// its rows. Each row carries its process and alert counts, read with one grouped query each over the page's sessions rather than one
+// per row.
+func (s *Store) ListAgentSessions(
+	ctx context.Context, filter api.AgentSessionFilter, cursor string, limit int,
+) (api.AgentSessionResult, error) {
+	limit = max(limit, 1)
+	where, args := []string{"1=1"}, []any{}
+	if filter.HostID != "" {
+		where, args = append(where, "host_id = ?"), append(args, filter.HostID)
+	}
+	if filter.AgentName != "" {
+		where, args = append(where, "agent_name = ?"), append(args, filter.AgentName)
+	}
+	if filter.FromNs > 0 {
+		where, args = append(where, "last_seen_ns >= ?"), append(args, filter.FromNs)
+	}
+	if filter.ToNs > 0 {
+		where, args = append(where, "first_seen_ns <= ?"), append(args, filter.ToNs)
+	}
+	var total int64
+	if err := s.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM agent_sessions WHERE "+strings.Join(where, " AND "), args...); err != nil {
+		return api.AgentSessionResult{}, fmt.Errorf("count agent sessions: %w", err)
+	}
+	if cursor != "" {
+		c, err := decodeSessionCursor(cursor)
+		if err != nil {
+			return api.AgentSessionResult{}, err
+		}
+		where, args = append(where, "(last_seen_ns, host_id, agent_session_id) < (?, ?, ?)"), append(args, c.LastSeenNs, c.HostID, c.SessionID)
+	}
+	var rows []api.AgentSessionSummary
+	if err := s.db.SelectContext(ctx, &rows, `
+		SELECT host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns
+		FROM agent_sessions WHERE `+strings.Join(where, " AND ")+`
+		ORDER BY last_seen_ns DESC, host_id DESC, agent_session_id DESC
+		LIMIT ?`, append(args, limit+1)...,
+	); err != nil {
+		return api.AgentSessionResult{}, fmt.Errorf("list agent sessions: %w", err)
+	}
+	result := api.AgentSessionResult{TotalMatched: total}
+	if len(rows) > limit {
+		last := rows[limit-1]
+		result.NextCursor = encodeSessionCursor(sessionCursor{LastSeenNs: last.LastSeenNs, HostID: last.HostID, SessionID: last.AgentSessionID})
+		rows = rows[:limit]
+	}
+	if err := s.countSessionActivity(ctx, rows); err != nil {
+		return api.AgentSessionResult{}, err
+	}
+	result.Rows = rows
+	return result, nil
+}
+
+// countSessionActivity fills each row's process and alert counts with one grouped query apiece over the page's sessions, both served
+// by idx_processes_host_agent_session_fork.
+func (s *Store) countSessionActivity(ctx context.Context, rows []api.AgentSessionSummary) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(rows))
+	args := make([]any, 0, len(rows)*2)
+	index := make(map[[2]string]int, len(rows))
+	for i, r := range rows {
+		keys = append(keys, "(?, ?)")
+		args = append(args, r.HostID, r.AgentSessionID)
+		index[[2]string{r.HostID, r.AgentSessionID}] = i
+	}
+	in := "(" + strings.Join(keys, ", ") + ")"
+	type count struct {
+		HostID    string `db:"host_id"`
+		SessionID string `db:"agent_session_id"`
+		N         int64  `db:"n"`
+	}
+	var processes, alerts []count
+	if err := s.db.SelectContext(ctx, &processes, `
+		SELECT host_id, agent_session_id, COUNT(*) AS n FROM processes
+		WHERE (host_id, agent_session_id) IN `+in+` GROUP BY host_id, agent_session_id`, args...); err != nil {
+		return fmt.Errorf("count session processes: %w", err)
+	}
+	if err := s.db.SelectContext(ctx, &alerts, `
+		SELECT p.host_id, p.agent_session_id, COUNT(*) AS n FROM alerts a JOIN processes p ON p.id = a.process_id
+		WHERE (p.host_id, p.agent_session_id) IN `+in+` AND a.disposition = ?
+		GROUP BY p.host_id, p.agent_session_id`, append(args, api.AlertDispositionAlert)...); err != nil {
+		return fmt.Errorf("count session alerts: %w", err)
+	}
+	for _, c := range processes {
+		rows[index[[2]string{c.HostID, c.SessionID}]].ProcessCount = c.N
+	}
+	for _, c := range alerts {
+		rows[index[[2]string{c.HostID, c.SessionID}]].AlertCount = c.N
+	}
+	return nil
+}
