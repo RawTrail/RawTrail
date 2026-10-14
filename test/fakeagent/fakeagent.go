@@ -103,6 +103,12 @@ type Event struct {
 	// open specifics.
 	Flags int `json:"flags,omitempty"`
 
+	// file_activity specifics (issue #1287): an AI agent's folded file operation. Path is the file, or the directory a rolled-up row
+	// stands for; SourcePath is a rename's origin; Count is how many operations the row folds, sent as coalesced_count only past one.
+	Operation string `json:"operation,omitempty"`
+	Count     int    `json:"count,omitempty"`
+	RolledUp  bool   `json:"rolled_up,omitempty"`
+
 	// network_connect specifics.
 	Protocol      string `json:"protocol,omitempty"`
 	Direction     string `json:"direction,omitempty"`
@@ -245,8 +251,10 @@ var knownEventTypes = map[string]bool{
 	"file_rename": true,
 	// Destruction of a watched file (issue #934). Both carry only pid and path; the type is what distinguishes emptied from
 	// removed, which is exactly the distinction a corpus scenario needs to express.
-	"file_truncate":       true,
-	"file_delete":         true,
+	"file_truncate": true,
+	"file_delete":   true,
+	// An AI agent's folded file activity (issue #1287), for the session journeys.
+	"file_activity":       true,
 	"network_connect":     true,
 	"dns_query":           true,
 	"snapshot_heartbeat":  true,

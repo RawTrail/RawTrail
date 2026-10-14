@@ -19,6 +19,13 @@ export function basename(path: string): string {
   return idx >= 0 ? path.slice(idx + 1) : path;
 }
 
+// executableName names a process by its executable: the basename, except for a binary installed as `<name>/versions/<version>`, which
+// is named for its product. Claude Code installs itself so (`~/.local/share/claude/versions/2.1.296`), and "2.1.296" names nothing.
+export function executableName(path: string): string {
+  const versioned = /\/([^/]+)\/versions\/[^/]+$/.exec(path);
+  return versioned ? versioned[1] : basename(path);
+}
+
 // hostPort renders an address + port unambiguously. An IPv6 literal contains colons, so "2606::1:443" is ambiguous; bracket the
 // address (`[2606::1]:443`) as the URI authority form does. IPv4 and hostnames pass through as `addr:port`.
 export function hostPort(address: string, port: number): string {

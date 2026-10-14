@@ -171,6 +171,84 @@ func TestActivityHandler_SessionAndStory(t *testing.T) {
 	}
 }
 
+// A session's activity includes the agent itself, which the session read never holds: Claude Code's Edit runs in the claude process,
+// the creator of each tool call's shell (issue #1287).
+//
+// spec:server-rest-api/agent-file-activity-reads/a-session-s-activity-includes-the-agent-s-own-edits
+func TestActivityHandler_SessionIncludesTheAgent(t *testing.T) {
+	t.Parallel()
+	agentRow, otherCreator := int64(50), int64(60)
+	shell := func(id int64, pid int, pidversion uint32, creator int64) api.ProcessNode {
+		n := activityNode(id, pid, pidversion)
+		n.ParentProcessID = &creator
+		return n
+	}
+	agentPID := 4911
+	sessions := api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: "47abb2a1", AgentPID: &agentPID}}}
+	processes := map[int64]api.Process{
+		agentRow:     {ID: agentRow, HostID: "h1", PID: agentPID, Path: "/Users/dev/.local/share/claude/versions/2.1.296"},
+		otherCreator: {ID: otherCreator, HostID: "h1", PID: 777, Path: "/bin/zsh"},
+	}
+	// Both creators carry a generation, so only the pid decides which joins the scope.
+	agentVersion, otherVersion := uint32(9), uint32(70)
+	agent, other := processes[agentRow], processes[otherCreator]
+	agent.PIDVersion, other.PIDVersion = &agentVersion, &otherVersion
+	processes[agentRow], processes[otherCreator] = agent, other
+	readScope := func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+		// Two tool calls created by the agent, and a root a marked process outside the agent created.
+		roots := []api.ProcessNode{shell(1, 5001, 1, agentRow), shell(2, 5002, 2, agentRow), shell(3, 5003, 3, otherCreator)}
+		return api.ProcessTreeResult{Roots: roots}, nil
+	}
+
+	t.Run("the agent joins the scope once", func(t *testing.T) {
+		t.Parallel()
+		reader := &fakeActivityReader{processes: processes}
+		h := New(fakeService{buildScopedTree: readScope}, allowAllAuthZ{}, slog.Default())
+		h.SetActivity(reader)
+		h.SetAgentSessions(&fakeSessionLister{result: sessions})
+		mux := http.NewServeMux()
+		h.RegisterRoutes(mux)
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		status, out := getActivity(t, srv, "scope=session&session=47abb2a1")
+		require.Equal(t, http.StatusOK, status)
+		assert.Equal(t, []visibilityapi.ProcessGeneration{
+			{PID: 5001, PIDVersion: 1}, {PID: 5002, PIDVersion: 2}, {PID: 5003, PIDVersion: 3}, {PID: int64(agentPID), PIDVersion: 9},
+		}, generationsOf(reader.filter))
+		assert.Equal(t, agentRow, out.Processes[3].ID)
+	})
+
+	for _, tc := range []struct {
+		name   string
+		reader *fakeActivityReader
+		lister *fakeSessionLister
+	}{
+		{
+			name:   "a session read failure",
+			reader: &fakeActivityReader{processes: processes},
+			lister: &fakeSessionLister{err: errors.New("db down")},
+		},
+		{
+			name:   "a creator read failure",
+			reader: &fakeActivityReader{processErr: errors.New("db down")},
+			lister: &fakeSessionLister{result: sessions},
+		},
+	} {
+		t.Run(tc.name+" fails the read", func(t *testing.T) {
+			t.Parallel()
+			h := New(fakeService{buildScopedTree: readScope}, allowAllAuthZ{}, slog.Default())
+			h.SetActivity(tc.reader)
+			h.SetAgentSessions(tc.lister)
+			mux := http.NewServeMux()
+			h.RegisterRoutes(mux)
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			status, _ := getActivity(t, srv, "scope=session&session=47abb2a1")
+			assert.Equal(t, http.StatusInternalServerError, status)
+		})
+	}
+}
+
 // A process that is not stored, or that belongs to another host, is a scope of nothing, not the host's whole activity.
 func TestActivityHandler_UnknownProcessTotalsNothing(t *testing.T) {
 	t.Parallel()

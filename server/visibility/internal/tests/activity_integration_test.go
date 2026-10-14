@@ -108,3 +108,46 @@ func TestEventArchive_ActivityForGenerations(t *testing.T) {
 		assert.NotNil(t, empty.Files.Rows, "an empty list marshals as []")
 	})
 }
+
+// An AI agent's folded file activity (#1287) is read beside the watched-path events: its operation comes from the payload, a folded
+// row weighs its coalesced_count and ends at its last_timestamp_ns, and a rolled-up row is listed as the directory it stands for.
+//
+// spec:server-rest-api/agent-file-activity-reads/agent-file-activity-is-totalled-by-the-operations-it-stands-for
+func TestEventArchive_ActivityAgentFiles(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	at := func(s int64) int64 { return base + s*int64(time.Second) }
+	ns := func(s int64) string { return strconv.FormatInt(at(s), 10) }
+
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
+		// One file changed three times in a window, then once more in a later one.
+		activityEvent("a1", "h1", "file_activity", at(30), `{"pid":300,"pidversion":3,"operation":"modify","path":"/r/main.go",`+
+			`"coalesced_count":3,"last_timestamp_ns":`+ns(31)+`}`),
+		activityEvent("a2", "h1", "file_activity", at(40), `{"pid":300,"pidversion":3,"operation":"modify","path":"/r/main.go"}`),
+		activityEvent("a3", "h1", "file_activity", at(41), `{"pid":300,"pidversion":3,"operation":"rename","path":"/r/b",`+
+			`"source_path":"/r/a"}`),
+		// An install folded into its directory.
+		activityEvent("a4", "h1", "file_activity", at(50), `{"pid":300,"pidversion":3,"operation":"create","path":"/r/node_modules",`+
+			`"coalesced_count":1856,"last_timestamp_ns":`+ns(51)+`,"rolled_up":true}`),
+	}))
+
+	filter := visibilityapi.ActivityFilter{HostID: "h1", Generations: []visibilityapi.ProcessGeneration{{PID: 300, PIDVersion: 3}}}
+	var got visibilityapi.ActivityRollup
+	require.Eventually(t, func() bool {
+		var err error
+		got, err = arch.ActivityForGenerations(ctx, filter)
+		return err == nil && len(got.Files.Rows) == 3
+	}, 5*time.Second, 100*time.Millisecond)
+
+	assert.Equal(t, visibilityapi.ActivityTotals{Events: 1861, Distinct: 3}, got.Files.ActivityTotals, "3 + 1 + 1 + 1856 operations")
+	row := func(count, first, last int64) visibilityapi.ActivityRow {
+		return visibilityapi.ActivityRow{PID: 300, PIDVersion: 3, Count: count, FirstNs: first, LastNs: last}
+	}
+	assert.Equal(t, []visibilityapi.FileActivityRow{
+		{ActivityRow: row(4, at(30), at(40)), Operation: "modify", Path: "/r/main.go"},
+		{ActivityRow: row(1, at(41), at(41)), Operation: "rename", Path: "/r/b", SourcePath: "/r/a"},
+		{ActivityRow: row(1856, at(50), at(51)), Operation: "create", Path: "/r/node_modules", RolledUp: true},
+	}, got.Files.Rows)
+}

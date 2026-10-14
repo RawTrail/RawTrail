@@ -242,6 +242,20 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			PID  int    `json:"pid"`
 			Path string `json:"path"`
 		}{ev.PID, ev.Path})
+	case "file_activity":
+		out := struct {
+			PID            int     `json:"pid"`
+			PIDVersion     *uint32 `json:"pidversion"`
+			Operation      string  `json:"operation"`
+			Path           string  `json:"path"`
+			SourcePath     string  `json:"source_path,omitempty"`
+			CoalescedCount int     `json:"coalesced_count,omitempty"`
+			RolledUp       bool    `json:"rolled_up,omitempty"`
+		}{ev.PID, ev.PIDVersion, ev.Operation, ev.Path, ev.SourcePath, 0, ev.RolledUp}
+		if ev.Count > 1 {
+			out.CoalescedCount = ev.Count
+		}
+		return json.Marshal(out)
 	case "network_connect":
 		out := struct {
 			PID           int     `json:"pid"`

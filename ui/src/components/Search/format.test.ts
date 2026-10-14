@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { basename, hostPort, formatNs } from "./format";
+import { basename, executableName, hostPort, formatNs } from "./format";
 
 describe("basename", () => {
   it("returns the last segment for a POSIX path", () => {
@@ -35,5 +35,14 @@ describe("formatNs", () => {
     const out = formatNs(1_000_000_000);
     expect(out).toBeTruthy();
     expect(new Date(out).getTime()).not.toBeNaN();
+  });
+});
+
+describe("executableName", () => {
+  it("names a versioned install for its product and anything else by its basename", () => {
+    expect(executableName("/Users/dev/.local/share/claude/versions/2.1.296")).toBe("claude");
+    expect(executableName("/usr/bin/git")).toBe("git");
+    expect(executableName("/versions/1.0")).toBe("1.0");
+    expect(executableName("/opt/tool/versions")).toBe("versions");
   });
 });

@@ -405,7 +405,7 @@ paths:
         - name: type
           in: query
           description: Comma-separated event classes to keep. Absent keeps every class.
-          schema: {type: string, example: "exec,network_connect,dns_query"}
+          schema: {type: string, example: "exec,network_connect,dns_query,file_activity"}
         - name: text
           in: query
           description: Keep only events whose payload contains this, case-insensitively.
@@ -2680,7 +2680,7 @@ components:
         host_id: {type: string}
         timestamp_ns: {type: integer, format: int64}
         ingested_at_ns: {type: integer, format: int64}
-        event_type: {type: string, enum: [exec, network_connect, dns_query]}
+        event_type: {type: string, enum: [exec, network_connect, dns_query, file_activity]}
         platform: {type: string}
         payload:
           type: object
@@ -2703,9 +2703,15 @@ components:
                       - type: object
                         required: [operation, path]
                         properties:
-                          operation: {type: string, enum: [open, file_rename, file_truncate, file_delete]}
+                          operation:
+                            type: string
+                            enum: [open, file_rename, file_truncate, file_delete, create, modify, rename, delete]
+                            description: The event type of a watched-path event, or the operation of an AI agent's file activity.
                           path: {type: string}
-                          source_path: {type: string, description: A rename's origin.}
+                          source_path: {type: string, description: A single rename's origin.}
+                          rolled_up:
+                            type: boolean
+                            description: Path is a directory standing for the agent file activity under it, folded by the extension to stay within its per-second budget.
         network:
           allOf:
             - $ref: "#/components/schemas/ActivityTotals"

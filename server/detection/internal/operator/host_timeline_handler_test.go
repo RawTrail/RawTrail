@@ -106,6 +106,38 @@ func TestHostTimeline_TypeFilter(t *testing.T) {
 	}
 }
 
+// spec:server-rest-api/agent-file-activity-reads/the-timeline-lists-agent-file-activity
+func TestHostTimeline_AgentFileActivity(t *testing.T) {
+	t.Parallel()
+	a := timelineArchive(t,
+		ev("x", "h1", 100, "exec", `{"pid":1,"path":"/bin/sh"}`),
+		ev("f", "h1", 200, "file_activity", `{"pid":1,"pidversion":2,"operation":"modify","path":"/r/main.go"}`),
+		// A watched-path event stays out of the timeline: it is the detection rules' input, read through alerts.
+		ev("o", "h1", 300, "open", `{"pid":1,"path":"/etc/sudoers","flags":1}`),
+	)
+	srv := newTimelineServer(t, a, allowAllAuthZ{})
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{name: "every class by default", query: "", want: []string{"file_activity", "exec"}},
+		{name: "files alone", query: "?type=file_activity", want: []string{"file_activity"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			resp := doGet(t, srv, "/api/hosts/h1/timeline"+tc.query)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var types []string
+			for _, e := range decodeTimeline(t, resp).Events {
+				types = append(types, e.EventType)
+			}
+			assert.Equal(t, tc.want, types)
+		})
+	}
+}
+
 // spec:server-rest-api/host-event-timeline-endpoint/text-match-filters-by-payload-substring
 func TestHostTimeline_TextMatch(t *testing.T) {
 	t.Parallel()

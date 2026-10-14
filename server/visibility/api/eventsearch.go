@@ -16,14 +16,16 @@ const (
 )
 
 // TimelineEventTypes is the ordered allowlist of event classes the host event timeline surfaces (issue #583): a process starting a
-// new image, an outbound/inbound connection, and a DNS resolution. fork/exit lineage is the graph's job, not the flat stream. Shared
-// by the ClickHouse store, the fake, and the handler so the allowlist lives in one place.
-func TimelineEventTypes() []string { return []string{"exec", "network_connect", "dns_query"} }
+// new image, an outbound/inbound connection, a DNS resolution, and an AI agent's file activity (#1287). fork/exit lineage is the
+// graph's job, not the flat stream. Shared by the ClickHouse store, the fake, and the handler so the allowlist lives in one place.
+func TimelineEventTypes() []string {
+	return []string{"exec", "network_connect", "dns_query", "file_activity"}
+}
 
 // IsTimelineEventType reports whether eventType is one the timeline surfaces. The handler uses it to reject an unrecognized ?type=.
 func IsTimelineEventType(eventType string) bool {
 	switch eventType {
-	case "exec", "network_connect", "dns_query":
+	case "exec", "network_connect", "dns_query", "file_activity":
 		return true
 	default:
 		return false

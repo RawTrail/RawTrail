@@ -3,16 +3,22 @@ import "./ActivityTabs.scss";
 import { getActivity, type ActivityScopeQuery } from "../../api";
 import type { ActivityResponse, ActivityRow, ActivityScope } from "../../types";
 import { Table, EmptyState } from "../ui/Table";
-import { formatNs, basename, hostPort, plural } from "../Search/format";
+import { formatNs, executableName, hostPort, plural } from "../Search/format";
 
 type TabKey = "files" | "network" | "dns";
 
+// OPERATION_LABELS names a watched-path event's type as an operation. An AI agent's file activity (issue #1287) already carries its
+// operation (create, modify, rename, delete), which is shown as it is.
 const OPERATION_LABELS: Record<string, string> = {
   open: "open",
   file_rename: "rename",
   file_truncate: "truncate",
   file_delete: "delete",
 };
+
+// ROLLED_UP_TITLE explains a folded row: the extension sends at most a set number of rows a second, so a busy window's files are
+// counted under their directory.
+const ROLLED_UP_TITLE = "Too many files changed at once to list each: this row counts the files under this directory.";
 
 interface ActivityRead {
   key: string;
@@ -69,7 +75,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
   const processName = (row: ActivityRow): ReactNode => {
     const process = activity.processes.find((p) => p.pid === row.pid && p.pidversion === row.pidversion);
     if (!process) return `pid ${String(row.pid)}`;
-    const label = `${basename(process.path)} (${String(row.pid)})`;
+    const label = `${executableName(process.path)} (${String(row.pid)})`;
     if (!onProcess) return label;
     return (
       <button type="button" className="activity-tabs__process" onClick={() => { onProcess(process.id); }}>
@@ -150,9 +156,12 @@ function FilesPanel({ activity, processName }: PanelProps) {
           <thead><tr><th>Operation</th><th>Path</th><th>Process</th><th>Count</th><th>First</th><th>Last</th></tr></thead>
           <tbody>
             {files.rows.map((r) => (
-              <tr key={`${r.operation}|${r.path}|${r.source_path ?? ""}|${String(r.pid)}:${String(r.pidversion)}`}>
+              <tr key={`${r.operation}|${r.path}|${r.source_path ?? ""}|${r.rolled_up ? "dir" : ""}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td>{OPERATION_LABELS[r.operation] ?? r.operation}</td>
-                <td className="activity-tabs__mono">{r.source_path ? `${r.source_path} → ${r.path}` : r.path}</td>
+                <td className="activity-tabs__mono">
+                  {r.source_path ? `${r.source_path} → ${r.path}` : r.path}
+                  {r.rolled_up && <span className="activity-tabs__rollup" title={ROLLED_UP_TITLE}>/ and below</span>}
+                </td>
                 <td>{processName(r)}</td>
                 <Seen row={r} />
               </tr>

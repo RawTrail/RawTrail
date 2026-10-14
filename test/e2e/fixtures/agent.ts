@@ -67,6 +67,11 @@ export interface ScenarioEvent {
   // file_rename: `path` carries the DESTINATION, the same way it carries the target for an open, so only the origin needs a
   // field of its own. Mirrors the Go ScenarioEvent struct in test/fakeagent/fakeagent.go.
   source_path?: string;
+  // file_activity (issue #1287): an AI agent's folded file operation. `path` is the file, or the directory a rolled-up row stands for;
+  // `count` is how many operations it folds, sent as coalesced_count only past one. Mirrors the Go ScenarioEvent struct.
+  operation?: string;
+  count?: number;
+  rolled_up?: boolean;
   protocol?: string;
   direction?: string;
   local_address?: string;
@@ -314,6 +319,13 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
     case "file_truncate":
     case "file_delete":
       return { pid: ev.pid ?? 0, path: ev.path ?? "" };
+    case "file_activity": {
+      const p: Record<string, unknown> = { pid: ev.pid ?? 0, pidversion: ev.pidversion ?? 0, operation: ev.operation ?? "", path: ev.path ?? "" };
+      if (ev.source_path) p.source_path = ev.source_path;
+      if (ev.count !== undefined && ev.count > 1) p.coalesced_count = ev.count;
+      if (ev.rolled_up) p.rolled_up = true;
+      return p;
+    }
     case "network_connect": {
       const p: Record<string, unknown> = {
         pid: ev.pid ?? 0,

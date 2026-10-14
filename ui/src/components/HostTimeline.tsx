@@ -3,13 +3,13 @@ import { Link, useSearchParams } from "react-router";
 import "./HostTimeline.scss";
 import { getHostTimeline, eventArtifactParam, listAlerts, getAlertDetail } from "../api";
 import { chainScopeNote } from "./chainScope";
-import type { EventRecord, NetworkConnectPayload, DNSQueryPayload, ExecPayload, TimelineScope } from "../types";
+import type { EventRecord, NetworkConnectPayload, DNSQueryPayload, ExecPayload, FileActivityPayload, TimelineScope } from "../types";
 import { Table } from "./ui/Table";
 import { Badge } from "./ui/Badge";
 import { TechniqueTags } from "./TechniqueTags";
 import { useCursorList, type CursorPage } from "./Search/useCursorList";
 import { SearchResultsFrame } from "./Search/SearchResultsFrame";
-import { formatNs, basename, hostPort } from "./Search/format";
+import { formatNs, basename, hostPort, plural } from "./Search/format";
 import { NANOSECONDS_PER_MILLISECOND } from "../constants";
 
 // EventTechniques maps a triggering event id to the alerting rules' technique ids, so a timeline row for that event shows the MITRE
@@ -66,6 +66,7 @@ const EVENT_TYPES: { key: string; label: string }[] = [
   { key: "exec", label: "Exec" },
   { key: "network_connect", label: "Network" },
   { key: "dns_query", label: "DNS" },
+  { key: "file_activity", label: "Files" },
 ];
 
 // HostTimeline is the flat, filterable event stream beside the process graph (issue #583): the host's exec/network/DNS events for the
@@ -215,6 +216,7 @@ export function HostTimeline(
               const pid = evt.payload.pid; // every timeline payload has pid
               const emphasized = emphasizePid !== undefined && pid === emphasizePid;
               const techEntries = eventTechniques.get(evt.event_id) ?? [];
+              const detail = detailCell(evt);
               return (
                 <tr key={evt.event_id} className={emphasized ? "host-timeline__row--emphasis" : undefined}>
                   <td>{formatNs(evt.timestamp_ns)}</td>
@@ -222,7 +224,10 @@ export function HostTimeline(
                   <td className="host-timeline__mono">
                     <Link to={nodePivot(hostId, pid, evt.timestamp_ns)}>{processLabel(evt)}</Link>
                   </td>
-                  <td className="host-timeline__mono host-timeline__detail">{detailCell(evt)}</td>
+                  {/* The cell is one line, cut with an ellipsis; a text detail keeps its whole value, a path's file name included, on hover. */}
+                  <td className="host-timeline__mono host-timeline__detail" title={typeof detail === "string" ? detail : undefined}>
+                    {detail}
+                  </td>
                   {/* Technique tags on a row whose event triggered one or more alerts (issue #585), each linked to its rule doc page. */}
                   <td>{techEntries.map((t) => <TechniqueTags key={t.ruleId} techniques={t.techniques} ruleId={t.ruleId} />)}</td>
                 </tr>
@@ -250,7 +255,8 @@ function TYPE_LABEL(eventType: string): string {
 // optional path are common to every timeline payload, so no narrowing is needed.
 function processLabel(evt: EventRecord): string {
   const p = evt.payload;
-  const name = p.path ? basename(p.path) : "";
+  // A file event's path is the file it touched, not the process, so only the pid names the process.
+  const name = p.path && evt.event_type !== "file_activity" ? basename(p.path) : "";
   return name ? `${name} (${String(p.pid)})` : String(p.pid);
 }
 
@@ -276,8 +282,20 @@ function detailCell(evt: EventRecord) {
       </>
     );
   }
+  if (evt.event_type === "file_activity") {
+    return fileActivityDetail(evt.payload as FileActivityPayload);
+  }
   const p = evt.payload as ExecPayload;
   return p.args && p.args.length > 0 ? p.args.join(" ") : (p.path ?? "");
+}
+
+// fileActivityDetail spells an agent's folded file activity (issue #1287): the operation, the path (a rename's source first), and how
+// many operations the row stands for when it folds more than one, under a directory when the extension rolled the row up.
+function fileActivityDetail(p: FileActivityPayload): string {
+  const target = p.source_path ? `${p.source_path} → ${p.path}` : p.path;
+  const count = p.coalesced_count ?? 1;
+  if (p.rolled_up) return `${p.operation} ${plural(count, "file", "files")} under ${target}`;
+  return count > 1 ? `${p.operation} ${target} ×${String(count)}` : `${p.operation} ${target}`;
 }
 
 // SearchFleetLink is the "search all hosts for this artifact" pivot on a connection/DNS row, the timeline analogue of the network

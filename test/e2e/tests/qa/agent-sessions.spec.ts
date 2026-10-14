@@ -24,6 +24,7 @@ test.describe("agent sessions", () => {
   // spec:web-ui/ai-agent-session-view-navigation/a-process-opens-its-detail-beside-the-session
   // spec:web-ui/activity-tabs/a-session-s-network-tab-lists-every-destination-with-its-process
   // spec:web-ui/inferred-launches-in-the-ui/a-session-lists-a-launch-under-the-call-that-asked
+  // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
   test("a Claude Code session is listed with its project and opens to its tool calls", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
@@ -80,7 +81,7 @@ test.describe("agent sessions", () => {
     const graphLink = page.getByRole("link", { name: "Open in host graph" });
     await expect(graphLink).toHaveAttribute("href", new RegExp(`/hosts/${hostId}\\?process=\\d+&at=\\d+$`));
 
-    // The session's activity: git's lookup of github.com and its one connection, matched to git by its generation.
+    // The session's activity: git's lookup of github.com, its one connection and its index update, matched to git by its generation.
     await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Activity" }).click();
     const sessionActivity = page.locator(".session-view__main");
     await expect(sessionActivity.getByText("1 connection to 1 destination")).toBeVisible({ timeout: 10_000 });
@@ -89,6 +90,13 @@ test.describe("agent sessions", () => {
     await expect(connection).toContainText("git (5002)");
     await page.getByRole("group", { name: "Session activity" }).getByRole("button", { name: /^DNS/ }).click();
     await expect(sessionActivity.getByText("1 query for 1 name")).toBeVisible();
+    // git's index update, as the agent-file client folded it: one modify standing for two writes, under git's generation.
+    await page.getByRole("group", { name: "Session activity" }).getByRole("button", { name: /^Files/ }).click();
+    await expect(sessionActivity.getByText("2 file events on 1 path")).toBeVisible();
+    const edit = sessionActivity.locator(".activity-tabs__panel").getByRole("row").nth(1);
+    await expect(edit).toContainText("modify");
+    await expect(edit).toContainText("/Users/dev/project/.git/index");
+    await expect(edit).toContainText("git (5002)");
   });
 });
 

@@ -361,7 +361,7 @@ func (s *Store) SearchEvents(ctx context.Context, filter api.EventSearchFilter, 
 	return s.pageEventsByKeyset(ctx, whereSQL, args, cursor, limit, filter.Value != "")
 }
 
-// HostTimeline returns one host's exec/network_connect/dns_query events interleaved in event-time order, newest-first (issue #583):
+// HostTimeline returns one host's timeline events (TimelineEventTypes) interleaved in event-time order, newest-first (issue #583):
 // host + event_type IN the requested (or all timeline) classes + timestamp_ns within the window + optional case-insensitive payload
 // substring, keyset-paged over (timestamp_ns, event_id). The window bounds event time (timestamp_ns), unlike SearchEvents which bounds
 // ingest time. FINAL collapses ReplacingMergeTree duplicates; total_matched is the full match count independent of the page.

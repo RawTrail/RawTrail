@@ -108,7 +108,11 @@ func (h *Handler) activityScopeProcesses(ctx context.Context, hostID string, req
 	switch {
 	case req.process == 0:
 		res, err := h.svc.BuildScopedTree(ctx, hostID, req.tree, maxTimelineChain, true, 0)
-		return res.Roots, res.Truncated, err
+		if err != nil || req.tree.AgentSessionID == "" {
+			return res.Roots, res.Truncated, err
+		}
+		roots, err := h.withAgentProcess(ctx, hostID, req.tree.AgentSessionID, res.Roots)
+		return roots, res.Truncated, err
 	case !req.subtree:
 		proc, err := h.activity.GetProcessByID(ctx, hostID, req.process)
 		if err != nil || proc == nil {
@@ -125,6 +129,37 @@ func (h *Handler) activityScopeProcesses(ctx context.Context, hostID string, req
 		return nil, false, nil
 	}
 	return []api.ProcessNode{*pinned}, res.Truncated, nil
+}
+
+// withAgentProcess adds the agent process to a session's processes (issue #1287): the creator of a tool call's root whose pid is the
+// one the session's CLAUDE_PID marker names. The agent carries no session marker of its own, so the session read never holds it, yet
+// Claude Code's Read, Edit and Write run inside it. Its activity is that of its whole life, which spans only this session unless the
+// agent switched sessions in one process.
+func (h *Handler) withAgentProcess(ctx context.Context, hostID, sessionID string, roots []api.ProcessNode) ([]api.ProcessNode, error) {
+	if h.agentSessions == nil {
+		return roots, nil
+	}
+	sessions, err := h.agentSessions.ListAgentSessions(ctx, api.AgentSessionFilter{HostID: hostID, AgentSessionID: sessionID}, "", 1)
+	if err != nil || len(sessions.Rows) == 0 || sessions.Rows[0].AgentPID == nil {
+		return roots, err
+	}
+	agentPID := *sessions.Rows[0].AgentPID
+	read := map[int64]bool{}
+	for _, root := range roots {
+		creator := root.ParentProcessID
+		if creator == nil || read[*creator] {
+			continue
+		}
+		read[*creator] = true
+		proc, err := h.activity.GetProcessByID(ctx, hostID, *creator)
+		if err != nil {
+			return nil, err
+		}
+		if proc != nil && proc.PID == agentPID {
+			roots = append(roots, api.ProcessNode{Process: *proc})
+		}
+	}
+	return roots, nil
 }
 
 // findProcessNode returns the node of the process with the given row id, or nil when the forest does not hold it.
