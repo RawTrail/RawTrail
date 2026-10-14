@@ -34,7 +34,7 @@ test.describe("agent sessions", () => {
 
     await page.goto("/ui/alerts");
     await page.getByRole("link", { name: "Agent sessions", exact: true }).click();
-    await expect(page).toHaveURL(/\/ui\/sessions$/);
+    await expect(page).toHaveURL(/\/ui\/agent-sessions$/);
 
     // Narrow to this run's host through the page's own filter, which the server applies.
     await page.getByLabel("Add filter field").selectOption("host_id");
