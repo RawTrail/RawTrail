@@ -59,6 +59,14 @@ func TestForkInheritsResolvedCreatorImage(t *testing.T) {
 			wantPath: "/usr/bin/python3",
 		},
 		{
+			// Generation 5 matches no stored row, and the resolver's own fallback does not take python3 for it, so no creator is
+			// resolved and the child inherits by time.
+			name:     "a child naming a generation that does not resolve inherits by time",
+			forkNs:   450,
+			fork:     `{"child_pid":600,"parent_pid":500,"pidversion":3000,"parent_pidversion":5}`,
+			wantPath: "/usr/bin/python3",
+		},
+		{
 			// zsh's image was applied at 110: a child stamped before then cannot have been running it, so the path stays but the
 			// identity is not claimed, by the rule the time-based lookup applies too.
 			name:     "a creator whose image was applied after the child's stamp gives its path and not its identity",
