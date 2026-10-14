@@ -137,6 +137,30 @@
     }
   }
 
+  &__views {
+    border: 1px solid $ui-fleet-black-10;
+    border-radius: 4px;
+    display: inline-flex;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+  }
+
+  &__view {
+    background: $core-fleet-white;
+    border: 0;
+    color: $ui-fleet-black-75;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.8rem;
+
+    &[aria-checked="true"] {
+      background: $ui-fleet-black-10;
+      color: $core-fleet-black;
+      font-weight: 600;
+    }
+  }
+
   &__layout {
     align-items: flex-start;
     display: flex;

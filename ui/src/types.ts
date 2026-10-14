@@ -179,6 +179,61 @@ export interface AgentSessionResult {
   total_matched: number;
 }
 
+// ActivityRow is what every row of an activity rollup shares (issue #1285): the process generation that touched the artifact, how many
+// times, and when it first and last did.
+export interface ActivityRow {
+  pid: number;
+  pidversion: number;
+  count: number;
+  first_ns: number;
+  last_ns: number;
+}
+
+export interface FileActivityRow extends ActivityRow {
+  operation: "open" | "file_rename" | "file_truncate" | "file_delete";
+  path: string;
+  source_path?: string;
+}
+
+export interface NetworkActivityRow extends ActivityRow {
+  remote_address: string;
+  remote_port: number;
+  protocol: string;
+  remote_hostname?: string;
+}
+
+export interface DNSActivityRow extends ActivityRow {
+  query_name: string;
+  addresses: string[];
+}
+
+// ActivityClass is one class's totals and capped list: events counts its events (a coalesced one as the occurrences it stands for),
+// distinct its distinct artifacts, and truncated says the list holds fewer rows than the class has.
+export interface ActivityClass<Row> {
+  events: number;
+  distinct: number;
+  truncated: boolean;
+  rows: Row[];
+}
+
+// ActivityScope says how far an activity read's scope reached. When applied is false the activity is empty, never the host's.
+export interface ActivityScope {
+  applied: boolean;
+  processes: number;
+  unmatched: number;
+  truncated: boolean;
+}
+
+// ActivityResponse is GET /api/hosts/{id}/activity: what a process, its subtree or a session touched, with the scope's processes
+// so a row's (pid, pidversion) can be named.
+export interface ActivityResponse {
+  files: ActivityClass<FileActivityRow>;
+  network: ActivityClass<NetworkActivityRow>;
+  dns: ActivityClass<DNSActivityRow>;
+  scope: ActivityScope;
+  processes: { id: number; pid: number; pidversion: number; path: string }[];
+}
+
 // EventSearchResult is the response from the fleet-wide connection and DNS search endpoints (GET /api/search/connections and
 // /api/search/dns, issue #582): a page of matching events across all hosts, the opaque keyset cursor for the next page (absent on the
 // last), and the full match count independent of the page. Each event carries the visibility Event shape (see EventRecord).

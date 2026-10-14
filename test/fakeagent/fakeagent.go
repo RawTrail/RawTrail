@@ -71,9 +71,9 @@ type Event struct {
 	ChildPID  int `json:"child_pid,omitempty"`
 	ParentPID int `json:"parent_pid,omitempty"`
 
-	// Lineage (issue #1280), emitted on fork and exec only, and only when set: the kernel generation of the process (the child on a
-	// fork) and of its creator, which the server resolves a creator by, and, on exec, the process group it ran in, which keys an
-	// agent's tool call.
+	// Lineage (issue #1280), emitted only when set: the kernel generation of the process (the child on a fork), sent on fork, exec,
+	// network_connect and dns_query, which the server resolves a creator and attributes a flow by; on fork and exec the creator's
+	// generation; and on exec the process group it ran in, which keys an agent's tool call.
 	PIDVersion       uint32 `json:"pidversion,omitempty"`
 	ParentPIDVersion uint32 `json:"parent_pidversion,omitempty"`
 	GroupID          int    `json:"group_id,omitempty"`

@@ -22,6 +22,14 @@ function render(ui: ReactElement) {
 
 const NS = 1_000_000;
 
+const EMPTY_ACTIVITY = {
+  files: { events: 0, distinct: 0, truncated: false, rows: [] },
+  network: { events: 0, distinct: 0, truncated: false, rows: [] },
+  dns: { events: 0, distinct: 0, truncated: false, rows: [] },
+  scope: { applied: true, processes: 1, unmatched: 0, truncated: false },
+  processes: [],
+};
+
 function makeNode(over: Partial<ProcessNode> = {}): ProcessNode {
   return {
     id: 42,
@@ -65,6 +73,7 @@ beforeEach(() => {
   vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
   vi.spyOn(api, "createCommand").mockResolvedValue({ id: 99 });
   vi.spyOn(api, "getCommand");
+  vi.spyOn(api, "getActivity").mockResolvedValue(EMPTY_ACTIVITY);
 });
 
 afterEach(() => {
@@ -427,3 +436,17 @@ describe("ProcessDetail related-alert attribution", () => {
   });
 });
 
+
+describe("ProcessDetail activity (issue #1285)", () => {
+  // spec:web-ui/activity-tabs/a-process-s-activity-switches-between-it-and-its-subtree
+  it("totals the process alone, and its whole subtree when asked", async () => {
+    const spy = vi.spyOn(api, "getActivity").mockResolvedValue(EMPTY_ACTIVITY);
+    render(<ProcessDetail hostId="h1" node={makeNode({ id: 42 })} onClose={vi.fn()} />);
+    expect(await screen.findByText("0 connections to 0 destinations")).toBeVisible();
+    expect(spy).toHaveBeenLastCalledWith("h1", { kind: "process", process: 42 });
+    expect(screen.getByRole("radio", { name: "This process" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("radio", { name: "Whole subtree" }));
+    await waitFor(() => { expect(spy).toHaveBeenLastCalledWith("h1", { kind: "subtree", process: 42 }); });
+    expect(screen.getByRole("radio", { name: "Whole subtree" })).toHaveAttribute("aria-checked", "true");
+  });
+});

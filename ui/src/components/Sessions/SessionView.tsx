@@ -8,6 +8,7 @@ import { Toggle } from "../ui/Toggle";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { ProcessDetail } from "../ProcessDetail";
+import { ActivityTabs } from "../Activity/ActivityTabs";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
@@ -101,6 +102,8 @@ export function SessionView() {
   const hostNames = useHostNames();
   const [verbose, setVerbose] = useState(false);
   const [query, setQuery] = useState("");
+  // view picks what the session's main column shows: its tool calls, or the totals of what it touched (issue #1285).
+  const [view, setView] = useState<"calls" | "activity">("calls");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
   const [read, setRead] = useState<SessionRead | null>(null);
@@ -188,7 +191,33 @@ export function SessionView() {
       <SessionRowsContext.Provider value={rowsContext}>
         <div className="session-view__layout">
           <div className="session-view__main">
-            <SessionBody read={current} calls={calls} />
+            <div role="radiogroup" aria-label="Session view" className="session-view__views">
+              {(["calls", "activity"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={view === v}
+                  className="session-view__view"
+                  onClick={() => { setView(v); }}
+                >
+                  {v === "calls" ? "Tool calls" : "Activity"}
+                </button>
+              ))}
+            </div>
+            {view === "calls" ? (
+              <SessionBody read={current} calls={calls} />
+            ) : (
+              <ActivityTabs
+                label="Session activity"
+                hostId={hostId}
+                scope={{ kind: "session", session: sessionId }}
+                onProcess={(id) => {
+                  const node = tree ? findNode(tree.roots, id) : null;
+                  if (node) rowsContext.onSelect(node);
+                }}
+              />
+            )}
           </div>
           {selectedNode && (
             <aside className="session-view__detail">
@@ -382,4 +411,14 @@ function timelineHref(hostId: string, node: ProcessNode): string {
 function hostHref(hostId: string, processId: number, forkNs: number): string {
   const atMs = Math.floor(forkNs / NANOSECONDS_PER_MILLISECOND) + 1;
   return `/hosts/${encodeURIComponent(hostId)}?process=${String(processId)}&at=${String(atMs)}`;
+}
+
+// findNode returns the session's process with the given row id, or null when the read does not hold it.
+function findNode(nodes: readonly ProcessNode[], id: number): ProcessNode | null {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    const found = findNode(n.children ?? [], id);
+    if (found) return found;
+  }
+  return null;
 }

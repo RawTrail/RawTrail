@@ -251,7 +251,8 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			LocalPort     int    `json:"local_port,omitempty"`
 			RemoteAddress string `json:"remote_address"`
 			RemotePort    int    `json:"remote_port"`
-		}{ev.PID, ev.Protocol, ev.Direction, ev.LocalAddress, ev.LocalPort, ev.RemoteAddress, ev.RemotePort}
+			PIDVersion    uint32 `json:"pidversion,omitempty"`
+		}{ev.PID, ev.Protocol, ev.Direction, ev.LocalAddress, ev.LocalPort, ev.RemoteAddress, ev.RemotePort, ev.PIDVersion}
 		return json.Marshal(out)
 	case "dns_query":
 		out := struct {
@@ -260,7 +261,8 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			QueryType         string   `json:"query_type"`
 			ResponseAddresses []string `json:"response_addresses,omitempty"`
 			Protocol          string   `json:"protocol,omitempty"`
-		}{ev.PID, ev.QueryName, ev.QueryType, ev.ResponseAddresses, ev.Protocol}
+			PIDVersion        uint32   `json:"pidversion,omitempty"`
+		}{ev.PID, ev.QueryName, ev.QueryType, ev.ResponseAddresses, ev.Protocol, ev.PIDVersion}
 		return json.Marshal(out)
 	case "snapshot_heartbeat":
 		return json.Marshal(struct {
