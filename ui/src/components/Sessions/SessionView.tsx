@@ -363,16 +363,23 @@ function ProcessesBody({ read, forest }: { readonly read: SessionRead | null; re
   if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
   if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
   if (forest.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
-  const rooted = (read.tree.agents ?? []).length > 0;
   return (
     <div className="session-view__processes">
-      <p className="session-view__processes-summary">
-        {plural(countRows(forest), "process", "processes")}
-        {rooted ? ", under the agent that ran them" : ". The agent process was not seen, so its commands are listed as roots"}
-      </p>
+      <p className="session-view__processes-summary">{processesSummary(forest)}</p>
       <ProcessRows rows={forest} />
     </div>
   );
+}
+
+// processesSummary counts what the Processes view lists and says where it hangs: under the agent, beside it when a root's creator was
+// not read, or as roots when the agent was not seen.
+function processesSummary(forest: readonly SessionRow[]): string {
+  const count = plural(countRows(forest), "process", "processes");
+  const beside = forest.filter((r) => !r.agent).length;
+  if (beside === forest.length) return `${count}. The agent process was not seen, so its commands are listed as roots`;
+  if (beside === 0) return `${count}, under the agent that ran them`;
+  return `${count}. ${plural(beside, "root sits", "roots sit")} beside the agent: the process that created ${beside === 1 ? "it" : "them"} ` +
+    "was not read";
 }
 
 // highestSeverity is the most severe of the alerts' severities, for the group's badge.

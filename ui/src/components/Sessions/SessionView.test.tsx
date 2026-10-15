@@ -514,6 +514,18 @@ describe("SessionView", () => {
     expect(await screen.findByText("1 process", { selector: "span" })).toBeVisible();
   });
 
+  it("says how many roots sit beside the agent when their creator was not read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const agent = proc(9, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.296", ["claude"], [], { agent_session_id: undefined });
+    const [stray, ...created] = realSession();
+    const roots = [stray, ...created.map((r) => ({ ...r, parent_process_id: 9 }))];
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots, agents: [agent] }));
+    renderView();
+    await screen.findByText("ls /private/tmp | head -3");
+    fireEvent.click(screen.getByRole("button", { name: "Processes" }));
+    expect(screen.getByText("17 processes. 1 root sits beside the agent: the process that created it was not read")).toBeVisible();
+  });
+
   it("lists the commands as roots when the agent process was not seen", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
