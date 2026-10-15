@@ -246,6 +246,19 @@ func TestBuildPayload_ExecCarriesAPackageSignatureOnlyWhenSet(t *testing.T) {
 	assert.NotContains(t, string(payload), "package_signing")
 }
 
+// An exec launchd adopted reports ppid 1 and its creator in original_ppid; an ordinary exec sends no original_ppid.
+func TestBuildPayload_ExecCarriesTheOriginalParentOnlyWhenSet(t *testing.T) {
+	t.Parallel()
+	payload, err := buildPayload(Event{Type: "exec", PID: 5005, PPID: 1, OriginalPPID: 5004, Path: "/bin/sleep"})
+	require.NoError(t, err)
+	assert.Contains(t, string(payload), `"ppid":1`)
+	assert.Contains(t, string(payload), `"original_ppid":5004`)
+
+	payload, err = buildPayload(Event{Type: "exec", PID: 5005, PPID: 5004, Path: "/bin/sleep"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "original_ppid")
+}
+
 // Generation 0 is a real kernel generation: a scenario that sets it must send it, or the event reads as one carrying none and a
 // flow would be attributed by the legacy window instead of by its generation.
 func TestBuildPayload_SendsGenerationZero(t *testing.T) {

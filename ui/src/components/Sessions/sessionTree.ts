@@ -21,6 +21,8 @@ export interface SessionRow {
   // folded holds the identical siblings folded into this row, in fork order: processes that ran the same command under the same
   // creator, ran nothing of their own and were not flagged. The row stands for all of them.
   folded?: ProcessNode[];
+  // agent is set on the agent process's own row in the Processes view (issue #1335), so the row says what it is.
+  agent?: boolean;
 }
 
 // Command is one group: the processes a single command the agent ran started.
@@ -53,6 +55,8 @@ export interface RowShape {
   incomplete?: boolean;
   // inferred names the rows an inferred launch placed under their launcher, so each is marked as inferred rather than lineage.
   inferred?: ReadonlySet<number>;
+  // unfolded lists every process on its own row, for the Processes view (issue #1335): nothing is folded into an identical sibling.
+  unfolded?: boolean;
 }
 
 // SessionSummary is what the view's header says about the whole session, read from its processes.
@@ -107,10 +111,10 @@ function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape)
   return listed;
 }
 
-// foldKey identifies a row that can be folded with its identical siblings: a process that started nothing, changed no privilege and
-// carries no alert. Null for any other row.
+// foldKey identifies a row that can be folded with its identical siblings: a process that started nothing, changed no privilege, was
+// not adopted by launchd and carries no alert. Null for any other row: a folded process shows no badge of its own.
 function foldKey(listed: SessionRow, shape: RowShape): string | null {
-  if (shape.incomplete || listed.inferred || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) {
+  if (shape.incomplete || shape.unfolded || listed.inferred || listed.node.reparented || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) {
     return null;
   }
   // How each ended is part of the key: a failed run must not hide behind a successful one.
@@ -196,6 +200,31 @@ export function buildCommands(roots: readonly ProcessNode[], shape: RowShape): C
   return groups;
 }
 
+// buildProcessForest lists every process a session ran as one tree for the Processes view (issue #1335): each agent process, with the
+// roots it created beneath it in fork order, then any root no listed agent created (a launch whose launcher was not read, a command
+// whose agent was not seen). Nothing is hidden or folded: the shape is verbose and unfolded, whatever the caller passes.
+export function buildProcessForest(
+  roots: readonly ProcessNode[], agents: readonly ProcessNode[], shape: RowShape,
+): SessionRow[] {
+  const full: RowShape = { ...shape, verbose: true, unfolded: true };
+  const sorted = [...roots].sort(byForkTime);
+  const claimed = new Set<number>();
+  const forest: SessionRow[] = [...agents].sort(byForkTime).map((agent) => {
+    const created = sorted.filter((root) => root.parent_process_id === agent.id);
+    for (const root of created) claimed.add(root.id);
+    return { node: agent, agent: true, children: created.map((root) => row(root, agent.uid, full)) };
+  });
+  for (const root of sorted) {
+    if (!claimed.has(root.id)) forest.push(row(root, undefined, full));
+  }
+  return forest;
+}
+
+// countRows counts the processes a forest lists, folded ones included.
+export function countRows(rows: readonly SessionRow[]): number {
+  return rows.reduce((sum, listed) => sum + 1 + (listed.folded?.length ?? 0) + countRows(listed.children), 0);
+}
+
 // matches reports whether a process's command line or path contains the query, ignoring case. query is already lower case.
 function matches(node: ProcessNode, query: string): boolean {
   return commandLine(node.path, node.args).toLowerCase().includes(query) || node.path.toLowerCase().includes(query);
@@ -209,17 +238,31 @@ export interface SearchHits {
   byGroup: ReadonlyMap<string, number>;
 }
 
+// rowMatcher counts the processes a row and everything under it hold that match query, adding each matching row to rows.
+function rowMatcher(query: string, rows: Set<SessionRow>): (listed: SessionRow) => number {
+  const visit = (listed: SessionRow): number => {
+    const own = [listed.node, ...(listed.folded ?? [])].filter((n) => matches(n, query)).length;
+    if (own > 0) rows.add(listed);
+    return listed.children.reduce((sum, child) => sum + visit(child), own);
+  };
+  return visit;
+}
+
+// searchRows finds a query in a forest of rows, for the Processes view, which has no groups. An empty query finds nothing.
+export function searchRows(forest: readonly SessionRow[], rawQuery: string): SearchHits {
+  const query = rawQuery.trim().toLowerCase();
+  const rows = new Set<SessionRow>();
+  if (query !== "") forest.forEach(rowMatcher(query, rows));
+  return { rows, byGroup: new Map() };
+}
+
 // searchCommands finds a query in the groups as listed. An empty query finds nothing.
 export function searchCommands(groups: readonly Command[], rawQuery: string): SearchHits {
   const query = rawQuery.trim().toLowerCase();
   const rows = new Set<SessionRow>();
   const byGroup = new Map<string, number>();
   if (query === "") return { rows, byGroup };
-  const visit = (listed: SessionRow): number => {
-    const own = [listed.node, ...(listed.folded ?? [])].filter((n) => matches(n, query)).length;
-    if (own > 0) rows.add(listed);
-    return listed.children.reduce((sum, child) => sum + visit(child), own);
-  };
+  const visit = rowMatcher(query, rows);
   for (const group of groups) {
     const count = group.rows.reduce((sum, listed) => sum + visit(listed), group.command.toLowerCase().includes(query) ? 1 : 0);
     if (count > 0) byGroup.set(group.key, count);

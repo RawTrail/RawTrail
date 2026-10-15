@@ -78,6 +78,9 @@ type Event struct {
 	PIDVersion       *uint32 `json:"pidversion,omitempty"`
 	ParentPIDVersion *uint32 `json:"parent_pidversion,omitempty"`
 	GroupID          int     `json:"group_id,omitempty"`
+	// OriginalPPID is the pid of the process that created this one, sent on exec. Unlike ppid, it survives reparenting, so an exec that
+	// reports ppid 1 with another process here is one launchd adopted (issue #1280).
+	OriginalPPID int `json:"original_ppid,omitempty"`
 
 	// file_rename specifics. Path carries the DESTINATION for a rename, the same way it carries the target for an open, so
 	// only the origin needs a field of its own.

@@ -1,8 +1,9 @@
 # A Claude Code session's four Bash tool calls, each run the way Claude Code 2.1.296 runs one: a zsh -c whose script restores the shell
 # snapshot and evals the model's command. The first runs `git status`; the second backgrounds `sleep 47` from a subshell, so zsh forks a
 # copy of itself that never execs and the sleep outlives the call; the third runs `sudo id`; the fourth runs `open -a TextEdit`, and
-# launchd starts TextEdit. The agent (pid 5000) is never seen, so each call's shell is a root. Every exec carries the session markers the
-# production agent forwards from the environment. Every fork and exec carries the kernel generations the server resolves a creator by, and
+# launchd starts TextEdit. The agent (pid 5000) is seen once, at its exec: it carries no session marker, so each call's shell is a root of
+# the session and the agent is the creator they name. The backgrounded sleep execs after its subshell exits, so launchd has adopted it.
+# Every call's exec carries the session markers the production agent forwards from the environment. Every fork and exec carries the kernel generations the server resolves a creator by, and
 # each call's shell leads its own process group, which keys the tool call. git's connection and lookup carry its generation, as the
 # production agent's flows do, and git's index update arrives as the agent-file client folds it. Each call's Bash tool call, as the
 # agent reads it from the transcript, is recorded as the call's shell forks.
@@ -12,6 +13,17 @@ host:
   hostname: dev-laptop.local
   os: macOS 26.0
 timeline:
+  # The agent itself, as its exec reports it: Claude Code's versioned image, and none of the markers it sets for the commands it runs.
+  - at: 0ms
+    type: exec
+    pid: 5000
+    ppid: 4000
+    pidversion: 10
+    path: /Users/dev/.local/share/claude/versions/2.1.296
+    args: ["claude"]
+    cwd: /Users/dev/project
+    uid: 501
+    gid: 20
   # The Bash call the agent recorded in its transcript for this tool call (issue #1288).
   - at: 0ms
     type: agent_tool_call
@@ -21,7 +33,8 @@ timeline:
     uid: 501
     command: "git status"
     description: Show working tree status
-  - at: 0ms
+  # A millisecond after the agent's exec, so the server holds the agent's row when it resolves the first call's creator.
+  - at: 1ms
     type: fork
     child_pid: 5001
     parent_pid: 5000
@@ -140,10 +153,16 @@ timeline:
     parent_pid: 5004
     pidversion: 51
     parent_pidversion: 41
+  # The subshell exits before its child execs, so the exec reports launchd as the parent and the subshell as the original one.
+  - at: 108ms
+    type: exit
+    pid: 5004
+    exit_code: 0
   - at: 109ms
     type: exec
     pid: 5005
-    ppid: 5004
+    ppid: 1
+    original_ppid: 5004
     pidversion: 51
     parent_pidversion: 41
     path: /bin/sleep
@@ -152,10 +171,6 @@ timeline:
     uid: 501
     gid: 20
     env: *markers
-  - at: 112ms
-    type: exit
-    pid: 5004
-    exit_code: 0
   - at: 115ms
     type: exit
     pid: 5003

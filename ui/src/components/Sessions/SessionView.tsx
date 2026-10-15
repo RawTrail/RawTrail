@@ -12,7 +12,7 @@ import { ActivityTabs } from "../Activity/ActivityTabs";
 import { Badge } from "../ui/Badge";
 import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
-import { formatNs, basename, plural } from "../Search/format";
+import { formatNs, executableName, plural } from "../Search/format";
 import { findNodeByDbId } from "../ProcessTree.helpers";
 import { applyLaunchLinks } from "../launchLinks";
 import { useHostNames } from "../useHostNames";
@@ -24,6 +24,9 @@ import {
   forkSpan,
   lastActivityNs,
   searchCommands,
+  searchRows,
+  buildProcessForest,
+  countRows,
   summarizeSession,
   type SearchHits,
   type SessionRow,
@@ -39,9 +42,22 @@ const AUTO_EXPAND_GROUPS = 10;
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
 
+// SESSION_LENSES are the session's three views, in order: what it ran as commands, every process as one tree, and what it touched.
+type SessionLens = "commands" | "processes" | "activity";
+const SESSION_LENSES: readonly { lens: SessionLens; label: string }[] = [
+  { lens: "commands", label: "Commands" },
+  { lens: "processes", label: "Processes" },
+  { lens: "activity", label: "Activity" },
+];
+
 // REPORTED_LABEL marks what the agent reported about a command, as distinct from what the sensor observed (issue #1333).
 const REPORTED_LABEL = "Reported by agent";
 const REPORTED_TITLE = "From the agent's session transcript, which the agent and its user can write; not observed by the sensor";
+
+// REPARENTED_TITLE explains a reparented badge: the server marks a process launchd adopted (issue #1280), and the views list it
+// under the process that created it, not under launchd.
+const REPARENTED_TITLE = "launchd (pid 1) adopted it after the process that created it exited, so its parent is now pid 1; it is " +
+  "listed under the process that created it";
 
 // INFERRED_LAUNCH_TITLE explains an inferred launch's badge: the row is listed under its launcher, which is not its creator.
 const INFERRED_LAUNCH_TITLE =
@@ -121,8 +137,9 @@ export function SessionView() {
   const hostNames = useHostNames();
   const [verbose, setVerbose] = useState(false);
   const [query, setQuery] = useState("");
-  // view picks what the session's main column shows: its commands, or the totals of what it touched (issue #1285).
-  const [view, setView] = useState<"commands" | "activity">("commands");
+  // view picks what the session's main column shows: its commands, every process it ran as one tree (issue #1335), or the totals of
+  // what it touched (issue #1285).
+  const [view, setView] = useState<SessionLens>("commands");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
   const [read, setRead] = useState<SessionRead | null>(null);
@@ -140,19 +157,26 @@ export function SessionView() {
     for (const alert of current?.alerts ?? []) byProcess.set(alert.process_id, [...(byProcess.get(alert.process_id) ?? []), alert]);
     return byProcess;
   }, [current?.alerts]);
+  // What launchd started for a command's open or launchctl is listed under it, marked inferred (issue #1286).
+  const logical = useMemo(() => (tree ? applyLaunchLinks(tree.roots, tree.links) : null), [tree]);
   const groups = useMemo(
     () => {
-      if (!tree) return [];
+      if (!tree || !logical) return [];
       const incomplete = tree.truncated || current === null || current.alertsFailed === true || current.alertsTruncated === true
         || beganBeforeRetention(current);
-      // What launchd started for a command's open or launchctl is listed under it, marked inferred (issue #1286).
-      const logical = applyLaunchLinks(tree.roots, tree.links);
       return buildCommands(logical.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred });
     },
-    [tree, verbose, alertsByProcess, current],
+    [tree, logical, verbose, alertsByProcess, current],
+  );
+  const forest = useMemo(
+    () => (tree && logical ? buildProcessForest(logical.roots, tree.agents ?? [], { verbose: true, inferred: logical.inferred }) : []),
+    [tree, logical],
   );
   const summary = useMemo(() => summarizeSession(tree?.roots ?? []), [tree]);
-  const hits = useMemo(() => searchCommands(groups, query), [groups, query]);
+  const hits = useMemo(
+    () => (view === "processes" ? searchRows(forest, query) : searchCommands(groups, query)),
+    [view, forest, groups, query],
+  );
   // A selection belongs to the session it was made in.
   const selectedNode = selected?.key === readKey && tree !== null ? selected.node : null;
   const rowsContext = useMemo<SessionRows>(
@@ -178,7 +202,7 @@ export function SessionView() {
       {project && <span className="session-view__mono">{project}</span>}
       <span>{hostNames.get(hostId) ?? hostId}</span>
       {firstNs !== undefined && lastNs !== undefined && <span>{`${formatNs(firstNs)} to ${formatNs(lastNs)}`}</span>}
-      {tree && <span>{summary.processCount.toLocaleString()} processes</span>}
+      {tree && <span>{plural(summary.processCount, "process", "processes")}</span>}
       {record?.agent_pid !== undefined && <span>agent pid {record.agent_pid}</span>}
       <span className="session-view__mono" title={sessionId}>Session {sessionId}</span>
     </span>
@@ -195,16 +219,19 @@ export function SessionView() {
             <Input
               type="search"
               aria-label="Search this session"
-              placeholder="Search commands"
+              placeholder={view === "processes" ? "Search processes" : "Search commands"}
               value={query}
               onChange={(e) => { setQuery(e.target.value); }}
             />
-            <Toggle
-              id="session-verbose"
-              label="Show shell plumbing"
-              checked={verbose}
-              onChange={(e) => { setVerbose(e.target.checked); }}
-            />
+            {/* The Processes view lists every process already, so the plumbing toggle belongs to Commands alone. */}
+            {view === "commands" && (
+              <Toggle
+                id="session-verbose"
+                label="Show shell plumbing"
+                checked={verbose}
+                onChange={(e) => { setVerbose(e.target.checked); }}
+              />
+            )}
           </div>
         )}
       />
@@ -213,7 +240,7 @@ export function SessionView() {
         <div className="session-view__layout">
           <div className="session-view__main">
             <div role="group" aria-label="Session view" className="session-view__views">
-              {(["commands", "activity"] as const).map((v) => (
+              {SESSION_LENSES.map(({ lens: v, label }) => (
                 <button
                   key={v}
                   type="button"
@@ -221,19 +248,20 @@ export function SessionView() {
                   className="session-view__view"
                   onClick={() => { setView(v); }}
                 >
-                  {v === "commands" ? "Commands" : "Activity"}
+                  {label}
                 </button>
               ))}
             </div>
-            {view === "commands" ? (
-              <SessionBody read={current} groups={groups} />
-            ) : (
+            {view === "commands" && <SessionBody read={current} groups={groups} />}
+            {view === "processes" && <ProcessesBody read={current} forest={forest} />}
+            {view === "activity" && (
               <ActivityTabs
                 label="Session activity"
                 hostId={hostId}
                 scope={{ kind: "session", session: sessionId }}
                 onProcess={(id) => {
-                  const node = tree ? findNodeByDbId(tree.roots, id) : null;
+                  // The agent is not among the roots, and its own edits are what the Files tab lists most (issue #1287).
+                  const node = tree ? findNodeByDbId([...(tree.agents ?? []), ...tree.roots], id) : null;
                   if (node) rowsContext.onSelect(node);
                 }}
               />
@@ -329,6 +357,31 @@ function SessionBody({ read, groups }: { readonly read: SessionRead | null; read
   );
 }
 
+// ProcessesBody lists every process the session ran as one tree rooted at the agent (issue #1335), with nothing hidden or folded: the
+// forensic counterpart to the commands, which group and trim the same processes for reading.
+function ProcessesBody({ read, forest }: { readonly read: SessionRead | null; readonly forest: SessionRow[] }) {
+  if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
+  if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
+  if (forest.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
+  return (
+    <div className="session-view__processes">
+      <p className="session-view__processes-summary">{processesSummary(forest)}</p>
+      <ProcessRows rows={forest} />
+    </div>
+  );
+}
+
+// processesSummary counts what the Processes view lists and says where it hangs: under the agent, beside it when a root's creator was
+// not read, or as roots when the agent was not seen.
+function processesSummary(forest: readonly SessionRow[]): string {
+  const count = plural(countRows(forest), "process", "processes");
+  const beside = forest.filter((r) => !r.agent).length;
+  if (beside === forest.length) return `${count}. The agent process was not seen, so its commands are listed as roots`;
+  if (beside === 0) return `${count}, under the agent that ran them`;
+  return `${count}. ${plural(beside, "root sits", "roots sit")} beside the agent: the process that created ${beside === 1 ? "it" : "them"} ` +
+    "was not read";
+}
+
 // highestSeverity is the most severe of the alerts' severities, for the group's badge.
 function highestSeverity(alerts: readonly Alert[]): string {
   return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
@@ -413,7 +466,7 @@ function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
 
 function ProcessRow({ listed }: { readonly listed: SessionRow }) {
   const { alertsByProcess, hits, selectedId, onSelect } = useSessionRows();
-  const { node, children, uidChange, folded, inferred } = listed;
+  const { node, children, uidChange, folded, inferred, agent } = listed;
   const span = folded ? forkSpan(listed) : null;
   const rowClass = `session-view__row${hits.rows.has(listed) ? " session-view__row--hit" : ""}`;
   return (
@@ -425,9 +478,10 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
           aria-pressed={selectedId === node.id}
           onClick={() => { onSelect(node); }}
         >
-          {basename(node.path)}
+          {executableName(node.path)}
         </button>
         <span className="session-view__mono session-view__cmdline">{commandLine(node.path, node.args)}</span>
+        {agent && <Badge variant="info">agent</Badge>}
         {folded && <Badge variant="neutral">{`×${String(folded.length + 1)}`}</Badge>}
         <span className="session-view__meta">
           {span
@@ -438,6 +492,12 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
         {inferred && (
           <span title={INFERRED_LAUNCH_TITLE}>
             <Badge variant="info">inferred launch</Badge>
+          </span>
+        )}
+        {/* A double fork or nohup left it to launchd (issue #1280); it is still listed under the process that created it. */}
+        {node.reparented && (
+          <span title={REPARENTED_TITLE}>
+            <Badge variant="neutral">reparented, ppid 1</Badge>
           </span>
         )}
         {uidChange && (

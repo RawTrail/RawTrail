@@ -27,6 +27,8 @@ test.describe("agent sessions", () => {
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
   // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
   // spec:web-ui/activity-table-cells-stay-on-one-line/a-file-path-in-the-process-detail-panel-reads-whole
+  // spec:web-ui/session-processes-view/every-process-is-listed-under-the-agent-that-ran-it
+  // spec:web-ui/session-processes-view/a-reparented-process-stays-under-its-creator
   test("a Claude Code session is listed with its project and opens to its commands", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
@@ -82,6 +84,21 @@ test.describe("agent sessions", () => {
     await expect(commands.nth(1).locator(".session-view__name")).toHaveText(["sleep"]);
     await page.getByText("Show shell plumbing").click();
     await expect(commands.nth(1).locator(".session-view__name")).toHaveText(["zsh", "zsh", "sleep"]);
+
+    // Every process as one tree under the agent: the agent leads, marked, and the sleep launchd adopted stays under the subshell that
+    // created it, marked as reparented. Nothing is hidden or folded, so the count is the session's eleven and the agent.
+    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Processes" }).click();
+    const processes = page.locator(".session-view__processes");
+    await expect(processes.getByText("12 processes, under the agent that ran them")).toBeVisible();
+    await expect(processes.locator(".session-view__name").first()).toHaveText("claude");
+    // One root: all four commands' shells sit under the agent, none beside it.
+    await expect(processes.locator(":scope > ul > li")).toHaveCount(1);
+    await expect(processes.locator(":scope > ul > li > ul > li")).toHaveCount(4);
+    await expect(processes.locator("li").first().getByText("agent", { exact: true })).toBeVisible();
+    const adopted = processes.locator("li", { hasText: "reparented, ppid 1" }).last();
+    await expect(adopted.locator(".session-view__name").first()).toHaveText("sleep");
+    await expect(adopted.locator("xpath=../../div/button[contains(@class, 'session-view__name')]")).toHaveText("zsh");
+    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Commands" }).click();
 
     // Selecting a process opens its detail beside the session.
     await commands.nth(1).getByRole("button", { name: "sleep", exact: true }).click();

@@ -221,9 +221,10 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			PIDVersion       *uint32           `json:"pidversion,omitempty"`
 			ParentPIDVersion *uint32           `json:"parent_pidversion,omitempty"`
 			GroupID          int               `json:"group_id,omitempty"`
+			OriginalPPID     int               `json:"original_ppid,omitempty"`
 		}{
 			ev.PID, ev.PPID, ev.Path, ev.Args, ev.CWD, ev.UID, ev.GID, ev.PackageSigning, ev.Env,
-			ev.PIDVersion, ev.ParentPIDVersion, ev.GroupID,
+			ev.PIDVersion, ev.ParentPIDVersion, ev.GroupID, ev.OriginalPPID,
 		})
 	case "fork":
 		return json.Marshal(struct {
