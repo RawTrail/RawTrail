@@ -236,15 +236,16 @@ export function SessionView() {
               value={query}
               onChange={(e) => { setQuery(e.target.value); }}
             />
-            {/* The Processes view lists every process already, so the plumbing toggle belongs to Commands alone. */}
-            {view === "commands" && (
+            {/* The plumbing toggle belongs to Commands alone: Processes lists every process already. It keeps its space in every view,
+                hidden rather than removed, so the header wraps alike in all three and the view switcher below never moves. */}
+            <span style={view === "commands" ? undefined : { visibility: "hidden" }}>
               <Toggle
                 id="session-verbose"
                 label="Show shell plumbing"
                 checked={verbose}
                 onChange={(e) => { setVerbose(e.target.checked); }}
               />
-            )}
+            </span>
           </div>
         )}
       />
