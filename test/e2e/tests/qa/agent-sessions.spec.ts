@@ -95,7 +95,7 @@ test.describe("agent sessions", () => {
     await expect(processes.locator(":scope > ul > li")).toHaveCount(1);
     await expect(processes.locator(":scope > ul > li > ul > li")).toHaveCount(4);
     await expect(processes.locator("li").first().getByText("agent", { exact: true })).toBeVisible();
-    const adopted = processes.locator("li", { hasText: "reparented" }).last();
+    const adopted = processes.locator("li", { hasText: "reparented, ppid 1" }).last();
     await expect(adopted.locator(".session-view__name").first()).toHaveText("sleep");
     await expect(adopted.locator("xpath=../../div/button[contains(@class, 'session-view__name')]")).toHaveText("zsh");
     await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Commands" }).click();

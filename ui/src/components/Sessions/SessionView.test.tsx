@@ -471,12 +471,11 @@ describe("SessionView", () => {
     const names = [...document.querySelectorAll(".session-view__processes .session-view__name")].map((b) => b.textContent);
     expect(names).toEqual(["claude", "zsh", "zsh", "sleep"]);
     expect(screen.getByText("agent")).toBeVisible();
-    const reparented = screen.getByText("reparented");
+    const reparented = screen.getByText("reparented, ppid 1");
     expect(reparented.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("sleep");
-    expect(reparented.parentElement).toHaveAttribute("title",
-      "launchd adopted it after the process that created it exited; it is listed under its creator");
+    expect(reparented.parentElement).toHaveAttribute("title", expect.stringContaining("its parent is now pid 1"));
     // Only the adopted process is marked: its creators are not.
-    expect(screen.getAllByText("reparented")).toHaveLength(1);
+    expect(screen.getAllByText("reparented, ppid 1")).toHaveLength(1);
 
     fireEvent.change(screen.getByLabelText("Search this session"), { target: { value: "sleep 47" } });
     expect(screen.getByPlaceholderText("Search processes")).toBeVisible();

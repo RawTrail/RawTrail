@@ -349,6 +349,19 @@ describe("buildProcessForest", () => {
   });
 });
 
+describe("buildCommands folding", () => {
+  // Two identical sleeps under one shell, one launchd adopted: folding them would show one badge for both, or none.
+  it.each([
+    { order: "adopted first", adopted: [true, false] },
+    { order: "adopted second", adopted: [false, true] },
+  ])("never folds a process launchd adopted into an identical sibling ($order)", ({ adopted }) => {
+    const sleeps = adopted.map((reparented, i) => proc(2 + i, 20 + i, 2 + i, "/bin/sleep", ["sleep", "47"], [], { reparented }));
+    const call = proc(1, 10, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'sleep 47 & sleep 47 &'"], sleeps, { tool_call_group: 10 });
+    const [group] = buildCommands([call], QUIET);
+    expect(group.rows.map((r) => [r.node.reparented ?? false, r.folded?.length ?? 0])).toEqual(adopted.map((a) => [a, 0]));
+  });
+});
+
 describe("searchRows", () => {
   it("finds a query anywhere in the forest, and nothing for an empty one", () => {
     const forest = buildProcessForest(realSession(), [], QUIET);

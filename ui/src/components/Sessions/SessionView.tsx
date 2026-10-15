@@ -56,7 +56,8 @@ const REPORTED_TITLE = "From the agent's session transcript, which the agent and
 
 // REPARENTED_TITLE explains a reparented badge: the server marks a process launchd adopted (issue #1280), and the views list it
 // under the process that created it, not under launchd.
-const REPARENTED_TITLE = "launchd adopted it after the process that created it exited; it is listed under its creator";
+const REPARENTED_TITLE = "launchd (pid 1) adopted it after the process that created it exited, so its parent is now pid 1; it is " +
+  "listed under the process that created it";
 
 // INFERRED_LAUNCH_TITLE explains an inferred launch's badge: the row is listed under its launcher, which is not its creator.
 const INFERRED_LAUNCH_TITLE =
@@ -489,7 +490,7 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
         {/* A double fork or nohup left it to launchd (issue #1280); it is still listed under the process that created it. */}
         {node.reparented && (
           <span title={REPARENTED_TITLE}>
-            <Badge variant="neutral">reparented</Badge>
+            <Badge variant="neutral">reparented, ppid 1</Badge>
           </span>
         )}
         {uidChange && (

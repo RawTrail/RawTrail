@@ -111,10 +111,10 @@ function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape)
   return listed;
 }
 
-// foldKey identifies a row that can be folded with its identical siblings: a process that started nothing, changed no privilege and
-// carries no alert. Null for any other row.
+// foldKey identifies a row that can be folded with its identical siblings: a process that started nothing, changed no privilege, was
+// not adopted by launchd and carries no alert. Null for any other row: a folded process shows no badge of its own.
 function foldKey(listed: SessionRow, shape: RowShape): string | null {
-  if (shape.incomplete || shape.unfolded || listed.inferred || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) {
+  if (shape.incomplete || shape.unfolded || listed.inferred || listed.node.reparented || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) {
     return null;
   }
   // How each ended is part of the key: a failed run must not hide behind a successful one.
