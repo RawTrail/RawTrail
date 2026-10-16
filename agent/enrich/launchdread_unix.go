@@ -36,12 +36,18 @@ const (
 // maxListingBytes of them, and the first budget in name order are read, each read counted whether it succeeds or not. -H follows
 // a symlinked directory operand, as launchctl's own open does. The path is absolute (LaunchdJobs makes it so), so find cannot take
 // it for an option. A directory's own failed read as a plist is not a plist read and is not counted, unless it lists none.
+//
+// The whole operand, its listing and every plist read, shares one readTimeout, so a directory holds the read slot no longer than
+// one plist does: a directory of named pipes cannot keep the slot, and blind the reads of the launchctl execs behind it, for a
+// timeout per pipe.
 func ReadLaunchdJobs(path string, uid, gid, budget int) ([]LaunchdJob, int) {
-	if job, ok := ReadLaunchdJob(path, uid, gid); ok {
+	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
+	defer cancel()
+	if job, ok := readLaunchdJob(ctx, path, uid, gid); ok {
 		job.PlistPath = path
 		return []LaunchdJob{job}, 1
 	}
-	listing, err := runAs(uid, gid, nil, maxListingBytes, findPath, "-H", path, "-mindepth", "1", "-maxdepth", "1", "-name", "*.plist",
+	listing, err := runAs(ctx, uid, gid, nil, maxListingBytes, findPath, "-H", path, "-mindepth", "1", "-maxdepth", "1", "-name", "*.plist",
 		"-print0")
 	if err != nil || len(listing) == 0 {
 		return nil, 1
@@ -51,7 +57,7 @@ func ReadLaunchdJobs(path string, uid, gid, budget int) ([]LaunchdJob, int) {
 	plists = plists[:min(len(plists), budget)]
 	var jobs []LaunchdJob
 	for _, plist := range plists {
-		if job, ok := ReadLaunchdJob(plist, uid, gid); ok {
+		if job, ok := readLaunchdJob(ctx, plist, uid, gid); ok {
 			job.PlistPath = plist
 			jobs = append(jobs, job)
 		}
@@ -65,12 +71,19 @@ func ReadLaunchdJobs(path string, uid, gid, budget int) ([]LaunchdJob, int) {
 // through a supplementary group is passed over. head stops one byte past maxPlistBytes, so an oversized file is refused without
 // being read whole, and the timeout ends a read that blocks, a named pipe or a stalled mount among them.
 func ReadLaunchdJob(path string, uid, gid int) (LaunchdJob, bool) {
-	data, err := runAs(uid, gid, nil, maxPlistBytes+1, headPath, "-c", strconv.Itoa(maxPlistBytes+1), "--", path)
+	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
+	defer cancel()
+	return readLaunchdJob(ctx, path, uid, gid)
+}
+
+// readLaunchdJob is ReadLaunchdJob under the caller's deadline.
+func readLaunchdJob(ctx context.Context, path string, uid, gid int) (LaunchdJob, bool) {
+	data, err := runAs(ctx, uid, gid, nil, maxPlistBytes+1, headPath, "-c", strconv.Itoa(maxPlistBytes+1), "--", path)
 	if err != nil || len(data) > maxPlistBytes {
 		return LaunchdJob{}, false
 	}
 	if bytes.HasPrefix(data, []byte(binaryPlistPrefix)) {
-		if data, err = runAs(uid, gid, data, maxConvertedPlistBytes, plutilPath, "-convert", "xml1", "-o", "-", "--", "-"); err != nil {
+		if data, err = runAs(ctx, uid, gid, data, maxConvertedPlistBytes, plutilPath, "-convert", "xml1", "-o", "-", "--", "-"); err != nil {
 			return LaunchdJob{}, false
 		}
 	}
@@ -78,11 +91,9 @@ func ReadLaunchdJob(path string, uid, gid int) (LaunchdJob, bool) {
 }
 
 // runAs runs a tool as uid and gid with no supplementary groups, feeding it stdin, keeping at most limit bytes of its output, and
-// ending it at readTimeout. The agent's own groups are cleared rather than inherited: a group root holds must not open a file for a
+// ending it at ctx's deadline. The agent's own groups are cleared rather than inherited: a group root holds must not open a file for a
 // user who is not in it. When the agent already runs as uid, as the tests do, no switch is made.
-func runAs(uid, gid int, stdin []byte, limit int, tool string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
-	defer cancel()
+func runAs(ctx context.Context, uid, gid int, stdin []byte, limit int, tool string, args ...string) ([]byte, error) {
 	//nolint:gosec // tool is head or plutil, both fixed paths; the user's path is only an argument, read as the user
 	cmd := exec.CommandContext(ctx, tool, args...)
 	cmd.WaitDelay = readTimeout

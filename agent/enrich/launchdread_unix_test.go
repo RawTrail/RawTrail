@@ -208,3 +208,27 @@ func TestReadLaunchdJobs_Directory(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) //nolint:gosec // the test sets its own temp directory's mode
 	assert.Empty(t, readOperand(locked, me, myGroup), "a directory the user cannot list yields none")
 }
+
+// A directory of named pipes, each held open and sending nothing, costs the read slot one timeout in all, not one per pipe: the
+// listing and every plist read share the operand's deadline (issue #1352), so the reads of the launchctl execs behind it are not held
+// off for a timeout per pipe.
+//
+// spec:endpoint-event-collection/launchd-job-definitions/a-blocked-plist-read-does-not-hold-back-telemetry
+func TestReadLaunchdJobs_DirectoryOfPipesSharesOneDeadline(t *testing.T) {
+	t.Parallel()
+	requirePlutil(t)
+	dir := t.TempDir()
+	for _, name := range []string{"a.plist", "b.plist", "c.plist"} {
+		fifo := filepath.Join(dir, name)
+		require.NoError(t, syscall.Mkfifo(fifo, 0o600))
+		writer, err := os.OpenFile(fifo, os.O_RDWR, 0) //nolint:gosec // the test's own pipe
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = writer.Close() })
+	}
+	start := time.Now()
+	jobs, attempted := ReadLaunchdJobs(dir, os.Getuid(), os.Getgid(), maxLaunchdPlists)
+	elapsed := time.Since(start)
+	assert.Empty(t, jobs)
+	assert.Equal(t, 3, attempted)
+	assert.Less(t, elapsed, readTimeout+time.Second, "three stalled reads end within the one deadline, not one each")
+}
