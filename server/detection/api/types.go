@@ -160,6 +160,9 @@ type ExecLineage struct {
 	StartTimeNs *int64 `db:"start_time_ns" json:"start_time_ns,omitempty"`
 	// CWD is the working directory at exec.
 	CWD *string `db:"cwd" json:"cwd,omitempty"`
+	// LaunchdJobs are the job definitions a `launchctl load|bootstrap` exec loaded (issue #1341): each plist's path, label, program and
+	// program arguments, as the agent read them, kept as the JSON array the exec sent. NULL for any other exec.
+	LaunchdJobs NullRawJSON `db:"launchd_jobs" json:"launchd_jobs,omitempty"`
 	// Reparented is true when launchd adopted the process: its exec reported ppid 1 and an original_ppid of another process.
 	Reparented bool `db:"reparented" json:"reparented,omitempty"`
 }

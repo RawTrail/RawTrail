@@ -283,6 +283,25 @@ export function ProcessDetail({ hostId, node, onClose, currentAlertId, timelineH
             {formatCommandLine(node.args, node.path)}
           </EvidenceRow>
         )}
+        {(node.launchd_jobs ?? []).map((job) => {
+          // What the job runs: its arguments, whose first is the program unless Program names it, or its program alone.
+          const argv = job.program_arguments ?? (job.program ? [job.program] : []);
+          const runs = argv.length > 0 ? formatCommandLine(argv, job.program ?? argv[0]) : "";
+          return (
+            <EvidenceRow
+              key={job.plist_path}
+              label="Loads job"
+              valueClassName="process-detail__break"
+              copy={runs ? { value: runs, label: "Copy what the job runs" } : undefined}
+            >
+              <span title={job.plist_path}>
+                <span className="process-detail__job-label">{job.label ?? job.plist_path}</span>
+                {runs && <span className="process-detail__job-runs">{` runs ${runs}`}</span>}
+                {job.truncated && <span className="process-detail__job-cut"> (cut to the agent&apos;s read limit)</span>}
+              </span>
+            </EvidenceRow>
+          );
+        })}
         {node.uid !== undefined && (
           <EvidenceRow label="UID" pivot={{ param: "uid", value: String(node.uid), label: "Search all hosts for this UID" }}>
             {node.uid}

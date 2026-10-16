@@ -34,7 +34,7 @@ const loadKeyChunk = 1000
 // columns plus one IN-list id (59 placeholders), so a few hundred per chunk keeps the statement well bounded.
 const processUpdateChunk = 200
 
-// insertRowChunk caps the rows folded into one multi-row INSERT. Each row binds 39 placeholders, so this keeps the statement under
+// insertRowChunk caps the rows folded into one multi-row INSERT. Each row binds 40 placeholders, so this keeps the statement under
 // MySQL's ~65k placeholder ceiling even if the configured processing batch grows well beyond today's default; the preload and
 // update paths are chunked for the same reason.
 const insertRowChunk = 1000
@@ -528,7 +528,7 @@ var mutableUpdateColumns = []string{
 	"exec_time_ns", "pidversion", "exec_event_id", "exit_time_ns", "exit_ingested_at_ns", "exit_reason", "exit_code",
 	"exit_event_id", "last_seen_ns",
 	"original_ppid", "responsible_pid", "responsible_pidversion", "session_id", "group_id", "tty", "start_time_ns", "cwd",
-	"reparented", "agent_session_id", "agent_name", "agent_version", "tool_call_group",
+	"launchd_jobs", "reparented", "agent_session_id", "agent_name", "agent_version", "tool_call_group",
 }
 
 func updateRowsChunk(ctx context.Context, ext sqlx.ExtContext, updates []ProcessRowUpdate) error {
@@ -618,6 +618,8 @@ func updateColumnValue(col string, u ProcessRowUpdate) any {
 		return u.Lineage.StartTimeNs
 	case "cwd":
 		return u.Lineage.CWD
+	case "launchd_jobs":
+		return u.Lineage.LaunchdJobs
 	case "reparented":
 		return u.Lineage.Reparented
 	case "agent_session_id":

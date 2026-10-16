@@ -145,6 +145,50 @@ func TestLaunchTarget_HeldToTheSessionItNames(t *testing.T) {
 	}
 }
 
+// A load or bootstrap matches the jobs the agent read from its plists, by label, one launch per job, held to the session it loads into.
+func TestLaunchTarget_LoadAndBootstrapByTheirJobs(t *testing.T) {
+	t.Parallel()
+	withJobs := func(p api.Process, uid int, jobs string) api.Process {
+		p.UID, p.LaunchdJobs = &uid, api.NullRawJSON(jobs)
+		return p
+	}
+	two := `[{"plist_path":"/a.plist","label":"com.example.a"},{"plist_path":"/b.plist","label":"com.example.b","program":"/bin/x"}]`
+	for _, tc := range []struct {
+		name     string
+		launcher api.Process
+		uid      *int
+	}{
+		{"load by a user", withJobs(launcher(t, "/bin/launchctl", "launchctl", "load", "/a.plist", "/b.plist"), 501, two), new(501)},
+		{"load by root, into the system domain", withJobs(launcher(t, "/bin/launchctl", "launchctl", "load", "/a.plist", "/b.plist"), 0, two), nil},
+		{"bootstrap into a gui domain", withJobs(launcher(t, "/bin/launchctl", "launchctl", "bootstrap", "gui/502", "/a.plist", "/b.plist"), 0, two),
+			new(502)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			target, ok := launchTarget(tc.launcher)
+			require.True(t, ok)
+			assert.Equal(t, tc.uid, target.uid)
+			assert.Equal(t, 2, target.jobs)
+			assert.Equal(t, exactLaunchWindow, target.window)
+			assert.True(t, target.match(xpc(t, "com.example.a")))
+			assert.True(t, target.match(xpc(t, "com.example.b")))
+			assert.False(t, target.match(xpc(t, "com.example.c")))
+			assert.False(t, target.match(exe("/bin/x")), "a program path is no label")
+		})
+	}
+	for name, jobs := range map[string]string{
+		"no definitions":                "",
+		"definitions with no label":     `[{"plist_path":"/a.plist","program":"/bin/x"}]`,
+		"definitions that are not JSON": `not json`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, ok := launchTarget(withJobs(launcher(t, "/bin/launchctl", "launchctl", "load", "/a.plist"), 501, jobs))
+			assert.False(t, ok)
+		})
+	}
+}
+
 // spec:server-rest-api/inferred-launch-links/a-launcher-is-matched-to-what-it-named
 func TestLaunchTarget_NamesNothingMatchable(t *testing.T) {
 	t.Parallel()

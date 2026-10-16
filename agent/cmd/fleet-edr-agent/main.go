@@ -748,6 +748,9 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 			data = enrich.PackageScriptSigning(data, p.parentPath, pkgsign.Evaluate)
 			// And a TCC permission change with the signature of the app it is about (issue #1185), found by its bundle ID.
 			data = enrich.TccSubjectSigning(data, appbundle.Paths, codesign.Evaluate)
+			// And a launchctl load or bootstrap with the job definitions of the plists it names (issue #1341), which the
+			// server needs to link the command to the job launchd starts and a persistence detection wants to see.
+			data = enrich.LaunchdJobs(data, enrich.ReadLaunchdJob)
 			if p.updateTable {
 				updateProcTable(p.pt, data)
 			}

@@ -34,14 +34,14 @@ const (
 const (
 	processLineageColumns = `parent_process_id, parent_pidversion, ` + execLineageColumns
 	execLineageColumns    = `original_ppid, responsible_pid, responsible_pidversion, session_id, group_id, tty, start_time_ns, cwd,
-		reparented`
+		launchd_jobs, reparented`
 	// agentSessionColumns are api.AgentSession's columns (migration 00019, issue #1281), in its field order.
 	agentSessionColumns = `agent_session_id, agent_name, agent_version`
 	// groupingColumns are the story and tool-call keys (migration 00019, issue #1281).
 	groupingColumns = `story_root_id, tool_call_group`
 )
 
-// insertProcessColumns and insertProcessPlaceholders pin the 39-column process INSERT shape in one place, shared by the per-event
+// insertProcessColumns and insertProcessPlaceholders pin the 40-column process INSERT shape in one place, shared by the per-event
 // InsertProcess, the re-exec INSERT, the batched multi-row INSERT, and the per-row poison fallback (processbatch.go), so the column
 // list and arg order can never drift between the per-event and set-based write paths.
 const insertProcessColumns = `INSERT INTO processes
@@ -50,9 +50,9 @@ const insertProcessColumns = `INSERT INTO processes
 		 exit_ingested_at_ns, exit_reason, exit_code, previous_exec_id,
 		 is_snapshot, last_seen_ns, source_event_id, exec_event_id, ` + processLineageColumns + `, ` + agentSessionColumns + `, ` + groupingColumns + `)`
 
-const insertProcessPlaceholders = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const insertProcessPlaceholders = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-// appendInsertProcessArgs appends the 39 INSERT bind values for p in insertProcessColumns order.
+// appendInsertProcessArgs appends the 40 INSERT bind values for p in insertProcessColumns order.
 func appendInsertProcessArgs(args []any, p api.Process) []any {
 	args = append(args,
 		p.HostID, p.PID, p.PPID, p.Path, p.Args, p.UID, p.GID,
@@ -71,7 +71,7 @@ func appendAgentSessionArgs(args []any, a api.AgentSession) []any {
 // appendExecLineageArgs appends the bind values for l in execLineageColumns order.
 func appendExecLineageArgs(args []any, l api.ExecLineage) []any {
 	return append(args, l.OriginalPPID, l.ResponsiblePID, l.ResponsiblePIDVersion, l.SessionID, l.GroupID, l.TTY, l.StartTimeNs,
-		l.CWD, l.Reparented)
+		l.CWD, l.LaunchdJobs, l.Reparented)
 }
 
 // InsertProcess inserts a new process record (typically from a fork event). The caller is expected to pass the ingest timestamp of
@@ -231,7 +231,7 @@ func (s *Store) UpdateProcessExec(ctx context.Context, u ProcessExecUpdate) erro
 		UPDATE processes SET path = ?, args = ?, uid = ?, gid = ?, code_signing = ?, sha256 = ?, cdhash = ?, exec_time_ns = ?,
 		                    pidversion = COALESCE(?, pidversion), exec_event_id = ?,
 		                    original_ppid = ?, responsible_pid = ?, responsible_pidversion = ?, session_id = ?, group_id = ?,
-		                    tty = ?, start_time_ns = ?, cwd = ?, reparented = ?,
+		                    tty = ?, start_time_ns = ?, cwd = ?, launchd_jobs = ?, reparented = ?,
 		                    agent_session_id = ?, agent_name = ?, agent_version = ?, tool_call_group = ?
 		WHERE host_id = ? AND pid = ? AND exit_time_ns IS NULL
 		ORDER BY fork_time_ns DESC, id DESC LIMIT 1`,

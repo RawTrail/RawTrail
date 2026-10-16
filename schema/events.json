@@ -194,6 +194,23 @@
         "group_id": { "type": "integer", "description": "Optional. POSIX process group id. Survives daemonizing by double fork, nohup, or disown; replaced by setsid." },
         "tty": { "type": "string", "description": "Optional. Controlling terminal device path. Absent when the process has no controlling terminal." },
         "start_time_ns": { "type": "integer", "minimum": 0, "description": "Optional. When the process was created (its fork), in Unix nanoseconds. Unchanged by exec. Startup snapshot rows carry it from the process table." },
+        "launchd_jobs": {
+          "type": "array",
+          "maxItems": 8,
+          "description": "Optional. On a launchctl load or bootstrap exec, the job definitions of the plists it names, read by the agent from each plist the user who ran launchctl could read. Absent for any other exec, and when no named plist could be read.",
+          "items": {
+            "type": "object",
+            "required": ["plist_path"],
+            "additionalProperties": false,
+            "properties": {
+              "plist_path": { "type": "string", "description": "The plist, resolved against the exec's working directory when relative." },
+              "label": { "type": "string", "maxLength": 1024, "description": "The job's Label." },
+              "program": { "type": "string", "maxLength": 1024, "description": "The job's Program." },
+              "program_arguments": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 4096 }, "description": "The job's ProgramArguments." },
+              "truncated": { "type": "boolean", "description": "A field was cut to the bounds above." }
+            }
+          }
+        },
         "env": {
           "type": "object",
           "description": "Optional. AI agent session markers from the process's environment. Only the variables listed here are ever sent, matched on the full name: the rest of the environment holds credentials and never leaves the host. CLAUDE_CODE_SESSION_ID equals the name of the Claude Code session's transcript file. Absent when the process carries no marker.",

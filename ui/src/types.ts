@@ -95,6 +95,16 @@ export interface CodeSigning {
   is_platform_binary: boolean;
 }
 
+// LaunchdJob is one job definition a launchctl exec loaded: the plist it came from, the job's label, and what it runs. truncated is
+// set when a field was cut to the agent's bounds.
+export interface LaunchdJob {
+  plist_path: string;
+  label?: string;
+  program?: string;
+  program_arguments?: string[];
+  truncated?: boolean;
+}
+
 export interface Process {
   id: number;
   host_id: string;
@@ -138,6 +148,9 @@ export interface Process {
   start_time_ns?: number;
   cwd?: string;
   reparented?: boolean;
+  // launchd_jobs are the job definitions a `launchctl load|bootstrap` exec loaded (issue #1341), as the agent read them from each
+  // plist. Absent for any other exec.
+  launchd_jobs?: LaunchdJob[];
   // AI agent attribution (issue #1281). agent_session_id names the session an exec's markers stamped or the row inherited from its
   // creator, with the agent's name and version. tool_call_group keys the agent tool call that started the process, and story_root_id
   // is the row of its nearest ancestor launchd started. Each is absent outside an agent session or when the chain was not seen.
