@@ -28,6 +28,18 @@ describe("applyLaunchLinks", () => {
     expect([...inferred]).toEqual([3, 7]);
   });
 
+  // spec:web-ui/services-under-their-app/a-service-hangs-under-the-app-responsible-for-it
+  it("moves a service under the app responsible for it, marked as a service rather than an inferred launch", () => {
+    // TextEdit (3) is in the read; launchd started its XPC service (8), which names TextEdit as responsible.
+    const { roots, inferred, services } = applyLaunchLinks([...session(), node(8, 17)], [
+      { from: 2, to: 3, kind: "inferred_launch" },
+      { from: 3, to: 8, kind: "responsible_process" },
+    ]);
+    expect(outline(roots)).toEqual(["1", "  2", "    9", "    3", "      4", "      8", "5", "  6", "7"]);
+    expect([...inferred]).toEqual([3]);
+    expect([...services]).toEqual([8]);
+  });
+
   it("leaves the caller's forest as it was", () => {
     const original = session();
     applyLaunchLinks(original, [{ from: 2, to: 3, kind: "inferred_launch" }]);

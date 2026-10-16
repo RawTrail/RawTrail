@@ -554,6 +554,25 @@ describe("SessionView", () => {
     expect(badge.closest("li")?.parentElement?.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("open");
   });
 
+  // spec:web-ui/services-under-their-app/a-service-hangs-under-the-app-responsible-for-it
+  it("lists an app's service under the app, badged as a service", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const call = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'open -a TextEdit'"], [
+      proc(11, 11, 101, "/usr/bin/open", ["open", "-a", "TextEdit"]),
+    ], { tool_call_group: 10 });
+    const textEdit = proc(12, 12, 102, "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit", ["TextEdit"]);
+    const service = proc(13, 13, 103, "/System/Library/PrivateFrameworks/X.framework/nsattributedstringagent", ["nsattributedstringagent"], [],
+      { agent_session_id: undefined });
+    const links = [{ from: 11, to: 12, kind: "inferred_launch" as const }, { from: 12, to: 13, kind: "responsible_process" as const }];
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call, textEdit, service], links }));
+    renderView();
+    const badge = await screen.findByText("service");
+    expect(badge).toBeVisible();
+    expect(badge.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("nsattributedstringagent");
+    expect(badge.closest("li")?.parentElement?.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("TextEdit");
+    expect(badge.parentElement).toHaveAttribute("title", expect.stringContaining("responsible"));
+  });
+
   it("lists a launch as a call of its own when the read carries no link for it", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const call = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'open -a TextEdit'"], [

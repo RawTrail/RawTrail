@@ -362,6 +362,18 @@ describe("buildCommands folding", () => {
   });
 });
 
+describe("services", () => {
+  it("marks a service, never folds it, and does not badge its user as a privilege change", () => {
+    // TextEdit (uid 501) and two identical WebContent services launchd started for it, running as another user.
+    const svc = (id: number) => proc(id, id, 3, "/System/WebKit/com.apple.WebKit.WebContent", ["WebContent"], [], { uid: 260 });
+    const app = proc(2, 2, 2, "/System/Applications/TextEdit.app/Contents/MacOS/TextEdit", ["TextEdit"], [svc(3), svc(4)]);
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'open -a TextEdit'"], [app], { tool_call_group: 1 });
+    const [group] = buildCommands([call], { verbose: true, services: new Set([3, 4]) });
+    const listedApp = group.rows[0].children[0];
+    expect(listedApp.children.map((r) => [r.service, r.folded?.length ?? 0, r.uidChange])).toEqual([[true, 0, undefined], [true, 0, undefined]]);
+  });
+});
+
 describe("searchRows", () => {
   it("finds a query anywhere in the forest, and nothing for an empty one", () => {
     const forest = buildProcessForest(realSession(), [], QUIET);

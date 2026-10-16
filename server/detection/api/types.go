@@ -768,8 +768,8 @@ type ProcessTreeResult struct {
 	// because a process an alert references is kept while the rest age out. The read is not truncated, the rows are simply gone,
 	// so without this the graph reads as broken while the event timeline beside it, retained on its own window, is complete.
 	RetainedFromNs int64 `json:"retained_from_ns,omitempty"`
-	// Links are edges the forest's parentage does not hold (issue #1286): a process launchd started that an earlier process in the
-	// read asked for. Absent when there are none.
+	// Links are edges the forest's parentage does not hold: a process launchd started that an earlier process in the read asked for
+	// (issue #1286), or that names a process in the read as responsible for it (issue #1340). Absent when there are none.
 	Links []ProcessLink `json:"links,omitempty"`
 	// Agents are an AI agent session's agent processes (issue #1334), read only for a session scope: the agent carries no session
 	// marker, so it is not among the roots, and each root it created names its row as ParentProcessID. Absent otherwise.
@@ -780,6 +780,11 @@ type ProcessTreeResult struct {
 // process launchd started running the app or program it named. A correlation, not lineage: the launched process keeps its own
 // parentage, session and tool call.
 const ProcessLinkInferredLaunch = "inferred_launch"
+
+// ProcessLinkResponsibleProcess links an app to a process launchd started that names the app, with its generation, as its responsible
+// process (issue #1340): an XPC service the app asked for, which keeps launchd as its parent and carries none of the app's session
+// markers. Recorded by the OS, not inferred.
+const ProcessLinkResponsibleProcess = "responsible_process"
 
 // ProcessLink is an edge between two process rows that parentage does not express, with how it was established.
 type ProcessLink struct {

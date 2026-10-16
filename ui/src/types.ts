@@ -395,12 +395,13 @@ export interface ProcessDetail {
   flows_truncated?: boolean;
 }
 
-// ProcessLink is an edge between two process rows that parentage does not hold (issue #1286). inferred_launch links an open or
-// launchctl exec to the process launchd started for it, inferred from timing and target rather than lineage.
+// ProcessLink is an edge between two process rows that parentage does not hold. inferred_launch links an open or launchctl exec to the
+// process launchd started for it, inferred from timing and target rather than lineage (issue #1286). responsible_process links an app
+// to a process launchd started that names the app as responsible, such as an XPC service it asked for (issue #1340).
 export interface ProcessLink {
   from: number;
   to: number;
-  kind: "inferred_launch";
+  kind: "inferred_launch" | "responsible_process";
 }
 
 // TreeResponse is the response from GET /api/hosts/{host_id}/tree: the forest plus the metadata that lets the page say what it is

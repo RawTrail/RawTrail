@@ -361,15 +361,18 @@ paths:
                       Edges the forest's parentage does not hold. `inferred_launch` links an `open` or `launchctl submit` exec to the
                       process launchd started within 5 seconds that runs the app or program it named: a correlation from timing and
                       target, not lineage. A `session` or `story` read adds a linked process it does not hold, with its descendants,
-                      as an extra root; a window read links only what it holds. `open -b`, `launchctl load` and XPC hops name
-                      nothing to match and are not linked. Omitted when there are none.
+                      as an extra root; a window read links only what it holds. `open -b` and `launchctl load` name nothing to
+                      match and are not linked. `responsible_process` links an app to a process launchd started that names the app,
+                      by pid and generation, as its responsible process, such as an XPC service the app asked for: recorded by the
+                      OS, not inferred, and added or linked the same way. A process started from a shell names its terminal as
+                      responsible, so its services are not linked. Omitted when there are none.
                     items:
                       type: object
                       required: [from, to, kind]
                       properties:
-                        from: {type: integer, format: int64, description: The launcher's process id.}
-                        to: {type: integer, format: int64, description: The launched process's id.}
-                        kind: {type: string, enum: [inferred_launch]}
+                        from: {type: integer, format: int64, description: "The launcher's process id, or the app's for a responsible_process link."}
+                        to: {type: integer, format: int64, description: "The launched process's id, or the service's."}
+                        kind: {type: string, enum: [inferred_launch, responsible_process]}
                   agents:
                     type: array
                     description: |

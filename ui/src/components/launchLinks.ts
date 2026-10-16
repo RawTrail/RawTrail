@@ -7,8 +7,10 @@ import type { ProcessLink, ProcessNode } from "../types";
 
 export interface LogicalForest {
   roots: ProcessNode[];
-  // inferred names the rows moved under a launcher, which a view draws as an inferred edge rather than a parent edge.
+  // inferred names the rows an inferred launch moved under a launcher, which a view draws as an inferred edge rather than a parent edge.
   inferred: Set<number>;
+  // services names the rows moved under the app that is responsible for them (issue #1340): a link the OS recorded, not inferred.
+  services: Set<number>;
 }
 
 // copyForest returns the forest with fresh node objects and child arrays, so moving a node does not change the caller's forest.
@@ -30,11 +32,13 @@ function holds(node: ProcessNode, id: number): boolean {
   return node.id === id || (node.children ?? []).some((c) => holds(c, id));
 }
 
-// applyLaunchLinks returns the forest with each link's launched process moved under its launcher, in fork order among the launcher's
-// children. A link whose ends are not both in the forest, or whose launched process holds its launcher, is left as it is.
+// applyLaunchLinks returns the forest with each link's launched process moved under its launcher, or a service under the app it
+// serves, in fork order among that process's children. A link whose ends are not both in the forest, or whose moved process holds
+// the other end, is left as it is.
 export function applyLaunchLinks(roots: readonly ProcessNode[], links: readonly ProcessLink[] | undefined): LogicalForest {
   const inferred = new Set<number>();
-  if (!links || links.length === 0) return { roots: [...roots], inferred };
+  const services = new Set<number>();
+  if (!links || links.length === 0) return { roots: [...roots], inferred, services };
   const forest = copyForest(roots);
   for (const link of links) {
     const launched = locate(forest, link.to);
@@ -44,7 +48,7 @@ export function applyLaunchLinks(roots: readonly ProcessNode[], links: readonly 
     launcher.node.children = [...(launcher.node.children ?? []), launched.node].sort(
       (a, b) => a.fork_time_ns - b.fork_time_ns || a.id - b.id,
     );
-    inferred.add(link.to);
+    (link.kind === "responsible_process" ? services : inferred).add(link.to);
   }
-  return { roots: forest, inferred };
+  return { roots: forest, inferred, services };
 }
