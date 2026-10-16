@@ -100,25 +100,31 @@ func TestAgentToolCalls_ListsTheSessionsCalls(t *testing.T) {
 
 func TestAgentToolCalls_Errors(t *testing.T) {
 	t.Parallel()
-	known := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: "47abb2a1"}}}}
+	// known is a fresh lister holding the session for each run: the fakes record what they were asked, so runs in parallel do not
+	// share one.
+	known := func() AgentSessionLister {
+		return &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: "47abb2a1"}}}}
+	}
 	cases := []struct {
 		name   string
-		lister AgentSessionLister
-		reader AgentToolCallReader
+		lister func() AgentSessionLister
+		reader func() AgentToolCallReader
 		want   int
 	}{
-		{name: "unwired", want: http.StatusServiceUnavailable},
-		{name: "an unknown session", lister: &fakeSessionLister{}, reader: &fakeToolCallReader{}, want: http.StatusNotFound},
-		{name: "the session read fails", lister: &fakeSessionLister{err: errors.New("db")}, reader: &fakeToolCallReader{},
-			want: http.StatusInternalServerError},
-		{name: "the archive read fails", lister: known, reader: &fakeToolCallReader{err: errors.New("ch")},
-			want: http.StatusInternalServerError},
+		{name: "unwired", lister: func() AgentSessionLister { return nil }, reader: func() AgentToolCallReader { return nil },
+			want: http.StatusServiceUnavailable},
+		{name: "an unknown session", lister: func() AgentSessionLister { return &fakeSessionLister{} },
+			reader: func() AgentToolCallReader { return &fakeToolCallReader{} }, want: http.StatusNotFound},
+		{name: "the session read fails", lister: func() AgentSessionLister { return &fakeSessionLister{err: errors.New("db")} },
+			reader: func() AgentToolCallReader { return &fakeToolCallReader{} }, want: http.StatusInternalServerError},
+		{name: "the archive read fails", lister: known,
+			reader: func() AgentToolCallReader { return &fakeToolCallReader{err: errors.New("ch")} }, want: http.StatusInternalServerError},
 	}
 	for _, path := range []string{toolCallsPath, lineagePath} {
 		for _, tc := range cases {
 			t.Run(path+" "+tc.name, func(t *testing.T) {
 				t.Parallel()
-				resp := doGet(t, newToolCallsServer(t, tc.lister, tc.reader), path)
+				resp := doGet(t, newToolCallsServer(t, tc.lister(), tc.reader()), path)
 				defer resp.Body.Close()
 				assert.Equal(t, tc.want, resp.StatusCode)
 			})
@@ -127,7 +133,7 @@ func TestAgentToolCalls_Errors(t *testing.T) {
 
 	t.Run("no calls is an empty list", func(t *testing.T) {
 		t.Parallel()
-		resp := doGet(t, newToolCallsServer(t, known, &fakeToolCallReader{}), toolCallsPath)
+		resp := doGet(t, newToolCallsServer(t, known(), &fakeToolCallReader{}), toolCallsPath)
 		defer resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		var raw map[string]json.RawMessage
