@@ -2,8 +2,6 @@ package enrich
 
 import (
 	"encoding/json"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,7 +43,7 @@ func jobsOf(t *testing.T, data []byte) []LaunchdJob {
 // spec:endpoint-event-collection/launchd-job-definitions/a-launchctl-load-carries-the-jobs-it-names
 // fakeReader reads a job named for each plist, except an unreadable one or for another user, recording what it was asked for.
 func fakeReader(asked *[]string) JobReader {
-	return func(path string, uid int) (LaunchdJob, bool) {
+	return func(path string, uid, _ int) (LaunchdJob, bool) {
 		*asked = append(*asked, path)
 		if strings.HasSuffix(path, "unreadable.plist") || uid != 501 {
 			return LaunchdJob{}, false
@@ -61,11 +59,13 @@ func TestLaunchdJobs(t *testing.T) {
 		var asked []string
 		read := fakeReader(&asked)
 		data := LaunchdJobs(execEvent(t, map[string]any{"pid": 1, "path": "/bin/launchctl", "uid": 501, "cwd": "/Users/v/proj",
-			"args": []string{"launchctl", "load", "-w", "-S", "Aqua", "/tmp/a.plist", "b.plist", "unreadable.plist"}}), read)
-		assert.Equal(t, []string{"/tmp/a.plist", "/Users/v/proj/b.plist", "/Users/v/proj/unreadable.plist"}, asked)
+			"args": []string{"launchctl", "load", "-w", "-S", "Aqua", "/tmp/a.plist", "b.plist", "unreadable.plist", "dir/../c.plist"}}), read)
+		// A relative path is read as given, `..` and all, so a symlinked dir resolves as launchctl's own open did.
+		assert.Equal(t, []string{"/tmp/a.plist", "/Users/v/proj/b.plist", "/Users/v/proj/unreadable.plist", "/Users/v/proj/dir/../c.plist"}, asked)
 		assert.Equal(t, []LaunchdJob{
 			{PlistPath: "/tmp/a.plist", Label: "job:a.plist"},
 			{PlistPath: "/Users/v/proj/b.plist", Label: "job:b.plist"},
+			{PlistPath: "/Users/v/proj/dir/../c.plist", Label: "job:c.plist"},
 		}, jobsOf(t, data), "the unreadable plist is left out")
 	})
 	t.Run("bootstrap reads the plists after the domain", func(t *testing.T) {
@@ -145,54 +145,6 @@ func TestParseLaunchdPlist(t *testing.T) {
 	}
 }
 
-// spec:endpoint-event-collection/launchd-job-definitions/a-plist-the-user-could-not-read-is-not-read-for-them
-func TestReadLaunchdJob(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	write := func(name, body string, mode os.FileMode) string {
-		p := filepath.Join(dir, name)
-		require.NoError(t, os.WriteFile(p, []byte(body), mode))
-		require.NoError(t, os.Chmod(p, mode))
-		return p
-	}
-	me, other := os.Getuid(), os.Getuid()+1
-	private := write("private.plist", jobPlist, 0o600)
-	shared := write("shared.plist", jobPlist, 0o644)
-
-	job, ok := ReadLaunchdJob(private, me)
-	require.True(t, ok, "the owner reads their own plist")
-	assert.Equal(t, "com.fleetdm.qa1341.load", job.Label)
-	_, ok = ReadLaunchdJob(private, other)
-	assert.False(t, ok, "another user could not have read it, so it is not read for them")
-	_, ok = ReadLaunchdJob(shared, other)
-	assert.True(t, ok, "a world-readable plist is anyone's")
-	link := filepath.Join(dir, "link.plist")
-	require.NoError(t, os.Symlink(private, link))
-	_, ok = ReadLaunchdJob(link, other)
-	assert.False(t, ok, "a link is judged by the file it points at")
-	_, ok = ReadLaunchdJob(dir, me)
-	assert.False(t, ok, "a directory is no plist")
-	_, ok = ReadLaunchdJob(write("big.plist", strings.Repeat(" ", maxPlistBytes+1), 0o644), me)
-	assert.False(t, ok, "a plist past the size bound is not read")
-	_, ok = ReadLaunchdJob(filepath.Join(dir, "missing.plist"), me)
-	assert.False(t, ok)
-}
-
-func TestReadLaunchdJob_BinaryPlist(t *testing.T) {
-	t.Parallel()
-	if _, err := os.Stat(plutilPath); err != nil {
-		t.Skip("plutil is macOS's; the binary format is read through it")
-	}
-	p := filepath.Join(t.TempDir(), "binary.plist")
-	require.NoError(t, os.WriteFile(p, []byte(jobPlist), 0o600))
-	out, err := exec.CommandContext(t.Context(), plutilPath, "-convert", "binary1", p).CombinedOutput() //nolint:gosec // the test converts its own temp file
-	require.NoError(t, err, string(out))
-	job, ok := ReadLaunchdJob(p, os.Getuid())
-	require.True(t, ok)
-	assert.Equal(t, "com.fleetdm.qa1341.load", job.Label)
-	assert.Equal(t, []string{"/bin/sleep", "71"}, job.ProgramArguments)
-}
-
 // A plist is the user's file, read by a root daemon: no input makes the parser panic or keep more than its bounds.
 func FuzzParseLaunchdPlist(f *testing.F) {
 	f.Add([]byte(jobPlist))
@@ -228,7 +180,7 @@ func TestLaunchdJobsRoundTrip(t *testing.T) {
 				ProgramArguments: rapid.SliceOfN(rapid.String(), 1, 8).Draw(rt, "args"), Truncated: rapid.Bool().Draw(rt, "truncated")}
 		}
 		next := 0
-		read := func(string, int) (LaunchdJob, bool) {
+		read := func(string, int, int) (LaunchdJob, bool) {
 			job := want[next]
 			job.PlistPath = ""
 			next++

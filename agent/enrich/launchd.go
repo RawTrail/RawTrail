@@ -27,13 +27,14 @@ type LaunchdJob struct {
 	Truncated        bool     `json:"truncated,omitempty"`
 }
 
-// JobReader reads the job a plist defines, for the user who ran launchctl: false when the file is not one that user could have
-// had launchd read, or does not parse as a job. Production passes ReadLaunchdJob; tests inject a fake.
-type JobReader func(path string, uid int) (LaunchdJob, bool)
+// JobReader reads the job a plist defines, as the user who ran launchctl (uid and gid): false when that user could not have read it,
+// or it does not parse as a job. Production passes ReadLaunchdJob; tests inject a fake.
+type JobReader func(path string, uid, gid int) (LaunchdJob, bool)
 
 // LaunchdJobs returns data with a `launchctl load|bootstrap` exec's payload carrying launchd_jobs, the definitions of the plists it
 // named that the reader could read, or data unchanged for any other event, an exec already carrying them, or one naming none it
-// could read. A relative path is the launcher's: it resolves against the exec's working directory, and is skipped without one.
+// could read. A relative path is the launcher's: it is read under the exec's working directory as it was given, `..` included, so a
+// symlinked directory resolves the way launchctl's own open did, and is skipped without one.
 func LaunchdJobs(data []byte, read JobReader) []byte {
 	envelope, payload, ok := decodeEvent(data, "exec")
 	if !ok || hasField(payload, "launchd_jobs") {
@@ -43,6 +44,7 @@ func LaunchdJobs(data []byte, read JobReader) []byte {
 		Path string   `json:"path"`
 		Args []string `json:"args"`
 		UID  int      `json:"uid"`
+		GID  int      `json:"gid"`
 		CWD  string   `json:"cwd"`
 	}
 	if err := json.Unmarshal(envelope["payload"], &exec); err != nil || exec.Path != launchctlPath {
@@ -54,9 +56,9 @@ func LaunchdJobs(data []byte, read JobReader) []byte {
 			if !filepath.IsAbs(exec.CWD) {
 				continue
 			}
-			plist = filepath.Join(exec.CWD, plist)
+			plist = strings.TrimSuffix(exec.CWD, "/") + "/" + plist
 		}
-		if job, ok := read(plist, exec.UID); ok {
+		if job, ok := read(plist, exec.UID, exec.GID); ok {
 			job.PlistPath = plist
 			jobs = append(jobs, job)
 		}

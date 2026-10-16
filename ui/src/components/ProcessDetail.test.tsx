@@ -126,6 +126,8 @@ describe("ProcessDetail metadata", () => {
             { plist_path: "/Users/v/a.plist", label: "com.fleetdm.qa1341.load", program_arguments: ["/bin/sleep", "71"] },
             { plist_path: "/Users/v/b.plist", label: "com.example.b", program: "/tmp/payload", truncated: true },
             { plist_path: "/Users/v/c.plist", label: "com.example.c" },
+            // Program is what launchd executes; ProgramArguments[0] is then only a name, which a plist can set to anything.
+            { plist_path: "/Users/v/d.plist", label: "com.example.d", program: "/tmp/payload", program_arguments: ["/bin/sleep", "71"] },
           ],
         })}
         onClose={vi.fn()}
@@ -140,7 +142,8 @@ describe("ProcessDetail metadata", () => {
     // A job that names no program says only its label, never "runs (unknown)".
     expect(screen.getByText("com.example.c")).toBeVisible();
     expect(screen.queryByText(/unknown/)).not.toBeInTheDocument();
-    expect(screen.getAllByText("Loads job")).toHaveLength(3);
+    expect(screen.getByText("runs /tmp/payload with argv /bin/sleep 71")).toBeVisible();
+    expect(screen.getAllByText("Loads job")).toHaveLength(4);
   });
 
   // spec:web-ui/process-detail-content/verdict-distinguishes-the-signer-categories

@@ -3,4 +3,4 @@
 package enrich
 
 // ReadLaunchdJob reads nothing on Windows, which has no launchd.
-func ReadLaunchdJob(string, int) (LaunchdJob, bool) { return LaunchdJob{}, false }
+func ReadLaunchdJob(string, int, int) (LaunchdJob, bool) { return LaunchdJob{}, false }

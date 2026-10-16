@@ -55,6 +55,8 @@ func TestLaunchdJobs_StoredAndLinked(t *testing.T) {
 	}
 	events = append(events, launchdJob("job-decoy", 31160, 1012, "com.fleetdm.unrelated")...)
 	events = append(events, launchdJob("job-load", 31159, 1013, "com.fleetdm.qa1341.load")...)
+	// The first job started again (a KeepAlive restart) before the second started: it must not use up the second's launch.
+	events = append(events, launchdJob("job-load-again", 31162, 1013, "com.fleetdm.qa1341.load")...)
 	events = append(events, launchdJob("job-two", 31161, 1014, "com.fleetdm.qa1341.two")...)
 	require.NoError(t, graph.NewBuilder(store, discardLogger()).ProcessBatch(ctx, events))
 
@@ -87,5 +89,6 @@ func TestLaunchdJobs_StoredAndLinked(t *testing.T) {
 		assert.Equal(t, "/bin/sleep", byID[l.To].Path, "the program, not launchd's xpcproxy")
 		linkedPIDs = append(linkedPIDs, byID[l.To].PID)
 	}
-	assert.ElementsMatch(t, []int{31159, 31161}, linkedPIDs, "both jobs the load defined, and not the unrelated one started between them")
+	assert.ElementsMatch(t, []int{31159, 31161}, linkedPIDs,
+		"each job the load defined, once: not the unrelated job started between them, and not the first job's restart in place of the second")
 }

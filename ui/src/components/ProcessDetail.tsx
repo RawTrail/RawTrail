@@ -284,9 +284,17 @@ export function ProcessDetail({ hostId, node, onClose, currentAlertId, timelineH
           </EvidenceRow>
         )}
         {(node.launchd_jobs ?? []).map((job) => {
-          // What the job runs: its arguments, whose first is the program unless Program names it, or its program alone.
-          const argv = job.program_arguments ?? (job.program ? [job.program] : []);
-          const runs = argv.length > 0 ? formatCommandLine(argv, job.program ?? argv[0]) : "";
+          // What the job runs. launchd executes Program when the plist names one, passing ProgramArguments as its argv, whose first
+          // entry is then only a name: a Program that differs from it is the executable, and both are evidence, so both are shown.
+          const argv = job.program_arguments ?? [];
+          let runs = "";
+          if (job.program && argv.length > 0 && job.program !== argv[0]) {
+            runs = `${job.program} with argv ${formatCommandLine(argv, job.program)}`;
+          } else if (argv.length > 0) {
+            runs = formatCommandLine(argv, argv[0]);
+          } else if (job.program) {
+            runs = job.program;
+          }
           return (
             <EvidenceRow
               key={job.plist_path}

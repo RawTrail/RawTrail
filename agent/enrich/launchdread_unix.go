@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// plutilPath converts a binary plist to XML. The plist's bytes go on its stdin, never its path, so it reads what the guard below
-// already checked rather than a file that could be swapped since.
+// plutilPath converts a plist, XML or binary, to XML on its stdout. The agent runs it as the user who ran launchctl, so the kernel
+// decides whether that user could read the plist: its permissions, every directory on the way to it, and any ACL.
 const (
 	plutilPath    = "/usr/bin/plutil"
 	plutilTimeout = 2 * time.Second
@@ -21,56 +21,28 @@ const (
 	maxConvertedPlistBytes = 4 * maxPlistBytes
 )
 
-// ReadLaunchdJob reads the job a plist defines for the user who ran launchctl. The agent is root and the path is the user's, so the
-// file is read only when the user could have read it: the user is root, owns it with read permission, or it is world-readable.
-// Opening first and checking the open file means a path swapped to point elsewhere is judged by what it points at, and the
-// non-blocking open keeps a named pipe from stalling it. Whatever is read is bounded by maxPlistBytes and only ever parsed as a
-// plist, so a directory, pipe or device yields no job. Group permission is not checked, so a group-only file is passed over.
-func ReadLaunchdJob(path string, uid int) (LaunchdJob, bool) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) //nolint:gosec // reading the user's plist is the point; the open file is checked before a byte is read
-	if err != nil {
+// ReadLaunchdJob reads the job a plist defines, as the user who ran launchctl (uid and gid) would. The agent is root and the path is
+// the user's, so the read itself runs as that user: plutil, given the user's credentials, opens the path, and a plist the user could
+// not have read is refused by the kernel, not judged here. Before that, a stat as root turns away anything that is not a regular file
+// of at most maxPlistBytes, so a named pipe or device the user names is never opened for reading, and the timeout bounds a path
+// swapped for one since. Supplementary groups are not carried, so a plist readable only through one is passed over.
+func ReadLaunchdJob(path string, uid, gid int) (LaunchdJob, bool) {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxPlistBytes {
 		return LaunchdJob{}, false
 	}
-	defer func() { _ = f.Close() }() // read only: a failed close loses nothing
-	info, err := f.Stat()
-	if err != nil || info.Size() > maxPlistBytes || !readableBy(info, uid) {
-		return LaunchdJob{}, false
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxPlistBytes+1))
-	if err != nil || len(data) > maxPlistBytes {
-		return LaunchdJob{}, false
-	}
-	if bytes.HasPrefix(data, []byte(binaryPlistPrefix)) {
-		if data, err = binaryToXML(data); err != nil {
-			return LaunchdJob{}, false
-		}
-	}
-	return parseLaunchdPlist(data)
-}
-
-// readableBy reports whether uid could read the file: root reads anything, an owner needs the owner read bit, anyone else the
-// world read bit.
-func readableBy(info os.FileInfo, uid int) bool {
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return false
-	}
-	perm := info.Mode().Perm()
-	return uid == 0 || (int(st.Uid) == uid && perm&0o400 != 0) || perm&0o004 != 0
-}
-
-// binaryToXML converts a binary plist's bytes to XML through plutil, bounded in time and in output.
-func binaryToXML(data []byte) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), plutilTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, plutilPath, "-convert", "xml1", "-o", "-", "--", "-")
-	cmd.Stdin = bytes.NewReader(data)
+	cmd := exec.CommandContext(ctx, plutilPath, "-convert", "xml1", "-o", "-", "--", path) //nolint:gosec // the user's plist, read as the user
+	if uid != os.Geteuid() {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid), NoSetGroups: true}} //nolint:gosec // ids from the exec event
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &limitedWriter{w: &out, left: maxConvertedPlistBytes}
-	if err := cmd.Run(); err != nil {
-		return nil, err
+	if cmd.Run() != nil {
+		return LaunchdJob{}, false
 	}
-	return out.Bytes(), nil
+	return parseLaunchdPlist(out.Bytes())
 }
 
 // limitedWriter keeps at most left bytes and fails the write past them, so a runaway conversion cannot grow without bound.

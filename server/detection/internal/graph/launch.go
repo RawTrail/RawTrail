@@ -43,8 +43,9 @@ type launchMatch struct {
 	match  func(api.Process) bool
 	window time.Duration
 	uid    *int
-	// jobs is how many launches the ask can make: one, but a `launchctl load` of several plists starts a job for each.
-	jobs int
+	// labels, for a `launchctl load|bootstrap`, are the jobs it defined: it launches each once, so the ask is done when every label
+	// has its launch, and a job launchd starts again in the window does not use up another's. Nil for an ask of one launch.
+	labels map[string]bool
 }
 
 // byPath matches a candidate whose executable path the test accepts, within launchWindow.
@@ -112,7 +113,7 @@ func loadTarget(p api.Process, args []string) (launchMatch, bool) {
 		uid = p.UID
 	}
 	return launchMatch{match: func(c api.Process) bool { return labels[xpcproxyLabel(c)] }, window: exactLaunchWindow, uid: uid,
-		jobs: len(labels)}, true
+		labels: labels}, true
 }
 
 // jobLabel reads the label `launchctl kickstart [flags] <domain>/<label>` or `launchctl start <label>` names, and the uid whose session
@@ -239,10 +240,10 @@ func (q *Query) launchLinks(
 	linked := map[int64]bool{}
 	var launched []api.Process
 	for i, launcher := range launchers {
-		remaining := max(targets[i].jobs, 1)
+		launchedLabels := map[string]bool{}
 		for _, c := range candidates {
 			inWindow := c.ForkTimeNs >= ranges[i].FromNs && c.ForkTimeNs <= ranges[i].ToNs
-			if !inWindow || !targets[i].match(c) {
+			if !inWindow || !targets[i].match(c) || launchedLabels[xpcproxyLabel(c)] {
 				continue
 			}
 			// A label names launchd's xpcproxy row for the job; what the launcher asked for is the program it re-exec'd into.
@@ -255,7 +256,8 @@ func (q *Query) launchLinks(
 			if !held[program.ID] {
 				launched = append(launched, program)
 			}
-			if remaining--; remaining == 0 {
+			launchedLabels[xpcproxyLabel(c)] = true
+			if len(launchedLabels) >= len(targets[i].labels) {
 				break
 			}
 		}

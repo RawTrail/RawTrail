@@ -9,11 +9,10 @@ import (
 
 // The bounds a plist read keeps to. A plist is the user's file, read by a root daemon, so everything taken from it is capped.
 const (
-	maxPlistBytes     = 64 << 10
-	maxJobFieldBytes  = 1 << 10
-	maxJobArgs        = 64
-	maxJobArgBytes    = 4 << 10
-	binaryPlistPrefix = "bplist00"
+	maxPlistBytes    = 64 << 10
+	maxJobFieldBytes = 1 << 10
+	maxJobArgs       = 64
+	maxJobArgBytes   = 4 << 10
 )
 
 // errNotJob is a plist that is not an XML property list whose top level is a dictionary.

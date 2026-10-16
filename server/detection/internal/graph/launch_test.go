@@ -168,7 +168,7 @@ func TestLaunchTarget_LoadAndBootstrapByTheirJobs(t *testing.T) {
 			target, ok := launchTarget(tc.launcher)
 			require.True(t, ok)
 			assert.Equal(t, tc.uid, target.uid)
-			assert.Equal(t, 2, target.jobs)
+			assert.Len(t, target.labels, 2)
 			assert.Equal(t, exactLaunchWindow, target.window)
 			assert.True(t, target.match(xpc(t, "com.example.a")))
 			assert.True(t, target.match(xpc(t, "com.example.b")))
