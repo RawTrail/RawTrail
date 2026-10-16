@@ -88,6 +88,8 @@ func TestReadLaunchdJob_ForAnotherUser(t *testing.T) {
 
 // What is no plist within the bound yields no job: a directory, a file past the bound (read no further than one byte past it), a
 // missing file, and a named pipe whose writer is held open and sends nothing, which the read's timeout ends.
+//
+// spec:endpoint-event-collection/launchd-job-definitions/what-is-no-plist-yields-no-job
 func TestReadLaunchdJob_TurnsAwayWhatIsNoPlist(t *testing.T) {
 	t.Parallel()
 	requirePlutil(t)

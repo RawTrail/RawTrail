@@ -97,6 +97,18 @@ func TestLaunchdJobs(t *testing.T) {
 		data := LaunchdJobs(execEvent(t, map[string]any{"pid": 1, "path": "/bin/launchctl", "uid": 501, "args": args}), read)
 		assert.Len(t, jobsOf(t, data), maxLaunchdPlists)
 	})
+	// spec:endpoint-event-collection/launchd-job-definitions/what-is-no-plist-yields-no-job
+	t.Run("a uid or gid outside a uid's width reads nothing, rather than wrapping to another user", func(t *testing.T) {
+		t.Parallel()
+		for _, ids := range [][2]int64{{-1, 20}, {1 << 32, 20}, {501, -1}, {501, 1<<32 + 20}} {
+			var asked []string
+			read := fakeReader(&asked)
+			original := execEvent(t, map[string]any{"pid": 1, "path": "/bin/launchctl", "uid": ids[0], "gid": ids[1],
+				"args": []string{"launchctl", "load", "/tmp/a.plist"}})
+			assert.Equal(t, original, LaunchdJobs(original, read))
+			assert.Empty(t, asked, "uid %d gid %d", ids[0], ids[1])
+		}
+	})
 	for name, payload := range map[string]map[string]any{
 		"another program":       {"pid": 1, "path": "/usr/bin/open", "uid": 501, "args": []string{"open", "load", "/tmp/a.plist"}},
 		"a launchctl elsewhere": {"pid": 1, "path": "/tmp/launchctl", "uid": 501, "args": []string{"launchctl", "load", "/tmp/a.plist"}},

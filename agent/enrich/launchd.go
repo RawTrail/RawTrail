@@ -68,7 +68,7 @@ func BoundedReader(read JobReader, wait time.Duration) JobReader {
 
 // LaunchdJobs returns data with a `launchctl load|bootstrap` exec's payload carrying launchd_jobs, the definitions of the plists it
 // named that the reader could read, or data unchanged for any other event, an exec already carrying them, or one naming none it
-// could read. Paths are macOS's, so they are read as POSIX paths whatever the build. A relative path is the launcher's: it is read under the exec's working directory as it was given, `..` included, so a
+// could read. A directory operand, which launchctl expands into the plists in it, is read as no plist. Paths are macOS's, so they are read as POSIX paths whatever the build. A relative path is the launcher's: it is read under the exec's working directory as it was given, `..` included, so a
 // symlinked directory resolves the way launchctl's own open did, and is skipped without one.
 func LaunchdJobs(data []byte, read JobReader) []byte {
 	envelope, payload, ok := decodeEvent(data, "exec")
@@ -78,9 +78,10 @@ func LaunchdJobs(data []byte, read JobReader) []byte {
 	var exec struct {
 		Path string   `json:"path"`
 		Args []string `json:"args"`
-		UID  int      `json:"uid"`
-		GID  int      `json:"gid"`
-		CWD  string   `json:"cwd"`
+		// uint32, the width of a uid: a value outside it fails the decode, rather than wrapping to another user (0, root, among them).
+		UID uint32 `json:"uid"`
+		GID uint32 `json:"gid"`
+		CWD string `json:"cwd"`
 	}
 	if err := json.Unmarshal(envelope["payload"], &exec); err != nil || exec.Path != launchctlPath {
 		return data
@@ -93,7 +94,7 @@ func LaunchdJobs(data []byte, read JobReader) []byte {
 			}
 			plist = strings.TrimSuffix(exec.CWD, "/") + "/" + plist
 		}
-		if job, ok := read(plist, exec.UID, exec.GID); ok {
+		if job, ok := read(plist, int(exec.UID), int(exec.GID)); ok {
 			job.PlistPath = plist
 			jobs = append(jobs, job)
 		}

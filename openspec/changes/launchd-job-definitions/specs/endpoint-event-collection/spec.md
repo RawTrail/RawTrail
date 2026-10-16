@@ -21,3 +21,9 @@ On a `launchctl load` or `bootstrap` exec, the agent SHALL send the capped `Labe
 - **GIVEN** a plist read that does not finish, as on a stalled mount or a named pipe held open
 - **WHEN** the agent handles the exec, and another launchctl exec while that read still runs
 - **THEN** the first waits no longer than the bound and the second not at all, both go out without the definitions, and reads run again once the stuck one ends
+
+#### Scenario: What is no plist yields no job
+
+- **GIVEN** a `launchctl load` naming a directory, a file over 64 KiB, a missing path, or an exec whose uid or gid is outside a uid's 32-bit range
+- **WHEN** the agent handles the exec
+- **THEN** it reads no job for that operand, and the exec goes out without one for it
