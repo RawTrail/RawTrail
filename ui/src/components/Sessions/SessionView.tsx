@@ -59,6 +59,10 @@ const REPORTED_TITLE = "From the agent's session transcript, which the agent and
 const REPARENTED_TITLE = "launchd (pid 1) adopted it after the process that created it exited, so its parent is now pid 1; it is " +
   "listed under the process that created it";
 
+// SERVICE_TITLE explains a service badge: launchd started the row for the app it is listed under, which the row names as responsible
+// (issue #1340), so the link is the OS's own record, not an inference.
+const SERVICE_TITLE = "launchd started it for the app it is listed under, which macOS records as responsible for it";
+
 // INFERRED_LAUNCH_TITLE explains an inferred launch's badge: the row is listed under its launcher, which is not its creator.
 const INFERRED_LAUNCH_TITLE =
   "Started by launchd moments after the process it is listed under asked for it: linked by timing and target, not lineage";
@@ -164,12 +168,16 @@ export function SessionView() {
       if (!tree || !logical) return [];
       const incomplete = tree.truncated || current === null || current.alertsFailed === true || current.alertsTruncated === true
         || beganBeforeRetention(current);
-      return buildCommands(logical.roots, { verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred });
+      return buildCommands(logical.roots, {
+        verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred, services: logical.services,
+      });
     },
     [tree, logical, verbose, alertsByProcess, current],
   );
   const forest = useMemo(
-    () => (tree && logical ? buildProcessForest(logical.roots, tree.agents ?? [], { verbose: true, inferred: logical.inferred }) : []),
+    () => (tree && logical
+      ? buildProcessForest(logical.roots, tree.agents ?? [], { verbose: true, inferred: logical.inferred, services: logical.services })
+      : []),
     [tree, logical],
   );
   const summary = useMemo(() => summarizeSession(tree?.roots ?? []), [tree]);
@@ -466,7 +474,7 @@ function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
 
 function ProcessRow({ listed }: { readonly listed: SessionRow }) {
   const { alertsByProcess, hits, selectedId, onSelect } = useSessionRows();
-  const { node, children, uidChange, folded, inferred, agent } = listed;
+  const { node, children, uidChange, folded, inferred, service, agent } = listed;
   const span = folded ? forkSpan(listed) : null;
   const rowClass = `session-view__row${hits.rows.has(listed) ? " session-view__row--hit" : ""}`;
   return (
@@ -492,6 +500,11 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
         {inferred && (
           <span title={INFERRED_LAUNCH_TITLE}>
             <Badge variant="info">inferred launch</Badge>
+          </span>
+        )}
+        {service && (
+          <span title={SERVICE_TITLE}>
+            <Badge variant="info">service</Badge>
           </span>
         )}
         {/* A double fork or nohup left it to launchd (issue #1280); it is still listed under the process that created it. */}

@@ -18,6 +18,8 @@ export interface SessionRow {
   // inferred is set when the row was launched by launchd for the process it is listed under (issue #1286): linked by timing and
   // target, not lineage.
   inferred?: boolean;
+  // service is set when launchd started the row for the app it is listed under, which the row names as responsible (issue #1340).
+  service?: boolean;
   // folded holds the identical siblings folded into this row, in fork order: processes that ran the same command under the same
   // creator, ran nothing of their own and were not flagged. The row stands for all of them.
   folded?: ProcessNode[];
@@ -55,6 +57,8 @@ export interface RowShape {
   incomplete?: boolean;
   // inferred names the rows an inferred launch placed under their launcher, so each is marked as inferred rather than lineage.
   inferred?: ReadonlySet<number>;
+  // services names the rows placed under the app responsible for them (issue #1340).
+  services?: ReadonlySet<number>;
   // unfolded lists every process on its own row, for the Processes view (issue #1335): nothing is folded into an identical sibling.
   unfolded?: boolean;
 }
@@ -104,8 +108,10 @@ function hidden(node: ProcessNode, isPlumbing: boolean, shape: RowShape): boolea
 function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape): SessionRow {
   const listed: SessionRow = { node, children: visibleRows(node, node.uid ?? creatorUid, shape) };
   if (shape.inferred?.has(node.id)) listed.inferred = true;
-  // An inferred launch's launcher is not its creator (launchd is), so a different user across that edge is no privilege change.
-  if (!listed.inferred && creatorUid !== undefined && node.uid !== undefined && node.uid !== creatorUid) {
+  if (shape.services?.has(node.id)) listed.service = true;
+  // An inferred launch's launcher, or a service's app, is not its creator (launchd is), so a different user across that edge is no
+  // privilege change.
+  if (!listed.inferred && !listed.service && creatorUid !== undefined && node.uid !== undefined && node.uid !== creatorUid) {
     listed.uidChange = { from: creatorUid, to: node.uid };
   }
   return listed;
@@ -114,7 +120,7 @@ function row(node: ProcessNode, creatorUid: number | undefined, shape: RowShape)
 // foldKey identifies a row that can be folded with its identical siblings: a process that started nothing, changed no privilege, was
 // not adopted by launchd and carries no alert. Null for any other row: a folded process shows no badge of its own.
 function foldKey(listed: SessionRow, shape: RowShape): string | null {
-  if (shape.incomplete || shape.unfolded || listed.inferred || listed.node.reparented || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) {
+  if (shape.incomplete || shape.unfolded || listed.inferred || listed.service || listed.node.reparented || listed.children.length > 0 || listed.uidChange || (shape.keep?.has(listed.node.id) ?? false)) {
     return null;
   }
   // How each ended is part of the key: a failed run must not hide behind a successful one.

@@ -94,10 +94,15 @@ func (q *Query) BuildTree(
 	}
 
 	forest := buildForest(procs, resolved)
-	// A window read links the launches it holds both ends of; it adds no rows, which would break the window's own bound.
+	// A window read links the launches and services it holds both ends of; it adds no rows, which would break the window's own bound.
 	if res.Links, _, _, err = q.launchLinks(ctx, hostID, forest, false); err != nil {
 		return api.ProcessTreeResult{}, err
 	}
+	services, _, _, err := q.serviceLinks(ctx, hostID, forest, false)
+	if err != nil {
+		return api.ProcessTreeResult{}, err
+	}
+	res.Links = append(res.Links, services...)
 	if flatten {
 		res.Roots = forest
 		return res, nil

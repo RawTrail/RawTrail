@@ -83,7 +83,7 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
   const [links, setLinks] = useState<ProcessLink[]>([]);
   const [logicalTree, setLogicalTree] = useState(false);
   const logical = useMemo(
-    () => (logicalTree ? applyLaunchLinks(rawRoots, links) : { roots: rawRoots, inferred: NO_INFERRED }),
+    () => (logicalTree ? applyLaunchLinks(rawRoots, links) : { roots: rawRoots, inferred: NO_INFERRED, services: NO_INFERRED }),
     [rawRoots, links, logicalTree],
   );
   const roots = logical.roots;
@@ -404,6 +404,7 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
     const result = renderTree(svgRef.current, visibleRoots, setSelectedNode, {
       alertProcessIds,
       inferredIds: logical.inferred,
+      serviceIds: logical.services,
       techniquesByNodeId,
       onToggleCollapsed: toggleCollapsed,
       expandedAggIds,
@@ -411,7 +412,8 @@ export function ProcessTreeView({ hostId: hostIdProp, entryAlert }: ProcessTreeV
       onHover: setHoverTip,
     });
     layoutNodesRef.current = result.nodes;
-  }, [visibleRoots, alertProcessIds, techniquesByNodeId, toggleCollapsed, expandedAggIds, toggleAggExpanded, logical.inferred]);
+  }, [visibleRoots, alertProcessIds, techniquesByNodeId, toggleCollapsed, expandedAggIds, toggleAggExpanded, logical.inferred,
+    logical.services]);
 
   // Focus the currently-active match: scroll the canvas so the match sits near the
   // vertical centre, preserving the user's current zoom level and scroll position

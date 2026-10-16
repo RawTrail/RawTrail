@@ -1067,6 +1067,19 @@ describe("ProcessTreeView logical tree (issue #1286)", () => {
     expect(container.querySelector("path.link--inferred")).toBeNull();
   });
 
+  it("labels a service the logical tree hangs under its app", async () => {
+    const withService: ProcessNode[] = [...launchForest, { ...process(4, 400, 1, "/usr/local/bin/nsattributedstringagent"), fork_time_ns: 4 }];
+    vi.spyOn(api, "getProcessTree").mockResolvedValue({
+      ...treeResponse(withService),
+      links: [{ from: 2, to: 3, kind: "inferred_launch" }, { from: 3, to: 4, kind: "responsible_process" }],
+    });
+    const { container } = renderTree("");
+    await screen.findByText("nsattributedstringagent (400)");
+    fireEvent.click(screen.getByText("Logical tree"));
+    expect(await screen.findByText("nsattributedstringagent (400) service")).toBeInTheDocument();
+    expect(container.querySelectorAll("path.link--inferred")).toHaveLength(2);
+  });
+
   it("offers no logical tree when the read carries no links", async () => {
     vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(launchForest));
     renderTree("");

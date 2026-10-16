@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -35,6 +36,40 @@ func (s *Store) GetLaunchdChildren(ctx context.Context, hostID string, ranges []
 	procs := []api.Process{}
 	if err := s.db.SelectContext(ctx, &procs, strings.Join(branches, " UNION ALL "), args...); err != nil {
 		return nil, fmt.Errorf("query launchd children: %w", err)
+	}
+	slices.SortFunc(procs, func(a, b api.Process) int {
+		return cmp.Or(cmp.Compare(a.ForkTimeNs, b.ForkTimeNs), cmp.Compare(a.ID, b.ID))
+	})
+	return procs, nil
+}
+
+// GetResponsibleChildren returns the launchd children each target is responsible for (issue #1340): the processes that name the
+// target, by pid and generation, as their responsible process, such as the XPC services an app asked for. Each target's are read
+// from its lifetime, oldest first and at most perTarget each, by the (host_id, ppid, fork_time_ns) index with the responsibility
+// filtered in place, so a busy host costs a longer scan rather than a missed service. The target's own row, which names itself, is
+// left out, and so is a process launchd adopted rather than started, as GetLaunchdChildren leaves it out.
+func (s *Store) GetResponsibleChildren(ctx context.Context, hostID string, targets []api.Process, perTarget int) ([]api.Process, error) {
+	procs := []api.Process{}
+	if len(targets) == 0 {
+		return procs, nil
+	}
+	branches := make([]string, len(targets))
+	var args []any
+	for i, t := range targets {
+		branches[i] = `(SELECT ` + processReadColumns + `
+			FROM processes
+			WHERE host_id = ? AND ppid = 1 AND NOT COALESCE(reparented, FALSE) AND fork_time_ns BETWEEN ? AND ?
+				AND responsible_pid = ? AND responsible_pidversion = ? AND id <> ?
+			ORDER BY fork_time_ns, id
+			LIMIT ?)`
+		until := int64(math.MaxInt64)
+		if t.ExitTimeNs != nil {
+			until = *t.ExitTimeNs
+		}
+		args = append(args, hostID, t.ForkTimeNs, until, t.PID, *t.PIDVersion, t.ID, perTarget)
+	}
+	if err := s.db.SelectContext(ctx, &procs, strings.Join(branches, " UNION ALL "), args...); err != nil {
+		return nil, fmt.Errorf("query responsible children: %w", err)
 	}
 	slices.SortFunc(procs, func(a, b api.Process) int {
 		return cmp.Or(cmp.Compare(a.ForkTimeNs, b.ForkTimeNs), cmp.Compare(a.ID, b.ID))

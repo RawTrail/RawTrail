@@ -42,13 +42,21 @@ func (q *Query) BuildScopedTree(
 		return api.ProcessTreeResult{}, err
 	}
 	forest = append(forest, launched...)
+	// So does what those apps asked launchd for: the services that name one of them as responsible (issue #1340), the launched apps
+	// included, since an app the agent opened is the usual one.
+	services, servicesExtra, servicesCut, err := q.serviceLinks(ctx, hostID, forest, true)
+	if err != nil {
+		return api.ProcessTreeResult{}, err
+	}
+	forest = append(forest, servicesExtra...)
+	links = append(links, services...)
 	res.Links = links
 	// A launched program's descendants cut at their bound are a partial read like any other.
-	res.Truncated = res.Truncated || launchedCut
+	res.Truncated = res.Truncated || launchedCut || servicesCut
 	if flatten {
 		res.Roots = forest
 		return res, nil
 	}
-	res.Roots = aggregateSiblingsKeeping(forest, linkEnds(links, pinnedID))
+	res.Roots = aggregateSiblingsKeeping(forest, linkEnds(res.Links, pinnedID))
 	return res, nil
 }
