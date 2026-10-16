@@ -94,8 +94,9 @@ type EventArchive interface {
 	AgentToolCalls(ctx context.Context, filter AgentToolCallFilter) ([]AgentToolCall, bool, error)
 
 	// AgentSessionLineage reads which session a session was forked from and which were forked from it (issue #1347), from the copies
-	// of each other's tool calls their transcripts hold.
-	AgentSessionLineage(ctx context.Context, hostID, sessionID string) (AgentSessionLineage, error)
+	// of each other's tool calls their transcripts hold. Only calls read from transcripts ownerUID owns count: the session's owner,
+	// as its processes show.
+	AgentSessionLineage(ctx context.Context, hostID, sessionID string, ownerUID int64) (AgentSessionLineage, error)
 }
 
 // TelemetryActivity is one host's per-stream event presence over a telemetry-freshness window.
@@ -327,6 +328,10 @@ type AgentToolCallFilter struct {
 // call that the named session also holds, by tool_use_id and owner, is a copy of it. A session's parent is the origin of its latest
 // copy, so a fork of a fork names the session it was forked from, not the first in the chain. ForkedSessionIDs are the sessions whose
 // parent this session is, sorted.
+//
+// The copies are the only evidence: a fork of a fork that made no calls of its own before it was forked holds copies naming the
+// session before it only, so it is read as that session's fork, and a fork made after /clear holds copies of the cleared session's
+// calls naming the process's first session, which never held them, so they are read as the fork's own.
 type AgentSessionLineage struct {
 	ForkedFromSessionID string   `json:"forked_from_session_id,omitempty"`
 	ForkedSessionIDs    []string `json:"forked_session_ids"`

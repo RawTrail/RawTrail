@@ -73,7 +73,7 @@ func (f *fakeEventArchive) AgentToolCalls(context.Context, visibilityapi.AgentTo
 	return nil, false, nil
 }
 
-func (f *fakeEventArchive) AgentSessionLineage(context.Context, string, string) (visibilityapi.AgentSessionLineage, error) {
+func (f *fakeEventArchive) AgentSessionLineage(context.Context, string, string, int64) (visibilityapi.AgentSessionLineage, error) {
 	return visibilityapi.AgentSessionLineage{}, nil
 }
 

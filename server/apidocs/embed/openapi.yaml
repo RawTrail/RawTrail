@@ -592,7 +592,9 @@ paths:
         A forked session (Claude Code's /fork) begins with a copy of its parent's history, and each copied tool call names the session
         it was written under. A call that the named session also holds, by id and transcript owner, is a copy of it. The session's
         parent is the session its latest copy came from, so a fork of a fork names the fork; its forks are the sessions whose parent
-        it is.
+        it is. Only tool calls from transcripts the session's owner owns count: the uid of its earliest recorded process.
+        The copies are the only evidence, so a fork of a fork that made no calls before it was forked reads as the earlier session's
+        fork, and a fork made after /clear names no parent.
       security:
         - SessionCookie: []
         - ServiceAccountToken: []

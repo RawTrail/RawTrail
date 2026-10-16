@@ -952,8 +952,10 @@ func (s *Store) SessionTouches(
 }
 
 // AgentSessionLineage delegates a session's parent and forks (issue #1347) to the visibility EventArchive.
-func (s *Store) AgentSessionLineage(ctx context.Context, hostID, sessionID string) (visibilityapi.AgentSessionLineage, error) {
-	return s.archive.AgentSessionLineage(ctx, hostID, sessionID)
+func (s *Store) AgentSessionLineage(
+	ctx context.Context, hostID, sessionID string, ownerUID int64,
+) (visibilityapi.AgentSessionLineage, error) {
+	return s.archive.AgentSessionLineage(ctx, hostID, sessionID, ownerUID)
 }
 
 // AgentToolCalls delegates the tool calls a session recorded (issue #1288) to the visibility EventArchive.

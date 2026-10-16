@@ -22,12 +22,20 @@ type fakeToolCallReader struct {
 	calls     []visibilityapi.AgentToolCall
 	truncated bool
 	lineage   visibilityapi.AgentSessionLineage
-	asked     [2]string
+	asked     *lineageAsk
 	err       error
 }
 
-func (f *fakeToolCallReader) AgentSessionLineage(_ context.Context, hostID, sessionID string) (visibilityapi.AgentSessionLineage, error) {
-	f.asked = [2]string{hostID, sessionID}
+// lineageAsk is the lineage read a handler made.
+type lineageAsk struct {
+	hostID, sessionID string
+	ownerUID          int64
+}
+
+func (f *fakeToolCallReader) AgentSessionLineage(
+	_ context.Context, hostID, sessionID string, ownerUID int64,
+) (visibilityapi.AgentSessionLineage, error) {
+	f.asked = &lineageAsk{hostID, sessionID, ownerUID}
 	return f.lineage, f.err
 }
 
@@ -62,7 +70,8 @@ const (
 // spec:server-rest-api/agent-session-lineage-endpoint/a-session-names-its-parent-and-its-forks
 func TestAgentSessionLineage_NamesParentAndForks(t *testing.T) {
 	t.Parallel()
-	lister := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: "47abb2a1"}}}}
+	owned := api.AgentSessionSummary{HostID: "h1", AgentSessionID: "47abb2a1", OwnerUID: new(int64(501))}
+	lister := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{owned}}}
 	reader := &fakeToolCallReader{lineage: visibilityapi.AgentSessionLineage{
 		ForkedFromSessionID: "5828cd24", ForkedSessionIDs: []string{"bd46ed99", "c1a2b3c4"},
 	}}
@@ -72,7 +81,21 @@ func TestAgentSessionLineage_NamesParentAndForks(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	assert.Equal(t, map[string]any{"forked_from_session_id": "5828cd24", "forked_session_ids": []any{"bd46ed99", "c1a2b3c4"}}, out)
-	assert.Equal(t, [2]string{"h1", "47abb2a1"}, reader.asked)
+	assert.Equal(t, &lineageAsk{"h1", "47abb2a1", 501}, reader.asked, "read for the session's owner")
+
+	// spec:server-rest-api/agent-session-lineage-endpoint/another-user-s-transcripts-do-not-make-a-lineage
+	t.Run("a session with no retained process has no owner to read a lineage for", func(t *testing.T) {
+		t.Parallel()
+		unowned := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: "47abb2a1"}}}}
+		reader := &fakeToolCallReader{lineage: visibilityapi.AgentSessionLineage{ForkedFromSessionID: "5828cd24"}}
+		resp := doGet(t, newToolCallsServer(t, unowned, reader), lineagePath)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var out map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		assert.Equal(t, map[string]any{"forked_session_ids": []any{}}, out)
+		assert.Nil(t, reader.asked)
+	})
 }
 
 // spec:server-rest-api/agent-tool-calls-endpoint/a-session-s-tool-calls-are-listed-once-each
@@ -103,7 +126,9 @@ func TestAgentToolCalls_Errors(t *testing.T) {
 	// known is a fresh lister holding the session for each run: the fakes record what they were asked, so runs in parallel do not
 	// share one.
 	known := func() AgentSessionLister {
-		return &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: "47abb2a1"}}}}
+		return &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{
+			{HostID: "h1", AgentSessionID: "47abb2a1", OwnerUID: new(int64(501))},
+		}}}
 	}
 	cases := []struct {
 		name   string

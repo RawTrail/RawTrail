@@ -29,7 +29,7 @@ func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 // their copied calls show (issue #1347), from the event archive. mysql.Store satisfies it.
 type AgentToolCallReader interface {
 	AgentToolCalls(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.AgentToolCall, bool, error)
-	AgentSessionLineage(ctx context.Context, hostID, sessionID string) (visibilityapi.AgentSessionLineage, error)
+	AgentSessionLineage(ctx context.Context, hostID, sessionID string, ownerUID int64) (visibilityapi.AgentSessionLineage, error)
 }
 
 // SetAgentToolCalls installs the tool-call read. Unset, the route answers 503.
@@ -83,7 +83,13 @@ func (h *Handler) handleAgentSessionLineage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	hostID, sessionID := session.HostID, session.AgentSessionID
-	lineage, err := h.agentToolCalls.AgentSessionLineage(ctx, hostID, sessionID)
+	// The lineage is read from the owner's transcripts only; a session none of whose processes is retained has no owner to read for.
+	lineage := visibilityapi.AgentSessionLineage{ForkedSessionIDs: []string{}}
+	if session.OwnerUID == nil {
+		h.writeJSON(w, r, lineage)
+		return
+	}
+	lineage, err := h.agentToolCalls.AgentSessionLineage(ctx, hostID, sessionID, *session.OwnerUID)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "read agent session lineage", "host_id", hostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)

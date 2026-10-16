@@ -552,16 +552,16 @@ func (c recordedCall) copied(held map[heldCall]bool) bool {
 	return c.OriginSessionID != "" && held[heldCall{c.OriginSessionID, c.ToolUseID, c.UID}]
 }
 
-// AgentSessionLineage mirrors the ClickHouse store: each session's parent is the origin of its latest copied call, by time and then
-// event id, and the forks are the other sessions whose parent this one is.
-func (m *MemArchive) AgentSessionLineage(_ context.Context, hostID, sessionID string) (api.AgentSessionLineage, error) {
+// AgentSessionLineage mirrors the ClickHouse store: over the owner's calls, each session's parent is the origin of its latest copied
+// call, by time and then event id, and the forks are the other sessions whose parent this one is.
+func (m *MemArchive) AgentSessionLineage(_ context.Context, hostID, sessionID string, ownerUID int64) (api.AgentSessionLineage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	calls, held := m.hostCalls(hostID)
 	latest := map[string]recordedCall{}
 	for _, c := range calls {
 		prior, seen := latest[c.SessionID]
-		if c.copied(held) && (!seen || cmp.Or(cmp.Compare(c.CalledAtNs, prior.CalledAtNs), cmp.Compare(c.eventID, prior.eventID)) > 0) {
+		if c.UID == ownerUID && c.copied(held) && (!seen || cmp.Or(cmp.Compare(c.CalledAtNs, prior.CalledAtNs), cmp.Compare(c.eventID, prior.eventID)) > 0) {
 			latest[c.SessionID] = c
 		}
 	}
