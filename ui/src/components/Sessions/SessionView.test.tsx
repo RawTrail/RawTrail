@@ -37,6 +37,48 @@ beforeEach(() => {
   vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
   vi.spyOn(api, "listAlerts").mockResolvedValue([]);
   vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({ tool_calls: [], truncated: false });
+  vi.spyOn(api, "getAgentSessionLineage").mockResolvedValue({ forked_session_ids: [] });
+});
+
+// A /fork is a session of its own, linked both ways to the session it was forked from (issue #1347).
+describe("SessionView lineage", () => {
+  const PARENT = "5828cd24-efb7-4b7b-a5bf-f3b24681ba10";
+  const FORKS = ["bd46ed99-3433-4752-9f0f-9f8945e0305a", "c1a2b3c4-0000-4000-8000-000000001347"];
+
+  // spec:web-ui/forked-session-lineage/a-forked-session-links-to-its-parent-and-its-forks
+  it("links the session it was forked from and the sessions forked from it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    const spy = vi.spyOn(api, "getAgentSessionLineage").mockResolvedValue({ forked_from_session_id: PARENT, forked_session_ids: FORKS });
+    renderView();
+    const parent = await screen.findByRole("link", { name: `Session ${PARENT}` });
+    expect(parent).toBeVisible();
+    expect(parent).toHaveAttribute("href", `/agent-sessions/H1/${PARENT}`);
+    expect(parent.closest("span")).toHaveTextContent(/^Forked from Session 5828cd24/);
+    for (const fork of FORKS) {
+      expect(screen.getByRole("link", { name: `Session ${fork}` })).toHaveAttribute("href", `/agent-sessions/H1/${fork}`);
+    }
+    expect(screen.getByText(/Forked into/)).toBeVisible();
+    expect(spy).toHaveBeenCalledWith("H1", SESSION);
+  });
+
+  it("shows no lineage for a session neither forked nor forked from, or when the read fails", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getAgentSessionLineage").mockRejectedValue(new Error("down"));
+    renderView();
+    expect(await screen.findAllByRole("button", { expanded: true })).not.toHaveLength(0);
+    expect(screen.queryByText(/Forked (from|into)/)).toBeNull();
+  });
+
+  it("shows only the forks of a session that was not itself forked", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getAgentSessionLineage").mockResolvedValue({ forked_session_ids: [FORKS[0]] });
+    renderView();
+    expect(await screen.findByRole("link", { name: `Session ${FORKS[0]}` })).toBeVisible();
+    expect(screen.queryByText(/Forked from/)).toBeNull();
+  });
 });
 
 // lsActivity is a session activity read naming the capture's ls (row 2298323) as the one process that connected anywhere.

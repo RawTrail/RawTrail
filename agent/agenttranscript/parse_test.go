@@ -54,6 +54,21 @@ func TestParseLine(t *testing.T) {
 					CWD: "/Users/dev/project", At: at},
 			},
 		},
+		{
+			// spec:endpoint-event-collection/agent-tool-call-origin/a-copied-call-names-the-session-it-was-written-under
+			name: "a line written under another session id names it, as a fork's copy of its parent's history does",
+			line: strings.Replace(assistantLine(`[{"type":"tool_use","id":"toolu_05","name":"Bash","input":{"command":"ls"}}]`),
+				`"sessionId"`, `"session_id":"5828cd24-efb7-4b7b-a5bf-f3b24681ba10","sessionId"`, 1),
+			want: []ToolCall{{SessionID: "47abb2a1-d231-4304-8cb1-52f4460fcd11", ToolUseID: "toolu_05", ToolName: "Bash", Command: "ls",
+				CWD: "/Users/dev/project", OriginSessionID: "5828cd24-efb7-4b7b-a5bf-f3b24681ba10", At: at}},
+		},
+		{
+			name: "a line written under its own session id names none",
+			line: strings.Replace(assistantLine(`[{"type":"tool_use","id":"toolu_06","name":"Bash","input":{"command":"ls"}}]`),
+				`"sessionId"`, `"session_id":"47abb2a1-d231-4304-8cb1-52f4460fcd11","sessionId"`, 1),
+			want: []ToolCall{{SessionID: "47abb2a1-d231-4304-8cb1-52f4460fcd11", ToolUseID: "toolu_06", ToolName: "Bash", Command: "ls",
+				CWD: "/Users/dev/project", At: at}},
+		},
 		{name: "a text-only turn", line: assistantLine(`"Done."`)},
 		{name: "a user turn holding a tool result", line: `{"type":"user","sessionId":"s","timestamp":"2026-10-14T08:50:00Z",` +
 			`"message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"secret output"}]}}`},

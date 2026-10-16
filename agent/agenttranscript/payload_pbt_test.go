@@ -16,6 +16,7 @@ type wirePayload struct {
 	Description    string `json:"description"`
 	FilePath       string `json:"file_path"`
 	CWD            string `json:"cwd"`
+	OriginSession  string `json:"origin_session_id"`
 	Sidechain      bool   `json:"sidechain"`
 	Truncated      bool   `json:"truncated"`
 	UID            uint32 `json:"uid"`
@@ -32,7 +33,7 @@ func TestToolCallPayloadRoundTrip(t *testing.T) {
 			SessionID: rapid.StringN(1, 64, -1).Draw(t, "session"), ToolUseID: rapid.StringN(1, 64, -1).Draw(t, "id"),
 			ToolName: rapid.StringN(1, 16, -1).Draw(t, "tool"), Command: rapid.String().Draw(t, "command"),
 			Description: rapid.String().Draw(t, "description"), FilePath: rapid.String().Draw(t, "path"),
-			CWD: rapid.String().Draw(t, "cwd"), Sidechain: rapid.Bool().Draw(t, "sidechain"), Truncated: rapid.Bool().Draw(t, "truncated"),
+			CWD: rapid.String().Draw(t, "cwd"), OriginSessionID: rapid.String().Draw(t, "origin"), Sidechain: rapid.Bool().Draw(t, "sidechain"), Truncated: rapid.Bool().Draw(t, "truncated"),
 			OwnerUID: rapid.Uint32().Draw(t, "uid"),
 		}
 		payload := call.Payload()
@@ -45,12 +46,12 @@ func TestToolCallPayloadRoundTrip(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		want := wirePayload{call.SessionID, call.ToolUseID, call.ToolName, call.Command, call.Description, call.FilePath, call.CWD,
-			call.Sidechain, call.Truncated, call.OwnerUID}
+			call.OriginSessionID, call.Sidechain, call.Truncated, call.OwnerUID}
 		if got != want {
 			t.Fatalf("round trip changed the call: got %+v, want %+v", got, want)
 		}
 		for key, value := range map[string]string{"command": call.Command, "description": call.Description, "file_path": call.FilePath,
-			"cwd": call.CWD} {
+			"cwd": call.CWD, "origin_session_id": call.OriginSessionID} {
 			if _, present := payload[key]; present != (value != "") {
 				t.Fatalf("%s present=%v for value %q", key, present, value)
 			}

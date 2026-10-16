@@ -178,6 +178,8 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 		where += " AND timestamp_ns <= ?"
 		args = append(args, filter.ToNs)
 	}
+	where += " AND NOT (" + copiedCallSQL + ")"
+	args = append(args, filter.HostID)
 	// One argMin over the whole record, so every field comes from the first recording, as the time does.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, first.1, first.2, first.3, first.4, toBool(first.5), toBool(first.6), at, uid
@@ -199,6 +201,52 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 	return scanActivity(rows, filter.Limit, func(c *api.AgentToolCall) []any {
 		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID}
 	})
+}
+
+// copiedCallSQL matches a tool call copied from another session (issue #1347): one naming an origin session that holds the same
+// tool_use_id under the same owner. The origin alone is not enough: a process that switched sessions (/clear) writes its first
+// session's id on the new session's own calls, which that session never held. Its one argument is the host.
+const copiedCallSQL = `JSONExtractString(payload, 'origin_session_id') != '' AND
+	(JSONExtractString(payload, 'origin_session_id'), JSONExtractString(payload, 'tool_use_id'), JSONExtractInt(payload, 'uid')) IN (
+		SELECT JSONExtractString(payload, 'agent_session_id'), JSONExtractString(payload, 'tool_use_id'), JSONExtractInt(payload, 'uid')
+		FROM events FINAL WHERE ` + hostPredicate + ` AND event_type = 'agent_tool_call')`
+
+// AgentSessionLineage reads a session's parent and forks (issue #1347) from the copied calls on its host: each session's parent is the
+// origin of its latest copy, and the forks are the sessions holding a copy from this one whose parent it is.
+func (s *Store) AgentSessionLineage(ctx context.Context, hostID, sessionID string) (api.AgentSessionLineage, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		WITH copies AS (
+			SELECT JSONExtractString(payload, 'agent_session_id') AS session, JSONExtractString(payload, 'origin_session_id') AS origin,
+				timestamp_ns, event_id
+			FROM events FINAL
+			WHERE `+hostPredicate+` AND event_type = 'agent_tool_call' AND `+copiedCallSQL+`
+		)
+		SELECT session, argMax(origin, (timestamp_ns, event_id)) AS parent
+		FROM copies
+		WHERE session = ? OR session IN (SELECT session FROM copies WHERE origin = ?)
+		GROUP BY session
+		ORDER BY session`, hostID, hostID, sessionID, sessionID)
+	if err != nil {
+		return api.AgentSessionLineage{}, fmt.Errorf("clickhouse agent session lineage: %w", err)
+	}
+	defer rows.Close()
+	lineage := api.AgentSessionLineage{ForkedSessionIDs: []string{}}
+	for rows.Next() {
+		var session, parent string
+		if err := rows.Scan(&session, &parent); err != nil {
+			return api.AgentSessionLineage{}, fmt.Errorf("scan agent session lineage: %w", err)
+		}
+		switch {
+		case session == sessionID:
+			lineage.ForkedFromSessionID = parent
+		case parent == sessionID:
+			lineage.ForkedSessionIDs = append(lineage.ForkedSessionIDs, session)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return api.AgentSessionLineage{}, fmt.Errorf("iterate agent session lineage: %w", err)
+	}
+	return lineage, nil
 }
 
 // activityScopeSQL matches the filter's generations: those in Generations wholly, those in Spans only inside their span (issue

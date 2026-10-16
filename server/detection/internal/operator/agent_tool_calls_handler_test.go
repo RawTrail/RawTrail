@@ -21,7 +21,14 @@ type fakeToolCallReader struct {
 	filter    visibilityapi.AgentToolCallFilter
 	calls     []visibilityapi.AgentToolCall
 	truncated bool
+	lineage   visibilityapi.AgentSessionLineage
+	asked     [2]string
 	err       error
+}
+
+func (f *fakeToolCallReader) AgentSessionLineage(_ context.Context, hostID, sessionID string) (visibilityapi.AgentSessionLineage, error) {
+	f.asked = [2]string{hostID, sessionID}
+	return f.lineage, f.err
 }
 
 func (f *fakeToolCallReader) AgentToolCalls(
@@ -47,7 +54,26 @@ func newToolCallsServer(t *testing.T, lister AgentSessionLister, reader AgentToo
 	return srv
 }
 
-const toolCallsPath = "/api/hosts/h1/agent-sessions/47abb2a1/tool-calls"
+const (
+	toolCallsPath = "/api/hosts/h1/agent-sessions/47abb2a1/tool-calls"
+	lineagePath   = "/api/hosts/h1/agent-sessions/47abb2a1/lineage"
+)
+
+// spec:server-rest-api/agent-session-lineage-endpoint/a-session-names-its-parent-and-its-forks
+func TestAgentSessionLineage_NamesParentAndForks(t *testing.T) {
+	t.Parallel()
+	lister := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: "47abb2a1"}}}}
+	reader := &fakeToolCallReader{lineage: visibilityapi.AgentSessionLineage{
+		ForkedFromSessionID: "5828cd24", ForkedSessionIDs: []string{"bd46ed99", "c1a2b3c4"},
+	}}
+	resp := doGet(t, newToolCallsServer(t, lister, reader), lineagePath)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	assert.Equal(t, map[string]any{"forked_from_session_id": "5828cd24", "forked_session_ids": []any{"bd46ed99", "c1a2b3c4"}}, out)
+	assert.Equal(t, [2]string{"h1", "47abb2a1"}, reader.asked)
+}
 
 // spec:server-rest-api/agent-tool-calls-endpoint/a-session-s-tool-calls-are-listed-once-each
 func TestAgentToolCalls_ListsTheSessionsCalls(t *testing.T) {
@@ -88,13 +114,15 @@ func TestAgentToolCalls_Errors(t *testing.T) {
 		{name: "the archive read fails", lister: known, reader: &fakeToolCallReader{err: errors.New("ch")},
 			want: http.StatusInternalServerError},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			resp := doGet(t, newToolCallsServer(t, tc.lister, tc.reader), toolCallsPath)
-			defer resp.Body.Close()
-			assert.Equal(t, tc.want, resp.StatusCode)
-		})
+	for _, path := range []string{toolCallsPath, lineagePath} {
+		for _, tc := range cases {
+			t.Run(path+" "+tc.name, func(t *testing.T) {
+				t.Parallel()
+				resp := doGet(t, newToolCallsServer(t, tc.lister, tc.reader), path)
+				defer resp.Body.Close()
+				assert.Equal(t, tc.want, resp.StatusCode)
+			})
+		}
 	}
 
 	t.Run("no calls is an empty list", func(t *testing.T) {

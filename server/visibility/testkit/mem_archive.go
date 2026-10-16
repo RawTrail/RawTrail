@@ -515,8 +515,68 @@ func (m *MemArchive) ActivityForGenerations(context.Context, api.ActivityFilter)
 	return api.ActivityRollup{}, errActivityUnsupported
 }
 
+// recordedCall is one agent_tool_call event as the archive reads it: the call, its session and origin, and its event.
+type recordedCall struct {
+	api.AgentToolCall
+	SessionID       string `json:"agent_session_id"`
+	OriginSessionID string `json:"origin_session_id"`
+	eventID         string
+}
+
+// heldCall is a tool call as one session holds it: the session, the call's id and its owner.
+type heldCall struct {
+	session string
+	id      string
+	uid     int64
+}
+
+// hostCalls returns every tool call recorded on the host, in archive order, and the calls each session holds. The caller holds m.mu.
+func (m *MemArchive) hostCalls(hostID string) ([]recordedCall, map[heldCall]bool) {
+	var calls []recordedCall
+	held := map[heldCall]bool{}
+	for _, id := range m.order {
+		e := m.byID[id]
+		var c recordedCall
+		if e.HostID != hostID || e.EventType != "agent_tool_call" || json.Unmarshal(e.Payload, &c) != nil {
+			continue
+		}
+		c.CalledAtNs, c.eventID = e.TimestampNs, e.EventID
+		calls = append(calls, c)
+		held[heldCall{c.SessionID, c.ToolUseID, c.UID}] = true
+	}
+	return calls, held
+}
+
+// copied mirrors the ClickHouse store's copiedCallSQL: a call naming an origin session that holds the same call is a copy of it.
+func (c recordedCall) copied(held map[heldCall]bool) bool {
+	return c.OriginSessionID != "" && held[heldCall{c.OriginSessionID, c.ToolUseID, c.UID}]
+}
+
+// AgentSessionLineage mirrors the ClickHouse store: each session's parent is the origin of its latest copied call, by time and then
+// event id, and the forks are the other sessions whose parent this one is.
+func (m *MemArchive) AgentSessionLineage(_ context.Context, hostID, sessionID string) (api.AgentSessionLineage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	calls, held := m.hostCalls(hostID)
+	latest := map[string]recordedCall{}
+	for _, c := range calls {
+		prior, seen := latest[c.SessionID]
+		if c.copied(held) && (!seen || cmp.Or(cmp.Compare(c.CalledAtNs, prior.CalledAtNs), cmp.Compare(c.eventID, prior.eventID)) > 0) {
+			latest[c.SessionID] = c
+		}
+	}
+	lineage := api.AgentSessionLineage{ForkedFromSessionID: latest[sessionID].OriginSessionID, ForkedSessionIDs: []string{}}
+	for session, c := range latest {
+		if session != sessionID && c.OriginSessionID == sessionID {
+			lineage.ForkedSessionIDs = append(lineage.ForkedSessionIDs, session)
+		}
+	}
+	slices.Sort(lineage.ForkedSessionIDs)
+	return lineage, nil
+}
+
 // AgentToolCalls mirrors the ClickHouse store: one session's tool calls, one per tool_use_id and owner at the time it was first
-// recorded, oldest first, cut at the limit.
+// recorded, oldest first, cut at the limit, leaving out the copies of another session's.
 func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallFilter) ([]api.AgentToolCall, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -525,36 +585,28 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 		uid int64
 	}
 	first := map[callKey]api.AgentToolCall{}
-	for _, id := range m.order {
-		e := m.byID[id]
-		if e.HostID != filter.HostID || e.EventType != "agent_tool_call" ||
-			(filter.FromNs > 0 && e.TimestampNs < filter.FromNs) || (filter.ToNs > 0 && e.TimestampNs > filter.ToNs) {
+	calls, held := m.hostCalls(filter.HostID)
+	for _, p := range calls {
+		if p.SessionID != filter.SessionID || p.copied(held) ||
+			(filter.FromNs > 0 && p.CalledAtNs < filter.FromNs) || (filter.ToNs > 0 && p.CalledAtNs > filter.ToNs) {
 			continue
 		}
-		var p struct {
-			api.AgentToolCall
-			SessionID string `json:"agent_session_id"`
-		}
-		if json.Unmarshal(e.Payload, &p) != nil || p.SessionID != filter.SessionID {
-			continue
-		}
-		p.CalledAtNs = e.TimestampNs
 		key := callKey{p.ToolUseID, p.UID}
 		if prior, seen := first[key]; !seen || p.CalledAtNs < prior.CalledAtNs {
 			first[key] = p.AgentToolCall
 		}
 	}
-	calls := make([]api.AgentToolCall, 0, len(first))
+	listed := make([]api.AgentToolCall, 0, len(first))
 	for _, c := range first {
-		calls = append(calls, c)
+		listed = append(listed, c)
 	}
-	slices.SortFunc(calls, func(a, b api.AgentToolCall) int {
+	slices.SortFunc(listed, func(a, b api.AgentToolCall) int {
 		return cmp.Or(cmp.Compare(a.CalledAtNs, b.CalledAtNs), cmp.Compare(a.ToolUseID, b.ToolUseID), cmp.Compare(a.UID, b.UID))
 	})
-	if len(calls) > filter.Limit {
-		return calls[:filter.Limit], true, nil
+	if len(listed) > filter.Limit {
+		return listed[:filter.Limit], true, nil
 	}
-	return calls, false, nil
+	return listed, false, nil
 }
 
 // sessionPath is the ClickHouse store's own match of a path Claude Code names after a session, so the two cannot drift.

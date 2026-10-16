@@ -22,12 +22,14 @@ type AgentSessionLister interface {
 func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/agent-sessions", h.handleListAgentSessions)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls", h.handleAgentToolCalls)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage", h.handleAgentSessionLineage)
 }
 
-// AgentToolCallReader is the read of the tool calls a session recorded (issue #1288), from the event archive. mysql.Store satisfies
-// it.
+// AgentToolCallReader is the read of the tool calls a session recorded (issue #1288), and of the sessions forked from each other that
+// their copied calls show (issue #1347), from the event archive. mysql.Store satisfies it.
 type AgentToolCallReader interface {
 	AgentToolCalls(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.AgentToolCall, bool, error)
+	AgentSessionLineage(ctx context.Context, hostID, sessionID string) (visibilityapi.AgentSessionLineage, error)
 }
 
 // SetAgentToolCalls installs the tool-call read. Unset, the route answers 503.
@@ -47,30 +49,59 @@ type agentToolCallsResponse struct {
 	Truncated bool                          `json:"truncated"`
 }
 
+// sessionOfRequest gates a session's read on process read for its host and reads the session the path names, answering the request
+// itself (403, 503, 500 or 404) and returning false when there is none to serve.
+func (h *Handler) sessionOfRequest(w http.ResponseWriter, r *http.Request) (*api.AgentSessionSummary, bool) {
+	ctx := r.Context()
+	hostID := r.PathValue("host_id")
+	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionProcessRead, identityapi.Resource{Type: "process", ID: hostID}) {
+		return nil, false
+	}
+	if h.agentSessions == nil || h.agentToolCalls == nil {
+		h.writeError(ctx, w, http.StatusServiceUnavailable, errInternal)
+		return nil, false
+	}
+	session, err := h.agentSessions.GetAgentSession(ctx, hostID, r.PathValue("session_id"))
+	if err != nil {
+		h.logger.ErrorContext(ctx, "read agent session", "host_id", hostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return nil, false
+	}
+	if session == nil {
+		h.writeError(ctx, w, http.StatusNotFound, errNotFound)
+		return nil, false
+	}
+	return session, true
+}
+
+// handleAgentSessionLineage serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage: the session this one was forked from
+// and the sessions forked from it, which the session view links to. Gated on process read for the host, like the session's tool calls.
+func (h *Handler) handleAgentSessionLineage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	hostID, sessionID := session.HostID, session.AgentSessionID
+	lineage, err := h.agentToolCalls.AgentSessionLineage(ctx, hostID, sessionID)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "read agent session lineage", "host_id", hostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	h.writeJSON(w, r, lineage)
+}
+
 // handleAgentToolCalls serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls: the tool calls the session recorded in
 // its transcript, which the session view pairs with the processes each started. Gated on process read for the host, like the session's
 // processes.
 func (h *Handler) handleAgentToolCalls(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	hostID := r.PathValue("host_id")
-	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionProcessRead, identityapi.Resource{Type: "process", ID: hostID}) {
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
 		return
 	}
-	if h.agentSessions == nil || h.agentToolCalls == nil {
-		h.writeError(ctx, w, http.StatusServiceUnavailable, errInternal)
-		return
-	}
-	sessionID := r.PathValue("session_id")
-	session, err := h.agentSessions.GetAgentSession(ctx, hostID, sessionID)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "read agent session", "host_id", hostID, "err", err)
-		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
-		return
-	}
-	if session == nil {
-		h.writeError(ctx, w, http.StatusNotFound, errNotFound)
-		return
-	}
+	hostID, sessionID := session.HostID, session.AgentSessionID
 	calls, truncated, err := h.agentToolCalls.AgentToolCalls(ctx, visibilityapi.AgentToolCallFilter{
 		HostID: hostID, SessionID: sessionID, Limit: maxToolCalls,
 		FromNs: session.FirstSeenNs - toolCallMargin.Nanoseconds(), ToNs: session.LastSeenNs + toolCallMargin.Nanoseconds(),
