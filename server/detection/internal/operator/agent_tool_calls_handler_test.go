@@ -70,8 +70,12 @@ const (
 // spec:server-rest-api/agent-session-lineage-endpoint/a-session-names-its-parent-and-its-forks
 func TestAgentSessionLineage_NamesParentAndForks(t *testing.T) {
 	t.Parallel()
-	owned := api.AgentSessionSummary{HostID: "h1", AgentSessionID: "47abb2a1", OwnerUID: new(int64(501))}
-	lister := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{owned}}}
+	owned := func(session string, uid int64) api.AgentSessionSummary {
+		return api.AgentSessionSummary{HostID: "h1", AgentSessionID: session, OwnerUID: new(uid)}
+	}
+	lister := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{
+		owned("47abb2a1", 501), owned("5828cd24", 501), owned("bd46ed99", 501), owned("c1a2b3c4", 501),
+	}}}
 	reader := &fakeToolCallReader{lineage: visibilityapi.AgentSessionLineage{
 		ForkedFromSessionID: "5828cd24", ForkedSessionIDs: []string{"bd46ed99", "c1a2b3c4"},
 	}}
@@ -84,6 +88,22 @@ func TestAgentSessionLineage_NamesParentAndForks(t *testing.T) {
 	assert.Equal(t, &lineageAsk{"h1", "47abb2a1", 501}, reader.asked, "read for the session's owner")
 
 	// spec:server-rest-api/agent-session-lineage-endpoint/another-user-s-transcripts-do-not-make-a-lineage
+	t.Run("a link to a session another user owns, or the host does not hold, is left out", func(t *testing.T) {
+		t.Parallel()
+		lister := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{
+			owned("47abb2a1", 502), owned("5828cd24", 501), owned("bd46ed99", 502), owned("c1a2b3c4", 501),
+		}}}
+		// The 502 owner's transcripts name 501's sessions as this session's parent and fork: only its own fork stays.
+		reader := &fakeToolCallReader{lineage: visibilityapi.AgentSessionLineage{
+			ForkedFromSessionID: "5828cd24", ForkedSessionIDs: []string{"bd46ed99", "c1a2b3c4", "unheld"},
+		}}
+		resp := doGet(t, newToolCallsServer(t, lister, reader), lineagePath)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var out map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		assert.Equal(t, map[string]any{"forked_session_ids": []any{"bd46ed99"}}, out)
+	})
 	t.Run("a session with no retained process has no owner to read a lineage for", func(t *testing.T) {
 		t.Parallel()
 		unowned := &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{{HostID: "h1", AgentSessionID: "47abb2a1"}}}}

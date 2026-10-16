@@ -90,12 +90,46 @@ func (h *Handler) handleAgentSessionLineage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	lineage, err := h.agentToolCalls.AgentSessionLineage(ctx, hostID, sessionID, *session.OwnerUID)
+	if err == nil {
+		lineage, err = h.ownersLineage(ctx, hostID, *session.OwnerUID, lineage)
+	}
 	if err != nil {
 		h.logger.ErrorContext(ctx, "read agent session lineage", "host_id", hostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
 	h.writeJSON(w, r, lineage)
+}
+
+// ownersLineage keeps the links to sessions the same user owns. The lineage was read from the owner's transcripts, which name any
+// session they like: a user's transcript named for another user's session would otherwise list that session as a fork of theirs.
+func (h *Handler) ownersLineage(
+	ctx context.Context, hostID string, ownerUID int64, lineage visibilityapi.AgentSessionLineage,
+) (visibilityapi.AgentSessionLineage, error) {
+	owned := func(sessionID string) (bool, error) {
+		linked, err := h.agentSessions.GetAgentSession(ctx, hostID, sessionID)
+		return err == nil && linked != nil && linked.OwnerUID != nil && *linked.OwnerUID == ownerUID, err
+	}
+	kept := visibilityapi.AgentSessionLineage{ForkedSessionIDs: []string{}}
+	if lineage.ForkedFromSessionID != "" {
+		ok, err := owned(lineage.ForkedFromSessionID)
+		if err != nil {
+			return kept, err
+		}
+		if ok {
+			kept.ForkedFromSessionID = lineage.ForkedFromSessionID
+		}
+	}
+	for _, fork := range lineage.ForkedSessionIDs {
+		ok, err := owned(fork)
+		if err != nil {
+			return kept, err
+		}
+		if ok {
+			kept.ForkedSessionIDs = append(kept.ForkedSessionIDs, fork)
+		}
+	}
+	return kept, nil
 }
 
 // handleAgentToolCalls serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls: the tool calls the session recorded in

@@ -12,7 +12,7 @@ A tool call whose `origin_session_id` names a session on the same host that hold
 
 ### Requirement: Agent session lineage endpoint
 
-`GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage` SHALL return `forked_from_session_id`, the origin of the session's latest copied call, and `forked_session_ids`, the sessions whose parent it is, sorted, counting only calls owned by the uid of the session's earliest process. It SHALL be gated on process read for the host and answer 404 for a session the host does not hold.
+`GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage` SHALL return `forked_from_session_id`, the origin of the session's latest copied call, and `forked_session_ids`, the sessions whose parent it is, sorted, counting only calls owned by the uid of the session's earliest process and linking only sessions that uid owns. It SHALL be gated on process read for the host and answer 404 for a session the host does not hold.
 
 #### Scenario: A session names its parent and its forks
 
@@ -23,8 +23,8 @@ A tool call whose `origin_session_id` names a session on the same host that hold
 #### Scenario: Another user's transcripts do not make a lineage
 
 - **GIVEN** another user's two transcripts, one named for this session and holding a copy of a call in the other
-- **WHEN** this session's lineage is read
-- **THEN** it names no parent from them, and a session none of whose processes is retained has no owner and names no lineage
+- **WHEN** this session's lineage is read, and that user's own session's
+- **THEN** neither names the other, since a link stands only between sessions one user owns, and a session with no retained process names none
 
 #### Scenario: A fork without its own evidence is read as the earlier session's
 
