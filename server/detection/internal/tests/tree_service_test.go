@@ -137,3 +137,99 @@ func TestServiceLinks_CutIsReported(t *testing.T) {
 	assert.True(t, res.Truncated)
 	assert.Len(t, res.Links, 200, "the first 200 services are linked")
 }
+
+// serviceRow inserts a launchd child naming (rpid, rpv) as responsible, exiting at exit when it is non-zero.
+func serviceRow(t *testing.T, store *mysql.Store, db *sqlx.DB, host string, pid int, pidversion uint32, s, exit float64, rpid int, rpv uint32,
+	reparented bool) int64 {
+	t.Helper()
+	id, err := store.InsertProcess(t.Context(), api.Process{HostID: host, PID: pid, PPID: 1, PIDVersion: &pidversion, Path: "/usr/libexec/svc",
+		ForkTimeNs: at(s), ExecTimeNs: new(at(s)), ExecLineage: api.ExecLineage{ResponsiblePID: &rpid, ResponsiblePIDVersion: &rpv, Reparented: reparented}})
+	require.NoError(t, err)
+	if exit != 0 {
+		_, err = db.ExecContext(t.Context(), "UPDATE processes SET exit_time_ns = ? WHERE id = ?", at(exit), id)
+		require.NoError(t, err)
+	}
+	return id
+}
+
+// appRow inserts an app launchd started, responsible for itself, in the session, exiting at exit when it is non-zero.
+func appRow(t *testing.T, store *mysql.Store, db *sqlx.DB, host string, pid int, pidversion uint32, s, exit float64) int64 {
+	t.Helper()
+	session := api.AgentSession{AgentSessionID: new(serviceSession)}
+	id, err := store.InsertProcess(t.Context(), api.Process{HostID: host, PID: pid, PPID: 1, PIDVersion: &pidversion, Path: "/Applications/App.app/Contents/MacOS/App",
+		ForkTimeNs: at(s), ExecTimeNs: new(at(s)), AgentSession: session, ExecLineage: api.ExecLineage{ResponsiblePID: &pid, ResponsiblePIDVersion: &pidversion}})
+	require.NoError(t, err)
+	if exit != 0 {
+		_, err = db.ExecContext(t.Context(), "UPDATE processes SET exit_time_ns = ? WHERE id = ?", at(exit), id)
+		require.NoError(t, err)
+	}
+	return id
+}
+
+// A window read links a service it holds however many services the app started before the window.
+func TestServiceLinks_WindowReadOfALongRunningApp(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	host := "service-" + t.Name()
+	app := appRow(t, store, db, host, 500, 9000, 1, 0)
+	for i := range 210 {
+		serviceRow(t, store, db, host, 1000+i, uint32(9100+i), 2+float64(i)/1000, 3, 500, 9000, false)
+	}
+	recent := serviceRow(t, store, db, host, 2000, 9500, 12, 0, 500, 9000, false)
+	res, err := graph.NewQuery(store).BuildTree(t.Context(), host, api.TimeRange{FromNs: at(10), ToNs: at(20)}, 2000, true, 0)
+	require.NoError(t, err)
+	assert.Contains(t, res.Links, api.ProcessLink{From: app, To: recent, Kind: api.ProcessLinkResponsibleProcess})
+}
+
+// A session with more apps than are looked at says so.
+func TestServiceLinks_TooManyAppsIsReported(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	host := "service-" + t.Name()
+	for i := range 51 {
+		appRow(t, store, db, host, 600+i, uint32(9600+i), 1+float64(i)/100, 0)
+	}
+	res, err := graph.NewQuery(store).BuildScopedTree(t.Context(), host, api.TreeScope{AgentSessionID: serviceSession}, 5000, true, 0)
+	require.NoError(t, err)
+	assert.True(t, res.Truncated)
+}
+
+// A generation counter restarts with the host, so two apps can share a pid and generation; a service belongs to the one alive at its
+// start. A process launchd adopted rather than started is no service, whatever it names.
+func TestServiceLinks_OwnerByLifetimeAndNoAdoptedServices(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	host := "service-" + t.Name()
+	first := appRow(t, store, db, host, 700, 9700, 1, 10)
+	second := appRow(t, store, db, host, 700, 9700, 20, 30)
+	ofSecond := serviceRow(t, store, db, host, 701, 9701, 25, 0, 700, 9700, false)
+	adopted := serviceRow(t, store, db, host, 702, 9702, 26, 0, 700, 9700, true)
+	res, err := graph.NewQuery(store).BuildScopedTree(t.Context(), host, api.TreeScope{AgentSessionID: serviceSession}, 5000, true, 0)
+	require.NoError(t, err)
+	assert.Contains(t, res.Links, api.ProcessLink{From: second, To: ofSecond, Kind: api.ProcessLinkResponsibleProcess})
+	assert.NotContains(t, res.Links, api.ProcessLink{From: first, To: ofSecond, Kind: api.ProcessLinkResponsibleProcess})
+	assert.Zero(t, forestIDs(res.Roots)[adopted], "an adopted process is no service")
+
+	window, err := graph.NewQuery(store).BuildTree(t.Context(), host, api.TimeRange{FromNs: at(0), ToNs: at(40)}, 2000, true, 0)
+	require.NoError(t, err)
+	assert.Contains(t, window.Links, api.ProcessLink{From: second, To: ofSecond, Kind: api.ProcessLinkResponsibleProcess})
+	for _, l := range window.Links {
+		assert.NotEqual(t, adopted, l.To, "the window read links no adopted process either")
+	}
+}
+
+// Adopted processes are left out in the store, so however many name an app they cannot use up the services read for it.
+func TestServiceLinks_AdoptedProcessesDoNotCrowdOutServices(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	host := "service-" + t.Name()
+	app := appRow(t, store, db, host, 800, 9800, 1, 0)
+	for i := range 201 {
+		serviceRow(t, store, db, host, 3000+i, uint32(9900+i), 2+float64(i)/1000, 0, 800, 9800, true)
+	}
+	genuine := serviceRow(t, store, db, host, 4000, 10000, 5, 0, 800, 9800, false)
+	res, err := graph.NewQuery(store).BuildScopedTree(t.Context(), host, api.TreeScope{AgentSessionID: serviceSession}, 5000, true, 0)
+	require.NoError(t, err)
+	assert.Equal(t, []api.ProcessLink{{From: app, To: genuine, Kind: api.ProcessLinkResponsibleProcess}}, res.Links)
+	assert.False(t, res.Truncated)
+}

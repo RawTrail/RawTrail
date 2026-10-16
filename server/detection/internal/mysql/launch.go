@@ -47,7 +47,7 @@ func (s *Store) GetLaunchdChildren(ctx context.Context, hostID string, ranges []
 // target, by pid and generation, as their responsible process, such as the XPC services an app asked for. Each target's are read
 // from its lifetime, oldest first and at most perTarget each, by the (host_id, ppid, fork_time_ns) index with the responsibility
 // filtered in place, so a busy host costs a longer scan rather than a missed service. The target's own row, which names itself, is
-// left out.
+// left out, and so is a process launchd adopted rather than started, as GetLaunchdChildren leaves it out.
 func (s *Store) GetResponsibleChildren(ctx context.Context, hostID string, targets []api.Process, perTarget int) ([]api.Process, error) {
 	procs := []api.Process{}
 	if len(targets) == 0 {
@@ -58,8 +58,8 @@ func (s *Store) GetResponsibleChildren(ctx context.Context, hostID string, targe
 	for i, t := range targets {
 		branches[i] = `(SELECT ` + processReadColumns + `
 			FROM processes
-			WHERE host_id = ? AND ppid = 1 AND fork_time_ns BETWEEN ? AND ? AND responsible_pid = ? AND responsible_pidversion = ?
-				AND id <> ?
+			WHERE host_id = ? AND ppid = 1 AND NOT COALESCE(reparented, FALSE) AND fork_time_ns BETWEEN ? AND ?
+				AND responsible_pid = ? AND responsible_pidversion = ? AND id <> ?
 			ORDER BY fork_time_ns, id
 			LIMIT ?)`
 		until := int64(math.MaxInt64)
