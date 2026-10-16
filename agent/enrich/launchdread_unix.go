@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -17,12 +19,43 @@ import (
 // capped where it is read, whatever the file grows to; plutil converts a binary plist's bytes from stdin and never opens a path.
 const (
 	headPath    = "/usr/bin/head"
+	findPath    = "/usr/bin/find"
 	plutilPath  = "/usr/bin/plutil"
 	readTimeout = 2 * time.Second
 	// maxConvertedPlistBytes bounds plutil's XML: a binary plist grows when written out as XML, so it gets room past the input bound.
 	maxConvertedPlistBytes = 4 * maxPlistBytes
 	binaryPlistPrefix      = "bplist00"
+	// maxListingBytes bounds a directory's listing: room for a thousand plists, and a directory past it is read as none.
+	maxListingBytes = 64 << 10
 )
+
+// ReadLaunchdJobs reads the jobs a launchctl operand names, as the user who ran launchctl: the job the plist defines, or, when the
+// operand is not one, the jobs of the .plist files directly in it as a directory (issue #1352), which `launchctl load <dir>` loads.
+// The plist read comes first because launchctl takes a plist of any name. The directory is listed as the user, as each plist is read,
+// so the listing is no wider than theirs: find, run with their uid and gid and no supplementary groups, prints the names, at most
+// maxListingBytes of them, and the first maxLaunchdPlists in name order are read. -H follows a symlinked directory operand, as
+// launchctl's own open does. The path is absolute (LaunchdJobs makes it so), so find cannot take it for an option.
+func ReadLaunchdJobs(path string, uid, gid int) []LaunchdJob {
+	if job, ok := ReadLaunchdJob(path, uid, gid); ok {
+		job.PlistPath = path
+		return []LaunchdJob{job}
+	}
+	listing, err := runAs(uid, gid, nil, maxListingBytes, findPath, "-H", path, "-mindepth", "1", "-maxdepth", "1", "-name", "*.plist",
+		"-print0")
+	if err != nil || len(listing) == 0 {
+		return nil
+	}
+	plists := strings.Split(strings.TrimSuffix(string(listing), "\x00"), "\x00")
+	slices.Sort(plists)
+	var jobs []LaunchdJob
+	for _, plist := range plists[:min(len(plists), maxLaunchdPlists)] {
+		if job, ok := ReadLaunchdJob(plist, uid, gid); ok {
+			job.PlistPath = plist
+			jobs = append(jobs, job)
+		}
+	}
+	return jobs
+}
 
 // ReadLaunchdJob reads the job a plist defines, as the user who ran launchctl (uid and gid) would. The agent is root and the path is
 // the user's, so nothing here opens it as root: head, run with the user's uid and gid and no supplementary groups, reads it, and the

@@ -197,7 +197,7 @@
         "launchd_jobs": {
           "type": "array",
           "maxItems": 8,
-          "description": "Optional. On a launchctl load or bootstrap exec, the job definitions of the plists it names, read by the agent from each plist the user who ran launchctl could read. Absent for any other exec, and when no named plist could be read.",
+          "description": "Optional. On a launchctl load or bootstrap exec, the job definitions of the plists it names, and of the .plist files directly in a directory it names, read by the agent from each plist the user who ran launchctl could read. Absent for any other exec, and when no named plist could be read.",
           "items": {
             "type": "object",
             "required": ["plist_path"],

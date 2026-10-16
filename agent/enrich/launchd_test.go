@@ -43,13 +43,21 @@ func jobsOf(t *testing.T, data []byte) []LaunchdJob {
 
 // spec:endpoint-event-collection/launchd-job-definitions/a-launchctl-load-carries-the-jobs-it-names
 // fakeReader reads a job named for each plist, except an unreadable one or for another user, recording what it was asked for.
+// A path ending in "/dir" is a directory holding three plists.
 func fakeReader(asked *[]string) JobReader {
-	return func(p string, uid, _ int) (LaunchdJob, bool) {
+	return func(p string, uid, _ int) []LaunchdJob {
 		*asked = append(*asked, p)
-		if strings.HasSuffix(p, "unreadable.plist") || uid != 501 {
-			return LaunchdJob{}, false
+		switch {
+		case strings.HasSuffix(p, "unreadable.plist") || uid != 501:
+			return nil
+		case strings.HasSuffix(p, "/dir"):
+			var jobs []LaunchdJob
+			for _, name := range []string{"x.plist", "y.plist", "z.plist"} {
+				jobs = append(jobs, LaunchdJob{PlistPath: p + "/" + name, Label: "job:" + name})
+			}
+			return jobs
 		}
-		return LaunchdJob{Label: "job:" + path.Base(p)}, true
+		return []LaunchdJob{{PlistPath: p, Label: "job:" + path.Base(p)}}
 	}
 }
 
@@ -85,6 +93,25 @@ func TestLaunchdJobs(t *testing.T) {
 		read := fakeReader(&asked)
 		original := execEvent(t, map[string]any{"pid": 1, "path": "/bin/launchctl", "uid": 501, "args": []string{"launchctl", "load", "b.plist"}})
 		assert.Equal(t, original, LaunchdJobs(original, read))
+	})
+	// spec:endpoint-event-collection/launchd-job-definitions/a-directory-operand-carries-the-jobs-of-the-plists-in-it
+	t.Run("a directory operand carries the jobs of its plists, and eight in all are kept across operands", func(t *testing.T) {
+		t.Parallel()
+		var asked []string
+		read := fakeReader(&asked)
+		data := LaunchdJobs(execEvent(t, map[string]any{"pid": 1, "path": "/bin/launchctl", "uid": 501, "cwd": "/Users/v",
+			"args": []string{"launchctl", "load", "-w", "Library/LaunchAgents/dir", "/tmp/a.plist", "/tmp/one/dir", "/tmp/two/dir",
+				"/tmp/never.plist"}}), read)
+		var labels []string
+		for _, j := range jobsOf(t, data) {
+			labels = append(labels, path.Dir(j.PlistPath)+" "+j.Label)
+		}
+		assert.Equal(t, []string{
+			"/Users/v/Library/LaunchAgents/dir job:x.plist", "/Users/v/Library/LaunchAgents/dir job:y.plist",
+			"/Users/v/Library/LaunchAgents/dir job:z.plist", "/tmp job:a.plist",
+			"/tmp/one/dir job:x.plist", "/tmp/one/dir job:y.plist", "/tmp/one/dir job:z.plist", "/tmp/two/dir job:x.plist",
+		}, labels)
+		assert.NotContains(t, asked, "/tmp/never.plist", "once eight are read, no more operands are")
 	})
 	t.Run("at most eight plists are read", func(t *testing.T) {
 		t.Parallel()
@@ -133,30 +160,26 @@ func TestLaunchdJobs(t *testing.T) {
 func TestBoundedReader(t *testing.T) {
 	t.Parallel()
 	release := make(chan struct{})
-	slow := func(path string, _, _ int) (LaunchdJob, bool) {
+	slow := func(path string, _, _ int) []LaunchdJob {
 		if path == "/slow.plist" {
 			<-release
 		}
-		return LaunchdJob{Label: path}, true
+		return []LaunchdJob{{Label: path}}
 	}
 	read := BoundedReader(slow, 50*time.Millisecond)
 
-	job, ok := read("/fast.plist", 501, 20)
-	require.True(t, ok)
-	assert.Equal(t, "/fast.plist", job.Label)
+	assert.Equal(t, []LaunchdJob{{Label: "/fast.plist"}}, read("/fast.plist", 501, 20))
 
 	start := time.Now()
-	_, ok = read("/slow.plist", 501, 20)
-	assert.False(t, ok, "a read past the wait yields nothing")
+	assert.Empty(t, read("/slow.plist", 501, 20), "a read past the wait yields nothing")
 	assert.Less(t, time.Since(start), time.Second, "and the caller is not held past the wait")
 
 	start = time.Now()
-	_, ok = read("/fast.plist", 501, 20)
-	assert.False(t, ok, "while one read is still running, another returns at once")
+	assert.Empty(t, read("/fast.plist", 501, 20), "while one read is still running, another returns at once")
 	assert.Less(t, time.Since(start), 40*time.Millisecond)
 
 	close(release)
-	require.Eventually(t, func() bool { _, ok := read("/fast.plist", 501, 20); return ok }, time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return len(read("/fast.plist", 501, 20)) == 1 }, time.Second, 10*time.Millisecond,
 		"once the stuck read ends, reads run again")
 }
 
@@ -165,10 +188,9 @@ func TestBoundedReader(t *testing.T) {
 // spec:endpoint-event-collection/launchd-job-definitions/a-launchctl-load-carries-the-jobs-it-names
 func TestBoundedReader_ConsecutiveReads(t *testing.T) {
 	t.Parallel()
-	read := BoundedReader(func(p string, _, _ int) (LaunchdJob, bool) { return LaunchdJob{Label: p}, true }, time.Second)
+	read := BoundedReader(func(p string, _, _ int) []LaunchdJob { return []LaunchdJob{{Label: p}} }, time.Second)
 	for i := range 100000 {
-		_, ok := read("/fast.plist", 501, 20)
-		require.True(t, ok, "read %d was skipped though the one before it had finished", i)
+		require.Len(t, read("/fast.plist", 501, 20), 1, "read %d was skipped though the one before it had finished", i)
 	}
 }
 
@@ -240,11 +262,10 @@ func TestLaunchdJobsRoundTrip(t *testing.T) {
 				ProgramArguments: rapid.SliceOfN(rapid.String(), 1, 8).Draw(rt, "args"), Truncated: rapid.Bool().Draw(rt, "truncated")}
 		}
 		next := 0
-		read := func(string, int, int) (LaunchdJob, bool) {
+		read := func(string, int, int) []LaunchdJob {
 			job := want[next]
-			job.PlistPath = ""
 			next++
-			return job, true
+			return []LaunchdJob{job}
 		}
 		data := LaunchdJobs(execEvent(t, map[string]any{"pid": 1, "path": "/bin/launchctl", "uid": 501, "args": args}), read)
 		got := jobsOf(t, data)

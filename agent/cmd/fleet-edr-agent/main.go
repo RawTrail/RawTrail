@@ -728,7 +728,7 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 	}
 	// Reading a launchctl exec's plists touches the user's files, which can block (a stalled mount, a pipe), so the event loop waits
 	// for it only so long, one read at a time (issue #1341).
-	launchdJobs := enrich.BoundedReader(enrich.ReadLaunchdJob, launchdReadWait)
+	launchdJobs := enrich.BoundedReader(enrich.ReadLaunchdJobs, launchdReadWait)
 	hooks := receiver.LoopHooks{
 		OnEvent: func(ctx context.Context, evt receiver.Event) {
 			// The network extension's control messages ride the event channel because the XPC bridge only surfaces messages carrying a

@@ -28,9 +28,10 @@ type LaunchdJob struct {
 	Truncated        bool     `json:"truncated,omitempty"`
 }
 
-// JobReader reads the job a plist defines, as the user who ran launchctl (uid and gid): false when that user could not have read it,
-// or it does not parse as a job. Production passes ReadLaunchdJob; tests inject a fake.
-type JobReader func(path string, uid, gid int) (LaunchdJob, bool)
+// JobReader reads the jobs one launchctl operand names, as the user who ran launchctl (uid and gid): the job the plist defines, or
+// for a directory those of the plists directly in it (issue #1352), each with its PlistPath. None when that user could not have read
+// them or they do not parse as jobs. Production passes ReadLaunchdJobs; tests inject a fake.
+type JobReader func(path string, uid, gid int) []LaunchdJob
 
 // BoundedReader returns read bounded for the agent's event loop, which handles every event in turn: the loop waits at most wait for a
 // read, which runs on its own goroutine, and at most one read runs at a time, so a plist that blocks (a stalled mount, a pipe) costs
@@ -38,38 +39,36 @@ type JobReader func(path string, uid, gid int) (LaunchdJob, bool)
 // without the definitions it could not read in time, rather than holding back the telemetry behind it.
 func BoundedReader(read JobReader, wait time.Duration) JobReader {
 	slot := make(chan struct{}, 1)
-	type result struct {
-		job LaunchdJob
-		ok  bool
-	}
-	return func(path string, uid, gid int) (LaunchdJob, bool) {
+	return func(path string, uid, gid int) []LaunchdJob {
 		select {
 		case slot <- struct{}{}:
 		default:
-			return LaunchdJob{}, false
+			return nil
 		}
-		done := make(chan result, 1)
+		done := make(chan []LaunchdJob, 1)
 		go func() {
-			job, ok := read(path, uid, gid)
-			// The slot is freed before the result is sent, so a caller that has it can read the next plist at once.
+			jobs := read(path, uid, gid)
+			// The slot is freed before the result is sent, so a caller that has it can read the next operand at once.
 			<-slot
-			done <- result{job, ok}
+			done <- jobs
 		}()
 		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		select {
-		case r := <-done:
-			return r.job, r.ok
+		case jobs := <-done:
+			return jobs
 		case <-timer.C:
-			return LaunchdJob{}, false
+			return nil
 		}
 	}
 }
 
 // LaunchdJobs returns data with a `launchctl load|bootstrap` exec's payload carrying launchd_jobs, the definitions of the plists it
-// named that the reader could read, or data unchanged for any other event, an exec already carrying them, or one naming none it
-// could read. A directory operand, which launchctl expands into the plists in it, is read as no plist. Paths are macOS's, so they are read as POSIX paths whatever the build. A relative path is the launcher's: it is read under the exec's working directory as it was given, `..` included, so a
-// symlinked directory resolves the way launchctl's own open did, and is skipped without one.
+// named that the reader could read, at most maxLaunchdPlists across its operands, a directory's plists included, or data unchanged
+// for any other event, an exec already carrying them, or one naming none it could read. Paths are macOS's, so they are read as POSIX
+// paths whatever the build. A relative path is the launcher's: it is read under the exec's working directory as it was given, `..`
+// included, so a symlinked directory resolves the way launchctl's own open did, and is skipped without one. Every path the reader
+// is asked for is therefore absolute.
 func LaunchdJobs(data []byte, read JobReader) []byte {
 	envelope, payload, ok := decodeEvent(data, "exec")
 	if !ok || hasField(payload, "launchd_jobs") {
@@ -94,9 +93,9 @@ func LaunchdJobs(data []byte, read JobReader) []byte {
 			}
 			plist = strings.TrimSuffix(exec.CWD, "/") + "/" + plist
 		}
-		if job, ok := read(plist, int(exec.UID), int(exec.GID)); ok {
-			job.PlistPath = plist
-			jobs = append(jobs, job)
+		if jobs = append(jobs, read(plist, int(exec.UID), int(exec.GID))...); len(jobs) >= maxLaunchdPlists {
+			jobs = jobs[:maxLaunchdPlists]
+			break
 		}
 	}
 	if len(jobs) == 0 {
