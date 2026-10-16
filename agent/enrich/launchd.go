@@ -2,7 +2,7 @@ package enrich
 
 import (
 	"encoding/json"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 )
@@ -50,8 +50,9 @@ func BoundedReader(read JobReader, wait time.Duration) JobReader {
 		}
 		done := make(chan result, 1)
 		go func() {
-			defer func() { <-slot }()
 			job, ok := read(path, uid, gid)
+			// The slot is freed before the result is sent, so a caller that has it can read the next plist at once.
+			<-slot
 			done <- result{job, ok}
 		}()
 		timer := time.NewTimer(wait)
@@ -67,7 +68,7 @@ func BoundedReader(read JobReader, wait time.Duration) JobReader {
 
 // LaunchdJobs returns data with a `launchctl load|bootstrap` exec's payload carrying launchd_jobs, the definitions of the plists it
 // named that the reader could read, or data unchanged for any other event, an exec already carrying them, or one naming none it
-// could read. A relative path is the launcher's: it is read under the exec's working directory as it was given, `..` included, so a
+// could read. Paths are macOS's, so they are read as POSIX paths whatever the build. A relative path is the launcher's: it is read under the exec's working directory as it was given, `..` included, so a
 // symlinked directory resolves the way launchctl's own open did, and is skipped without one.
 func LaunchdJobs(data []byte, read JobReader) []byte {
 	envelope, payload, ok := decodeEvent(data, "exec")
@@ -86,8 +87,8 @@ func LaunchdJobs(data []byte, read JobReader) []byte {
 	}
 	var jobs []LaunchdJob
 	for _, plist := range plistArgs(exec.Args) {
-		if !filepath.IsAbs(plist) {
-			if !filepath.IsAbs(exec.CWD) {
+		if !path.IsAbs(plist) {
+			if !path.IsAbs(exec.CWD) {
 				continue
 			}
 			plist = strings.TrimSuffix(exec.CWD, "/") + "/" + plist

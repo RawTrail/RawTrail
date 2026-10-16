@@ -47,6 +47,9 @@ func TestReadLaunchdJob_AsTheUser(t *testing.T) {
 	_, ok = ReadLaunchdJob(link, me, myGroup)
 	assert.True(t, ok, "a link is followed as launchctl's open follows it")
 
+	if me == 0 {
+		t.Skip("root reads past any mode; TestReadLaunchdJob_ForAnotherUser checks the denials when run as root")
+	}
 	_, ok = ReadLaunchdJob(writePlist(t, dir, "closed.plist", 0o000), me, myGroup)
 	assert.False(t, ok, "a plist the user may not read is refused by the kernel")
 
@@ -68,7 +71,11 @@ func TestReadLaunchdJob_ForAnotherUser(t *testing.T) {
 		t.Skip("reading as another user needs the agent's root")
 	}
 	const owner, other = 1, 2
-	dir := t.TempDir()
+	// t.TempDir is root's own, under a mode-0700 path neither user may traverse; /tmp is open to both, so each case turns on the file.
+	dir, err := os.MkdirTemp("/tmp", "launchdjob") //nolint:usetesting // t.TempDir is under a path the two users cannot enter
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o755)) //nolint:gosec // both users must enter the test's own directory
 	private := writePlist(t, dir, "private.plist", 0o600)
 	require.NoError(t, os.Chown(private, owner, owner))
 	_, ok := ReadLaunchdJob(private, other, other)

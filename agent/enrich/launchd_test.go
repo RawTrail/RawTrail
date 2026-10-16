@@ -2,7 +2,7 @@ package enrich
 
 import (
 	"encoding/json"
-	"path/filepath"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -44,12 +44,12 @@ func jobsOf(t *testing.T, data []byte) []LaunchdJob {
 // spec:endpoint-event-collection/launchd-job-definitions/a-launchctl-load-carries-the-jobs-it-names
 // fakeReader reads a job named for each plist, except an unreadable one or for another user, recording what it was asked for.
 func fakeReader(asked *[]string) JobReader {
-	return func(path string, uid, _ int) (LaunchdJob, bool) {
-		*asked = append(*asked, path)
-		if strings.HasSuffix(path, "unreadable.plist") || uid != 501 {
+	return func(p string, uid, _ int) (LaunchdJob, bool) {
+		*asked = append(*asked, p)
+		if strings.HasSuffix(p, "unreadable.plist") || uid != 501 {
 			return LaunchdJob{}, false
 		}
-		return LaunchdJob{Label: "job:" + filepath.Base(path)}, true
+		return LaunchdJob{Label: "job:" + path.Base(p)}, true
 	}
 }
 
@@ -92,7 +92,7 @@ func TestLaunchdJobs(t *testing.T) {
 		read := fakeReader(&asked)
 		args := []string{"launchctl", "load"}
 		for i := range 12 {
-			args = append(args, filepath.Join("/tmp", string(rune('a'+i))+".plist"))
+			args = append(args, path.Join("/tmp", string(rune('a'+i))+".plist"))
 		}
 		data := LaunchdJobs(execEvent(t, map[string]any{"pid": 1, "path": "/bin/launchctl", "uid": 501, "args": args}), read)
 		assert.Len(t, jobsOf(t, data), maxLaunchdPlists)
@@ -146,6 +146,18 @@ func TestBoundedReader(t *testing.T) {
 	close(release)
 	require.Eventually(t, func() bool { _, ok := read("/fast.plist", 501, 20); return ok }, time.Second, 10*time.Millisecond,
 		"once the stuck read ends, reads run again")
+}
+
+// A read that has finished frees its slot before the caller sees its result, so the next plist of the same exec is read, not skipped.
+//
+// spec:endpoint-event-collection/launchd-job-definitions/a-launchctl-load-carries-the-jobs-it-names
+func TestBoundedReader_ConsecutiveReads(t *testing.T) {
+	t.Parallel()
+	read := BoundedReader(func(p string, _, _ int) (LaunchdJob, bool) { return LaunchdJob{Label: p}, true }, time.Second)
+	for i := range 100000 {
+		_, ok := read("/fast.plist", 501, 20)
+		require.True(t, ok, "read %d was skipped though the one before it had finished", i)
+	}
 }
 
 func TestParseLaunchdPlist(t *testing.T) {
