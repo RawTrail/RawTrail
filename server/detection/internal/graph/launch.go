@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,9 @@ const (
 	// launchWindow is how long after the launcher's exec its launchd child may start. Launch Services answered within a second on
 	// edr-dev; five leaves room for a cold app start without reaching far enough to pair unrelated launches.
 	launchWindow = 5 * time.Second
+	// exactLaunchWindow is the window for a match on a job label or bundle id, which names one job or app exactly, so it can reach far
+	// enough for launchd's restart throttle: `launchctl kickstart -k` restarted its job 5.0 s after the command on edr-dev (#1341).
+	exactLaunchWindow = 15 * time.Second
 	// maxLaunchers bounds how many launchers one read infers for, the oldest kept.
 	maxLaunchers = 50
 	// maxLaunchCandidates bounds the launchd children read for each launcher's window, so one busy window cannot starve another.
@@ -28,35 +32,114 @@ const (
 	// The launchers, by their canonical paths: a binary elsewhere that happens to be named open or launchctl is not Apple's.
 	openPath      = "/usr/bin/open"
 	launchctlPath = "/bin/launchctl"
+	// xpcproxyPath is launchd's spawn trampoline: each job starts as an xpcproxy row naming the job's label, re-exec'd into the program.
+	xpcproxyPath = "/usr/libexec/xpcproxy"
 )
 
-// launchTarget returns what a launcher exec asked launchd to start, as a match over a candidate's executable path, and false for an
-// exec that is no launcher or names nothing a path can match:
+// launchMatch is what a launcher asked launchd to start: a test over the candidate launchd children, how long after the ask one may
+// start, and, when the ask names a user's session, the uid the launched program must run as. The same label or app can start in
+// every logged-in user's session, so a match that names one is held to it, and a program whose user is unknown is not taken for it.
+type launchMatch struct {
+	match  func(api.Process) bool
+	window time.Duration
+	uid    *int
+}
+
+// byPath matches a candidate whose executable path the test accepts, within launchWindow.
+func byPath(accept func(string) bool) launchMatch {
+	return launchMatch{match: func(c api.Process) bool { return accept(c.Path) }, window: launchWindow}
+}
+
+// launchTarget returns what a launcher exec asked launchd to start, and false for an exec that is no launcher or names nothing to
+// match:
 //
 //   - `open -a App` or `open -a /path/App.app`, and `open /path/App.app`: the executable lies inside that bundle.
+//   - `open -b bundle.id`: the executable's code-signing identifier is the bundle id (#1341).
 //   - `launchctl submit ... -- program [args]`: the executable is the program.
+//   - `launchctl kickstart <domain>/<label>` and `launchctl start <label>`: launchd's xpcproxy row for the job names the label (#1341).
 //
-// `open -b bundle.id`, `launchctl load|bootstrap plist` and XPC hops name nothing a path matches and are not inferred.
-func launchTarget(p api.Process) (func(string) bool, bool) {
+// `launchctl load|bootstrap plist` names a file, not the label inside it, and is not inferred.
+func launchTarget(p api.Process) (launchMatch, bool) {
 	if p.Path != openPath && p.Path != launchctlPath {
-		return nil, false
+		return launchMatch{}, false
 	}
 	// The argv is stored as the JSON array the exec reported; one that does not decode names nothing to match.
 	var args []string
 	if json.Unmarshal(p.Args, &args) != nil || len(args) < 2 {
-		return nil, false
+		return launchMatch{}, false
 	}
 	if p.Path == openPath {
-		return openTarget(args[1:])
+		return openTarget(args[1:], p.UID)
+	}
+	if label, uid, ok := jobLabel(args[1:], p.UID); ok {
+		return launchMatch{match: func(c api.Process) bool { return xpcproxyLabel(c) == label }, window: exactLaunchWindow, uid: uid}, true
 	}
 	return submitTarget(args[1:])
 }
 
-// openTarget reads `open`'s arguments for the app bundle it opens.
-func openTarget(args []string) (func(string) bool, bool) {
+// jobLabel reads the label `launchctl kickstart [flags] <domain>/<label>` or `launchctl start <label>` names, and the uid whose session
+// the job runs in when that is known: the uid a `gui/<uid>` or `user/<uid>` domain names, or the caller's for `start`, which acts in
+// the caller's own domain. An empty label names no job.
+func jobLabel(args []string, callerUID *int) (string, *int, bool) {
+	switch args[0] {
+	case "start":
+		if len(args) == 2 && args[1] != "" {
+			return args[1], callerUID, true
+		}
+	case "kickstart":
+		target := args[len(args)-1]
+		i := strings.LastIndex(target, "/")
+		if len(args) < 2 || strings.HasPrefix(target, "-") || i < 0 || i+1 >= len(target) {
+			return "", nil, false
+		}
+		return target[i+1:], domainUID(target[:i]), true
+	}
+	return "", nil, false
+}
+
+// domainUID is the uid a launchd domain target names: gui/<uid> or user/<uid>. Any other domain (system, pid, login) names none.
+func domainUID(domain string) *int {
+	kind, id, ok := strings.Cut(domain, "/")
+	if !ok || (kind != "gui" && kind != "user") {
+		return nil
+	}
+	uid, err := strconv.Atoi(id)
+	if err != nil {
+		return nil
+	}
+	return &uid
+}
+
+// xpcproxyLabel is the job label an xpcproxy row names, and "" for any other row.
+func xpcproxyLabel(c api.Process) string {
+	var args []string
+	if c.Path != xpcproxyPath || json.Unmarshal(c.Args, &args) != nil || len(args) < 2 {
+		return ""
+	}
+	return args[1]
+}
+
+// signingID is a row's code-signing identifier, and "" when it has none.
+func signingID(c api.Process) string {
+	var cs struct {
+		SigningID string `json:"signing_id"`
+	}
+	if json.Unmarshal(c.CodeSigning, &cs) != nil {
+		return ""
+	}
+	return cs.SigningID
+}
+
+// openTarget reads `open`'s arguments for the app it opens, by bundle path or name, or by bundle id. An empty bundle id names no app.
+func openTarget(args []string, callerUID *int) (launchMatch, bool) {
 	for i, arg := range args {
 		var bundle string
 		switch {
+		case arg == "-b" && i+1 < len(args) && args[i+1] != "":
+			// Launch Services opens the app in the caller's own session, so it runs as the caller.
+			id := args[i+1]
+			return launchMatch{match: func(c api.Process) bool { return strings.EqualFold(signingID(c), id) }, window: exactLaunchWindow,
+				uid: callerUID}, true
 		case arg == "-a" && i+1 < len(args):
 			bundle = args[i+1]
 		case strings.HasSuffix(strings.TrimSuffix(arg, "/"), ".app") && !strings.HasPrefix(arg, "-"):
@@ -67,18 +150,18 @@ func openTarget(args []string) (func(string) bool, bool) {
 		bundle = strings.TrimSuffix(bundle, "/")
 		if strings.Contains(bundle, "/") {
 			prefix := strings.ToLower(bundle) + "/"
-			return func(exe string) bool { return strings.HasPrefix(strings.ToLower(exe), prefix) }, true
+			return byPath(func(exe string) bool { return strings.HasPrefix(strings.ToLower(exe), prefix) }), true
 		}
 		inside := "/" + strings.ToLower(strings.TrimSuffix(bundle, ".app")) + ".app/"
-		return func(exe string) bool { return strings.Contains(strings.ToLower(exe), inside) }, true
+		return byPath(func(exe string) bool { return strings.Contains(strings.ToLower(exe), inside) }), true
 	}
-	return nil, false
+	return launchMatch{}, false
 }
 
 // submitTarget reads `launchctl submit`'s arguments for the program after `--`.
-func submitTarget(args []string) (func(string) bool, bool) {
+func submitTarget(args []string) (launchMatch, bool) {
 	if args[0] != "submit" {
-		return nil, false
+		return launchMatch{}, false
 	}
 	for i, arg := range args {
 		if arg != "--" || i+1 >= len(args) {
@@ -86,11 +169,11 @@ func submitTarget(args []string) (func(string) bool, bool) {
 		}
 		program := args[i+1]
 		if strings.Contains(program, "/") {
-			return func(exe string) bool { return exe == program }, true
+			return byPath(func(exe string) bool { return exe == program }), true
 		}
-		return func(exe string) bool { return path.Base(exe) == program }, true
+		return byPath(func(exe string) bool { return path.Base(exe) == program }), true
 	}
-	return nil, false
+	return launchMatch{}, false
 }
 
 // launchLinks infers the launches the forest's launchers made: for each, the first launchd child forked within launchWindow of its
@@ -105,9 +188,11 @@ func (q *Query) launchLinks(
 	if len(launchers) == 0 {
 		return nil, nil, false, nil
 	}
+	targets := make([]launchMatch, len(launchers))
 	ranges := make([]api.TimeRange, len(launchers))
 	for i, l := range launchers {
-		ranges[i] = api.TimeRange{FromNs: launchedFrom(l), ToNs: launchedFrom(l) + launchWindow.Nanoseconds()}
+		targets[i], _ = launchTarget(l)
+		ranges[i] = api.TimeRange{FromNs: launchedFrom(l), ToNs: launchedFrom(l) + targets[i].window.Nanoseconds()}
 	}
 	candidates, err := q.store.GetLaunchdChildren(ctx, hostID, ranges, maxLaunchCandidates)
 	if err != nil {
@@ -116,17 +201,22 @@ func (q *Query) launchLinks(
 	linked := map[int64]bool{}
 	var launched []api.Process
 	for i, launcher := range launchers {
-		match, _ := launchTarget(launcher)
 		for _, c := range candidates {
 			inWindow := c.ForkTimeNs >= ranges[i].FromNs && c.ForkTimeNs <= ranges[i].ToNs
-			if inWindow && match(c.Path) && !linked[c.ID] && (extend || held[c.ID]) {
-				linked[c.ID] = true
-				links = append(links, api.ProcessLink{From: launcher.ID, To: c.ID, Kind: api.ProcessLinkInferredLaunch})
-				if !held[c.ID] {
-					launched = append(launched, c)
-				}
-				break
+			if !inWindow || !targets[i].match(c) {
+				continue
 			}
+			// A label names launchd's xpcproxy row for the job; what the launcher asked for is the program it re-exec'd into.
+			program, ok := launchedProgram(candidates, c)
+			if !ok || linked[program.ID] || (!extend && !held[program.ID]) || !runsAs(program, targets[i].uid) {
+				continue
+			}
+			linked[program.ID] = true
+			links = append(links, api.ProcessLink{From: launcher.ID, To: program.ID, Kind: api.ProcessLinkInferredLaunch})
+			if !held[program.ID] {
+				launched = append(launched, program)
+			}
+			break
 		}
 	}
 	if !extend || len(launched) == 0 {
@@ -134,6 +224,25 @@ func (q *Query) launchLinks(
 	}
 	extra, truncated, err = q.launchedSubtrees(ctx, hostID, launched, held)
 	return links, extra, truncated, err
+}
+
+// runsAs reports whether a launched program runs as the uid a match is held to; a match held to none takes any program.
+func runsAs(program api.Process, uid *int) bool {
+	return uid == nil || (program.UID != nil && *program.UID == *uid)
+}
+
+// launchedProgram is the program a matched launchd child stands for: the child itself, or, for launchd's xpcproxy row, the program
+// that re-exec'd the same pid from it. An xpcproxy row the window holds no program for stands for nothing yet.
+func launchedProgram(candidates []api.Process, c api.Process) (api.Process, bool) {
+	if c.Path != xpcproxyPath {
+		return c, true
+	}
+	for _, p := range candidates {
+		if p.PreviousExecID != nil && *p.PreviousExecID == c.ID {
+			return p, true
+		}
+	}
+	return api.Process{}, false
 }
 
 // launchedFrom is when a launcher asked for its launch: its exec, or its fork when the row carries no exec time.
