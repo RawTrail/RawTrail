@@ -359,10 +359,12 @@ paths:
                     type: array
                     description: >-
                       Edges the forest's parentage does not hold. `inferred_launch` links an `open` or `launchctl submit` exec to the
-                      process launchd started within 5 seconds that runs the app or program it named: a correlation from timing and
-                      target, not lineage. A `session` or `story` read adds a linked process it does not hold, with its descendants,
-                      as an extra root; a window read links only what it holds. `open -b` and `launchctl load` name nothing to
-                      match and are not linked. `responsible_process` links an app to a process launchd started that names the app,
+                      process launchd started within 5 seconds that runs the app or program it named, and an `open -b`,
+                      `launchctl kickstart` or `launchctl start` exec to the app whose code-signing identifier is the bundle id, or
+                      the job whose label it names, within 15 seconds: a correlation from timing and target, not lineage. A
+                      `session` or `story` read adds a linked process it does not hold, with its descendants, as an extra root; a
+                      window read links only what it holds. `launchctl load` and `bootstrap` name a file, not the label inside it,
+                      and are not linked. `responsible_process` links an app to a process launchd started that names the app,
                       by pid and generation, as its responsible process, such as an XPC service the app asked for: recorded by the
                       OS, not inferred, and added or linked the same way. A process started from a shell names its terminal as
                       responsible, so its services are not linked. Omitted when there are none.
