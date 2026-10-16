@@ -547,7 +547,7 @@ func (m *MemArchive) hostCalls(hostID string) ([]recordedCall, map[heldCall]bool
 	return calls, held
 }
 
-// copied mirrors the ClickHouse store's copiedCallSQL: a call naming an origin session that holds the same call is a copy of it.
+// copied mirrors the ClickHouse store's notCopiedSQL: a call naming an origin session that holds the same call is a copy of it.
 func (c recordedCall) copied(held map[heldCall]bool) bool {
 	return c.OriginSessionID != "" && held[heldCall{c.OriginSessionID, c.ToolUseID, c.UID}]
 }
