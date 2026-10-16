@@ -2950,8 +2950,8 @@ components:
         launchd_jobs:
           type: array
           description: >-
-            On a `launchctl load` or `bootstrap` exec, the job definitions the agent read from the plists it named: each plist's
-            path, the job's label, its program and program arguments, and whether a field was cut to the agent's bounds. Absent
+            On a `launchctl load` or `bootstrap` exec, the job definitions the agent read from the plists it named, a directory's
+            `.plist` files included: each plist's path, the job's label, its program and program arguments, and whether a field was cut to the agent's bounds. Absent
             for any other exec.
           items:
             type: object
