@@ -63,6 +63,10 @@ var (
 const (
 	serviceName = "fleet-edr-agent"
 
+	// launchdReadWait is the most the event loop waits for a launchctl exec's plist read (issue #1341). A plist the user's own tools
+	// read in milliseconds; a read still running past this goes on without holding the telemetry behind it.
+	launchdReadWait = 300 * time.Millisecond
+
 	// uploaderMaxRetries is the per-batch retry cap before the uploader gives up
 	// and falls through to the next drain tick.
 	uploaderMaxRetries = 5
@@ -722,6 +726,9 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 			return receiver.New(p.serviceLabel, receiverEventBuffer)
 		}
 	}
+	// Reading a launchctl exec's plists touches the user's files, which can block (a stalled mount, a pipe), so the event loop waits
+	// for it only so long, one read at a time (issue #1341).
+	launchdJobs := enrich.BoundedReader(enrich.ReadLaunchdJob, launchdReadWait)
 	hooks := receiver.LoopHooks{
 		OnEvent: func(ctx context.Context, evt receiver.Event) {
 			// The network extension's control messages ride the event channel because the XPC bridge only surfaces messages carrying a
@@ -748,6 +755,9 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 			data = enrich.PackageScriptSigning(data, p.parentPath, pkgsign.Evaluate)
 			// And a TCC permission change with the signature of the app it is about (issue #1185), found by its bundle ID.
 			data = enrich.TccSubjectSigning(data, appbundle.Paths, codesign.Evaluate)
+			// And a launchctl load or bootstrap with the job definitions of the plists it names (issue #1341), which the
+			// server needs to link the command to the job launchd starts and a persistence detection wants to see.
+			data = enrich.LaunchdJobs(data, launchdJobs)
 			if p.updateTable {
 				updateProcTable(p.pt, data)
 			}

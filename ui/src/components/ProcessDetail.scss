@@ -76,6 +76,16 @@
     word-break: break-all;
   }
 
+  // A job a launchctl exec loaded (issue #1341): its label stands out, what it runs reads after it, and a cut is noted quietly.
+  &__job-label {
+    font-weight: 600;
+  }
+
+  &__job-runs,
+  &__job-cut {
+    color: $ui-fleet-black-75;
+  }
+
   &__hash {
     word-break: break-all;
     font-size: $xxx-small !important;

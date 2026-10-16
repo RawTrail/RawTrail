@@ -283,6 +283,33 @@ export function ProcessDetail({ hostId, node, onClose, currentAlertId, timelineH
             {formatCommandLine(node.args, node.path)}
           </EvidenceRow>
         )}
+        {(node.launchd_jobs ?? []).map((job) => {
+          // What the job runs. launchd executes Program when the plist names one, passing ProgramArguments as its argv, whose first
+          // entry is then only a name: a Program that differs from it is the executable, and both are evidence, so both are shown.
+          const argv = job.program_arguments ?? [];
+          let runs = "";
+          if (job.program && argv.length > 0 && job.program !== argv[0]) {
+            runs = `${job.program} with argv ${formatCommandLine(argv, job.program)}`;
+          } else if (argv.length > 0) {
+            runs = formatCommandLine(argv, argv[0]);
+          } else if (job.program) {
+            runs = job.program;
+          }
+          return (
+            <EvidenceRow
+              key={job.plist_path}
+              label="Loads job"
+              valueClassName="process-detail__break"
+              copy={runs ? { value: runs, label: "Copy what the job runs" } : undefined}
+            >
+              <span title={job.plist_path}>
+                <span className="process-detail__job-label">{job.label ?? job.plist_path}</span>
+                {runs && <span className="process-detail__job-runs">{` runs ${runs}`}</span>}
+                {job.truncated && <span className="process-detail__job-cut"> (cut to the agent&apos;s read limit)</span>}
+              </span>
+            </EvidenceRow>
+          );
+        })}
         {node.uid !== undefined && (
           <EvidenceRow label="UID" pivot={{ param: "uid", value: String(node.uid), label: "Search all hosts for this UID" }}>
             {node.uid}

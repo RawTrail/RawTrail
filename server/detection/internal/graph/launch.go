@@ -43,6 +43,9 @@ type launchMatch struct {
 	match  func(api.Process) bool
 	window time.Duration
 	uid    *int
+	// labels, for a `launchctl load|bootstrap`, are the jobs it defined: it launches each once, so the ask is done when every label
+	// has its launch, and a job launchd starts again in the window does not use up another's. Nil for an ask of one launch.
+	labels map[string]bool
 }
 
 // byPath matches a candidate whose executable path the test accepts, within launchWindow.
@@ -54,11 +57,15 @@ func byPath(accept func(string) bool) launchMatch {
 // match:
 //
 //   - `open -a App` or `open -a /path/App.app`, and `open /path/App.app`: the executable lies inside that bundle.
+//
 //   - `open -b bundle.id`: the executable's code-signing identifier is the bundle id (#1341).
+//
 //   - `launchctl submit ... -- program [args]`: the executable is the program.
+//
 //   - `launchctl kickstart <domain>/<label>` and `launchctl start <label>`: launchd's xpcproxy row for the job names the label (#1341).
 //
-// `launchctl load|bootstrap plist` names a file, not the label inside it, and is not inferred.
+//   - `launchctl load|bootstrap <plist>...`: launchd's xpcproxy rows name the labels of the jobs the agent read from the plists, which
+//     the exec carries (#1341); an exec that carries none, from an agent that predates it or a plist it could not read, is not inferred.
 func launchTarget(p api.Process) (launchMatch, bool) {
 	if p.Path != openPath && p.Path != launchctlPath {
 		return launchMatch{}, false
@@ -74,7 +81,39 @@ func launchTarget(p api.Process) (launchMatch, bool) {
 	if label, uid, ok := jobLabel(args[1:], p.UID); ok {
 		return launchMatch{match: func(c api.Process) bool { return xpcproxyLabel(c) == label }, window: exactLaunchWindow, uid: uid}, true
 	}
+	if args[1] == "load" || args[1] == "bootstrap" {
+		return loadTarget(p, args)
+	}
 	return submitTarget(args[1:])
+}
+
+// loadTarget matches the jobs a `launchctl load|bootstrap` exec loaded, by the labels of the definitions it carries. A bootstrap
+// names its domain; a load acts in the caller's own, which for root is the system domain, naming no user.
+func loadTarget(p api.Process, args []string) (launchMatch, bool) {
+	var jobs []struct {
+		Label string `json:"label"`
+	}
+	if len(p.LaunchdJobs) == 0 || json.Unmarshal(p.LaunchdJobs, &jobs) != nil {
+		return launchMatch{}, false
+	}
+	labels := map[string]bool{}
+	for _, j := range jobs {
+		if j.Label != "" {
+			labels[j.Label] = true
+		}
+	}
+	if len(labels) == 0 {
+		return launchMatch{}, false
+	}
+	var uid *int
+	switch {
+	case args[1] == "bootstrap" && len(args) > 2:
+		uid = domainUID(args[2])
+	case args[1] == "load" && p.UID != nil && *p.UID != 0:
+		uid = p.UID
+	}
+	return launchMatch{match: func(c api.Process) bool { return labels[xpcproxyLabel(c)] }, window: exactLaunchWindow, uid: uid,
+		labels: labels}, true
 }
 
 // jobLabel reads the label `launchctl kickstart [flags] <domain>/<label>` or `launchctl start <label>` names, and the uid whose session
@@ -201,9 +240,10 @@ func (q *Query) launchLinks(
 	linked := map[int64]bool{}
 	var launched []api.Process
 	for i, launcher := range launchers {
+		launchedLabels := map[string]bool{}
 		for _, c := range candidates {
 			inWindow := c.ForkTimeNs >= ranges[i].FromNs && c.ForkTimeNs <= ranges[i].ToNs
-			if !inWindow || !targets[i].match(c) {
+			if !inWindow || !targets[i].match(c) || launchedLabels[xpcproxyLabel(c)] {
 				continue
 			}
 			// A label names launchd's xpcproxy row for the job; what the launcher asked for is the program it re-exec'd into.
@@ -216,7 +256,10 @@ func (q *Query) launchLinks(
 			if !held[program.ID] {
 				launched = append(launched, program)
 			}
-			break
+			launchedLabels[xpcproxyLabel(c)] = true
+			if len(launchedLabels) >= len(targets[i].labels) {
+				break
+			}
 		}
 	}
 	if !extend || len(launched) == 0 {

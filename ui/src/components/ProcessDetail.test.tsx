@@ -114,6 +114,38 @@ describe("ProcessDetail metadata", () => {
     expect(screen.getByText(/code 1/)).toBeInTheDocument();
   });
 
+  // spec:web-ui/loaded-launchd-jobs/process-detail-names-the-jobs-a-launchctl-loaded
+  it("names each job a launchctl load loaded, with what it runs and where it came from", () => {
+    render(
+      <ProcessDetail
+        hostId="h1"
+        node={makeNode({
+          path: "/bin/launchctl",
+          args: ["launchctl", "load", "a.plist", "b.plist", "c.plist"],
+          launchd_jobs: [
+            { plist_path: "/Users/v/a.plist", label: "com.fleetdm.qa1341.load", program_arguments: ["/bin/sleep", "71"] },
+            { plist_path: "/Users/v/b.plist", label: "com.example.b", program: "/tmp/payload", truncated: true },
+            { plist_path: "/Users/v/c.plist", label: "com.example.c" },
+            // Program is what launchd executes; ProgramArguments[0] is then only a name, which a plist can set to anything.
+            { plist_path: "/Users/v/d.plist", label: "com.example.d", program: "/tmp/payload", program_arguments: ["/bin/sleep", "71"] },
+          ],
+        })}
+        onClose={vi.fn()}
+      />,
+    );
+    const first = screen.getByText("com.fleetdm.qa1341.load");
+    expect(first).toBeVisible();
+    expect(first.parentElement).toHaveAttribute("title", "/Users/v/a.plist");
+    expect(screen.getByText("runs /bin/sleep 71")).toBeVisible();
+    expect(screen.getByText("runs /tmp/payload")).toBeVisible();
+    expect(screen.getByText(/cut to the agent's read limit/)).toBeVisible();
+    // A job that names no program says only its label, never "runs (unknown)".
+    expect(screen.getByText("com.example.c")).toBeVisible();
+    expect(screen.queryByText(/unknown/)).not.toBeInTheDocument();
+    expect(screen.getByText("runs /tmp/payload with argv /bin/sleep 71")).toBeVisible();
+    expect(screen.getAllByText("Loads job")).toHaveLength(4);
+  });
+
   // spec:web-ui/process-detail-content/verdict-distinguishes-the-signer-categories
   it("shows the unsigned verdict when no code-signing block was reported", () => {
     render(<ProcessDetail hostId="h1" node={makeNode({ exec_time_ns: 20 * NS })} onClose={vi.fn()} />);

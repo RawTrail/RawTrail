@@ -363,8 +363,9 @@ paths:
                       `launchctl kickstart` or `launchctl start` exec to the app whose code-signing identifier is the bundle id, or
                       the job whose label it names, within 15 seconds: a correlation from timing and target, not lineage. A
                       `session` or `story` read adds a linked process it does not hold, with its descendants, as an extra root; a
-                      window read links only what it holds. `launchctl load` and `bootstrap` name a file, not the label inside it,
-                      and are not linked. `responsible_process` links an app to a process launchd started that names the app,
+                      window read links only what it holds. A `launchctl load` or `bootstrap` exec is linked to each job whose label
+                      the plists it named define, as the agent read them (`launchd_jobs` on the process), and not linked when it
+                      carries none. `responsible_process` links an app to a process launchd started that names the app,
                       by pid and generation, as its responsible process, such as an XPC service the app asked for: recorded by the
                       OS, not inferred, and added or linked the same way. A process started from a shell names its terminal as
                       responsible, so its services are not linked. Omitted when there are none.
@@ -2902,6 +2903,21 @@ components:
         host_id: {type: string}
         pid: {type: integer}
         ppid: {type: integer}
+        launchd_jobs:
+          type: array
+          description: >-
+            On a `launchctl load` or `bootstrap` exec, the job definitions the agent read from the plists it named: each plist's
+            path, the job's label, its program and program arguments, and whether a field was cut to the agent's bounds. Absent
+            for any other exec.
+          items:
+            type: object
+            required: [plist_path]
+            properties:
+              plist_path: {type: string}
+              label: {type: string}
+              program: {type: string}
+              program_arguments: {type: array, items: {type: string}}
+              truncated: {type: boolean}
         parent_process_id:
           type: integer
           format: int64
