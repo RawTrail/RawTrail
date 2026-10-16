@@ -22,6 +22,12 @@ func requirePlutil(t *testing.T) {
 	}
 }
 
+// readOperand reads one launchctl operand with the whole budget, as LaunchdJobs reads its first.
+func readOperand(path string, uid, gid int) []LaunchdJob {
+	jobs, _ := ReadLaunchdJobs(path, uid, gid, maxLaunchdPlists)
+	return jobs
+}
+
 func writePlist(t *testing.T, dir, name string, mode os.FileMode) string {
 	t.Helper()
 	p := filepath.Join(dir, name)
@@ -91,8 +97,8 @@ func TestReadLaunchdJob_ForAnotherUser(t *testing.T) {
 	inside := writePlist(t, owners, "open.plist", 0o644)
 	require.NoError(t, os.Chown(owners, owner, owner))
 	require.NoError(t, os.Chown(inside, owner, owner))
-	assert.Empty(t, ReadLaunchdJobs(owners, other, other), "another user's private directory")
-	assert.Len(t, ReadLaunchdJobs(owners, owner, owner), 1, "its owner's")
+	assert.Empty(t, readOperand(owners, other, other), "another user's private directory")
+	assert.Len(t, readOperand(owners, owner, owner), 1, "its owner's")
 }
 
 // What is no plist within the bound yields no job: a directory, a file past the bound (read no further than one byte past it), a
@@ -166,16 +172,16 @@ func TestReadLaunchdJobs_Directory(t *testing.T) {
 		}
 		return out
 	}
-	assert.Equal(t, []string{"a.plist", "b.plist"}, paths(ReadLaunchdJobs(agents, me, myGroup)))
+	assert.Equal(t, []string{"a.plist", "b.plist"}, paths(readOperand(agents, me, myGroup)))
 
 	link := filepath.Join(dir, "linked")
 	require.NoError(t, os.Symlink(agents, link))
-	jobs := ReadLaunchdJobs(link, me, myGroup)
+	jobs := readOperand(link, me, myGroup)
 	require.Len(t, jobs, 2, "a symlinked directory is followed")
 	assert.Equal(t, []string{"a.plist", "b.plist"}, paths(jobs))
 	assert.Equal(t, filepath.Join(link, "a.plist"), jobs[0].PlistPath, "under the path launchctl was given")
 
-	assert.Equal(t, []string{"notes.txt"}, paths(ReadLaunchdJobs(filepath.Join(agents, "notes.txt"), me, myGroup)),
+	assert.Equal(t, []string{"notes.txt"}, paths(readOperand(filepath.Join(agents, "notes.txt"), me, myGroup)),
 		"a plist operand of any name is read as itself")
 
 	many := filepath.Join(dir, "many")
@@ -183,11 +189,14 @@ func TestReadLaunchdJobs_Directory(t *testing.T) {
 	for i := range maxLaunchdPlists + 3 {
 		writePlist(t, many, string(rune('a'+i))+".plist", 0o600)
 	}
-	assert.Len(t, ReadLaunchdJobs(many, me, myGroup), maxLaunchdPlists)
+	assert.Len(t, readOperand(many, me, myGroup), maxLaunchdPlists)
+	jobs, attempted := ReadLaunchdJobs(many, me, myGroup, 3)
+	assert.Len(t, jobs, 3, "a directory reads no more plists than the reads left")
+	assert.Equal(t, 3, attempted)
 
 	empty := filepath.Join(dir, "empty")
 	require.NoError(t, os.Mkdir(empty, 0o700))
-	assert.Empty(t, ReadLaunchdJobs(empty, me, myGroup))
+	assert.Empty(t, readOperand(empty, me, myGroup))
 
 	if me == 0 {
 		t.Skip("root lists past any mode; TestReadLaunchdJob_ForAnotherUser checks the denials when run as root")
@@ -197,5 +206,5 @@ func TestReadLaunchdJobs_Directory(t *testing.T) {
 	writePlist(t, locked, "inside.plist", 0o644)
 	require.NoError(t, os.Chmod(locked, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) //nolint:gosec // the test sets its own temp directory's mode
-	assert.Empty(t, ReadLaunchdJobs(locked, me, myGroup), "a directory the user cannot list yields none")
+	assert.Empty(t, readOperand(locked, me, myGroup), "a directory the user cannot list yields none")
 }

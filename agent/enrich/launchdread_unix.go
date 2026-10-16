@@ -33,28 +33,30 @@ const (
 // operand is not one, the jobs of the .plist files directly in it as a directory (issue #1352), which `launchctl load <dir>` loads.
 // The plist read comes first because launchctl takes a plist of any name. The directory is listed as the user, as each plist is read,
 // so the listing is no wider than theirs: find, run with their uid and gid and no supplementary groups, prints the names, at most
-// maxListingBytes of them, and the first maxLaunchdPlists in name order are read. -H follows a symlinked directory operand, as
-// launchctl's own open does. The path is absolute (LaunchdJobs makes it so), so find cannot take it for an option.
-func ReadLaunchdJobs(path string, uid, gid int) []LaunchdJob {
+// maxListingBytes of them, and the first budget in name order are read, each read counted whether it succeeds or not. -H follows
+// a symlinked directory operand, as launchctl's own open does. The path is absolute (LaunchdJobs makes it so), so find cannot take
+// it for an option. A directory's own failed read as a plist is not a plist read and is not counted, unless it lists none.
+func ReadLaunchdJobs(path string, uid, gid, budget int) ([]LaunchdJob, int) {
 	if job, ok := ReadLaunchdJob(path, uid, gid); ok {
 		job.PlistPath = path
-		return []LaunchdJob{job}
+		return []LaunchdJob{job}, 1
 	}
 	listing, err := runAs(uid, gid, nil, maxListingBytes, findPath, "-H", path, "-mindepth", "1", "-maxdepth", "1", "-name", "*.plist",
 		"-print0")
 	if err != nil || len(listing) == 0 {
-		return nil
+		return nil, 1
 	}
 	plists := strings.Split(strings.TrimSuffix(string(listing), "\x00"), "\x00")
 	slices.Sort(plists)
+	plists = plists[:min(len(plists), budget)]
 	var jobs []LaunchdJob
-	for _, plist := range plists[:min(len(plists), maxLaunchdPlists)] {
+	for _, plist := range plists {
 		if job, ok := ReadLaunchdJob(plist, uid, gid); ok {
 			job.PlistPath = plist
 			jobs = append(jobs, job)
 		}
 	}
-	return jobs
+	return jobs, len(plists)
 }
 
 // ReadLaunchdJob reads the job a plist defines, as the user who ran launchctl (uid and gid) would. The agent is root and the path is
