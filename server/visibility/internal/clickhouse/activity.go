@@ -178,6 +178,8 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 		where += " AND timestamp_ns <= ?"
 		args = append(args, filter.ToNs)
 	}
+	where += " AND " + notCopiedSQL
+	args = append(args, filter.HostID, filter.HostID, filter.SessionID)
 	// One argMin over the whole record, so every field comes from the first recording, as the time does.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, first.1, first.2, first.3, first.4, toBool(first.5), toBool(first.6), at, uid
@@ -199,6 +201,62 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 	return scanActivity(rows, filter.Limit, func(c *api.AgentToolCall) []any {
 		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID}
 	})
+}
+
+// The fields of an agent_tool_call payload the copy and lineage reads use (issue #1347).
+const (
+	callSession = "JSONExtractString(payload, 'agent_session_id')"
+	callOrigin  = "JSONExtractString(payload, 'origin_session_id')"
+	callID      = "JSONExtractString(payload, 'tool_use_id')"
+	callUID     = "JSONExtractInt(payload, 'uid')"
+	toolCalls   = "events FINAL WHERE " + hostPredicate + " AND event_type = 'agent_tool_call'"
+)
+
+// notCopiedSQL keeps a session's calls that are not copies of another session's (issue #1347). A copy names an origin session that
+// holds the same tool_use_id under the same owner; the origin alone is not enough, since a process that switched sessions (/clear)
+// writes its first session's id on the new session's own calls, which that session never held. The held calls looked up are those of
+// the sessions this session's calls name, not the host's whole history. Its arguments are the host, the host and the session.
+const notCopiedSQL = `NOT (` + callOrigin + ` != '' AND (` + callOrigin + `, ` + callID + `, ` + callUID + `) IN (
+		SELECT ` + callSession + `, ` + callID + `, ` + callUID + ` FROM ` + toolCalls + ` AND ` + callSession + ` IN (
+			SELECT ` + callOrigin + ` FROM ` + toolCalls + ` AND ` + callSession + ` = ?)))`
+
+// AgentSessionLineage reads a session's parent and forks (issue #1347) from the copied calls of its owner on its host: each session's
+// parent is the origin of its latest copy, and the forks are the sessions holding a copy from this one whose parent it is. Only calls
+// read from the owner's transcripts count, so another user cannot write a lineage into this session from transcripts in their home.
+func (s *Store) AgentSessionLineage(ctx context.Context, hostID, sessionID string, ownerUID int64) (api.AgentSessionLineage, error) {
+	owned := toolCalls + " AND " + callUID + " = ?"
+	rows, err := s.db.QueryContext(ctx, `
+		WITH scoped AS (
+			SELECT `+callSession+` AS session, `+callOrigin+` AS origin, `+callID+` AS id, timestamp_ns, event_id
+			FROM `+owned+` AND `+callOrigin+` != ''
+				AND (`+callSession+` = ? OR `+callSession+` IN (SELECT `+callSession+` FROM `+owned+` AND `+callOrigin+` = ?))
+		)
+		SELECT session, argMax(origin, (timestamp_ns, event_id)) AS parent
+		FROM scoped
+		WHERE (origin, id) IN (SELECT `+callSession+`, `+callID+` FROM `+owned+` AND `+callSession+` IN (SELECT origin FROM scoped))
+		GROUP BY session
+		ORDER BY session`, hostID, ownerUID, sessionID, hostID, ownerUID, sessionID, hostID, ownerUID)
+	if err != nil {
+		return api.AgentSessionLineage{}, fmt.Errorf("clickhouse agent session lineage: %w", err)
+	}
+	defer rows.Close()
+	lineage := api.AgentSessionLineage{ForkedSessionIDs: []string{}}
+	for rows.Next() {
+		var session, parent string
+		if err := rows.Scan(&session, &parent); err != nil {
+			return api.AgentSessionLineage{}, fmt.Errorf("scan agent session lineage: %w", err)
+		}
+		switch {
+		case session == sessionID:
+			lineage.ForkedFromSessionID = parent
+		case parent == sessionID:
+			lineage.ForkedSessionIDs = append(lineage.ForkedSessionIDs, session)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return api.AgentSessionLineage{}, fmt.Errorf("iterate agent session lineage: %w", err)
+	}
+	return lineage, nil
 }
 
 // activityScopeSQL matches the filter's generations: those in Generations wholly, those in Spans only inside their span (issue

@@ -8,26 +8,27 @@
 // session-probe endpoint.
 import type {
   ActivityHistogram,
-  HostSummary,
-  HostDetail,
-  ProcessSearchResult,
-  AgentSessionResult,
   ActivityResponse,
+  AgentSessionLineage,
+  AgentSessionResult,
   AgentToolCallsResponse,
-  EventSearchResult,
-  HostTimelineResult,
-  HostHealth,
-  TreeResponse,
-  ProcessDetail,
   Alert,
   AlertDetail,
+  ApplicationControlPolicy,
+  ApplicationControlRule,
   Command,
   ContainmentChange,
   ContainmentState,
+  EventSearchResult,
+  HostDetail,
+  HostHealth,
+  HostSummary,
+  HostTimelineResult,
+  ProcessDetail,
+  ProcessSearchResult,
   ReachableAddress,
   ReachableSet,
-  ApplicationControlPolicy,
-  ApplicationControlRule,
+  TreeResponse,
 } from "./types";
 import {
   HTTP_STATUS_FORBIDDEN,
@@ -385,6 +386,13 @@ export async function getActivity(hostId: string, scope: ActivityScopeQuery): Pr
 export async function getAgentToolCalls(hostId: string, sessionId: string): Promise<AgentToolCallsResponse> {
   return fetchJSON<AgentToolCallsResponse>(
     `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/tool-calls`,
+  );
+}
+
+// getAgentSessionLineage reads which session an AI agent session was forked from and which were forked from it (issue #1347).
+export async function getAgentSessionLineage(hostId: string, sessionId: string): Promise<AgentSessionLineage> {
+  return fetchJSON<AgentSessionLineage>(
+    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/lineage`,
   );
 }
 

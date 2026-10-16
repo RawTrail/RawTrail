@@ -11,6 +11,7 @@ import { SearchResultsFrame } from "../Search/SearchResultsFrame";
 import { formatNs } from "../Search/format";
 import { useHostNames } from "../useHostNames";
 import { MILLISECONDS_PER_DAY, NANOSECONDS_PER_MILLISECOND } from "../../constants";
+import { sessionPath } from "./sessionPath";
 
 // ACTIVE_WINDOWS are the "active in the last" choices, by the URL value the chip stores. The URL keeps the relative choice rather than
 // absolute bounds so a bookmarked list stays "the last week" when it is reopened.
@@ -118,5 +119,5 @@ export function SessionList() {
 
 // sessionHref opens the session's own view.
 function sessionHref(s: AgentSessionSummary): string {
-  return `/agent-sessions/${encodeURIComponent(s.host_id)}/${encodeURIComponent(s.agent_session_id)}`;
+  return sessionPath(s.host_id, s.agent_session_id);
 }

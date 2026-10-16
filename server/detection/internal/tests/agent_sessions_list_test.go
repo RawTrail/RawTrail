@@ -216,4 +216,28 @@ func TestAgentSessions_GetOne(t *testing.T) {
 	missing, err := store.GetAgentSession(t.Context(), "host-c", "s-new")
 	require.NoError(t, err)
 	assert.Nil(t, missing)
+	assert.Nil(t, got.OwnerUID, "processes with no uid name no owner")
+}
+
+// A session's owner is the uid of its earliest process (issue #1347): the user who ran it, as the kernel stamped it. A later process of
+// another uid in the session, such as a sudo child or another user's process carrying the session's marker, does not change it.
+//
+// spec:server-rest-api/agent-session-lineage-endpoint/another-user-s-transcripts-do-not-make-a-lineage
+func TestAgentSessions_Owner(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	seedSessionRow(t, db, "host-a", "s-owned", "claude-code", "/Users/v/project", 300, 900)
+	session := "s-owned"
+	for _, p := range []struct {
+		pid, uid int
+		forkNs   int64
+	}{{2001, 0, 50}, {2000, 501, 40}, {2002, 502, 60}} {
+		_, err := store.InsertProcess(t.Context(), api.Process{HostID: "host-a", PID: p.pid, PPID: 1, Path: "/bin/zsh", ForkTimeNs: p.forkNs,
+			UID: new(p.uid), AgentSession: api.AgentSession{AgentSessionID: &session}})
+		require.NoError(t, err)
+	}
+	got, err := store.GetAgentSession(t.Context(), "host-a", "s-owned")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, new(int64(501)), got.OwnerUID)
 }

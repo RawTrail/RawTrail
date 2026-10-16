@@ -260,6 +260,13 @@ export interface AgentToolCallsResponse {
   truncated: boolean;
 }
 
+// AgentSessionLineage is a session's place among the sessions forked from each other on its host (issue #1347): the session it was
+// forked from, if any, and the sessions forked from it.
+export interface AgentSessionLineage {
+  forked_from_session_id?: string;
+  forked_session_ids: string[];
+}
+
 // ActivityResponse is GET /api/hosts/{id}/activity: what a process, its subtree or a session touched, with the scope's processes
 // so a row's (pid, pidversion) can be named.
 export interface ActivityResponse {

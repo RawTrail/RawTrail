@@ -201,6 +201,9 @@ type AgentSessionSummary struct {
 	// its rows are pruned.
 	ProcessCount int64 `db:"-" json:"process_count"`
 	AlertCount   int64 `db:"-" json:"alert_count"`
+	// OwnerUID is the uid of the session's earliest retained process, the user who ran it, which the kernel stamped and a transcript
+	// cannot restate. Read by GetAgentSession only, and nil when no process of the session is retained (issue #1347).
+	OwnerUID *int64 `db:"owner_uid" json:"-"`
 }
 
 // AgentSessionResult is one page of the sessions list, with the cursor for the next page (absent on the last) and the number of

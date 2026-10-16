@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
-import { getAgentToolCalls, getSessionTree, listAgentSessions, listAlerts } from "../../api";
-import type { AgentSessionSummary, AgentToolCall, Alert, ProcessNode, TreeResponse } from "../../types";
+import { getAgentSessionLineage, getAgentToolCalls, getSessionTree, listAgentSessions, listAlerts } from "../../api";
+import type { AgentSessionLineage, AgentSessionSummary, AgentToolCall, Alert, ProcessNode, TreeResponse } from "../../types";
 import { PageHeader } from "../ui/PageHeader";
 import { Toggle } from "../ui/Toggle";
 import { Input } from "../ui/Input";
@@ -34,6 +34,7 @@ import {
 } from "./sessionTree";
 import { commandLine } from "./toolCommand";
 import { joinToolCalls, type ToolCallMatch } from "./toolCallJoin";
+import { sessionPath } from "./sessionPath";
 
 // AUTO_EXPAND_GROUPS is the most commands a session can have and still open with every one expanded. A longer session opens with
 // only the commands an alert was raised in expanded, so the operator starts from what was flagged.
@@ -85,6 +86,8 @@ interface SessionRead {
   toolCalls?: AgentToolCall[];
   // toolCallsTruncated is set when the session recorded more calls than were read, so some groups may show none.
   toolCallsTruncated?: boolean;
+  // lineage is the session this one was forked from and the sessions forked from it (issue #1347). Unread, none are linked.
+  lineage?: AgentSessionLineage;
 }
 
 // SessionRowsContext carries what every row of the view needs: the session's alerts by process, the current search's hits, and the
@@ -110,13 +113,14 @@ function message(err: unknown): string {
 }
 
 async function readSession(key: string, hostId: string, sessionId: string): Promise<SessionRead> {
-  const [tree, record, alerts, toolCalls] = await Promise.all([
+  const [tree, record, alerts, toolCalls, lineage] = await Promise.all([
     getSessionTree(hostId, sessionId).catch((err: unknown) => message(err)),
     listAgentSessions({ host_id: hostId, session: sessionId })
       .then((res) => res.rows[0] as AgentSessionSummary | undefined)
       .catch(() => undefined),
     listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
     getAgentToolCalls(hostId, sessionId).catch(() => undefined),
+    getAgentSessionLineage(hostId, sessionId).catch(() => undefined),
   ]);
   if (typeof tree === "string") return { key, error: tree };
   return {
@@ -128,6 +132,7 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
     alertsTruncated: (alerts?.length ?? 0) > MAX_SESSION_ALERTS,
     toolCalls: toolCalls?.tool_calls,
     toolCallsTruncated: toolCalls?.truncated,
+    lineage,
   };
 }
 
@@ -243,6 +248,7 @@ export function SessionView() {
           </div>
         )}
       />
+      <SessionLineageLine hostId={hostId} lineage={current?.lineage} />
       <SessionNotices read={current} />
       <SessionRowsContext.Provider value={rowsContext}>
         <div className="session-view__layout">
@@ -292,6 +298,30 @@ export function SessionView() {
         </div>
       </SessionRowsContext.Provider>
     </div>
+  );
+}
+
+// SessionLineageLine links a forked session to the session it was forked from, and a session to those forked from it (issue #1347).
+// A fork is a session of its own: its commands are its own, and the history it copied from its parent is listed under the parent.
+function SessionLineageLine({ hostId, lineage }: { readonly hostId: string; readonly lineage: AgentSessionLineage | undefined }) {
+  const parent = lineage?.forked_from_session_id;
+  const forks = lineage?.forked_session_ids ?? [];
+  if (!parent && forks.length === 0) return null;
+  const link = (session: string) => (
+    <Link key={session} className="session-view__mono" to={sessionPath(hostId, session)} title={session}>
+      {`Session ${session}`}
+    </Link>
+  );
+  return (
+    <p className="session-view__lineage">
+      {parent && <span>Forked from {link(parent)}</span>}
+      {forks.length > 0 && (
+        <span>
+          {"Forked into "}
+          {forks.map((session, i) => <span key={session}>{i > 0 && ", "}{link(session)}</span>)}
+        </span>
+      )}
+    </p>
   );
 }
 

@@ -34,6 +34,11 @@ type ToolCall struct {
 	Description string
 	FilePath    string
 	CWD         string
+	// OriginSessionID is the line's own session_id where it differs from SessionID. A session forked from another (Claude Code's
+	// /fork) begins with a copy of its parent's history, and each copied line keeps the session_id it was written under, so a copied
+	// call names the session it came from. A process that switched sessions (/clear) also keeps writing its first session's id, so
+	// the field alone does not make a call a copy: the server counts it as one only where that session holds the same call.
+	OriginSessionID string
 	// Sidechain marks a call a subagent made inside the session.
 	Sidechain bool
 	// Truncated reports that Command was cut to maxCommandBytes.
@@ -61,7 +66,8 @@ func (c ToolCall) EventID() string {
 // Payload is the call's wire payload; empty fields are left out.
 func (c ToolCall) Payload() map[string]any {
 	p := map[string]any{"agent_session_id": c.SessionID, "tool_use_id": c.ToolUseID, "tool_name": c.ToolName, "uid": c.OwnerUID}
-	for key, value := range map[string]string{"command": c.Command, "description": c.Description, "file_path": c.FilePath, "cwd": c.CWD} {
+	for key, value := range map[string]string{"command": c.Command, "description": c.Description, "file_path": c.FilePath, "cwd": c.CWD,
+		"origin_session_id": c.OriginSessionID} {
 		if value != "" {
 			p[key] = value
 		}
@@ -92,6 +98,7 @@ var errUnreadable = errors.New("unreadable transcript line")
 type transcriptLine struct {
 	Type        string `json:"type"`
 	SessionID   string `json:"sessionId"`
+	Origin      string `json:"session_id"`
 	Timestamp   string `json:"timestamp"`
 	CWD         string `json:"cwd"`
 	IsSidechain bool   `json:"isSidechain"`
@@ -137,10 +144,14 @@ func ParseLine(raw []byte) ([]ToolCall, error) {
 			return nil, errUnreadable
 		}
 		command, truncated := capCommand(b.Input.Command)
-		calls = append(calls, ToolCall{
+		call := ToolCall{
 			SessionID: line.SessionID, ToolUseID: b.ID, ToolName: b.Name, Command: command, Description: b.Input.Description,
 			FilePath: b.Input.FilePath, CWD: line.CWD, Sidechain: line.IsSidechain, Truncated: truncated, At: at,
-		})
+		}
+		if line.Origin != line.SessionID {
+			call.OriginSessionID = line.Origin
+		}
+		calls = append(calls, call)
 	}
 	return calls, nil
 }

@@ -23,6 +23,14 @@
     gap: 0.25rem 1.25rem;
   }
 
+  &__lineage {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+    font-size: 0.85rem;
+    margin: 0 0 0.75rem;
+  }
+
   &__notice {
     color: $ui-fleet-black-75;
     font-size: 0.85rem;
