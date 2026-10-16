@@ -120,22 +120,49 @@ func TestLaunchTarget(t *testing.T) {
 	}
 }
 
+// A label or app can start in every logged-in user's session, so a match naming one is held to it.
+func TestLaunchTarget_HeldToTheSessionItNames(t *testing.T) {
+	t.Parallel()
+	asUser := func(p api.Process, uid int) api.Process { p.UID = &uid; return p }
+	for _, tc := range []struct {
+		name     string
+		launcher api.Process
+		want     *int
+	}{
+		{"kickstart in a gui domain", launcher(t, "/bin/launchctl", "launchctl", "kickstart", "-k", "gui/501/com.example.job"), new(501)},
+		{"kickstart in a user domain", launcher(t, "/bin/launchctl", "launchctl", "kickstart", "user/502/com.example.job"), new(502)},
+		{"kickstart in the system domain", launcher(t, "/bin/launchctl", "launchctl", "kickstart", "system/com.example.d"), nil},
+		{"start in the caller's domain", asUser(launcher(t, "/bin/launchctl", "launchctl", "start", "com.example.job"), 503), new(503)},
+		{"open -b in the caller's session", asUser(launcher(t, "/usr/bin/open", "open", "-b", "com.apple.TextEdit"), 504), new(504)},
+		{"open -a, matched by path as before", asUser(launcher(t, "/usr/bin/open", "open", "-a", "TextEdit"), 505), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			target, ok := launchTarget(tc.launcher)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, target.uid)
+		})
+	}
+}
+
 // spec:server-rest-api/inferred-launch-links/a-launcher-is-matched-to-what-it-named
 func TestLaunchTarget_NamesNothingMatchable(t *testing.T) {
 	t.Parallel()
 	for name, p := range map[string]api.Process{
-		"launchctl kickstart of no job": launcher(t, "/bin/launchctl", "launchctl", "kickstart", "-k"),
-		"launchctl start of no label":   launcher(t, "/bin/launchctl", "launchctl", "start"),
-		"open of a document":            launcher(t, "/usr/bin/open", "open", "notes.txt"),
-		"open with no target":           launcher(t, "/usr/bin/open", "open"),
-		"launchctl load of a plist":     launcher(t, "/bin/launchctl", "launchctl", "load", "/Library/LaunchAgents/x.plist"),
-		"launchctl submit without --":   launcher(t, "/bin/launchctl", "launchctl", "submit", "-l", "j"),
-		"launchctl submit ending --":    launcher(t, "/bin/launchctl", "launchctl", "submit", "-l", "j", "--"),
-		"not a launcher":                launcher(t, "/bin/sleep", "sleep", "61"),
-		"another tool with submit":      launcher(t, "/usr/local/bin/jobs", "jobs", "submit", "-l", "j", "--", "/bin/sleep"),
-		"a launchctl elsewhere":         launcher(t, "/tmp/launchctl", "launchctl", "submit", "-l", "j", "--", "/bin/sleep"),
-		"an open elsewhere":             launcher(t, "/opt/bin/open", "open", "-a", "TextEdit"),
-		"an argv that is not JSON":      {Path: "/usr/bin/open", Args: api.NullRawJSON("not json")},
+		"launchctl kickstart of no job":   launcher(t, "/bin/launchctl", "launchctl", "kickstart", "-k"),
+		"launchctl start of no label":     launcher(t, "/bin/launchctl", "launchctl", "start"),
+		"launchctl start of an empty one": launcher(t, "/bin/launchctl", "launchctl", "start", ""),
+		"open -b of an empty bundle id":   launcher(t, "/usr/bin/open", "open", "-b", ""),
+		"open of a document":              launcher(t, "/usr/bin/open", "open", "notes.txt"),
+		"open with no target":             launcher(t, "/usr/bin/open", "open"),
+		"launchctl load of a plist":       launcher(t, "/bin/launchctl", "launchctl", "load", "/Library/LaunchAgents/x.plist"),
+		"launchctl submit without --":     launcher(t, "/bin/launchctl", "launchctl", "submit", "-l", "j"),
+		"launchctl submit ending --":      launcher(t, "/bin/launchctl", "launchctl", "submit", "-l", "j", "--"),
+		"not a launcher":                  launcher(t, "/bin/sleep", "sleep", "61"),
+		"another tool with submit":        launcher(t, "/usr/local/bin/jobs", "jobs", "submit", "-l", "j", "--", "/bin/sleep"),
+		"a launchctl elsewhere":           launcher(t, "/tmp/launchctl", "launchctl", "submit", "-l", "j", "--", "/bin/sleep"),
+		"an open elsewhere":               launcher(t, "/opt/bin/open", "open", "-a", "TextEdit"),
+		"an argv that is not JSON":        {Path: "/usr/bin/open", Args: api.NullRawJSON("not json")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
