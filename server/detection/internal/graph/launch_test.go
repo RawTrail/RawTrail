@@ -159,9 +159,10 @@ func TestLaunchTarget_LoadAndBootstrapByTheirJobs(t *testing.T) {
 		uid      *int
 	}{
 		{"load by a user", withJobs(launcher(t, "/bin/launchctl", "launchctl", "load", "/a.plist", "/b.plist"), 501, two), new(501)},
-		{"load by root, into the system domain", withJobs(launcher(t, "/bin/launchctl", "launchctl", "load", "/a.plist", "/b.plist"), 0, two), nil},
-		{"bootstrap into a gui domain", withJobs(launcher(t, "/bin/launchctl", "launchctl", "bootstrap", "gui/502", "/a.plist", "/b.plist"), 0, two),
-			new(502)},
+		{"load by root, into the system domain",
+			withJobs(launcher(t, "/bin/launchctl", "launchctl", "load", "/a.plist", "/b.plist"), 0, two), nil},
+		{"bootstrap into a gui domain",
+			withJobs(launcher(t, "/bin/launchctl", "launchctl", "bootstrap", "gui/502", "/a.plist", "/b.plist"), 0, two), new(502)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

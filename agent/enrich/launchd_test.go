@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,7 +62,9 @@ func TestLaunchdJobs(t *testing.T) {
 		data := LaunchdJobs(execEvent(t, map[string]any{"pid": 1, "path": "/bin/launchctl", "uid": 501, "cwd": "/Users/v/proj",
 			"args": []string{"launchctl", "load", "-w", "-S", "Aqua", "/tmp/a.plist", "b.plist", "unreadable.plist", "dir/../c.plist"}}), read)
 		// A relative path is read as given, `..` and all, so a symlinked dir resolves as launchctl's own open did.
-		assert.Equal(t, []string{"/tmp/a.plist", "/Users/v/proj/b.plist", "/Users/v/proj/unreadable.plist", "/Users/v/proj/dir/../c.plist"}, asked)
+		assert.Equal(t, []string{
+			"/tmp/a.plist", "/Users/v/proj/b.plist", "/Users/v/proj/unreadable.plist", "/Users/v/proj/dir/../c.plist",
+		}, asked)
 		assert.Equal(t, []LaunchdJob{
 			{PlistPath: "/tmp/a.plist", Label: "job:a.plist"},
 			{PlistPath: "/Users/v/proj/b.plist", Label: "job:b.plist"},
@@ -110,6 +113,39 @@ func TestLaunchdJobs(t *testing.T) {
 			assert.Equal(t, original, LaunchdJobs(original, read))
 		})
 	}
+}
+
+// The event loop waits a bounded time for a read, and one read at a time runs: a stuck read cannot hold back the telemetry behind it.
+//
+// spec:endpoint-event-collection/launchd-job-definitions/a-blocked-plist-read-does-not-hold-back-telemetry
+func TestBoundedReader(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	slow := func(path string, _, _ int) (LaunchdJob, bool) {
+		if path == "/slow.plist" {
+			<-release
+		}
+		return LaunchdJob{Label: path}, true
+	}
+	read := BoundedReader(slow, 50*time.Millisecond)
+
+	job, ok := read("/fast.plist", 501, 20)
+	require.True(t, ok)
+	assert.Equal(t, "/fast.plist", job.Label)
+
+	start := time.Now()
+	_, ok = read("/slow.plist", 501, 20)
+	assert.False(t, ok, "a read past the wait yields nothing")
+	assert.Less(t, time.Since(start), time.Second, "and the caller is not held past the wait")
+
+	start = time.Now()
+	_, ok = read("/fast.plist", 501, 20)
+	assert.False(t, ok, "while one read is still running, another returns at once")
+	assert.Less(t, time.Since(start), 40*time.Millisecond)
+
+	close(release)
+	require.Eventually(t, func() bool { _, ok := read("/fast.plist", 501, 20); return ok }, time.Second, 10*time.Millisecond,
+		"once the stuck read ends, reads run again")
 }
 
 func TestParseLaunchdPlist(t *testing.T) {

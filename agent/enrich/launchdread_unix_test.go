@@ -79,9 +79,11 @@ func TestReadLaunchdJob_ForAnotherUser(t *testing.T) {
 	assert.True(t, ok, "a world-readable plist in a directory anyone may enter")
 }
 
-// What is not a regular file within the bound is turned away before anything opens it.
+// What is no plist within the bound yields no job: a directory, a file past the bound (read no further than one byte past it), a
+// missing file, and a named pipe whose writer is held open and sends nothing, which the read's timeout ends.
 func TestReadLaunchdJob_TurnsAwayWhatIsNoPlist(t *testing.T) {
 	t.Parallel()
+	requirePlutil(t)
 	dir := t.TempDir()
 	me, myGroup := os.Getuid(), os.Getgid()
 	big := filepath.Join(dir, "big.plist")
@@ -93,7 +95,6 @@ func TestReadLaunchdJob_TurnsAwayWhatIsNoPlist(t *testing.T) {
 			assert.False(t, ok)
 		})
 	}
-	// A named pipe whose writer is held open and sends nothing would stall any read of it; it must return at once.
 	fifo := filepath.Join(dir, "pipe.plist")
 	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
 	writer, err := os.OpenFile(fifo, os.O_RDWR, 0) //nolint:gosec // the test's own pipe
@@ -104,8 +105,8 @@ func TestReadLaunchdJob_TurnsAwayWhatIsNoPlist(t *testing.T) {
 	select {
 	case ok := <-done:
 		assert.False(t, ok)
-	case <-time.After(time.Second):
-		t.Fatal("a held-open named pipe stalled the read")
+	case <-time.After(readTimeout + time.Second):
+		t.Fatal("a held-open named pipe stalled the read past its timeout")
 	}
 }
 
@@ -113,7 +114,8 @@ func TestReadLaunchdJob_BinaryPlist(t *testing.T) {
 	t.Parallel()
 	requirePlutil(t)
 	p := writePlist(t, t.TempDir(), "binary.plist", 0o600)
-	out, err := exec.CommandContext(t.Context(), plutilPath, "-convert", "binary1", p).CombinedOutput() //nolint:gosec // the test converts its own temp file
+	//nolint:gosec // the test converts its own temp file
+	out, err := exec.CommandContext(t.Context(), plutilPath, "-convert", "binary1", p).CombinedOutput()
 	require.NoError(t, err, string(out))
 	job, ok := ReadLaunchdJob(p, os.Getuid(), os.Getgid())
 	require.True(t, ok)

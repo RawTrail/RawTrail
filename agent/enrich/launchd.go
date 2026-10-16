@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Launchd job definitions (issue #1341). `launchctl load <plist>` and `launchctl bootstrap <domain> <plist>` name a file, and the
@@ -30,6 +31,39 @@ type LaunchdJob struct {
 // JobReader reads the job a plist defines, as the user who ran launchctl (uid and gid): false when that user could not have read it,
 // or it does not parse as a job. Production passes ReadLaunchdJob; tests inject a fake.
 type JobReader func(path string, uid, gid int) (LaunchdJob, bool)
+
+// BoundedReader returns read bounded for the agent's event loop, which handles every event in turn: the loop waits at most wait for a
+// read, which runs on its own goroutine, and at most one read runs at a time, so a plist that blocks (a stalled mount, a pipe) costs
+// the loop at most wait once, and any read asked for while it is still running returns at once with nothing. The exec then goes out
+// without the definitions it could not read in time, rather than holding back the telemetry behind it.
+func BoundedReader(read JobReader, wait time.Duration) JobReader {
+	slot := make(chan struct{}, 1)
+	type result struct {
+		job LaunchdJob
+		ok  bool
+	}
+	return func(path string, uid, gid int) (LaunchdJob, bool) {
+		select {
+		case slot <- struct{}{}:
+		default:
+			return LaunchdJob{}, false
+		}
+		done := make(chan result, 1)
+		go func() {
+			defer func() { <-slot }()
+			job, ok := read(path, uid, gid)
+			done <- result{job, ok}
+		}()
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case r := <-done:
+			return r.job, r.ok
+		case <-timer.C:
+			return LaunchdJob{}, false
+		}
+	}
+}
 
 // LaunchdJobs returns data with a `launchctl load|bootstrap` exec's payload carrying launchd_jobs, the definitions of the plists it
 // named that the reader could read, or data unchanged for any other event, an exec already carrying them, or one naming none it

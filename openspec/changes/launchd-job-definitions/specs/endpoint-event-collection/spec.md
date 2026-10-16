@@ -2,7 +2,7 @@
 
 ### Requirement: Launchd job definitions
 
-On a `launchctl load` or `launchctl bootstrap` exec, the agent SHALL read each plist the exec names, at most eight, resolving a relative path against the exec's working directory, and SHALL send each one's `Label`, `Program` and `ProgramArguments`, capped, as `launchd_jobs`. It SHALL read a plist only when the user who ran launchctl could read it, and SHALL read at most 64 KiB of it.
+On a `launchctl load` or `bootstrap` exec, the agent SHALL send the capped `Label`, `Program` and `ProgramArguments` of each plist it names, at most eight, as `launchd_jobs`. It SHALL read a plist as the user who ran launchctl, without supplementary groups, at most 64 KiB of it, and SHALL hold its event loop at most a bounded time for the read, sending the exec without what it could not read in time.
 
 #### Scenario: A launchctl load carries the jobs it names
 
@@ -15,3 +15,9 @@ On a `launchctl load` or `launchctl bootstrap` exec, the agent SHALL read each p
 - **GIVEN** a plist mode 0600 owned by one user
 - **WHEN** another user runs `launchctl load` on it, directly or through a symlink
 - **THEN** the agent does not read it, though it reads a world-readable plist for anyone and a user's own plist for its owner
+
+#### Scenario: A blocked plist read does not hold back telemetry
+
+- **GIVEN** a plist read that does not finish, as on a stalled mount or a named pipe held open
+- **WHEN** the agent handles the exec, and another launchctl exec while that read still runs
+- **THEN** the first waits no longer than the bound and the second not at all, both go out without the definitions, and reads run again once the stuck one ends

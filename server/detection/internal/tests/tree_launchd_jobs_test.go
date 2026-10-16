@@ -28,7 +28,8 @@ func TestLaunchdJobs_StoredAndLinked(t *testing.T) {
 	host := "launchd-jobs-" + t.Name()
 	env := `"env":{"CLAUDE_CODE_SESSION_ID":"` + jobsSession + `","CLAUDE_PID":"30995","AI_AGENT":"claude-code_2-1-300_agent"}`
 	jobs := `"launchd_jobs":[{"plist_path":"/Users/v/exp/load.plist","label":"com.fleetdm.qa1341.load",` +
-		`"program_arguments":["/bin/sleep","71"]},{"plist_path":"/Users/v/exp/two.plist","label":"com.fleetdm.qa1341.two","program":"/bin/sleep"}]`
+		`"program_arguments":["/bin/sleep","71"]},` +
+		`{"plist_path":"/Users/v/exp/two.plist","label":"com.fleetdm.qa1341.two","program":"/bin/sleep"}]`
 	evt := func(id, typ string, ms int64, payload string) api.Event {
 		return api.Event{EventID: id, HostID: host, TimestampNs: at(float64(ms) / 1000), IngestedAtNs: at(float64(ms)/1000) + 1, EventType: typ,
 			Payload: json.RawMessage(payload)}
