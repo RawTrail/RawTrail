@@ -568,7 +568,9 @@ describe("SessionView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
     expect(screen.getByRole("button", { name: "Processes", pressed: true })).toBeVisible();
     expect(screen.getByText("4 processes, under the agent that ran them")).toBeVisible();
-    expect(screen.queryByText("Show shell plumbing")).not.toBeInTheDocument();
+    // Hidden but kept in place, so the header wraps as it does in Commands and the view switcher stays where it was.
+    // spec:web-ui/stable-session-view-switcher/the-plumbing-toggle-is-hidden-not-removed-outside-commands
+    expect(screen.getByText("Show shell plumbing")).not.toBeVisible();
     // The agent leads, its command's wrapper and the subshell's copy of zsh are listed, and the daemon is under the copy that made it.
     const names = [...document.querySelectorAll(".session-view__processes .session-view__name")].map((b) => b.textContent);
     expect(names).toEqual(["claude", "zsh", "zsh", "sleep"]);
