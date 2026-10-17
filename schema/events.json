@@ -353,6 +353,7 @@
         "file_path": { "type": "string", "description": "Optional. The path a file tool acted on." },
         "cwd": { "type": "string", "description": "Optional. The session's working directory when the call was made." },
         "origin_session_id": { "type": "string", "description": "Optional. The session id the transcript line was written under, where it differs from agent_session_id. A forked session's copy of its parent's history keeps the parent's id, so a call that the named session also holds is a copy of it." },
+        "forked_from_session_id": { "type": "string", "maxLength": 256, "description": "Optional. The session the call's session was forked from, as Claude Code's /fork job for the session names it (2.1.301 and later): direct evidence of the immediate parent." },
         "sidechain": { "type": "boolean", "description": "Optional. True when a subagent made the call inside the session." },
         "truncated": { "type": "boolean", "description": "Optional. True when command was cut to its 8 KiB limit." },
         "uid": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "The uid of the transcript's owner, the user the call was read for. A transcript is its user's to write, so a call is trusted only for its owner's sessions." }

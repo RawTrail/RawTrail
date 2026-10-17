@@ -361,3 +361,85 @@ func TestReader_SkipsWhatItCannotAttribute(t *testing.T) {
 		assert.Empty(t, r.files, "and its position is forgotten")
 	})
 }
+
+// A /fork session's job names the session it was forked from (issue #1354): its parent transcript, the parent's transcript at fork
+// time, whose lines carry the parent's session id. The reader sends it on the fork's calls. No job, a job naming the session itself,
+// a FIFO or a link out of the home in its place, and a subagent's transcript give none.
+//
+// spec:endpoint-event-collection/fork-parent-from-the-job/a-fork-s-calls-name-the-session-its-job-was-forked-from
+func TestReader_ForkParentFromItsJob(t *testing.T) {
+	t.Parallel()
+	const fork, parent = "47abb2a1-d231-4304-8cb1-52f4460fcd11", "fe7cd1eb-0000-4000-8000-000000001354"
+	forkedFrom := func(q *recordingQueue) []any {
+		var out []any
+		for _, e := range q.events {
+			payload, _ := e["payload"].(map[string]any)
+			out = append(out, payload["forked_from_session_id"])
+		}
+		return out
+	}
+	job := func(t *testing.T, path string) string {
+		t.Helper()
+		home, _, _ := strings.Cut(path, "/.claude/")
+		dir := filepath.Join(home, ".claude", "jobs", fork[:8])
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		return filepath.Join(dir, "parent-transcript.jsonl")
+	}
+	t.Run("the parent its job names", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueue{}
+		r, path := newTestReader(t, q, "H1")
+		require.NoError(t, os.WriteFile(job(t, path), []byte(`{"type":"file-history-snapshot"}`+"\n"+
+			`{"type":"mode","mode":"normal","sessionId":"`+parent+`"}`+"\n"), 0o600))
+		appendTo(t, path, bashLine("toolu_01", "ls"))
+		r.RunOnce(context.Background())
+		appendTo(t, path, bashLine("toolu_02", "pwd"))
+		r.RunOnce(context.Background())
+		assert.Equal(t, []any{parent, parent}, forkedFrom(q), "on every call, the job read once")
+	})
+	for name, plant := range map[string]func(t *testing.T, jobPath string){
+		"no job": func(*testing.T, string) {},
+		"a job naming the session itself": func(t *testing.T, jobPath string) {
+			t.Helper()
+			require.NoError(t, os.WriteFile(jobPath, []byte(`{"sessionId":"`+fork+`"}`+"\n"), 0o600))
+		},
+		"a FIFO in the job's place": func(t *testing.T, jobPath string) {
+			t.Helper()
+			require.NoError(t, syscall.Mkfifo(jobPath, 0o600))
+		},
+		"a link out of the home": func(t *testing.T, jobPath string) {
+			t.Helper()
+			outside := filepath.Join(t.TempDir(), "elsewhere.jsonl")
+			require.NoError(t, os.WriteFile(outside, []byte(`{"sessionId":"`+parent+`"}`+"\n"), 0o600))
+			require.NoError(t, os.Symlink(outside, jobPath))
+		},
+	} {
+		t.Run(name+" names no parent", func(t *testing.T) {
+			t.Parallel()
+			q := &recordingQueue{}
+			r, path := newTestReader(t, q, "H1")
+			plant(t, job(t, path))
+			appendTo(t, path, bashLine("toolu_01", "ls"))
+			done := make(chan struct{})
+			go func() { r.RunOnce(context.Background()); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the job read blocked the pass")
+			}
+			assert.Equal(t, []any{nil}, forkedFrom(q))
+		})
+	}
+	t.Run("a subagent's transcript names none", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueue{}
+		r, path := newTestReader(t, q, "H1")
+		require.NoError(t, os.WriteFile(job(t, path), []byte(`{"sessionId":"`+parent+`"}`+"\n"), 0o600))
+		sub := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
+		require.NoError(t, os.MkdirAll(sub, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(sub, "agent-a1.jsonl"), []byte(bashLine("toolu_sub", "ls")), 0o600))
+		r.RunOnce(context.Background())
+		require.Len(t, q.events, 1)
+		assert.Equal(t, []any{nil}, forkedFrom(q))
+	})
+}

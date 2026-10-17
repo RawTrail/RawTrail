@@ -520,6 +520,7 @@ type recordedCall struct {
 	api.AgentToolCall
 	SessionID       string `json:"agent_session_id"`
 	OriginSessionID string `json:"origin_session_id"`
+	ForkedFrom      string `json:"forked_from_session_id"`
 	eventID         string
 }
 
@@ -547,27 +548,48 @@ func (m *MemArchive) hostCalls(hostID string) ([]recordedCall, map[heldCall]bool
 	return calls, held
 }
 
-// copied mirrors the ClickHouse store's notCopiedSQL: a call naming an origin session that holds the same call is a copy of it.
-func (c recordedCall) copied(held map[heldCall]bool) bool {
+// copiedFromOrigin reports a call whose origin session holds the same call: the copy the copy-based parent is read from.
+func (c recordedCall) copiedFromOrigin(held map[heldCall]bool) bool {
 	return c.OriginSessionID != "" && held[heldCall{c.OriginSessionID, c.ToolUseID, c.UID}]
 }
 
-// AgentSessionLineage mirrors the ClickHouse store: over the owner's calls, each session's parent is the origin of its latest copied
-// call, by time and then event id, and the forks are the other sessions whose parent this one is.
+// copied mirrors the ClickHouse store's notCopiedSQL: a call the session it names holds, its origin or its job's parent, is a copy.
+func (c recordedCall) copied(held map[heldCall]bool) bool {
+	return c.copiedFromOrigin(held) || (c.ForkedFrom != "" && held[heldCall{c.ForkedFrom, c.ToolUseID, c.UID}])
+}
+
+// AgentSessionLineage mirrors the ClickHouse store: over the owner's calls, each session's parent is the latest parent its /fork job
+// named, by time and then event id, or else the origin of its latest copied call; the forks are the other sessions whose parent this
+// one is.
 func (m *MemArchive) AgentSessionLineage(_ context.Context, hostID, sessionID string, ownerUID int64) (api.AgentSessionLineage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	calls, held := m.hostCalls(hostID)
-	latest := map[string]recordedCall{}
+	later := func(c, prior recordedCall) bool {
+		return cmp.Or(cmp.Compare(c.CalledAtNs, prior.CalledAtNs), cmp.Compare(c.eventID, prior.eventID)) > 0
+	}
+	direct, copied := map[string]recordedCall{}, map[string]recordedCall{}
 	for _, c := range calls {
-		prior, seen := latest[c.SessionID]
-		if c.UID == ownerUID && c.copied(held) && (!seen || cmp.Or(cmp.Compare(c.CalledAtNs, prior.CalledAtNs), cmp.Compare(c.eventID, prior.eventID)) > 0) {
-			latest[c.SessionID] = c
+		if c.UID != ownerUID {
+			continue
+		}
+		if prior, seen := direct[c.SessionID]; c.ForkedFrom != "" && (!seen || later(c, prior)) {
+			direct[c.SessionID] = c
+		}
+		if prior, seen := copied[c.SessionID]; c.copiedFromOrigin(held) && (!seen || later(c, prior)) {
+			copied[c.SessionID] = c
 		}
 	}
-	lineage := api.AgentSessionLineage{ForkedFromSessionID: latest[sessionID].OriginSessionID, ForkedSessionIDs: []string{}}
-	for session, c := range latest {
-		if session != sessionID && c.OriginSessionID == sessionID {
+	parents := map[string]string{}
+	for session, c := range copied {
+		parents[session] = c.OriginSessionID
+	}
+	for session, c := range direct {
+		parents[session] = c.ForkedFrom
+	}
+	lineage := api.AgentSessionLineage{ForkedFromSessionID: parents[sessionID], ForkedSessionIDs: []string{}}
+	for session, parent := range parents {
+		if session != sessionID && parent == sessionID {
 			lineage.ForkedSessionIDs = append(lineage.ForkedSessionIDs, session)
 		}
 	}

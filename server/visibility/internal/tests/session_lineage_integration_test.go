@@ -5,6 +5,7 @@ package tests
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,11 @@ func TestEventArchive_AgentSessionLineage(t *testing.T) {
 		extra := ""
 		if origin != "" {
 			extra = `,"origin_session_id":"` + origin + `"`
+		}
+		// A session named "<session>@<parent>" carries the parent its /fork job names (Claude Code 2.1.301 and later).
+		if session, parent, forked := strings.Cut(session, "@"); forked {
+			return activityEvent(id, host, "agent_tool_call", ts, `{"agent_session_id":"`+session+`","tool_use_id":"`+toolUseID+`",`+
+				`"tool_name":"Bash","command":"echo `+toolUseID+`","uid":`+strconv.Itoa(uid)+extra+`,"forked_from_session_id":"`+parent+`"}`)
 		}
 		return activityEvent(id, host, "agent_tool_call", ts, `{"agent_session_id":"`+session+`","tool_use_id":"`+toolUseID+`",`+
 			`"tool_name":"Bash","command":"echo `+toolUseID+`","uid":`+strconv.Itoa(uid)+extra+`}`)
@@ -64,6 +70,16 @@ func TestEventArchive_AgentSessionLineage(t *testing.T) {
 		call("q1", "h1", "quiet-fork", "toolu_b", "parent", 501, at(2)),
 		call("q2", "h1", "fork-of-quiet-fork", "toolu_b", "parent", 501, at(2)),
 		call("q3", "h1", "fork-of-quiet-fork", "toolu_g", "", 501, at(50)),
+		// The same two cases with the parent the fork's job names (issue #1354), as measured on Claude Code 2.1.302. The /clear: A made
+		// toolu_h; after /clear, B's own toolu_i names A; the fork of B copies toolu_i, still naming A, and makes toolu_j.
+		call("j1", "h1", "first", "toolu_h", "", 501, at(60)),
+		call("j2", "h1", "after-clear", "toolu_i", "first", 501, at(61)),
+		call("j3", "h1", "job-fork-of-cleared@after-clear", "toolu_i", "first", 501, at(61)),
+		call("j4", "h1", "job-fork-of-cleared@after-clear", "toolu_j", "", 501, at(62)),
+		// A fork of a quiet fork: the quiet fork made no calls, but the job of the fork forked from it names it.
+		call("j5", "h1", "job-quiet-fork@parent", "toolu_b", "parent", 501, at(2)),
+		call("j6", "h1", "job-fork-of-quiet-fork@job-quiet-fork", "toolu_b", "parent", 501, at(2)),
+		call("j7", "h1", "job-fork-of-quiet-fork@job-quiet-fork", "toolu_k", "", 501, at(70)),
 		// Another host's copy is that host's.
 		call("o1", "h2", "elsewhere", "toolu_a", "parent", 501, at(1)),
 		call("o2", "h2", "parent", "toolu_a", "", 501, at(1)),
@@ -89,21 +105,31 @@ func TestEventArchive_AgentSessionLineage(t *testing.T) {
 			assert.Equal(t, []string{"toolu_e"}, calls("cleared"), "a call the named session never held is the session's own")
 			assert.Equal(t, []string{"toolu_b"}, calls("forged"))
 			assert.Equal(t, []string{"toolu_e", "toolu_f"}, calls("fork-of-cleared"), "known limit: the post-/clear copy reads as its own")
+			assert.Equal(t, []string{"toolu_j"}, calls("job-fork-of-cleared"), "the job's parent holds the post-/clear call: a copy")
+			assert.Equal(t, []string{"toolu_k"}, calls("job-fork-of-quiet-fork"))
 
 			lineage := func(session string) visibilityapi.AgentSessionLineage {
 				got, err := arch.AgentSessionLineage(ctx, "h1", session, 501)
 				require.NoError(t, err)
 				return got
 			}
-			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedSessionIDs: []string{"fork", "fork-of-quiet-fork", "quiet-fork"}},
-				lineage("parent"), "the fork of the fork is its parent's, and neither /clear nor another user's transcripts make a fork; "+
-					"known limit: the fork of the quiet fork reads as the parent's")
+			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedSessionIDs: []string{"fork", "fork-of-quiet-fork", "job-quiet-fork",
+				"quiet-fork"}}, lineage("parent"), "the fork of the fork is its parent's, and neither /clear nor another user's transcripts make a fork; "+
+				"known limit: the fork of the quiet fork reads as the parent's")
 			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedFromSessionID: "parent", ForkedSessionIDs: []string{"grandfork"}},
 				lineage("fork"))
 			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedFromSessionID: "fork", ForkedSessionIDs: []string{}}, lineage("grandfork"),
 				"the latest copy names the parent, not the first session in the chain")
 			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedSessionIDs: []string{}}, lineage("cleared"))
 			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedSessionIDs: []string{}}, lineage("fork-of-cleared"))
+			// spec:server-rest-api/agent-session-lineage-endpoint/a-fork-s-job-names-its-immediate-parent
+			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedFromSessionID: "after-clear", ForkedSessionIDs: []string{}},
+				lineage("job-fork-of-cleared"), "the job names the cleared session, which the copies cannot")
+			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedSessionIDs: []string{"job-fork-of-cleared"}}, lineage("after-clear"))
+			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedFromSessionID: "job-quiet-fork", ForkedSessionIDs: []string{}},
+				lineage("job-fork-of-quiet-fork"), "the job names the quiet fork, not the session before it")
+			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedFromSessionID: "parent", ForkedSessionIDs: []string{"job-fork-of-quiet-fork"}},
+				lineage("job-quiet-fork"))
 		})
 	}
 }
