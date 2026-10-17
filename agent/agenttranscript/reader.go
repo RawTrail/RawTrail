@@ -3,8 +3,10 @@
 package agenttranscript
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -40,6 +42,16 @@ const (
 	subagentsDir = "subagents"
 	// transcriptSuffix names a transcript within a project directory.
 	transcriptSuffix = ".jsonl"
+	// jobsDir holds Claude Code's background session jobs (2.1.301 and later), each named for the first jobIDLen characters of its
+	// session id. A /fork's job holds parentTranscript, its parent's transcript at fork time, which the fork resumes from, so its
+	// lines carry the parent's session id: the fork's immediate parent, probed on edr-dev (issue #1354).
+	jobsDir          = ".claude/jobs"
+	jobIDLen         = 8
+	parentTranscript = "parent-transcript.jsonl"
+	// maxParentProbeBytes bounds the read of a job's parent transcript: its first lines name the parent, and the rest is not read.
+	maxParentProbeBytes = 256 << 10
+	// maxSessionIDLen bounds a session id read from a file, as the server's column does.
+	maxSessionIDLen = 256
 )
 
 // Reader tails the agent transcripts under a root of home directories and enqueues each tool call as an agent_tool_call event.
@@ -65,6 +77,9 @@ type position struct {
 	offset   int64
 	file     os.FileInfo
 	skipping bool
+	// parent is the session the transcript's session was forked from, read once from its job's parent transcript (issue #1354).
+	parent     string
+	parentRead bool
 }
 
 // New returns a Reader over the home directories under root (/Users on macOS).
@@ -251,17 +266,55 @@ func (r *Reader) readFrom(ctx context.Context, hostID string, t transcript, key 
 	if err != nil {
 		return 0, fmt.Errorf("read transcript: %w", err)
 	}
-	src := source{session: t.session}
+	if !pos.parentRead && !strings.Contains(t.rel, "/"+subagentsDir+"/") {
+		pos.parent, pos.parentRead = forkParent(homeRoot, t.session), true
+	}
+	src := source{session: t.session, forkedFrom: pos.parent}
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
 		src.ownerUID = st.Uid
 	}
 	return int64(len(chunk)), r.consume(ctx, hostID, src, pos, chunk, stats)
 }
 
-// source is what a transcript's lines are checked and stamped against: the session its path names and the uid that owns it.
+// source is what a transcript's lines are checked and stamped against: the session its path names, the uid that owns it, and the
+// session it was forked from, if its job names one.
 type source struct {
-	session  string
-	ownerUID uint32
+	session    string
+	ownerUID   uint32
+	forkedFrom string
+}
+
+// forkParent returns the session a /fork session was forked from, read from the first line of its job's parent transcript that names
+// a session, or "" when the session has no such job (Claude Code before 2.1.301, or a session not started by /fork). The job is the
+// user's file, read within their home's os.Root as the transcripts are, O_NONBLOCK and only as a regular file, and at most
+// maxParentProbeBytes of it.
+func forkParent(homeRoot *os.Root, session string) string {
+	if len(session) < jobIDLen {
+		return ""
+	}
+	f, err := homeRoot.OpenFile(path.Join(jobsDir, session[:jobIDLen], parentTranscript), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }() // read only: a failed close loses nothing
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	lines := bufio.NewScanner(io.LimitReader(f, maxParentProbeBytes))
+	lines.Buffer(nil, maxParentProbeBytes)
+	for lines.Scan() {
+		var line struct {
+			SessionID string `json:"sessionId"`
+		}
+		if json.Unmarshal(lines.Bytes(), &line) != nil || line.SessionID == "" {
+			continue
+		}
+		if line.SessionID == session || len(line.SessionID) > maxSessionIDLen {
+			return ""
+		}
+		return line.SessionID
+	}
+	return ""
 }
 
 // consume handles the complete lines of chunk, read from pos.offset, and advances the position past them. A line that fills a whole
@@ -313,7 +366,7 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, line
 		}
 	}
 	for _, call := range calls {
-		call.OwnerUID = src.ownerUID
+		call.OwnerUID, call.ForkedFromSessionID = src.ownerUID, src.forkedFrom
 		body, err := sensorevent.Marshal(call.EventID(), hostID, EventType, call.At.UnixNano(), call.Payload())
 		if err != nil {
 			return err
