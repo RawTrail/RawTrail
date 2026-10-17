@@ -74,9 +74,10 @@ struct AgentProcessSet {
     }
 }
 
-/// FileOperation is what an agent process did to a path.
+/// FileOperation is what an agent process did to a path. A connect is to a Unix-domain socket, whose path names the daemon the
+/// process asked for work (issue #1355): docker.sock, an ssh-agent's socket, a database's.
 enum FileOperation: String, Codable, Sendable {
-    case create, modify, rename, delete
+    case create, modify, rename, delete, connect
 }
 
 /// FileActivityPayload is the wire shape of a `file_activity` event: one or more file operations by one process generation, folded
