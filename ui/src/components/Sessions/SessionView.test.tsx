@@ -540,6 +540,20 @@ describe("SessionView", () => {
     expect(read).toHaveBeenCalledWith(expect.objectContaining({ host_id: "H1", agent_process: 9, served_session: SESSION }));
   });
 
+  it("marks a cut count, and says when the agent's own alerts could not be read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const scan = proc(20, 20, 50, "/opt/homebrew/bin/rg", ["rg", "--files"], [], { agent_session_id: undefined });
+    const agent = proc(9, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.302", ["claude"], [scan], { agent_session_id: undefined });
+    const call = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'ls'"], [], { tool_call_group: 10, ppid: 5000, parent_process_id: 9 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], agents: [agent], agent_own_truncated: true }));
+    vi.spyOn(api, "listAlerts").mockImplementation((params) =>
+      params?.agent_process ? Promise.reject(new Error("down")) : Promise.resolve([]));
+    renderView();
+    expect(await screen.findByText(/alerts could not be loaded/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Processes" }));
+    expect(screen.getByLabelText("Show the agent's own processes (1+)")).toBeVisible();
+  });
+
   it("offers no agent's own processes toggle when the agent ran none", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const agent = proc(9, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.302", ["claude"], [], { agent_session_id: undefined });

@@ -151,6 +151,38 @@ func TestProcessTreeHandler_SessionListsTheAgentsOwnProcesses(t *testing.T) {
 		assert.Equal(t, &ask{agentRow, 300, 500}, asked)
 	})
 
+	// spec:server-rest-api/agent-own-processes/a-session-read-lists-the-agent-s-own-processes-under-it
+	t.Run("an agent with no generation lists none of its own, rather than another session's", func(t *testing.T) {
+		t.Parallel()
+		legacy := agentProc
+		legacy.PIDVersion = nil
+		asked := false
+		svc := fakeService{
+			buildScopedTree: func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+				return api.ProcessTreeResult{Roots: []api.ProcessNode{root}, Returned: 1, TotalMatched: 1}, nil
+			},
+			buildAgentOwnTree: func(context.Context, string, int64, int64, int64) ([]api.ProcessNode, bool, error) {
+				asked = true
+				return own, false, nil
+			},
+		}
+		h := New(svc, allowAllAuthZ{}, slog.Default())
+		h.SetActivity(&fakeActivityReader{processes: map[int64]api.Process{agentRow: legacy}})
+		h.SetAgentSessions(&fakeSessionLister{result: sessions})
+		mux := http.NewServeMux()
+		h.RegisterRoutes(mux)
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		resp := doGet(t, srv, "/api/hosts/h1/tree?scope=session&session=47abb2a1&flatten=1")
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var out api.ProcessTreeResult
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		require.Len(t, out.Agents, 1)
+		assert.Empty(t, out.Agents[0].Children)
+		assert.False(t, asked)
+	})
+
 	t.Run("a failed read fails the tree", func(t *testing.T) {
 		t.Parallel()
 		status, _, _ := serve(nil, errors.New("db down"))

@@ -216,11 +216,16 @@ func (h *Handler) agentSpan(
 }
 
 // agentWindow is the window an agent process's own processes are listed for in a session (issue #1361): the span it served the
-// session, or its whole life when it served only this one. The tree read and the alert read both use it, so they list the same.
-func (h *Handler) agentWindow(ctx context.Context, hostID, sessionID string, agent api.ProcessNode) (int64, int64, error) {
+// session, or its whole life when it served only this one. The tree read and the alert read both use it, so they list the same. It
+// reports false for an agent row with no generation, from an agent too old to send one: the sessions it served cannot be told
+// apart, so a window for one of them cannot be read, and none is listed rather than another session's work.
+func (h *Handler) agentWindow(ctx context.Context, hostID, sessionID string, agent api.ProcessNode) (int64, int64, bool, error) {
+	if agent.PIDVersion == nil {
+		return 0, 0, false, nil
+	}
 	span, bounded, err := h.agentSpan(ctx, hostID, sessionID, agent)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, false, err
 	}
 	fromNs, toNs := int64(0), int64(math.MaxInt64)
 	if bounded {
@@ -229,7 +234,7 @@ func (h *Handler) agentWindow(ctx context.Context, hostID, sessionID string, age
 			toNs = span.ToNs
 		}
 	}
-	return fromNs, toNs, nil
+	return fromNs, toNs, true, nil
 }
 
 // agentOwnProcesses sets each of a session's agent processes' Children to its own processes (issue #1361): what it ran for itself,
@@ -237,9 +242,12 @@ func (h *Handler) agentWindow(ctx context.Context, hostID, sessionID string, age
 func (h *Handler) agentOwnProcesses(ctx context.Context, hostID, sessionID string, agents []api.ProcessNode) (bool, error) {
 	cut := false
 	for i := range agents {
-		fromNs, toNs, err := h.agentWindow(ctx, hostID, sessionID, agents[i])
+		fromNs, toNs, windowed, err := h.agentWindow(ctx, hostID, sessionID, agents[i])
 		if err != nil {
 			return false, err
+		}
+		if !windowed {
+			continue
 		}
 		own, truncated, err := h.svc.BuildAgentOwnTree(ctx, hostID, agents[i].ID, fromNs, toNs)
 		if err != nil {

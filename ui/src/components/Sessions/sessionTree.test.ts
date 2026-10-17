@@ -343,6 +343,10 @@ describe("buildProcessForest", () => {
     const withOwn = { ...agent, children: [snapshot, scan] };
     expect(countOwn([withOwn])).toBe(3);
     expect(countOwn([agent])).toBe(0);
+    // An agent node from a read that set no children, as an older server's does, has none of its own.
+    const bare = { ...agent, children: undefined };
+    expect(countOwn([bare])).toBe(0);
+    expect(buildProcessForest(createdByAgent(realSession()), [bare], QUIET, true)[0].children).toHaveLength(5);
 
     const hidden = buildProcessForest(createdByAgent(realSession()), [withOwn], QUIET);
     expect(countRows(hidden)).toBe(17);

@@ -603,7 +603,8 @@ func TestHandleListAlerts(t *testing.T) {
 		touches := []visibilityapi.SessionTouch{{SessionID: "earlier", FirstNs: 100}, {SessionID: "s1", FirstNs: 300},
 			{SessionID: "later", FirstNs: 500}}
 		h := New(svc, allowAllAuthZ{}, slog.Default())
-		h.SetActivity(&fakeActivityReader{processes: map[int64]api.Process{50: {ID: 50, HostID: "h1", PID: 4911, PIDVersion: &gen}},
+		h.SetActivity(&fakeActivityReader{processes: map[int64]api.Process{50: {ID: 50, HostID: "h1", PID: 4911, PIDVersion: &gen},
+			52: {ID: 52, HostID: "h1", PID: 4912}},
 			touches: map[int64][]visibilityapi.SessionTouch{4911: touches}})
 		mux := http.NewServeMux()
 		h.RegisterRoutes(mux)
@@ -622,6 +623,9 @@ func TestHandleListAlerts(t *testing.T) {
 		unknown := doGet(t, srv, "/api/alerts?host_id=h1&agent_process=51&served_session=s1")
 		defer unknown.Body.Close()
 		assert.Equal(t, http.StatusOK, unknown.StatusCode, "an agent row the host does not hold has no alerts")
+		legacy := doGet(t, srv, "/api/alerts?host_id=h1&agent_process=52&served_session=s1")
+		defer legacy.Body.Close()
+		assert.Equal(t, http.StatusOK, legacy.StatusCode, "nor does one with no generation, whose window cannot be read")
 		assert.Equal(t, 1, calls)
 	})
 

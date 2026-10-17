@@ -346,7 +346,8 @@ func (h *Handler) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 
 // agentAlertWindow bounds an agent_process alert read to the window the session's tree read lists the agent's own processes for
 // (issue #1361), from served_session, the session the agent served. It answers the request itself and returns false when it cannot:
-// a missing host or session is a 400, an agent row the host does not hold an empty list, a failed read a 500.
+// a missing host or session is a 400, an agent row the host does not hold or one with no generation an empty list, a failed read a
+// 500.
 func (h *Handler) agentAlertWindow(w http.ResponseWriter, r *http.Request, f api.AlertFilter) (api.AlertFilter, bool) {
 	ctx := r.Context()
 	served := r.URL.Query().Get("served_session")
@@ -359,15 +360,17 @@ func (h *Handler) agentAlertWindow(w http.ResponseWriter, r *http.Request, f api
 		return f, false
 	}
 	agent, err := h.activity.GetProcessByID(ctx, f.HostID, f.AgentProcessID)
+	windowed := false
 	if err == nil && agent != nil {
-		f.AgentFromNs, f.AgentToNs, err = h.agentWindow(ctx, f.HostID, served, api.ProcessNode{Process: *agent})
+		f.AgentFromNs, f.AgentToNs, windowed, err = h.agentWindow(ctx, f.HostID, served, api.ProcessNode{Process: *agent})
 	}
 	if err != nil {
 		h.logger.ErrorContext(ctx, "read agent alert window", "host_id", f.HostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return f, false
 	}
-	if agent == nil {
+	// An agent row the host does not hold, or one with no generation to window, lists no processes of its own, so none has alerts.
+	if !windowed {
 		h.writeJSON(w, r, []api.Alert{})
 		return f, false
 	}
