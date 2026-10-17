@@ -1011,6 +1011,13 @@ paths:
             An AI agent session's id. Selects the alerts raised on that session's processes. Requires `host_id`, since a session id
             names a session only on its host; without it the request is rejected with `agent_session_requires_host_id`.
           schema: {type: string}
+        - name: agent_process
+          in: query
+          description: >-
+            An AI agent process's `id`, as a session read's `agents` names it. Selects the alerts raised on that agent's own processes,
+            its descendants with no session marker. Requires `host_id`; without it the request is rejected with
+            `agent_process_requires_host_id`.
+          schema: {type: integer, format: int64}
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, default: 100}

@@ -92,4 +92,28 @@ func TestAgentOwnProcesses(t *testing.T) {
 	all, _, err := graph.NewQuery(store).BuildAgentOwnTree(ctx, host, agentID, 0, math.MaxInt64)
 	require.NoError(t, err)
 	assert.Contains(t, names(all)[3036], 3070, "unbounded, the agent's whole life")
+
+	// spec:server-rest-api/agent-own-processes/an-agent-s-own-processes-alerts-are-read-by-the-agent
+	t.Run("the alerts on the agent's own processes", func(t *testing.T) {
+		rowOf := func(pid int) int64 {
+			var id int64
+			require.NoError(t, db.GetContext(ctx, &id, "SELECT id FROM processes WHERE host_id = ? AND pid = ? ORDER BY id DESC LIMIT 1", host, pid))
+			return id
+		}
+		alerted := map[int64]int{}
+		for _, pid := range []int{3040, 3042, 3050, 3070} {
+			id, _, err := store.InsertAlert(ctx, api.Alert{HostID: host, RuleID: "r" + strconv.Itoa(pid), Source: api.AlertSourceDetection,
+				Severity: api.SeverityHigh, Title: "t", Description: "d", ProcessID: rowOf(pid), Subject: strconv.Itoa(pid)}, nil)
+			require.NoError(t, err)
+			alerted[id] = pid
+		}
+		got, err := store.ListAlerts(ctx, api.AlertFilter{HostID: host, AgentProcessID: agentID, Limit: 10})
+		require.NoError(t, err)
+		var pids []int
+		for _, a := range got {
+			pids = append(pids, alerted[a.ID])
+		}
+		assert.ElementsMatch(t, []int{3040, 3042, 3070}, pids,
+			"the scan, the snapshot's child and the later scan; not the session's tool call")
+	})
 }

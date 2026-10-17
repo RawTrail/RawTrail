@@ -41,6 +41,7 @@ const (
 	errInvalidScope       = "invalid_scope"
 	errInvalidProcess     = "invalid_process"
 	errSessionNeedsHost   = "agent_session_requires_host_id"
+	errAgentNeedsHost     = "agent_process_requires_host_id"
 
 	// maxSessionIDLen is the widest agent session id a process row stores (migration 00019), so a longer one names no session.
 	maxSessionIDLen = 256
@@ -315,11 +316,17 @@ func (h *Handler) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		Disposition:    disposition,
 		ProcessID:      httpserver.ParseInt64Param(r, "process_id", 0),
 		AgentSessionID: r.URL.Query().Get("agent_session"),
+		AgentProcessID: httpserver.ParseInt64Param(r, "agent_process", 0),
 		Limit:          httpserver.ParseIntParam(r, "limit", 100),
 	}
 	// A session id names a session only on its host, so the session filter needs the host to mean anything.
 	if f.AgentSessionID != "" && f.HostID == "" {
 		h.writeError(ctx, w, http.StatusBadRequest, errSessionNeedsHost)
+		return
+	}
+	// So does an agent's: its own processes are found by walking down from its row on its host.
+	if f.AgentProcessID != 0 && f.HostID == "" {
+		h.writeError(ctx, w, http.StatusBadRequest, errAgentNeedsHost)
 		return
 	}
 

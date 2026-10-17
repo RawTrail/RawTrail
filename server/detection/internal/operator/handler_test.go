@@ -592,6 +592,24 @@ func TestHandleListAlerts(t *testing.T) {
 		assert.False(t, called)
 	})
 
+	// spec:server-rest-api/agent-own-processes/an-agent-s-own-processes-alerts-are-read-by-the-agent
+	t.Run("agent_process reaches the service filter with its host, and is rejected without it", func(t *testing.T) {
+		t.Parallel()
+		var got api.AlertFilter
+		calls := 0
+		svc := fakeService{listAlerts: func(_ context.Context, f api.AlertFilter) ([]api.Alert, error) { got = f; calls++; return nil, nil }}
+		srv := newOperatorServer(t, svc, allowAllAuthZ{})
+		resp := doGet(t, srv, "/api/alerts?host_id=h1&agent_process=50")
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, api.AlertFilter{HostID: "h1", AgentProcessID: 50, Limit: 100}, got)
+		rejected := doGet(t, srv, "/api/alerts?agent_process=50")
+		defer rejected.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, rejected.StatusCode)
+		assert.Equal(t, errAgentNeedsHost, readErrorEnvelope(t, rejected))
+		assert.Equal(t, 1, calls)
+	})
+
 	t.Run("nil alerts normalized to empty array", func(t *testing.T) {
 		t.Parallel()
 		svc := fakeService{listAlerts: func(context.Context, api.AlertFilter) ([]api.Alert, error) { return nil, nil }}

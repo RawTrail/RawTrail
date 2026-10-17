@@ -519,6 +519,27 @@ describe("SessionView", () => {
     expect(commandRow?.querySelector(".session-view__row")?.textContent).not.toContain("agent's own");
   });
 
+  // An alert on one of the agent's own processes is read by the agent (the session read covers stamped processes only) and badged.
+  // spec:server-rest-api/agent-own-processes/an-agent-s-own-processes-alerts-are-read-by-the-agent
+  it("badges an alert on one of the agent's own processes", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const keychain = proc(20, 20, 50, "/usr/bin/security", ["security", "find-generic-password", "-s", "Claude Code-credentials"], [],
+      { agent_session_id: undefined });
+    const agent = proc(9, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.302", ["claude"], [keychain],
+      { agent_session_id: undefined });
+    const call = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'ls'"], [], { tool_call_group: 10, ppid: 5000, parent_process_id: 9 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], agents: [agent] }));
+    const read = vi.spyOn(api, "listAlerts").mockImplementation((params) =>
+      Promise.resolve(params?.agent_process === 9 ? [alert({ id: 7, process_id: 20, title: "Keychain credential read" })] : []));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.click(screen.getByLabelText("Show the agent's own processes (1)"));
+    const badge = await screen.findByText("Keychain credential read");
+    expect(badge).toBeVisible();
+    expect(badge.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("security");
+    expect(read).toHaveBeenCalledWith(expect.objectContaining({ host_id: "H1", agent_process: 9 }));
+  });
+
   it("offers no agent's own processes toggle when the agent ran none", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const agent = proc(9, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.302", ["claude"], [], { agent_session_id: undefined });

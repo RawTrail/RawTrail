@@ -129,13 +129,18 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
     getAgentSessionLineage(hostId, sessionId).catch(() => undefined),
   ]);
   if (typeof tree === "string") return { key, error: tree };
+  // The session's alerts are those on its stamped processes; the agent's own processes (issue #1361) carry no session marker, so their
+  // alerts are read by the agent that ran them, to badge them in the Processes view.
+  const ownAlerts = await Promise.all((tree.agents ?? []).filter((agent) => (agent.children ?? []).length > 0).map((agent) =>
+    listAlerts({ host_id: hostId, agent_process: agent.id, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null)));
+  const lists = [alerts, ...ownAlerts];
   return {
     key,
     tree,
     record,
-    alerts: (alerts ?? []).slice(0, MAX_SESSION_ALERTS),
-    alertsFailed: alerts === null,
-    alertsTruncated: (alerts?.length ?? 0) > MAX_SESSION_ALERTS,
+    alerts: lists.flatMap((list) => (list ?? []).slice(0, MAX_SESSION_ALERTS)),
+    alertsFailed: lists.includes(null),
+    alertsTruncated: lists.some((list) => (list?.length ?? 0) > MAX_SESSION_ALERTS),
     toolCalls: toolCalls?.tool_calls,
     toolCallsTruncated: toolCalls?.truncated,
     lineage,
