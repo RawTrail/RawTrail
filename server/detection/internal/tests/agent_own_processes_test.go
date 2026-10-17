@@ -107,13 +107,19 @@ func TestAgentOwnProcesses(t *testing.T) {
 			require.NoError(t, err)
 			alerted[id] = pid
 		}
-		got, err := store.ListAlerts(ctx, api.AlertFilter{HostID: host, AgentProcessID: agentID, Limit: 10})
-		require.NoError(t, err)
-		var pids []int
-		for _, a := range got {
-			pids = append(pids, alerted[a.ID])
+		read := func(fromNs, toNs int64) []int {
+			got, err := store.ListAlerts(ctx, api.AlertFilter{HostID: host, AgentProcessID: agentID, AgentFromNs: fromNs, AgentToNs: toNs,
+				Limit: 10})
+			require.NoError(t, err)
+			var pids []int
+			for _, a := range got {
+				pids = append(pids, alerted[a.ID])
+			}
+			return pids
 		}
-		assert.ElementsMatch(t, []int{3040, 3042, 3070}, pids,
-			"the scan, the snapshot's child and the later scan; not the session's tool call")
+		assert.ElementsMatch(t, []int{3040, 3042}, read(0, at(4.0)),
+			"the scan and the snapshot's child in the window; not the session's tool call or the scan after it")
+		assert.ElementsMatch(t, []int{3040, 3042, 3070}, read(0, math.MaxInt64), "the agent's whole life, when it served only this session")
+		assert.ElementsMatch(t, []int{3042}, read(at(1.15), at(4.0)), "a window starting after the scan, as a later session's would")
 	})
 }

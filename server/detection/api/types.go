@@ -735,8 +735,11 @@ type AlertFilter struct {
 	// since a session id names a session only on its host.
 	AgentSessionID string
 	// AgentProcessID selects the alerts raised on an AI agent process's own processes on HostID (issue #1361): its descendants with no
-	// session marker, which a session's Processes view lists under the agent. It requires HostID, as AgentSessionID does.
+	// session marker forked from AgentFromNs up to AgentToNs, the window a session's Processes view lists them for. The handler
+	// derives the window from the session the agent served, as the session's tree read does.
 	AgentProcessID int64
+	AgentFromNs    int64
+	AgentToNs      int64
 	Limit          int
 }
 

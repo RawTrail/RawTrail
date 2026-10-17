@@ -537,7 +537,7 @@ describe("SessionView", () => {
     const badge = await screen.findByText("Keychain credential read");
     expect(badge).toBeVisible();
     expect(badge.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("security");
-    expect(read).toHaveBeenCalledWith(expect.objectContaining({ host_id: "H1", agent_process: 9 }));
+    expect(read).toHaveBeenCalledWith(expect.objectContaining({ host_id: "H1", agent_process: 9, served_session: SESSION }));
   });
 
   it("offers no agent's own processes toggle when the agent ran none", async () => {

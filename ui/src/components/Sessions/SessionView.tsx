@@ -132,7 +132,7 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
   // The session's alerts are those on its stamped processes; the agent's own processes (issue #1361) carry no session marker, so their
   // alerts are read by the agent that ran them, to badge them in the Processes view.
   const ownAlerts = await Promise.all((tree.agents ?? []).filter((agent) => (agent.children ?? []).length > 0).map((agent) =>
-    listAlerts({ host_id: hostId, agent_process: agent.id, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null)));
+    listAlerts({ host_id: hostId, agent_process: agent.id, served_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null)));
   const lists = [alerts, ...ownAlerts];
   return {
     key,

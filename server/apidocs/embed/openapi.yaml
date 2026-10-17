@@ -1015,9 +1015,14 @@ paths:
           in: query
           description: >-
             An AI agent process's `id`, as a session read's `agents` names it. Selects the alerts raised on that agent's own processes,
-            its descendants with no session marker. Requires `host_id`; without it the request is rejected with
-            `agent_process_requires_host_id`.
+            its descendants with no session marker, in the window it served `served_session`, as that session's tree read lists them.
+            Requires `host_id` and `served_session`; without either the request is rejected with
+            `agent_process_requires_host_id_and_served_session`.
           schema: {type: integer, format: int64}
+        - name: served_session
+          in: query
+          description: With `agent_process`, the session the agent served, whose window bounds its processes.
+          schema: {type: string}
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, default: 100}

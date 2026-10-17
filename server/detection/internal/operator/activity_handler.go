@@ -215,21 +215,31 @@ func (h *Handler) agentSpan(
 	return span, bounded, nil
 }
 
+// agentWindow is the window an agent process's own processes are listed for in a session (issue #1361): the span it served the
+// session, or its whole life when it served only this one. The tree read and the alert read both use it, so they list the same.
+func (h *Handler) agentWindow(ctx context.Context, hostID, sessionID string, agent api.ProcessNode) (int64, int64, error) {
+	span, bounded, err := h.agentSpan(ctx, hostID, sessionID, agent)
+	if err != nil {
+		return 0, 0, err
+	}
+	fromNs, toNs := int64(0), int64(math.MaxInt64)
+	if bounded {
+		fromNs = span.FromNs
+		if span.ToNs > 0 {
+			toNs = span.ToNs
+		}
+	}
+	return fromNs, toNs, nil
+}
+
 // agentOwnProcesses sets each of a session's agent processes' Children to its own processes (issue #1361): what it ran for itself,
 // with no session marker, while it served the session. It reports whether any agent's were cut at their bound.
 func (h *Handler) agentOwnProcesses(ctx context.Context, hostID, sessionID string, agents []api.ProcessNode) (bool, error) {
 	cut := false
 	for i := range agents {
-		span, bounded, err := h.agentSpan(ctx, hostID, sessionID, agents[i])
+		fromNs, toNs, err := h.agentWindow(ctx, hostID, sessionID, agents[i])
 		if err != nil {
 			return false, err
-		}
-		fromNs, toNs := int64(0), int64(math.MaxInt64)
-		if bounded {
-			fromNs = span.FromNs
-			if span.ToNs > 0 {
-				toNs = span.ToNs
-			}
 		}
 		own, truncated, err := h.svc.BuildAgentOwnTree(ctx, hostID, agents[i].ID, fromNs, toNs)
 		if err != nil {

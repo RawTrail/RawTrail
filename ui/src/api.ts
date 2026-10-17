@@ -574,6 +574,8 @@ export async function listAlerts(params?: {
   agent_session?: string;
   // agent_process selects the alerts on an AI agent process's own processes, by its row id (issue #1361); it also requires host_id.
   agent_process?: number;
+  // served_session names the session agent_process is read for: the window the agent served it bounds its processes.
+  served_session?: string;
   limit?: number;
 }): Promise<Alert[]> {
   const query = new URLSearchParams();
@@ -586,6 +588,7 @@ export async function listAlerts(params?: {
   if (params?.process_id) query.set("process_id", String(params.process_id));
   if (params?.agent_session) query.set("agent_session", params.agent_session);
   if (params?.agent_process) query.set("agent_process", String(params.agent_process));
+  if (params?.served_session) query.set("served_session", params.served_session);
   if (params?.limit) query.set("limit", String(params.limit));
   const qs = query.toString();
   const suffix = qs ? `?${qs}` : "";

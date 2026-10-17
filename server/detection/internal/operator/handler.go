@@ -41,7 +41,7 @@ const (
 	errInvalidScope       = "invalid_scope"
 	errInvalidProcess     = "invalid_process"
 	errSessionNeedsHost   = "agent_session_requires_host_id"
-	errAgentNeedsHost     = "agent_process_requires_host_id"
+	errAgentNeedsHost     = "agent_process_requires_host_id_and_served_session"
 
 	// maxSessionIDLen is the widest agent session id a process row stores (migration 00019), so a longer one names no session.
 	maxSessionIDLen = 256
@@ -324,10 +324,12 @@ func (h *Handler) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusBadRequest, errSessionNeedsHost)
 		return
 	}
-	// So does an agent's: its own processes are found by walking down from its row on its host.
-	if f.AgentProcessID != 0 && f.HostID == "" {
-		h.writeError(ctx, w, http.StatusBadRequest, errAgentNeedsHost)
-		return
+	// An agent's own processes are found by walking down from its row on its host, for the window it served a session.
+	if f.AgentProcessID != 0 {
+		var ok bool
+		if f, ok = h.agentAlertWindow(w, r, f); !ok {
+			return
+		}
 	}
 
 	alerts, err := h.svc.ListAlerts(ctx, f)
@@ -340,6 +342,36 @@ func (h *Handler) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		alerts = []api.Alert{}
 	}
 	h.writeJSON(w, r, alerts)
+}
+
+// agentAlertWindow bounds an agent_process alert read to the window the session's tree read lists the agent's own processes for
+// (issue #1361), from served_session, the session the agent served. It answers the request itself and returns false when it cannot:
+// a missing host or session is a 400, an agent row the host does not hold an empty list, a failed read a 500.
+func (h *Handler) agentAlertWindow(w http.ResponseWriter, r *http.Request, f api.AlertFilter) (api.AlertFilter, bool) {
+	ctx := r.Context()
+	served := r.URL.Query().Get("served_session")
+	if f.HostID == "" || served == "" {
+		h.writeError(ctx, w, http.StatusBadRequest, errAgentNeedsHost)
+		return f, false
+	}
+	if h.activity == nil {
+		h.writeError(ctx, w, http.StatusServiceUnavailable, errInternal)
+		return f, false
+	}
+	agent, err := h.activity.GetProcessByID(ctx, f.HostID, f.AgentProcessID)
+	if err == nil && agent != nil {
+		f.AgentFromNs, f.AgentToNs, err = h.agentWindow(ctx, f.HostID, served, api.ProcessNode{Process: *agent})
+	}
+	if err != nil {
+		h.logger.ErrorContext(ctx, "read agent alert window", "host_id", f.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return f, false
+	}
+	if agent == nil {
+		h.writeJSON(w, r, []api.Alert{})
+		return f, false
+	}
+	return f, true
 }
 
 func (h *Handler) handleGetAlert(w http.ResponseWriter, r *http.Request) {

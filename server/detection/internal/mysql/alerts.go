@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -281,9 +280,10 @@ func alertFilterWhere(f api.AlertFilter) (string, []any) {
 		args = append(args, f.HostID, f.AgentSessionID)
 	}
 	if f.AgentProcessID != 0 {
-		// The agent's own processes, whenever they ran: the view keys alerts by the processes it lists.
-		clauses = append(clauses, "process_id IN (SELECT id FROM processes WHERE host_id = ? AND "+agentOwnSQL+")")
-		args = append(args, f.HostID, f.AgentProcessID, int64(math.MaxInt64), maxDescendantDepth, f.AgentProcessID)
+		// The agent's own processes in the window the tree read lists them for, by the same walk.
+		clauses = append(clauses, "process_id IN (SELECT id FROM processes WHERE host_id = ? AND fork_time_ns >= ? AND fork_time_ns < ? AND "+
+			agentOwnSQL+")")
+		args = append(args, f.HostID, f.AgentFromNs, f.AgentToNs, f.AgentProcessID, f.AgentToNs, maxDescendantDepth, f.AgentProcessID)
 	}
 	return strings.Join(clauses, " AND "), args
 }
