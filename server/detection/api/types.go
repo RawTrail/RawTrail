@@ -780,6 +780,8 @@ type ProcessTreeResult struct {
 	// Agents are an AI agent session's agent processes (issue #1334), read only for a session scope: the agent carries no session
 	// marker, so it is not among the roots, and each root it created names its row as ParentProcessID. Absent otherwise.
 	Agents []ProcessNode `json:"agents,omitempty"`
+	// AgentOwnTruncated reports that an agent's own processes, the Children of an Agents node (issue #1361), were cut at their bound.
+	AgentOwnTruncated bool `json:"agent_own_truncated,omitempty"`
 }
 
 // ProcessLinkInferredLaunch is a link inferred from timing and a matching target: an open or launchctl exec, then within seconds a

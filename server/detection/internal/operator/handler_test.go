@@ -26,6 +26,7 @@ type fakeService struct {
 	listHosts         func(ctx context.Context) ([]api.HostSummary, error)
 	buildChainTree    func(ctx context.Context, hostID string, tr api.TimeRange, pinnedID int64, flatten bool) (api.ProcessTreeResult, error)
 	buildScopedTree   func(ctx context.Context, hostID string, scope api.TreeScope, limit int, flatten bool, pinnedID int64) (api.ProcessTreeResult, error)
+	buildAgentOwnTree func(ctx context.Context, hostID string, agentID, fromNs, toNs int64) ([]api.ProcessNode, bool, error)
 	buildTree         func(ctx context.Context, hostID string, tr api.TimeRange, limit int, flatten bool, pinnedID int64) (api.ProcessTreeResult, error)
 	getProcessDetail  func(ctx context.Context, hostID string, pid int, atNs int64, pidVersion *uint32) (*api.ProcessDetail, error)
 	listAlerts        func(ctx context.Context, filter api.AlertFilter) ([]api.Alert, error)
@@ -72,6 +73,16 @@ func (f fakeService) BuildScopedTree(
 		panic("fakeService.BuildScopedTree not set")
 	}
 	return f.buildScopedTree(ctx, hostID, scope, limit, flatten, pinnedID)
+}
+
+// BuildAgentOwnTree returns no processes when unset, so a session tree test about something else needs no agent's own read.
+func (f fakeService) BuildAgentOwnTree(
+	ctx context.Context, hostID string, agentID, fromNs, toNs int64,
+) ([]api.ProcessNode, bool, error) {
+	if f.buildAgentOwnTree == nil {
+		return nil, false, nil
+	}
+	return f.buildAgentOwnTree(ctx, hostID, agentID, fromNs, toNs)
 }
 
 func (f fakeService) GetProcessDetail(
