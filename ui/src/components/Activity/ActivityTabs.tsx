@@ -4,6 +4,7 @@ import { getActivity, type ActivityScopeQuery } from "../../api";
 import type { ActivityResponse, ActivityRow, ActivityScope } from "../../types";
 import { Table, EmptyState } from "../ui/Table";
 import { formatNs, executableName, hostPort, plural } from "../Search/format";
+import { socketDaemon } from "./socketDaemon";
 
 type TabKey = "files" | "network" | "dns";
 
@@ -15,6 +16,9 @@ const OPERATION_LABELS: Record<string, string> = {
   file_truncate: "truncate",
   file_delete: "delete",
 };
+
+// DAEMON_TITLE explains a daemon's name beside a socket: the session asked it for work, and what the daemon then did is its own.
+const DAEMON_TITLE = "The daemon this socket belongs to. The connect is the session's request; what the daemon did with it is not shown.";
 
 // ROLLED_UP_TITLE explains a folded row: the extension sends at most a set number of rows a second, so a busy window's files are
 // counted under their directory.
@@ -145,6 +149,12 @@ function Seen({ row }: { readonly row: ActivityRow }) {
   );
 }
 
+// DaemonName names the daemon behind a socket a connect row reached (issue #1355), when the path is a well-known one.
+function DaemonName({ path }: { readonly path: string }) {
+  const name = socketDaemon(path);
+  return name ? <span className="activity-tabs__daemon" title={DAEMON_TITLE}>{name}</span> : null;
+}
+
 function FilesPanel({ activity, processName }: PanelProps) {
   const { files } = activity;
   const text = `${plural(files.events, "file event", "file events")} on ${plural(files.distinct, "path", "paths")}`;
@@ -161,6 +171,7 @@ function FilesPanel({ activity, processName }: PanelProps) {
                 <td className="activity-tabs__mono">
                   {r.source_path ? `${r.source_path} → ${r.path}` : r.path}
                   {r.rolled_up && <span className="activity-tabs__rollup" title={ROLLED_UP_TITLE}>/ and below</span>}
+                  {r.operation === "connect" && <DaemonName path={r.path} />}
                 </td>
                 <td>{processName(r)}</td>
                 <Seen row={r} />
