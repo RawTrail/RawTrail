@@ -376,7 +376,8 @@ export interface NetworkConnectPayload {
   remote_hostname?: string;
 }
 
-export type FileOperation = "create" | "modify" | "rename" | "delete";
+// A connect is to a Unix-domain socket, the request to the daemon that serves it (issue #1355).
+export type FileOperation = "create" | "modify" | "rename" | "delete" | "connect";
 
 // FileActivityPayload is an AI agent's file activity as the extension folded it (issue #1287): one or more operations by one process.
 export interface FileActivityPayload {

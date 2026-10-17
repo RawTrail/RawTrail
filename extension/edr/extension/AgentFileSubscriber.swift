@@ -16,8 +16,9 @@ private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", cate
 ///
 /// Roots are execs isAgentRoot accepts: the Claude Code binary, or a process carrying a session id. The file events are CREATE, RENAME,
 /// UNLINK and CLOSE with `modified` set; WRITE and OPEN are left out, because the spike measured them as the bulk of an install's volume
-/// while saying nothing a modified close does not. Operations are folded by FileActivityRollup and sent once a second as
-/// `file_activity` events.
+/// while saying nothing a modified close does not. UIPC_CONNECT adds the Unix-domain sockets the subtree connects to (issue #1355):
+/// the request to a running daemon, kernel-attributed to the process that made it, and never the daemon's own work. Operations are
+/// folded by FileActivityRollup and sent once a second as `file_activity` events.
 final class AgentFileSubscriber: Sendable {
     // swiftlint:disable:next implicitly_unwrapped_optional
     private nonisolated(unsafe) var client: OpaquePointer!
@@ -68,7 +69,8 @@ final class AgentFileSubscriber: Sendable {
             ES_EVENT_TYPE_NOTIFY_CREATE,
             ES_EVENT_TYPE_NOTIFY_RENAME,
             ES_EVENT_TYPE_NOTIFY_UNLINK,
-            ES_EVENT_TYPE_NOTIFY_CLOSE
+            ES_EVENT_TYPE_NOTIFY_CLOSE,
+            ES_EVENT_TYPE_NOTIFY_UIPC_CONNECT
         ]
         guard es_subscribe(client, events, UInt32(events.count)) == ES_RETURN_SUCCESS else {
             logger.error("agent-file subscribe failed")
@@ -79,7 +81,7 @@ final class AgentFileSubscriber: Sendable {
         timer.setEventHandler { [weak self] in self?.flush() }
         timer.resume()
         flushTimer = timer
-        logger.info("agent-file client active: FORK/EXEC/EXIT/CREATE/RENAME/UNLINK/CLOSE, filtered to agent subtrees")
+        logger.info("agent-file client active: FORK/EXEC/EXIT/CREATE/RENAME/UNLINK/CLOSE/UIPC_CONNECT, filtered to agent subtrees")
     }
 
     private static func key(_ token: audit_token_t) -> ProcessKey {
@@ -102,7 +104,7 @@ final class AgentFileSubscriber: Sendable {
         case ES_EVENT_TYPE_NOTIFY_EXIT:
             queue.sync { processes.exit(actor) }
         default:
-            // Most closes on the host belong to no agent; the set lookup settles them before any path is read.
+            // Most closes and socket connects on the host belong to no agent; the set lookup settles them before any path is read.
             guard queue.sync(execute: { processes.contains(actor) }), let record = Self.record(of: msg) else {
                 return
             }
@@ -147,6 +149,8 @@ final class AgentFileSubscriber: Sendable {
                 return nil
             }
             return ObservedOperation(operation: .modify, path: esTokenString(msg.event.close.target.pointee.path))
+        case ES_EVENT_TYPE_NOTIFY_UIPC_CONNECT:
+            return ObservedOperation(operation: .connect, path: esTokenString(msg.event.uipc_connect.file.pointee.path))
         default:
             return nil
         }

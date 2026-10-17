@@ -226,4 +226,22 @@ final class AgentFileActivityTests: XCTestCase {
                        "a single operation carries no count, span or rollup flag")
         XCTAssertEqual(try JSONDecoder().decode(FileActivityPayload.self, from: JSONEncoder().encode(rolled)), rolled)
     }
+
+    // A connect to a Unix-domain socket travels as a file_activity row naming the socket's path (issue #1355), and repeated connects
+    // by one process to one socket fold into one row, as file operations do.
+    // spec:endpoint-event-collection/agent-socket-connects/a-session-s-connect-to-a-daemon-s-socket-is-reported
+    func testSocketConnectsFoldAndKeepTheirOperation() throws {
+        var rollup = FileActivityRollup(budget: 64, maxPending: 4096)
+        for time in [UInt64(100), 200, 300] {
+            rollup.add(record(.connect, "/var/run/docker.sock", at: time))
+        }
+        rollup.add(record(.modify, "/var/run/docker.sock", at: 400))
+        let rows = rollup.flush()
+        let connect = try XCTUnwrap(rows.first { $0.payload.operation == .connect })
+        XCTAssertEqual(connect.payload.path, "/var/run/docker.sock")
+        XCTAssertEqual(connect.payload.coalescedCount, 3)
+        XCTAssertEqual(rows.count, 2, "a connect does not fold into another operation on the same path")
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(connect.payload)) as? [String: Any]
+        XCTAssertEqual(json?["operation"] as? String, "connect")
+    }
 }

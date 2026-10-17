@@ -8,7 +8,7 @@ import { formatNs, executableName, hostPort, plural } from "../Search/format";
 type TabKey = "files" | "network" | "dns";
 
 // OPERATION_LABELS names a watched-path event's type as an operation. An AI agent's file activity (issue #1287) already carries its
-// operation (create, modify, rename, delete), which is shown as it is.
+// operation (create, modify, rename, delete, or connect to a Unix-domain socket), which is shown as it is.
 const OPERATION_LABELS: Record<string, string> = {
   open: "open",
   file_rename: "rename",
