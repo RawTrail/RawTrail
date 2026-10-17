@@ -2816,8 +2816,10 @@ components:
                         properties:
                           operation:
                             type: string
-                            enum: [open, file_rename, file_truncate, file_delete, create, modify, rename, delete]
-                            description: The event type of a watched-path event, or the operation of an AI agent's file activity.
+                            enum: [open, file_rename, file_truncate, file_delete, create, modify, rename, delete, connect]
+                            description: >-
+                              The event type of a watched-path event, or the operation of an AI agent's file activity; connect is a
+                              connect to the Unix-domain socket at path.
                           path: {type: string}
                           source_path: {type: string, description: A single rename's origin.}
                           rolled_up:
