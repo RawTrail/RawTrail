@@ -114,8 +114,8 @@ func TestEventArchive_AgentSessionLineage(t *testing.T) {
 				return got
 			}
 			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedSessionIDs: []string{"fork", "fork-of-quiet-fork", "job-quiet-fork",
-				"quiet-fork"}}, lineage("parent"), "the fork of the fork is its parent's, and neither /clear nor another user's transcripts make a fork; "+
-				"known limit: the fork of the quiet fork reads as the parent's")
+				"quiet-fork"}}, lineage("parent"), "the fork of the fork is its parent's, and neither /clear nor another user's "+
+				"transcripts make a fork; known limit: the fork of the quiet fork reads as the parent's")
 			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedFromSessionID: "parent", ForkedSessionIDs: []string{"grandfork"}},
 				lineage("fork"))
 			assert.Equal(t, visibilityapi.AgentSessionLineage{ForkedFromSessionID: "fork", ForkedSessionIDs: []string{}}, lineage("grandfork"),

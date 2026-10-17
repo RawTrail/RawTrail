@@ -35,8 +35,9 @@ func TestToolCallPayloadRoundTrip(t *testing.T) {
 			ToolName: rapid.StringN(1, 16, -1).Draw(t, "tool"), Command: rapid.String().Draw(t, "command"),
 			Description: rapid.String().Draw(t, "description"), FilePath: rapid.String().Draw(t, "path"),
 			CWD: rapid.String().Draw(t, "cwd"), OriginSessionID: rapid.String().Draw(t, "origin"),
-			ForkedFromSessionID: rapid.String().Draw(t, "forked from"), Sidechain: rapid.Bool().Draw(t, "sidechain"), Truncated: rapid.Bool().Draw(t, "truncated"),
-			OwnerUID: rapid.Uint32().Draw(t, "uid"),
+			ForkedFromSessionID: rapid.String().Draw(t, "forked from"), Sidechain: rapid.Bool().Draw(t, "sidechain"),
+			Truncated: rapid.Bool().Draw(t, "truncated"),
+			OwnerUID:  rapid.Uint32().Draw(t, "uid"),
 		}
 		payload := call.Payload()
 		raw, err := json.Marshal(payload)
