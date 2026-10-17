@@ -120,6 +120,32 @@ describe("ActivityTabs", () => {
     expect(within(install as HTMLElement).getByText("1,856")).toBeVisible();
   });
 
+  // A connect to a well-known daemon's socket names the daemon beside the path (issue #1355); an unknown socket and a file
+  // operation on the same kind of path name none.
+  // spec:web-ui/socket-daemon-names/a-connect-to-a-well-known-socket-names-its-daemon
+  it("names the daemon behind a socket a connect reached", async () => {
+    const files = {
+      events: 4, distinct: 3, truncated: false,
+      rows: [
+        { pid: 3446, pidversion: 9, count: 1, first_ns: S, last_ns: S, operation: "connect" as const,
+          path: "/private/tmp/com.apple.launchd.iIlTeYzViU/Listeners" },
+        { pid: 3098, pidversion: 7, count: 2, first_ns: 2 * S, last_ns: 3 * S, operation: "connect" as const, path: "/private/tmp/qa1355.sock" },
+        { pid: 3098, pidversion: 7, count: 1, first_ns: 4 * S, last_ns: 4 * S, operation: "delete" as const, path: "/var/run/docker.sock" },
+      ],
+    };
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
+    const agent = screen.getByText("/private/tmp/com.apple.launchd.iIlTeYzViU/Listeners", { exact: false }).closest("tr");
+    expect(agent).not.toBeNull();
+    expect(within(agent as HTMLElement).getByText("ssh-agent")).toBeVisible();
+    expect(within(agent as HTMLElement).getByText("connect")).toBeVisible();
+    const unknown = screen.getByText("/private/tmp/qa1355.sock", { exact: false }).closest("tr");
+    expect(unknown?.querySelector(".activity-tabs__daemon")).toBeNull();
+    const removed = screen.getByText("/var/run/docker.sock", { exact: false }).closest("tr");
+    expect(within(removed as HTMLElement).queryByText("Docker")).toBeNull();
+  });
+
   it("names a process by pid when the scope did not list it, and selects one when asked", async () => {
     const onProcess = vi.fn();
     const activity = session({ processes: session().processes.slice(1) });
