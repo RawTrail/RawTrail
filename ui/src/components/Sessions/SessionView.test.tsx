@@ -508,17 +508,17 @@ describe("SessionView", () => {
     const names = () => [...document.querySelectorAll(".session-view__processes .session-view__name")].map((b) => b.textContent);
     expect(names()).toEqual(["claude", "zsh"]);
     expect(screen.queryByText("internal")).toBeNull();
-    const toggle = screen.getByLabelText("Show Claude Code's internal processes (3)");
-    expect(screen.getByText("5 processes in all: 1 from the session's commands, 3 internal to Claude Code, and Claude Code itself"))
-      .toBeVisible();
+    const toggle = screen.getByLabelText("Show internal processes (3)");
+    expect(toggle).toHaveAccessibleDescription(
+      "Plugin scans, git checks, keychain reads and shell snapshots Claude Code ran for itself, outside any command.");
+    expect(await screen.findByText("1 process", { selector: ".session-view__processes-summary" })).toBeVisible();
     expect(toggle).toBeVisible();
 
     fireEvent.click(toggle);
     expect(names()).toEqual(["claude", "rg", "zsh", "env", "zsh"]);
     expect(screen.getAllByText("internal")).toHaveLength(3);
-    // The total leads whenever the agent ran internal processes, the toggle on or off.
-    expect(screen.getByText("5 processes in all: 1 from the session's commands, 3 internal to Claude Code, and Claude Code itself"))
-      .toBeVisible();
+    // The count is what the list holds: the command's process and, shown, the 3 internal ones.
+    expect(await screen.findByText("4 processes", { selector: ".session-view__processes-summary" })).toBeVisible();
     const commandRow = [...document.querySelectorAll(".session-view__processes li")].find((li) =>
       li.querySelector(".session-view__cmdline")?.textContent.includes("eval"));
     expect(commandRow?.querySelector(".session-view__row")?.textContent).not.toContain("internal");
@@ -538,7 +538,7 @@ describe("SessionView", () => {
       Promise.resolve(params?.agent_process === 9 ? [alert({ id: 7, process_id: 20, title: "Keychain credential read" })] : []));
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
-    fireEvent.click(screen.getByLabelText("Show Claude Code's internal processes (1)"));
+    fireEvent.click(screen.getByLabelText("Show internal processes (1)"));
     const badge = await screen.findByText("Keychain credential read");
     expect(badge).toBeVisible();
     expect(badge.closest("li")?.querySelector(".session-view__name")?.textContent).toBe("security");
@@ -556,12 +556,13 @@ describe("SessionView", () => {
     renderView();
     expect(await screen.findByText(/alerts could not be loaded/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
-    expect(screen.getByLabelText("Show Claude Code's internal processes (1+)")).toBeVisible();
-    expect(screen.getByText("3+ processes in all: 1 from the session's commands, 1+ internal to Claude Code, and Claude Code itself"))
-      .toBeVisible();
+    const toggle = screen.getByLabelText("Show internal processes (1+)");
+    expect(await screen.findByText("1 process", { selector: ".session-view__processes-summary" })).toBeVisible();
+    fireEvent.click(toggle);
+    expect(await screen.findByText("2+ processes", { selector: ".session-view__processes-summary" })).toBeVisible();
   });
 
-  it("counts each agent process in the total when two served the session", async () => {
+  it("counts the internal processes of each agent process when two served the session", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const first = proc(9, 5000, 0, "/Users/victor/.local/bin/claude", ["claude"],
       [proc(20, 20, 50, "/usr/bin/git", ["git", "status"], [], { agent_session_id: undefined })], { agent_session_id: undefined });
@@ -571,8 +572,8 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], agents: [first, second] }));
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
-    expect(screen.getByText("5 processes in all: 1 from the session's commands, 2 internal to Claude Code, and 2 Claude Code processes"))
-      .toBeVisible();
+    fireEvent.click(screen.getByLabelText("Show internal processes (2)"));
+    expect(await screen.findByText("3 processes", { selector: ".session-view__processes-summary" })).toBeVisible();
   });
 
   it("calls an agent it has no product name for by the name its session records", async () => {
@@ -584,7 +585,8 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], agents: [agent] }));
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
-    expect(screen.getByLabelText("Show codex's internal processes (1)")).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Show internal processes (1)" }))
+      .toHaveAccessibleDescription(expect.stringContaining("codex ran for itself"));
   });
 
   it("offers no agent's own processes toggle when the agent ran none", async () => {
@@ -594,7 +596,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], agents: [agent] }));
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
-    expect(await screen.findByText("1 process from the session's commands")).toBeVisible();
+    expect(await screen.findByText("1 process", { selector: ".session-view__processes-summary" })).toBeVisible();
     expect(screen.queryByText(/internal processes/)).toBeNull();
   });
 
@@ -614,7 +616,7 @@ describe("SessionView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
     expect(screen.getByRole("button", { name: "Processes", pressed: true })).toBeVisible();
-    expect(screen.getByText("3 processes from the session's commands")).toBeVisible();
+    expect(await screen.findByText("3 processes", { selector: ".session-view__processes-summary" })).toBeVisible();
     // Hidden but kept in place, so the header wraps as it does in Commands and the view switcher stays where it was.
     // spec:web-ui/stable-session-view-switcher/the-plumbing-toggle-is-hidden-not-removed-outside-commands
     expect(screen.getByText("Show shell plumbing")).not.toBeVisible();
@@ -674,8 +676,7 @@ describe("SessionView", () => {
     renderView();
     await screen.findByText("ls /private/tmp | head -3");
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
-    expect(screen.getByText("16 processes from the session's commands. 1 root sits beside Claude Code: the process that created it was " +
-      "not read")).toBeVisible();
+    expect(screen.getByText("16 processes. 1 root sits beside Claude Code: the process that created it was not read")).toBeVisible();
   });
 
   it("lists the commands as roots when the agent process was not seen", async () => {
@@ -684,7 +685,7 @@ describe("SessionView", () => {
     renderView();
     await screen.findByText("ls /private/tmp | head -3");
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
-    expect(screen.getByText(/16 processes from the session's commands\. Claude Code's process was not seen/)).toBeVisible();
+    expect(screen.getByText(/16 processes\. Claude Code's process was not seen/)).toBeVisible();
   });
 
   // spec:web-ui/inferred-launches-in-the-ui/a-session-lists-a-launch-under-the-call-that-asked

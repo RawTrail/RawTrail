@@ -64,6 +64,11 @@ function agentLabel(agentName: string | undefined): string {
   return (agentName ? AGENT_NAMES.get(agentName) : undefined) ?? agentName ?? "the agent";
 }
 
+// internalHelp explains the internal processes toggle (issue #1361): what the agent ran for itself, outside any command.
+function internalHelp(agent: string): string {
+  return `Plugin scans, git checks, keychain reads and shell snapshots ${agent} ran for itself, outside any command.`;
+}
+
 // INTERNAL_TITLE says what an internal process is (issue #1361): one the agent ran for itself, outside any command.
 const INTERNAL_TITLE = "The agent ran this for itself, outside any command. It carries no session marker.";
 
@@ -436,19 +441,19 @@ function ProcessesBody({ read, forest, agent, showOwn, onShowOwn }: {
   return (
     <div className="session-view__processes">
       <p className="session-view__processes-summary">
-        {processesSummary(forest, agent, own, read.tree.agent_own_truncated === true)}
+        {processesSummary(forest, agent, showOwn && read.tree.agent_own_truncated === true)}
       </p>
       {own > 0 && (
         <div className="session-view__own">
           <Toggle
             id="session-own"
-            label={`Show ${possessive(agent)} internal processes (${own.toLocaleString()}${read.tree.agent_own_truncated ? "+" : ""})`}
+            label={`Show internal processes (${own.toLocaleString()}${read.tree.agent_own_truncated ? "+" : ""})`}
+            aria-describedby="session-own-help"
             checked={showOwn}
             onChange={(e) => { onShowOwn(e.target.checked); }}
           />
-          <span className="session-view__meta">
-            {`Plugin scans, git checks, keychain reads and shell snapshots ${agent} ran for itself, outside any command.`}
-          </span>
+          {/* The switch's description: read with it by a screen reader, and shown beside it on hover or keyboard focus. */}
+          <span id="session-own-help" className="session-view__own-help">{internalHelp(agent)}</span>
         </div>
       )}
       <ProcessRows rows={forest} />
@@ -461,27 +466,17 @@ function possessive(name: string): string {
   return `${name}'s`;
 }
 
-// countCommandRows counts the processes the session's commands started that a forest lists, folded ones included: not the agent's
-// own row, and not its internal processes.
-function countCommandRows(rows: readonly SessionRow[]): number {
-  return rows.reduce((sum, listed) =>
-    sum + (listed.agent || listed.own ? 0 : 1 + (listed.folded?.length ?? 0)) + countCommandRows(listed.children), 0);
+// countListedRows counts the processes a forest lists below its agents, folded ones included: the session's, and the agent's internal
+// ones when they are shown. The agent's own row heads the list either way and is not counted.
+function countListedRows(rows: readonly SessionRow[]): number {
+  return rows.reduce((sum, listed) => sum + (listed.agent ? 0 : 1 + (listed.folded?.length ?? 0)) + countListedRows(listed.children), 0);
 }
 
-// processesSummary counts the processes the session's commands started (issue #1361) and says where they hang: under the agent,
-// beside it when a root's creator was not read, or as roots when the agent was not seen. When the agent ran internal processes, it
-// leads with the total: the commands', the internal ones (marked + when their read was cut) and the agent's own.
-function processesSummary(forest: readonly SessionRow[], agent: string, internal: number, cut: boolean): string {
-  const commands = countCommandRows(forest);
-  const fromCommands = "from the session's commands";
-  let count = `${plural(commands, "process", "processes")} ${fromCommands}`;
-  if (internal > 0) {
-    const agents = forest.filter((r) => r.agent).length;
-    const more = cut ? "+" : "";
-    const itself = agents === 1 ? `${agent} itself` : `${agents.toLocaleString()} ${agent} processes`;
-    count = `${(commands + internal + agents).toLocaleString()}${more} processes in all: ${commands.toLocaleString()} ${fromCommands}, ` +
-      `${internal.toLocaleString()}${more} internal to ${agent}, and ${itself}`;
-  }
+// processesSummary counts the processes the Processes view lists (issue #1361), with + when the internal ones it shows were cut, and
+// says when its roots do not all hang under the agent: some beside it, whose creator was not read, or all, when it was not seen.
+function processesSummary(forest: readonly SessionRow[], agent: string, cut: boolean): string {
+  const listed = countListedRows(forest);
+  const count = cut ? `${listed.toLocaleString()}+ processes` : plural(listed, "process", "processes");
   const beside = forest.filter((r) => !r.agent).length;
   if (beside === forest.length) return `${count}. ${possessive(agent)} process was not seen, so its commands are listed as roots`;
   if (beside === 0) return count;

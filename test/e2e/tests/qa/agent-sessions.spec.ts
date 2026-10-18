@@ -89,7 +89,7 @@ test.describe("agent sessions", () => {
     // created it, marked as reparented. Nothing is hidden or folded, so the count is the eleven processes the session's commands started.
     await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Processes" }).click();
     const processes = page.locator(".session-view__processes");
-    await expect(processes.getByText("11 processes from the session's commands")).toBeVisible();
+    await expect(processes.getByText("11 processes", { exact: true })).toBeVisible();
     await expect(processes.locator(".session-view__name").first()).toHaveText("claude");
     // One root: all four commands' shells sit under the agent, none beside it.
     await expect(processes.locator(":scope > ul > li")).toHaveCount(1);

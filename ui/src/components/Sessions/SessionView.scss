@@ -46,6 +46,19 @@
     margin: 0 0 0.75rem;
   }
 
+  // The toggle's help, kept off the resting view and shown on hover or keyboard focus; a screen reader reads it as the switch's
+  // description either way.
+  &__own-help {
+    color: $ui-fleet-black-50;
+    font-size: 0.8rem;
+    visibility: hidden;
+  }
+
+  &__own:hover &__own-help,
+  &__own:focus-within &__own-help {
+    visibility: visible;
+  }
+
   // The Processes view (issue #1335): one tree in one card, the way a command's processes sit in theirs.
   &__processes {
     background: $core-fleet-white;
