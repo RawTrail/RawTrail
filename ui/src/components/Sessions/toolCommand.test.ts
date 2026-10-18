@@ -26,6 +26,20 @@ describe("toolCommand", () => {
     // The wrapper always opens a run, so a command starting with a quote begins with an empty one.
     ["a quote at the very start", `''\\''quoted'\\'' rest'`, "'quoted' rest"],
     ["an empty command", "''", ""],
+    // Claude Code 2.1.300 and later escape an embedded quote as '"'"': close, a double-quoted quote, reopen (issue #1350).
+    // spec:web-ui/tool-command-quoting/a-command-with-the-double-quoted-escape-reads-as-the-agent-ran-it
+    ["the double-quoted escape, as edr-dev captured it",
+      `'open -b com.apple.TextEdit && sleep 5 && osascript -e '"'"'quit app "TextEdit"'"'"''`,
+      `open -b com.apple.TextEdit && sleep 5 && osascript -e 'quit app "TextEdit"'`],
+    ["the double-quoted escape at the start", `''"'"'quoted'"'"' rest'`, "'quoted' rest"],
+    ["the double-quoted escape in the middle", `'echo it'"'"'s'`, "echo it's"],
+    ["the double-quoted escape at the end", `'echo '"'"''`, "echo '"],
+    // The RSA rerun's first call: double quotes, a newline and the escape in one command.
+    ["a multi-line command with the double-quoted escape",
+      `'npm init -y >/dev/null && echo "const esbuild = require('"'"'esbuild'"'"');
+console.log(esbuild.version);" > build.js'`,
+      `npm init -y >/dev/null && echo "const esbuild = require('esbuild');
+console.log(esbuild.version);" > build.js`],
   ])("reads %s", (_name, quoted, want) => {
     expect(toolCommand(wrap(quoted))).toBe(want);
   });
@@ -37,6 +51,10 @@ describe("toolCommand", () => {
 
   it("skips an escaped quote before the eval rather than reading a quoted run from it", () => {
     expect(toolCommand(["/bin/zsh", "-c", "echo \\' && eval 'git status' < /dev/null"])).toBe("git status");
+  });
+
+  it("does not take an eval inside a double-quoted run for the wrapper's", () => {
+    expect(toolCommand(["/bin/zsh", "-c", `eval 'git status' && echo "then eval 'x'"`])).toBe("git status");
   });
 
   it("reads the wrapper's eval when the command itself runs eval", () => {
@@ -51,6 +69,7 @@ describe("toolCommand", () => {
     ["a non-shell -c", ["/usr/bin/python3", "-c", "eval 'x'"]],
     ["a shell script with no eval", ["/bin/zsh", "-c", "git status"]],
     ["an unterminated quote", ["/bin/zsh", "-c", "eval 'git status"]],
+    ["an unterminated double quote", ["/bin/zsh", "-c", `eval 'git'"status`]],
     ["a word that only ends in eval", ["/bin/zsh", "-c", "echo retrieval payload"]],
   ])("returns null for %s", (_name, args) => {
     expect(toolCommand(args)).toBeNull();
@@ -69,6 +88,16 @@ describe("readShellWord", () => {
   it("stops at unquoted whitespace and keeps quoted whitespace", () => {
     expect(readShellWord("'a b'c d", 0)).toBe("a bc");
     expect(readShellWord("x\\ y z", 0)).toBe("x y");
+  });
+
+  it("unescapes only what POSIX escapes inside double quotes", () => {
+    expect(readShellWord(String.raw`"a\$b\"c\\d\e"`, 0)).toBe(String.raw`a$b"c\d\e`);
+  });
+
+  it("drops a backslash-newline, a line continuation, in and out of double quotes, and keeps a bare newline", () => {
+    expect(readShellWord('"echo a\\\nb"', 0)).toBe("echo ab");
+    expect(readShellWord("echo\\\nb", 0)).toBe("echob");
+    expect(readShellWord('"echo a\nb"', 0)).toBe("echo a\nb");
   });
 
   it("keeps a trailing backslash with nothing to escape", () => {
