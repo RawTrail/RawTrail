@@ -94,6 +94,12 @@ describe("readShellWord", () => {
     expect(readShellWord(String.raw`"a\$b\"c\\d\e"`, 0)).toBe(String.raw`a$b"c\d\e`);
   });
 
+  it("drops a backslash-newline, a line continuation, in and out of double quotes, and keeps a bare newline", () => {
+    expect(readShellWord('"echo a\\\nb"', 0)).toBe("echo ab");
+    expect(readShellWord("echo\\\nb", 0)).toBe("echob");
+    expect(readShellWord('"echo a\nb"', 0)).toBe("echo a\nb");
+  });
+
   it("keeps a trailing backslash with nothing to escape", () => {
     expect(readShellWord("ab\\", 0)).toBe("ab\\");
   });

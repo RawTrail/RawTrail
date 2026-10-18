@@ -31,7 +31,8 @@ export function shellScript(args: readonly string[] | undefined): string | null 
 const DOUBLE_QUOTED_ESCAPES = new Set(["$", "`", '"', "\\", "\n"]);
 
 // readDoubleQuoted reads the double-quoted run whose opening quote is at open: its text, with the backslash escapes POSIX applies
-// inside double quotes, and the index past its closing quote. Null when the quote is never closed.
+// inside double quotes, a backslash-newline being a line continuation that leaves nothing, and the index past its closing quote. Null
+// when the quote is never closed.
 function readDoubleQuoted(text: string, open: number): { text: string; end: number } | null {
   let run = "";
   let i = open + 1;
@@ -39,7 +40,7 @@ function readDoubleQuoted(text: string, open: number): { text: string; end: numb
     const c = text.charAt(i);
     if (c === '"') return { text: run, end: i + 1 };
     if (c === "\\" && i + 1 < text.length && DOUBLE_QUOTED_ESCAPES.has(text.charAt(i + 1))) {
-      run += text.charAt(i + 1);
+      if (text.charAt(i + 1) !== "\n") run += text.charAt(i + 1);
       i += 2;
     } else {
       run += c;
@@ -67,7 +68,8 @@ export function readShellWord(text: string, start: number): string | null {
       word += run.text;
       i = run.end;
     } else if (text.charAt(i) === "\\" && i + 1 < text.length) {
-      word += text.charAt(i + 1);
+      // A backslash-newline is a line continuation, which leaves nothing.
+      if (text.charAt(i + 1) !== "\n") word += text.charAt(i + 1);
       i += 2;
     } else {
       word += text.charAt(i);
