@@ -388,7 +388,7 @@ const file_internal_control_control_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06result\x18\x03 \x01(\fR\x06result2b\n" +
 	"\x0eControlChannel\x12P\n" +
-	"\aConnect\x12\x1f.fleetedr.control.v1.AgentFrame\x1a .fleetedr.control.v1.ServerFrame(\x010\x01B1Z/github.com/fleetdm/edr/internal/control;controlb\x06proto3"
+	"\aConnect\x12\x1f.fleetedr.control.v1.AgentFrame\x1a .fleetedr.control.v1.ServerFrame(\x010\x01B7Z5github.com/rawtrail/rawtrail/internal/control;controlb\x06proto3"
 
 var (
 	file_internal_control_control_proto_rawDescOnce sync.Once

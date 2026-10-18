@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // newAppControlStore wires the rules context against a fresh test DB and returns the store handle plus the *Rules so each test can

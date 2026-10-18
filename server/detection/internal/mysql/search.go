@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // The kernel code-signing status bits the signing filter interprets, matching ui/src/signing.ts (CS_VALID / CS_ADHOC in

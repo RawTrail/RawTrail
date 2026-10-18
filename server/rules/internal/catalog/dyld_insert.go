@@ -3,12 +3,12 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"github.com/fleetdm/edr/server/rules/internal/sigmabind"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigmabind"
 	"strings"
 	"sync"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 // DyldInsert fires when a process is launched with DYLD_INSERT_LIBRARIES or

@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
 )
 
 const testUUID = "93DFC6F5-763D-5075-B305-8AC145D12F96"

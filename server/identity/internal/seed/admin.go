@@ -18,10 +18,10 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/rbac"
-	"github.com/fleetdm/edr/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/rbac"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
 )
 
 // DefaultAdminEmail is the well-known first-admin email. Operators can create further

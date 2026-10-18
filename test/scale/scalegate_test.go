@@ -26,9 +26,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/config"
-	"github.com/fleetdm/edr/test/integration"
-	"github.com/fleetdm/edr/test/scale"
+	"github.com/rawtrail/rawtrail/server/config"
+	"github.com/rawtrail/rawtrail/test/integration"
+	"github.com/rawtrail/rawtrail/test/scale"
 )
 
 const (

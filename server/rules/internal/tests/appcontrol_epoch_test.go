@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // spec:server-application-control/command-fan-out-on-policy-mutation/the-policy-epoch-advances-when-the-database-clock-steps-back

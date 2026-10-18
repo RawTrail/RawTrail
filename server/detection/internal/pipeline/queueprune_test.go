@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // fakeEventLog records the batchSize PruneProcessed was called with and returns a scripted (count, err). The other EventLog methods are

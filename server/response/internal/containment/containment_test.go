@@ -18,14 +18,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/response/internal/containment"
-	"github.com/fleetdm/edr/server/response/internal/mysql"
-	"github.com/fleetdm/edr/server/response/internal/service"
-	"github.com/fleetdm/edr/server/response/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/internal/containment"
+	"github.com/rawtrail/rawtrail/server/response/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/response/internal/service"
+	"github.com/rawtrail/rawtrail/server/response/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // recordingAudit keeps every audit event recorded, and refuses them while unavailable, as a store that is down does.

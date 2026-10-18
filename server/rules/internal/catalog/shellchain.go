@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // shellChainRule is what the shared walk needs from whichever rule is driving it: an identity to key exclusions on, the resolver

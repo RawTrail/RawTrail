@@ -10,8 +10,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	detectionslices "github.com/fleetdm/edr/server/detection/internal/slices"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	detectionslices "github.com/rawtrail/rawtrail/server/detection/internal/slices"
 )
 
 // alertEventsBatchSize caps the number of (alert_id, event_id) rows per INSERT. Today's rules cap their output at ~10 events per

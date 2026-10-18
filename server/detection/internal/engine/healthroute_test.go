@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // healthRule is a stub that declares itself a health signal and returns one finding carrying a health detail, which is the shape

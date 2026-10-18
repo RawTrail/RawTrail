@@ -10,7 +10,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // GetLaunchdChildren returns the host's processes launchd forked with a fork time inside any of the ranges, oldest first, at most

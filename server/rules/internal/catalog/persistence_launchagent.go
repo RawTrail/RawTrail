@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // PersistenceLaunchAgent fires when a LaunchAgent is registered with Background Task Management (BTM) whose REGISTERED EXECUTABLE is

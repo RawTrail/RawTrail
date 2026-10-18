@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/fleetdm/edr/server/metrics"
-	api "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/detectionconfig"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/metrics"
+	api "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // TestMeasureEvalStatsRecordLatency is the measurement behind issue #837, kept in the tree rather than run once and pasted into a

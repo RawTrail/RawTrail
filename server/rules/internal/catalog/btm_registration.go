@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // untrustedRegistration decodes a Background Task Management registration of one of itemTypes and reports whether it is one a

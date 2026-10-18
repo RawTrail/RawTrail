@@ -16,8 +16,8 @@ import (
 	"golang.org/x/net/proxy"
 	"google.golang.org/grpc"
 
-	"github.com/fleetdm/edr/agent/config"
-	"github.com/fleetdm/edr/agent/containment"
+	"github.com/rawtrail/rawtrail/agent/config"
+	"github.com/rawtrail/rawtrail/agent/containment"
 )
 
 // dialFunc is the dial every connection to the server goes through.

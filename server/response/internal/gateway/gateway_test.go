@@ -19,9 +19,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/fleetdm/edr/internal/control"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/internal/control"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // fakeSource is an in-memory CommandSource. UpdateStatus drops the command from the pending set, mirroring the real transition out of

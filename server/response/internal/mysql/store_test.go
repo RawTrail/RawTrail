@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/response/internal/mysql"
-	"github.com/fleetdm/edr/server/response/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/response/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // newTestStore opens an isolated DB and applies response's schema via the canonical testkit.ApplySchema. Lives in the external test

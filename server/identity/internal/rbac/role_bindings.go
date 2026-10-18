@@ -18,8 +18,8 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
 )
 
 // mysqlErrDupEntry is the MySQL "Duplicate entry" code. ProvisionUser maps a uk_users_email collision to api.ErrEmailExists. One local

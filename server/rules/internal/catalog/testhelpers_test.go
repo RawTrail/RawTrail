@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/testdb"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // catalogStore is a thin wrapper that exposes the limited per-rule-test surface (insert events, materialise the process graph,

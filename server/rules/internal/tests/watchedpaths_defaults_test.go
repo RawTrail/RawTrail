@@ -17,10 +17,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/watchedpaths"
-	"github.com/fleetdm/edr/server/testdb/full"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/watchedpaths"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 type defaultsRig struct {

@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/migrations/runner"
-	rulesmigrations "github.com/fleetdm/edr/server/rules/migrations"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/migrations/runner"
+	rulesmigrations "github.com/rawtrail/rawtrail/server/rules/migrations"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // White-box tests for the refresh loop's error/cancellation branches, which the black-box RefreshLoop convergence test cannot drive

@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
-	"github.com/fleetdm/edr/server/testdb/full"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // newRulesWithDB is newRules keeping the handle, because this test reads the table the write is supposed to stop touching.

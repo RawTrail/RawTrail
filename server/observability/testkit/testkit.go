@@ -11,7 +11,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/observability/bootstrap"
+	"github.com/rawtrail/rawtrail/server/observability/bootstrap"
 )
 
 // ApplySchema runs observability's DDL against db. Thin wrapper over bootstrap.ApplySchema so the test surface is importable

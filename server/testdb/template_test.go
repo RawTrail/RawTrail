@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // synthetic is a schema small enough to reason about and shaped like the real one where it matters: a parent, a child with a

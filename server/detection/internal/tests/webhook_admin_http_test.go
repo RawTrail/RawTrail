@@ -18,10 +18,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/operator"
-	"github.com/fleetdm/edr/server/detection/internal/service"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/operator"
+	"github.com/rawtrail/rawtrail/server/detection/internal/service"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 type denyAuthZ struct{}

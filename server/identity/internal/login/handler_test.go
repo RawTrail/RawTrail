@@ -13,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/login"
-	"github.com/fleetdm/edr/server/identity/internal/middleware"
-	"github.com/fleetdm/edr/server/identity/internal/rbac"
-	"github.com/fleetdm/edr/server/identity/internal/service"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
-	"github.com/fleetdm/edr/server/identity/internal/users"
-	"github.com/fleetdm/edr/server/identity/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/login"
+	"github.com/rawtrail/rawtrail/server/identity/internal/middleware"
+	"github.com/rawtrail/rawtrail/server/identity/internal/rbac"
+	"github.com/rawtrail/rawtrail/server/identity/internal/service"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/identity/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // Local mirror types pinned to the wire shape so the external test package can decode without reaching for handler.go's private struct

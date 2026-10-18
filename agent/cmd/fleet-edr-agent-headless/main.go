@@ -18,9 +18,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/fleetdm/edr/agent/cmd/fleet-edr-agent-headless/headless"
-	"github.com/fleetdm/edr/agent/config"
-	"github.com/fleetdm/edr/agent/enrollment"
+	"github.com/rawtrail/rawtrail/agent/cmd/fleet-edr-agent-headless/headless"
+	"github.com/rawtrail/rawtrail/agent/config"
+	"github.com/rawtrail/rawtrail/agent/enrollment"
 )
 
 func main() {

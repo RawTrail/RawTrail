@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // sudoersOpenEvent builds the write-mode /etc/sudoers open the sudoers_tamper rule keys on, for a pid that has no process row, so

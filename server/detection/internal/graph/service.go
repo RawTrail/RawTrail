@@ -5,7 +5,7 @@ import (
 	"context"
 	"slices"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // Service links (issue #1340). An XPC service launchd starts for an app names the app, by pid and generation, as its responsible

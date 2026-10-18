@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // TestMonitorTallyRoundTrips is the property the carry rests on: whatever an evaluating attempt resolved is what the withdrawing

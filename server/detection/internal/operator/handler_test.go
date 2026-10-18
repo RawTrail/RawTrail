@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // fakeService is the closure-driven detection api.Service stub. Methods relevant to operator routes are pinned per-test via the

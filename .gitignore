@@ -55,3 +55,6 @@ Package.resolved
 # pgregory.net/rapid writes a failing-case reproduction file under testdata/rapid/ only when a property test fails locally; it is a
 # transient debugging artifact, not a fixture, so it should never be committed.
 **/testdata/rapid/
+
+# A built spectrace at the root is a local artifact; the tool runs with go run ./tools/spectrace.
+/spectrace

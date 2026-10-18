@@ -20,10 +20,10 @@ import (
 	"github.com/jmoiron/sqlx"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/fleetdm/edr/internal/logging"
-	"github.com/fleetdm/edr/internal/observability"
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	"github.com/fleetdm/edr/server/config"
+	"github.com/rawtrail/rawtrail/internal/logging"
+	"github.com/rawtrail/rawtrail/internal/observability"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/server/config"
 )
 
 // OTelFlushTimeout caps the OTel exporter flush so a dead collector cannot

@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fleetdm/edr/server/coordination/leader"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/bootstrap"
+	"github.com/rawtrail/rawtrail/server/detection/bootstrap"
 )
 
 // insertAlertWithOrigin writes one alert directly, so a test can stage the pre-attribution state the backfill exists to fix:

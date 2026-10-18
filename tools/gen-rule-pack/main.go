@@ -19,7 +19,7 @@ import (
 	"os"
 	"path/filepath"
 
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
 )
 
 func main() {

@@ -12,11 +12,11 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
-	"github.com/fleetdm/edr/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
 )
 
 // Cookie path scope: only sent on /admin/break-glass paths so the challenge cookie doesn't leak to /api/* on the same origin.

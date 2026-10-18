@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	detapi "github.com/fleetdm/edr/server/detection/api"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 func TestBuild_creationEnvelope(t *testing.T) {

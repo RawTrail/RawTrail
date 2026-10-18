@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // allStatuses enumerates the alert lifecycle states the schema's ENUM accepts. Used by both the example-based + property-based tests

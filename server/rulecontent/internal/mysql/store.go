@@ -11,7 +11,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rulecontent/api"
 )
 
 // Store persists rule content. Satisfies api.Corpus.

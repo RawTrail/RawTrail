@@ -16,8 +16,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/test/fakeagent"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 
 // Constants for the synthetic application-control block. The block decision is normally made on-device by the extension's AUTH_EXEC

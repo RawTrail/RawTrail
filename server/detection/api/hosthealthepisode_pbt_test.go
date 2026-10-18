@@ -7,7 +7,7 @@ import (
 
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // TestHostHealthEpisode_JSONRoundTrip pins Marshal ∘ Unmarshal == identity for a recorded sensor fault as the host page reads it

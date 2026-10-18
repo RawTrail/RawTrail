@@ -16,7 +16,7 @@ package main
 import (
 	"golang.org/x/tools/go/analysis/singlechecker"
 
-	"github.com/fleetdm/edr/tools/comment-wrap-check/lint"
+	"github.com/rawtrail/rawtrail/tools/comment-wrap-check/lint"
 )
 
 func main() {

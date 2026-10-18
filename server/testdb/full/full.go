@@ -29,15 +29,15 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	endpointtestkit "github.com/fleetdm/edr/server/endpoint/testkit"
-	identitytestkit "github.com/fleetdm/edr/server/identity/testkit"
-	observabilitytestkit "github.com/fleetdm/edr/server/observability/testkit"
-	responsetestkit "github.com/fleetdm/edr/server/response/testkit"
-	rulecontenttestkit "github.com/fleetdm/edr/server/rulecontent/testkit"
-	rulestestkit "github.com/fleetdm/edr/server/rules/testkit"
-	"github.com/fleetdm/edr/server/testdb"
-	visibilitytestkit "github.com/fleetdm/edr/server/visibility/testkit"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	endpointtestkit "github.com/rawtrail/rawtrail/server/endpoint/testkit"
+	identitytestkit "github.com/rawtrail/rawtrail/server/identity/testkit"
+	observabilitytestkit "github.com/rawtrail/rawtrail/server/observability/testkit"
+	responsetestkit "github.com/rawtrail/rawtrail/server/response/testkit"
+	rulecontenttestkit "github.com/rawtrail/rawtrail/server/rulecontent/testkit"
+	rulestestkit "github.com/rawtrail/rawtrail/server/rules/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
+	visibilitytestkit "github.com/rawtrail/rawtrail/server/visibility/testkit"
 )
 
 // Open creates an isolated test database with every bounded context's schema applied.

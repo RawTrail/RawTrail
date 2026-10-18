@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	detapi "github.com/fleetdm/edr/server/detection/api"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // SchemaVersion is the payload envelope version. Receivers branch on it; bump it only on a breaking wire change.

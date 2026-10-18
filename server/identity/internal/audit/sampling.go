@@ -21,7 +21,7 @@ package audit
 import (
 	"math/rand/v2"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // ShouldSampleRead reports whether a read-action chokepoint emission

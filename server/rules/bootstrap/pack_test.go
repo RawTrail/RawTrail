@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rules/internal/catalog"
-	"github.com/fleetdm/edr/server/rules/internal/export"
+	"github.com/rawtrail/rawtrail/server/rules/internal/catalog"
+	"github.com/rawtrail/rawtrail/server/rules/internal/export"
 )
 
 // packDir is the committed rule pack, relative to this package's directory.

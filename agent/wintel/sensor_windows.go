@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/fleetdm/edr/agent/receiver"
-	"github.com/fleetdm/edr/agent/wintel/etw"
+	"github.com/rawtrail/rawtrail/agent/receiver"
+	"github.com/rawtrail/rawtrail/agent/wintel/etw"
 )
 
 // kernelProcessGUID is Microsoft-Windows-Kernel-Process {22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}. keyword 0x10 = WINEVENT_KEYWORD_PROCESS

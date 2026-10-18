@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/telemetryhealth"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/telemetryhealth"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // componentsJSON builds the wire payload a host posts, which is what ParseClaims actually receives.

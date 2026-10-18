@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/config"
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/config"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // spec:server-availability/ingest-drains-and-resolves-clients-like-the-server/a-forwarded-address-is-believed-only-from-a-trusted-proxy

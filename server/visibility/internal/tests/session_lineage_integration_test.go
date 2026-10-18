@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
-	"github.com/fleetdm/edr/server/visibility/testkit"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/visibility/testkit"
 )
 
 // Sessions forked from each other (issue #1347), as Claude Code 2.1.300 writes them on edr-dev: a /fork begins with a copy of its

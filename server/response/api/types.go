@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/fleetdm/edr/server/catchup"
+	"github.com/rawtrail/rawtrail/server/catchup"
 )
 
 // Command mirrors a row in the commands table. Field tags preserve

@@ -8,7 +8,7 @@
 //
 // External deps are intentionally minimal: just the analysis interface
 // and the golangci-lint plugin registrar.
-module github.com/fleetdm/edr/tools/comment-wrap-check/lint
+module github.com/rawtrail/rawtrail/tools/comment-wrap-check/lint
 
 go 1.26.9
 

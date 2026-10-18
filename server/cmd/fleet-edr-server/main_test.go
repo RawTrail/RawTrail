@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // TestRegisterUIRoutes_SPAFallback locks in the SPA-fallback contract: /ui/{deep-link} must return 200 with the index.html

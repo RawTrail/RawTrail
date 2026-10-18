@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // --- Engine input/output types -------------------------------------------------

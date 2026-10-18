@@ -7,7 +7,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	detapi "github.com/fleetdm/edr/server/detection/api"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // maxLastErrorLen bounds the last_error text stored per delivery (the column is VARCHAR(1024)); a longer transport error is truncated.

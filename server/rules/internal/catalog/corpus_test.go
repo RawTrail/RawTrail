@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // spec:rule-content/rule-content-is-stored-and-is-the-source-the-catalog-loads-from/the-catalog-loads-the-stored-content

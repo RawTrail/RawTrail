@@ -3,7 +3,7 @@ package detectionconfig
 import (
 	"time"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // Membership reports whether hostID belongs to the host group groupID. The snapshot calls it to decide whether a group-scoped record

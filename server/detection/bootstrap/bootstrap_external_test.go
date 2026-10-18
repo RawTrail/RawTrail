@@ -6,11 +6,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/bootstrap"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	identitytestkit "github.com/fleetdm/edr/server/identity/testkit"
-	"github.com/fleetdm/edr/server/testdb/full"
-	visibilitybootstrap "github.com/fleetdm/edr/server/visibility/bootstrap"
+	"github.com/rawtrail/rawtrail/server/detection/bootstrap"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	identitytestkit "github.com/rawtrail/rawtrail/server/identity/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
+	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
 )
 
 // TestStoreAccessor lives in the external test package because it reaches for testdb/full to apply every context's schema. Keeping it

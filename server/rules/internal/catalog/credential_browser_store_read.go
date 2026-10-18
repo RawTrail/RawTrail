@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // CredentialBrowserStoreRead fires when a program other than the browser opens a browser's saved passwords, cookies, or the key

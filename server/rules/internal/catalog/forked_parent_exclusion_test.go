@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/rules/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // The operator-visible half of issue #1123. A signature exclusion reads the non-shell parent's persisted code-signing identity, and

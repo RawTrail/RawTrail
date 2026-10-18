@@ -11,15 +11,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionbootstrap "github.com/fleetdm/edr/server/detection/bootstrap"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	identitytestkit "github.com/fleetdm/edr/server/identity/testkit"
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
-	rulecontentbootstrap "github.com/fleetdm/edr/server/rulecontent/bootstrap"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
-	"github.com/fleetdm/edr/server/testdb/full"
-	visibilitybootstrap "github.com/fleetdm/edr/server/visibility/bootstrap"
+	detectionbootstrap "github.com/rawtrail/rawtrail/server/detection/bootstrap"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	identitytestkit "github.com/rawtrail/rawtrail/server/identity/testkit"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
+	rulecontentbootstrap "github.com/rawtrail/rawtrail/server/rulecontent/bootstrap"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
+	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
 )
 
 // spec:rule-content/a-running-server-picks-up-changed-content/content-published-elsewhere-is-picked-up-without-a-restart

@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/identity/api"
-	obsbootstrap "github.com/fleetdm/edr/server/observability/bootstrap"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	obsbootstrap "github.com/rawtrail/rawtrail/server/observability/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 type allowAuthZ struct{}

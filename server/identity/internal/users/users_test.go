@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/internal/users"
-	"github.com/fleetdm/edr/server/identity/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/identity/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // newTestStore opens an isolated DB and applies identity's schema so the users.Store has a `users` table to operate against. Lives in

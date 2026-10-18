@@ -30,8 +30,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/agent/config"
-	"github.com/fleetdm/edr/agent/containment"
+	"github.com/rawtrail/rawtrail/agent/config"
+	"github.com/rawtrail/rawtrail/agent/containment"
 )
 
 // fakeProxy is a listener that answers one CONNECT the way a proxy does, records what it was asked, and then hands the connection

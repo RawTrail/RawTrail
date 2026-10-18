@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // Monitor-mode matches are counted on whichever transition ends a batch's life, and one of those transitions can be reached by an

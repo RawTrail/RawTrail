@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/fleetdm/edr/internal/netaddr"
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/internal/netaddr"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // Normalize validates a proposed set and returns it in canonical form, ready to store.

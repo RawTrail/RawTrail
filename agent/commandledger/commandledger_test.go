@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/agent/commandledger"
+	"github.com/rawtrail/rawtrail/agent/commandledger"
 )
 
 func openTestStore(t *testing.T) *commandledger.Store {

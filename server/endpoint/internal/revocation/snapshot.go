@@ -23,10 +23,10 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/fleetdm/edr/internal/revocationset"
+	"github.com/rawtrail/rawtrail/internal/revocationset"
 )
 
-const meterName = "github.com/fleetdm/edr/server/endpoint/revocation"
+const meterName = "github.com/rawtrail/rawtrail/server/endpoint/revocation"
 
 // Entry is one host's revocation state, keyed by host ID. Revoked is terminal (the host is cut off regardless of epoch); Epoch is the
 // host's current token_epoch, against which a presented token's epoch is compared.

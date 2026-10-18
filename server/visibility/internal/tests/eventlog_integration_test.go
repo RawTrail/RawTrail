@@ -17,10 +17,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/testdb"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
-	visibilitybootstrap "github.com/fleetdm/edr/server/visibility/bootstrap"
-	visibilitytestkit "github.com/fleetdm/edr/server/visibility/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
+	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
+	visibilitytestkit "github.com/rawtrail/rawtrail/server/visibility/testkit"
 )
 
 func newEventLog(t *testing.T) visibilityapi.EventLog {

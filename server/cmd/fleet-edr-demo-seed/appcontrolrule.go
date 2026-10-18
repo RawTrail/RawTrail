@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // seedAppControlRule gives the demo's application-control block a policy rule that would actually have produced it, and returns

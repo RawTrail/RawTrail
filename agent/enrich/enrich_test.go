@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fleetdm/edr/agent/codesign"
+	"github.com/rawtrail/rawtrail/agent/codesign"
 )
 
 // fakeEval returns a fixed result for any non-empty path unless configured to

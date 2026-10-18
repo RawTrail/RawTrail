@@ -5,9 +5,9 @@ package main
 import (
 	"context"
 
-	"github.com/fleetdm/edr/agent/health"
-	"github.com/fleetdm/edr/agent/receiver"
-	"github.com/fleetdm/edr/agent/wintel"
+	"github.com/rawtrail/rawtrail/agent/health"
+	"github.com/rawtrail/rawtrail/agent/receiver"
+	"github.com/rawtrail/rawtrail/agent/wintel"
 )
 
 // startTelemetrySensors starts the Windows telemetry sensor: one ETW Kernel-Process consumer driven through the shared receiver.Loop

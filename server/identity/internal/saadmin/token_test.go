@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/satoken"
-	"github.com/fleetdm/edr/server/identity/internal/serviceaccounts"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/satoken"
+	"github.com/rawtrail/rawtrail/server/identity/internal/serviceaccounts"
 )
 
 var fixedNow = time.Unix(1_700_000_000, 0)

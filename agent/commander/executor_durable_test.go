@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/agent/commandledger"
+	"github.com/rawtrail/rawtrail/agent/commandledger"
 )
 
 // TestExecutor_DurableDedupAcrossRestart is the integration-fidelity #558 regression. The other executor dedup tests use the in-memory

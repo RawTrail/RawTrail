@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rulecontent/api"
 )
 
 // spec:rule-content/the-read-surface-does-not-carry-the-write-surface/a-read-handle-cannot-be-converted-into-a-write-handle

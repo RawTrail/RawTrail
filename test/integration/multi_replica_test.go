@@ -19,12 +19,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/coordination/leader"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/testkit"
-	"github.com/fleetdm/edr/server/migrations/runner"
-	responsemigrations "github.com/fleetdm/edr/server/response/migrations"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/testkit"
+	"github.com/rawtrail/rawtrail/server/migrations/runner"
+	responsemigrations "github.com/rawtrail/rawtrail/server/response/migrations"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // TestMultiReplicaProcessorClaimsDisjointBatches proves the SKIP LOCKED batch-claiming the detection processor relies on hands two

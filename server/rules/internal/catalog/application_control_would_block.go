@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // ApplicationControlWouldBlock is the built-in pass-through rule that turns an `application_control_would_block` ingest event into a

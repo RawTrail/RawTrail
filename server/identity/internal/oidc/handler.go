@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
 )
 
 // defaultRedirect is the post-login landing path when the AuthURL

@@ -21,7 +21,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // ShellNetworkConnect is the outbound-connection arm of the former suspicious_exec.

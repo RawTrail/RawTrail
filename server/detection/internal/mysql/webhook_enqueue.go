@@ -9,8 +9,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/webhook"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/webhook"
 )
 
 // alertEnvelopeCols is the full alert projection, read by GetAlert, ListAlerts, and the delivery payload builder alike (COALESCE keeps a

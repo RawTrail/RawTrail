@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // fakeRevokeService stubs api.Service. Only Revoke + List are exercised by these tests; other methods panic so a regression that wires

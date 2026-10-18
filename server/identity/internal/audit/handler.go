@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // Handler serves GET /api/audit-events. Cookie-auth gated by the identity Session middleware (caller wraps before mounting);

@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // forkEvtVer and execEvtVer are the single fork/exec envelope builders for this package. They take an explicit pidversion, nil meaning

@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/catchup"
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/server/catchup"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // declaredStatuses reads every Status constant out of this package's own source.

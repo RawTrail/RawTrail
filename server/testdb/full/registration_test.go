@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/testdb/contexts"
+	"github.com/rawtrail/rawtrail/server/testdb/contexts"
 )
 
 // shippingMigrations is the shared tree scan, wrapped for the assertions below.

@@ -26,13 +26,13 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // auditMeterName is the OTel instrumentation-scope name for the audit-recorder's metric. Stable string so a dashboard alert keyed on
 // instrumentation.scope.name matches across versions.
-const auditMeterName = "github.com/fleetdm/edr/server/identity/audit"
+const auditMeterName = "github.com/rawtrail/rawtrail/server/identity/audit"
 
 // Store implements both api.AuditRecorder and api.AuditReader against
 // MySQL. Constructed once at boot from bootstrap.New and shared across

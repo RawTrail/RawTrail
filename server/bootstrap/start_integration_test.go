@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/config"
+	"github.com/rawtrail/rawtrail/server/config"
 )
 
 // TestStartAfterInit drives the part of the startup prelude that follows Init. The stop func must release everything it set up, in

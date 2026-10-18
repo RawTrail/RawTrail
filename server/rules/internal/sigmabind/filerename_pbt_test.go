@@ -6,8 +6,8 @@ import (
 
 	"pgregory.net/rapid"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigmabind"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigmabind"
 )
 
 // The round trip for the file_rename wire struct: whatever two paths a rename carries, the decode surfaces them under their

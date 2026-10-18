@@ -24,8 +24,8 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/fleetdm/edr/agent/cmd/fleet-edr-agent-headless/headless"
-	"github.com/fleetdm/edr/test/fakeagent"
+	"github.com/rawtrail/rawtrail/agent/cmd/fleet-edr-agent-headless/headless"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 
 // controlPlaneWaitTimeout caps the per-host wait for headless.Run's control plane to come up. The control plane is a unix

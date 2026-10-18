@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // The sessions list's response shape round-trips through JSON (issue #1283): every field, with the optional pointers both nil and set

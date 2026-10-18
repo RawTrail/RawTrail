@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/testkit"
+	"github.com/rawtrail/rawtrail/server/identity/testkit"
 )
 
 // spec:rule-content/an-operator-can-see-and-restore-the-built-in-rule-content/a-refused-restore-is-not-recorded

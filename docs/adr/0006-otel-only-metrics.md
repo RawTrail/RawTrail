@@ -34,7 +34,7 @@ The EDR has exactly one metrics pipeline: OpenTelemetry metrics exported over OT
 
 Operators who need Prometheus-shaped scrape data run an OTel Collector in front of their preferred backend and use the collector's `prometheus` exporter (or `prometheusremotewrite` exporter). The collector becomes the integration seam, not the EDR processes.
 
-Instrumentation rule for new metrics: register the counter, histogram, or observable gauge against the global OTel meter (`otel.Meter("github.com/fleetdm/edr/server/metrics")` for server, the equivalent agent path for agent), expose it through a typed method on the `Recorder` so call sites pass concrete attribute values rather than free-form labels, and document the name + cardinality story in [`operations.md`](../operations.md).
+Instrumentation rule for new metrics: register the counter, histogram, or observable gauge against the global OTel meter (`otel.Meter("github.com/rawtrail/rawtrail/server/metrics")` for server, the equivalent agent path for agent), expose it through a typed method on the `Recorder` so call sites pass concrete attribute values rather than free-form labels, and document the name + cardinality story in [`operations.md`](../operations.md).
 
 ## Consequences
 

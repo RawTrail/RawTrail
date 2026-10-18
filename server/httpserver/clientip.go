@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fleetdm/edr/internal/netaddr"
+	"github.com/rawtrail/rawtrail/internal/netaddr"
 )
 
 // ClientIPResolver resolves the trustworthy client IP from an

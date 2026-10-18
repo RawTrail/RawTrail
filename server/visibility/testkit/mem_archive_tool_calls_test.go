@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // TestMemArchive_AgentToolCalls pins the fake to the ClickHouse read (TestEventArchive_AgentToolCalls): one call per tool_use_id at its

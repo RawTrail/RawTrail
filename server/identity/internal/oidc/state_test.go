@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/internal/oidc"
+	"github.com/rawtrail/rawtrail/server/identity/internal/oidc"
 )
 
 var testKey = []byte("0123456789abcdef0123456789abcdef") // 32 bytes

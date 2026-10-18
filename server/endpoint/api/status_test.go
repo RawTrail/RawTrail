@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
 )
 
 // TestStatusReport_WirePin pins the exact on-the-wire JSON the agent sends, so the agent contract cannot drift silently: the field

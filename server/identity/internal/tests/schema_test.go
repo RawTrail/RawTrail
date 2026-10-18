@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/bootstrap"
-	"github.com/fleetdm/edr/server/identity/internal/seed"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/identity/bootstrap"
+	"github.com/rawtrail/rawtrail/server/identity/internal/seed"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // columnInfo is one row from MySQL's INFORMATION_SCHEMA.COLUMNS.

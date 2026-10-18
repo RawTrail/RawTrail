@@ -14,13 +14,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/intake"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/testdb/full"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/intake"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // acceptingEventLog accepts every append whatever its context, so a request whose context is already cancelled gets past the

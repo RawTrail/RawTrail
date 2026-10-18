@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/fleetdm/edr/server/config"
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/config"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // HTTPServerOptions is what NewHTTPServer needs beyond the config: the binary's name, its routes, and an optional request recorder.

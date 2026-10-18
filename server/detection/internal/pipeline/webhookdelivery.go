@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/fleetdm/edr/internal/secretseal"
-	detapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/webhook"
+	"github.com/rawtrail/rawtrail/internal/secretseal"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/webhook"
 )
 
 // Delivery-worker defaults. These are intentionally conservative for the MVP; env-tunable knobs are a follow-up (issue #496).

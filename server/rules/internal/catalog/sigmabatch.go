@@ -3,9 +3,9 @@ package catalog
 import (
 	"context"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
-	"github.com/fleetdm/edr/server/rules/internal/sigmabind"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigmabind"
 )
 
 // sigmaScopeKey names this package's slot in api.BatchScope. Every store and every read of it is in this file, which is what makes

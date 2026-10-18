@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fleetdm/edr/agent/procgen"
+	"github.com/rawtrail/rawtrail/agent/procgen"
 )
 
 // defaultPollInterval is the fallback Interval when Config.Interval is zero.

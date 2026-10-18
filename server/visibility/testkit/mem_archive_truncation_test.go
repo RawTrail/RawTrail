@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	api "github.com/fleetdm/edr/server/visibility/api"
-	"github.com/fleetdm/edr/server/visibility/testkit"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	api "github.com/rawtrail/rawtrail/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/visibility/testkit"
 )
 
 // TestEventsByTypeForHost_OverflowIsAnErrorNotAShortPage pins the contract that keeps a bounded correlation read from producing a

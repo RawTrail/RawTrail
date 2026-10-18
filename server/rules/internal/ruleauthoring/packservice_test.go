@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
 )
 
 // fakePacks is a pack lifecycle whose answers the tests choose.

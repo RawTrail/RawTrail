@@ -14,8 +14,8 @@ import (
 	"log"
 	"os"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
 )
 
 // allRegisteredRules delegates to rules.bootstrap.CatalogOnly so this generator and the production server's main.go walk the same

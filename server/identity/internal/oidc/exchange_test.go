@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/internal/oidc"
+	"github.com/rawtrail/rawtrail/server/identity/internal/oidc"
 )
 
 // fakeProvider is an OIDC provider on httptest: discovery, a JWKS with one RSA key, and a token endpoint that returns an ID token signed

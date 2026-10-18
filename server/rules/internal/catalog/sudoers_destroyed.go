@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 // SudoersDestroyed fires when a file sudo will parse as policy is emptied or removed.

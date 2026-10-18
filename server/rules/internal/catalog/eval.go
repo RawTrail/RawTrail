@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // pendingMiss accumulates the retryable error (anything wrapping api.ErrRetryBatch) a rule's per-event loop hit, so the loop can

@@ -24,12 +24,12 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/bootstrap"
-	identityrbac "github.com/fleetdm/edr/server/identity/internal/rbac"
-	identitysessions "github.com/fleetdm/edr/server/identity/internal/sessions"
-	identityusers "github.com/fleetdm/edr/server/identity/internal/users"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/bootstrap"
+	identityrbac "github.com/rawtrail/rawtrail/server/identity/internal/rbac"
+	identitysessions "github.com/rawtrail/rawtrail/server/identity/internal/sessions"
+	identityusers "github.com/rawtrail/rawtrail/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // newIdentity wires identity.bootstrap.New against a fresh test DB, matching what cmd/main does in production. Returns the *Identity

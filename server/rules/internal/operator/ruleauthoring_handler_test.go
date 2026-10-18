@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
-	"github.com/fleetdm/edr/server/rules/internal/ruleauthoring"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/ruleauthoring"
 )
 
 // readOnlyAuthZ allows reads of rule content and denies changes, which is the band senior_analyst actually holds. A blanket

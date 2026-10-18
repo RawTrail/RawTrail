@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // auditDecision + auditReason normalise the two payload shapes the codebase emits (chokepoint's {allow: bool} and breakglass/oidc's

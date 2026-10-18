@@ -12,13 +12,13 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/auditoutbox"
-	"github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/endpoint/internal/mysql"
-	"github.com/fleetdm/edr/server/endpoint/internal/revocation"
-	"github.com/fleetdm/edr/server/endpoint/internal/signedtoken"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/revocation"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/signedtoken"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // defaultTokenTTL is how long a freshly minted signed host token is valid. The agent refreshes well before this (see the agent refresh

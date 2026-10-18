@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/migrations/runner"
-	"github.com/fleetdm/edr/server/rules/internal/detectionconfig"
-	"github.com/fleetdm/edr/server/rules/internal/operator"
-	rulesmigrations "github.com/fleetdm/edr/server/rules/migrations"
-	"github.com/fleetdm/edr/server/testdb"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/migrations/runner"
+	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
+	"github.com/rawtrail/rawtrail/server/rules/internal/operator"
+	rulesmigrations "github.com/rawtrail/rawtrail/server/rules/migrations"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // newPruneHarness builds the minimum Rules needed to drive the match-count prune: a store over a migrated test DB and a logger.

@@ -8,8 +8,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 func TestRegister_classifiesRoutesByTier(t *testing.T) {

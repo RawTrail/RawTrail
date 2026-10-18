@@ -3,7 +3,7 @@ package operator
 import (
 	"testing"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // FuzzWindowParsers covers both `days` parsers together, because they are the same policy stated twice and the risk is that they

@@ -12,7 +12,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/rulecontent/bootstrap"
+	"github.com/rawtrail/rawtrail/server/rulecontent/bootstrap"
 )
 
 // ApplySchema runs rulecontent's DDL against db. Thin wrapper over bootstrap.ApplySchema so the test surface is importable

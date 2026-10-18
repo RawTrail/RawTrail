@@ -11,7 +11,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // advancePolicyEpoch moves a policy's updated_at strictly past its previous value on every mutation. Hosts receive updated_at as

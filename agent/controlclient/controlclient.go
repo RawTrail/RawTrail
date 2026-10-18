@@ -16,9 +16,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/fleetdm/edr/agent/commander"
-	"github.com/fleetdm/edr/agent/procgen"
-	"github.com/fleetdm/edr/internal/control"
+	"github.com/rawtrail/rawtrail/agent/commander"
+	"github.com/rawtrail/rawtrail/agent/procgen"
+	"github.com/rawtrail/rawtrail/internal/control"
 )
 
 const (

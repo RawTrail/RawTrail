@@ -17,7 +17,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/rules/bootstrap"
+	"github.com/rawtrail/rawtrail/server/rules/bootstrap"
 )
 
 // ApplySchema runs rules' DDL + seed-row inserts against db. Thin wrapper over bootstrap.ApplySchema so the test surface is importable

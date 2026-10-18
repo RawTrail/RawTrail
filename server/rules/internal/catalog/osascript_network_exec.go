@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // OsascriptNetworkExec fires when the rule sees a temp-path exec whose process

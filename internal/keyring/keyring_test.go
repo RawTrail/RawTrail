@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/fleetdm/edr/internal/keyring"
+	"github.com/rawtrail/rawtrail/internal/keyring"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

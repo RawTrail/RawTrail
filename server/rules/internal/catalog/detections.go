@@ -10,10 +10,10 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/export"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
-	"github.com/fleetdm/edr/server/rules/internal/sigmabind"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/export"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigmabind"
 )
 
 // Detections are the Sigma `detection:` blocks converted rules carry in their pack files (issue #761).

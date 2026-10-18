@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // writeSelfSignedPEM writes a fresh self-signed ecdsa cert + key to temp files and returns their paths, so ConfigureTLS (which

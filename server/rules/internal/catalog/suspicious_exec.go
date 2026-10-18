@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fleetdm/edr/internal/installerscript"
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/internal/installerscript"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // shellPaths is the shared unix_shells list (pack/lists.yml). Shared rather than a param of this rule because shell_from_office

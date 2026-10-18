@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fleetdm/edr/agent/sensorevent"
+	"github.com/rawtrail/rawtrail/agent/sensorevent"
 )
 
 const (

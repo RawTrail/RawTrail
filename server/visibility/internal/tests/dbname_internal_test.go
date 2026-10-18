@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // isCHIdentifierRune reports whether a single rune is legal in an unquoted ClickHouse identifier. It mirrors the character filter

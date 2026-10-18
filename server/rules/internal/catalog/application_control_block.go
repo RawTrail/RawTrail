@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // ApplicationControlBlock is the built-in pass-through rule that

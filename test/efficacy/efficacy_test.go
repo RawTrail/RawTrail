@@ -54,10 +54,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/test/fakeagent"
-	"github.com/fleetdm/edr/test/integration"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
+	"github.com/rawtrail/rawtrail/test/integration"
 )
 
 const (

@@ -13,7 +13,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // ErrNotFound is returned by the Get methods when no oidc_config row exists (OIDC has not been configured for the deployment).

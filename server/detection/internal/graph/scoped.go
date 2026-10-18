@@ -3,8 +3,8 @@ package graph
 import (
 	"context"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
 )
 
 // BuildScopedTree returns one story or AI agent session as a forest (issue #1282): every row stamped with the scope, read by its

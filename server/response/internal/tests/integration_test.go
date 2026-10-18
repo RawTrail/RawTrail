@@ -14,8 +14,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/fleetdm/edr/server/response/internal/service"
 	"github.com/jmoiron/sqlx"
+	"github.com/rawtrail/rawtrail/server/response/internal/service"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -31,13 +31,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/fleetdm/edr/internal/control"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/response/bootstrap"
-	"github.com/fleetdm/edr/server/response/internal/gateway"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/internal/control"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/bootstrap"
+	"github.com/rawtrail/rawtrail/server/response/internal/gateway"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // allowAllAuthZ stubs identityapi.AuthZ as an unconditional grant for the response-context integration tests. Per-action role coverage

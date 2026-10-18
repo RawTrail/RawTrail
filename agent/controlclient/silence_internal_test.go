@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/control"
+	"github.com/rawtrail/rawtrail/internal/control"
 )
 
 // The silence watchdog is what tears down a stream the server has forgotten, and its decision is a subtraction of two clock

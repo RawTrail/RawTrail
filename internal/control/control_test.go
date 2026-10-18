@@ -3,7 +3,7 @@ package control_test
 import (
 	"testing"
 
-	"github.com/fleetdm/edr/internal/control"
+	"github.com/rawtrail/rawtrail/internal/control"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"pgregory.net/rapid"

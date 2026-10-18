@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // spec:server-host-containment/operators-choose-what-a-contained-host-can-still-reach/an-address-that-would-undo-containment-is-refused

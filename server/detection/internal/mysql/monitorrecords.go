@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	detectionslices "github.com/fleetdm/edr/server/detection/internal/slices"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	detectionslices "github.com/rawtrail/rawtrail/server/detection/internal/slices"
 )
 
 // MonitorRecord is one monitor-mode finding to keep (issue #994): the row an alert would have been, and the events that triggered it.

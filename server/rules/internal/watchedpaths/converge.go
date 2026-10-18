@@ -7,8 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/fleetdm/edr/server/catchup"
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/catchup"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // DefaultConvergeInterval is how often the catch-up runs. A host that enrolls, reinstalls, or comes back after its command aged out

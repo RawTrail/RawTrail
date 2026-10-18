@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/coordination/leader"
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
 )
 
 // stubCoordinator is a non-nil leader.Coordinator that never runs anything. NewProcessor only checks whether a coordinator is present,

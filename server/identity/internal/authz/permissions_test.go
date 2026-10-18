@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // TestPermissionsForRoleIDs_PerSeededRole pins the effective action set every seeded role confers, which is what the session probe

@@ -4,9 +4,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
 )
 
 // encodeAuditEntry encodes an audit event as the opaque entry rulecontent stores alongside the content change (issue #886).

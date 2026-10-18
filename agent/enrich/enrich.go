@@ -17,9 +17,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fleetdm/edr/agent/codesign"
-	"github.com/fleetdm/edr/agent/pkgsign"
-	"github.com/fleetdm/edr/internal/installerscript"
+	"github.com/rawtrail/rawtrail/agent/codesign"
+	"github.com/rawtrail/rawtrail/agent/pkgsign"
+	"github.com/rawtrail/rawtrail/internal/installerscript"
 )
 
 // Evaluator computes the on-disk code signing of an executable. Production passes codesign.Evaluate; tests inject a

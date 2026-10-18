@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // DefaultAsyncQueueCap is the default channel capacity. ~8K rows of cushion is enough for a multi-minute burst at expected

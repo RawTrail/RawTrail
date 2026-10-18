@@ -28,9 +28,9 @@ import (
 	// Registers the "clickhouse" driver so sql.Open("clickhouse", dsn) resolves for the optional event-archive timestamp slide.
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 
-	"github.com/fleetdm/edr/internal/keyring"
-	serverconfig "github.com/fleetdm/edr/server/config"
-	identitybootstrap "github.com/fleetdm/edr/server/identity/bootstrap"
+	"github.com/rawtrail/rawtrail/internal/keyring"
+	serverconfig "github.com/rawtrail/rawtrail/server/config"
+	identitybootstrap "github.com/rawtrail/rawtrail/server/identity/bootstrap"
 )
 
 func main() {

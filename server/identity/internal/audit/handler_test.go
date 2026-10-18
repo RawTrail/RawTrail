@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/audit"
-	"github.com/fleetdm/edr/server/identity/internal/authz"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/audit"
+	"github.com/rawtrail/rawtrail/server/identity/internal/authz"
 )
 
 // stubReader is a deterministic api.AuditReader for handler tests. captures the AuditFilter the handler computed so each test can

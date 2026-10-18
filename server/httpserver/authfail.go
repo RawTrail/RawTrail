@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
 )
 
 // AuthErrBody is the JSON shape every auth/CSRF middleware in the project writes on failure. Exported so callers can reuse the same

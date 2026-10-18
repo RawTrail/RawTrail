@@ -13,9 +13,9 @@ import (
 	"net/http"
 	"strconv"
 
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/response/api"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // updateBodyCap caps the JSON body for PUT /api/commands/{id}. The agent only sends a tiny status + result blob (a few hundred bytes

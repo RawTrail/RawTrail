@@ -18,7 +18,7 @@ const settingsPollInterval = 60 * time.Second
 const settingsReadTimeout = 5 * time.Second
 
 // pollTracer instruments the poll loop. When OTLP export is off the global provider returns a no-op tracer, so this costs nothing.
-var pollTracer = otel.Tracer("github.com/fleetdm/edr/internal/observability/tracing")
+var pollTracer = otel.Tracer("github.com/rawtrail/rawtrail/internal/observability/tracing")
 
 // PrimeSampler performs one synchronous settings read and applies it to the sampler, so a replica serves with the persisted settings
 // from its very first request rather than the compile-time defaults (which would otherwise apply until the background poller's first

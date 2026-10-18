@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/config"
+	"github.com/rawtrail/rawtrail/server/config"
 )
 
 func TestSetup_ProvisionsTheRequestedProcessorFanOut(t *testing.T) {

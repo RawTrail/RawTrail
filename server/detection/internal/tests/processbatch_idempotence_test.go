@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // spec:server-process-graph-builder/re-processing-a-batch-is-idempotent/re-applying-the-same-batch-yields-the-same-forest

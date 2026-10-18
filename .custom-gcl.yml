@@ -22,5 +22,5 @@ plugins:
   # lives at tools/comment-wrap-check/lint/. The plugin's init() in
   # plugin.go registers under the name "commentwrap"; .golangci.yml
   # enables it under linters.custom.
-  - module: github.com/fleetdm/edr/tools/comment-wrap-check/lint
+  - module: github.com/rawtrail/rawtrail/tools/comment-wrap-check/lint
     path: ./tools/comment-wrap-check/lint

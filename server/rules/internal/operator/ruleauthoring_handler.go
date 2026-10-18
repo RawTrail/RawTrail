@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
-	"github.com/fleetdm/edr/server/rules/internal/ruleauthoring"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/ruleauthoring"
 )
 
 // ruleContentBodyLimit bounds a request body for this surface.

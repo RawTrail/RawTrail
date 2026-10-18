@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

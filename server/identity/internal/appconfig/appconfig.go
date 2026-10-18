@@ -15,7 +15,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // ErrVersionConflict is returned by Put when the row's version no longer matches the expected version (a concurrent write landed

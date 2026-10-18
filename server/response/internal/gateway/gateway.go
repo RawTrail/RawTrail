@@ -29,10 +29,10 @@ import (
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 
-	"github.com/fleetdm/edr/internal/control"
-	"github.com/fleetdm/edr/server/attrkeys"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/internal/control"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // Fixed operational intervals, compiled constants rather than operator knobs (server-configuration spec): the cross-replica command

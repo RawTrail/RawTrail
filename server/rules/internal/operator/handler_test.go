@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/catalog"
-	"github.com/fleetdm/edr/server/rules/internal/service"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/catalog"
+	"github.com/rawtrail/rawtrail/server/rules/internal/service"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // allowAllAuthZ pins the HTTPGate allow branch so the coverage-handler tests in this file isolate the no-rules code path

@@ -9,7 +9,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // DNSC2Beacon fires when a suspicious process resolves a domain and then connects to the resolved address, correlating

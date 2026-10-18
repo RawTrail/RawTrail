@@ -21,8 +21,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/sqlhelpers"
-	"github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/sqlhelpers"
+	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 const (

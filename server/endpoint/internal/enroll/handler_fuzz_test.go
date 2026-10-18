@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
 )
 
 // FuzzEnrollBody drives the full POST /api/enroll handler with random body bytes. Parallel to FuzzParseAndValidateIngestBody

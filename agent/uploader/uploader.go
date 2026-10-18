@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fleetdm/edr/agent/queue"
+	"github.com/rawtrail/rawtrail/agent/queue"
 )
 
 const (

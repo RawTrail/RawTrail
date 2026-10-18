@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 // PersistenceSSHAuthorizedKeys fires when a file sshd reads a user's authorized public keys from is written, or renamed into

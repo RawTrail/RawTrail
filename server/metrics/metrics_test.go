@@ -13,7 +13,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // newTestRecorder builds a Recorder backed by a ManualReader so tests can collect metrics synchronously rather than racing a periodic

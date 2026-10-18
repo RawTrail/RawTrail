@@ -16,12 +16,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	detectionslices "github.com/fleetdm/edr/server/detection/internal/slices"
-	"github.com/fleetdm/edr/server/detection/internal/webhook"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	detectionslices "github.com/rawtrail/rawtrail/server/detection/internal/slices"
+	"github.com/rawtrail/rawtrail/server/detection/internal/webhook"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // tracerName is the instrumentation-scope name for the OTel tracer the engine opens per-rule spans on, so downstream dashboards can

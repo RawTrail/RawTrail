@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // TestEveryRuleHasDocs is the gate that prevents shipping a new detection rule without operator-facing documentation.

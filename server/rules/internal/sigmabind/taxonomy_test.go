@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/fleetdm/edr/server/rules/internal/export"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/internal/export"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 func compile(t *testing.T, detection string) *sigma.Rule {

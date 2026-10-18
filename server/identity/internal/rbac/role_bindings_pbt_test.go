@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/identity/internal/rbac"
+	"github.com/rawtrail/rawtrail/server/identity/internal/rbac"
 )
 
 // pbtEmailCounter feeds uniqueEmail. rapid.StringMatching's 36^8 keyspace looks vast but

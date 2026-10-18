@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // FuzzUpdateRuleRequestEnforcement decodes arbitrary PATCH bodies and holds the one property the enforcement field exists for: a body

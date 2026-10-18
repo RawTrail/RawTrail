@@ -8,7 +8,7 @@ syntax = "proto3";
 // connection metadata; there is no per-frame credential.
 package fleetedr.control.v1;
 
-option go_package = "github.com/fleetdm/edr/internal/control;control";
+option go_package = "github.com/rawtrail/rawtrail/internal/control;control";
 
 // ControlChannel is the gateway service. The gateway is an explicitly
 // sanctioned stateful tier (ADR-0010 amendment): it holds live connections

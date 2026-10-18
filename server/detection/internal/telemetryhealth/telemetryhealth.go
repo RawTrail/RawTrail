@@ -53,10 +53,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/httpserver"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // SilenceWindow is how long a stream must produce nothing before that silence is called a fault. See the package comment for the

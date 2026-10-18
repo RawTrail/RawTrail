@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // quietLogger discards handler log output so the error-branch tests (which all log) don't spam the test runner.

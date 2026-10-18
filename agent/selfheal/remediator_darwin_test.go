@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fleetdm/edr/agent/codesign"
+	"github.com/rawtrail/rawtrail/agent/codesign"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

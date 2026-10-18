@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // enqueue appends one event for a host at a given timestamp, so a test can build a host's stream in a known order. Order is what

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/agent/pkgsign"
-	"github.com/fleetdm/edr/internal/installerscript"
+	"github.com/rawtrail/rawtrail/agent/pkgsign"
+	"github.com/rawtrail/rawtrail/internal/installerscript"
 )
 
 // A postinstall exec as recorded on edr-dev for issue #1161: bash running the script out of PackageKit's sandbox, with the

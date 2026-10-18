@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/catalog"
-	"github.com/fleetdm/edr/server/rules/internal/export"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/catalog"
+	"github.com/rawtrail/rawtrail/server/rules/internal/export"
 )
 
 // Service is the narrow surface the operator handlers need. Today satisfied by *rules/internal/service.Service. Kept as an interface

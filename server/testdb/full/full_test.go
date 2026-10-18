@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // TestOpen_AllContextsSchemaPresent verifies that every bounded context's authoritative table is present after full.Open returns.

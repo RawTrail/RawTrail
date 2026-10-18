@@ -12,7 +12,7 @@ This doc is a companion to [`0004-modular-monolith-bounded-contexts.md`](adr/000
 Strongest tier. Bypassing this requires either editing Go itself or arranging the package tree differently; neither is plausible.
 
 - Each bounded context's `<X>/internal/` is invisible to anything outside `<X>/`. Other contexts cannot import `server/<X>/internal/anything` even if they wanted to. The compiler refuses at `go build` time.
-- The repo-level `internal/` (e.g. `internal/observability`) is visible to any package under `github.com/fleetdm/edr/`, which is the entire repo, so it functions as "shared module-private", not a bounded-context restriction.
+- The repo-level `internal/` (e.g. `internal/observability`) is visible to any package under `github.com/rawtrail/rawtrail/`, which is the entire repo, so it functions as "shared module-private", not a bounded-context restriction.
 
 ### By arch-go (`arch-go.yml`, gated on every PR)
 

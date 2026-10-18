@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/testdb"
-	"github.com/fleetdm/edr/server/visibility/api"
-	"github.com/fleetdm/edr/server/visibility/internal/eventlog"
-	"github.com/fleetdm/edr/server/visibility/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
+	"github.com/rawtrail/rawtrail/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/visibility/internal/eventlog"
+	"github.com/rawtrail/rawtrail/server/visibility/testkit"
 )
 
 // spec:observability-instrumentation/pipeline-lag-and-backlog-are-measured/backlog-count-saturates-at-its-cap

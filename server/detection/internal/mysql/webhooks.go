@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	detapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/webhook"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/webhook"
 )
 
 // Errors surfaced by the webhook destination store. Handlers map these to 4xx responses; the sealer-unset error is a deployment

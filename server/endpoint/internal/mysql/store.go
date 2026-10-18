@@ -9,7 +9,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/endpoint/internal/revocation"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/revocation"
 )
 
 // Enrollment mirrors the `enrollments` row shape used by admin listings. Token verification goes through the signed-token path in the

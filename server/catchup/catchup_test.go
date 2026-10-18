@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/catchup"
+	"github.com/rawtrail/rawtrail/server/catchup"
 )
 
 // delivered is a command that carries the host's current state and is on its way, queued after the host enrolled: the case where

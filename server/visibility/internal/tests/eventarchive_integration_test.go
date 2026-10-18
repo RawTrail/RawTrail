@@ -19,11 +19,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/testdb"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
-	visibilitybootstrap "github.com/fleetdm/edr/server/visibility/bootstrap"
-	chstore "github.com/fleetdm/edr/server/visibility/internal/clickhouse"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/testdb"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
+	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
+	chstore "github.com/rawtrail/rawtrail/server/visibility/internal/clickhouse"
 )
 
 // clickhouseTestDSN returns the ClickHouse test DSN, skipping when EDR_CLICKHOUSE_TEST_DSN is unset (matching the project's other
