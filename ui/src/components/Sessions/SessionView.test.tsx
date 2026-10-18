@@ -509,12 +509,16 @@ describe("SessionView", () => {
     expect(names()).toEqual(["claude", "zsh"]);
     expect(screen.queryByText("internal")).toBeNull();
     const toggle = screen.getByLabelText("Show Claude Code's internal processes (3)");
+    expect(screen.getByText("5 processes in all: 1 from the session's commands, 3 internal to Claude Code, and Claude Code itself"))
+      .toBeVisible();
     expect(toggle).toBeVisible();
 
     fireEvent.click(toggle);
     expect(names()).toEqual(["claude", "rg", "zsh", "env", "zsh"]);
     expect(screen.getAllByText("internal")).toHaveLength(3);
-    expect(screen.getByText("1 process from the session's commands")).toBeVisible();
+    // The total leads whenever the agent ran internal processes, the toggle on or off.
+    expect(screen.getByText("5 processes in all: 1 from the session's commands, 3 internal to Claude Code, and Claude Code itself"))
+      .toBeVisible();
     const commandRow = [...document.querySelectorAll(".session-view__processes li")].find((li) =>
       li.querySelector(".session-view__cmdline")?.textContent.includes("eval"));
     expect(commandRow?.querySelector(".session-view__row")?.textContent).not.toContain("internal");
@@ -553,6 +557,22 @@ describe("SessionView", () => {
     expect(await screen.findByText(/alerts could not be loaded/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
     expect(screen.getByLabelText("Show Claude Code's internal processes (1+)")).toBeVisible();
+    expect(screen.getByText("3+ processes in all: 1 from the session's commands, 1+ internal to Claude Code, and Claude Code itself"))
+      .toBeVisible();
+  });
+
+  it("counts each agent process in the total when two served the session", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const first = proc(9, 5000, 0, "/Users/victor/.local/bin/claude", ["claude"],
+      [proc(20, 20, 50, "/usr/bin/git", ["git", "status"], [], { agent_session_id: undefined })], { agent_session_id: undefined });
+    const second = proc(8, 5100, 200, "/Users/victor/.local/bin/claude", ["claude"],
+      [proc(21, 21, 250, "/usr/bin/git", ["git", "status"], [], { agent_session_id: undefined })], { agent_session_id: undefined });
+    const call = proc(10, 10, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'ls'"], [], { tool_call_group: 10, ppid: 5000, parent_process_id: 9 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], agents: [first, second] }));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    expect(screen.getByText("5 processes in all: 1 from the session's commands, 2 internal to Claude Code, and 2 Claude Code processes"))
+      .toBeVisible();
   });
 
   it("calls an agent it has no product name for by the name its session records", async () => {

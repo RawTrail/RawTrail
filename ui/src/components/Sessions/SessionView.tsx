@@ -435,7 +435,9 @@ function ProcessesBody({ read, forest, agent, showOwn, onShowOwn }: {
   const own = countOwn(read.tree.agents ?? []);
   return (
     <div className="session-view__processes">
-      <p className="session-view__processes-summary">{processesSummary(forest, agent)}</p>
+      <p className="session-view__processes-summary">
+        {processesSummary(forest, agent, own, read.tree.agent_own_truncated === true)}
+      </p>
       {own > 0 && (
         <div className="session-view__own">
           <Toggle
@@ -467,9 +469,19 @@ function countCommandRows(rows: readonly SessionRow[]): number {
 }
 
 // processesSummary counts the processes the session's commands started (issue #1361) and says where they hang: under the agent,
-// beside it when a root's creator was not read, or as roots when the agent was not seen.
-function processesSummary(forest: readonly SessionRow[], agent: string): string {
-  const count = `${plural(countCommandRows(forest), "process", "processes")} from the session's commands`;
+// beside it when a root's creator was not read, or as roots when the agent was not seen. When the agent ran internal processes, it
+// leads with the total: the commands', the internal ones (marked + when their read was cut) and the agent's own.
+function processesSummary(forest: readonly SessionRow[], agent: string, internal: number, cut: boolean): string {
+  const commands = countCommandRows(forest);
+  const fromCommands = "from the session's commands";
+  let count = `${plural(commands, "process", "processes")} ${fromCommands}`;
+  if (internal > 0) {
+    const agents = forest.filter((r) => r.agent).length;
+    const more = cut ? "+" : "";
+    const itself = agents === 1 ? `${agent} itself` : `${agents.toLocaleString()} ${agent} processes`;
+    count = `${(commands + internal + agents).toLocaleString()}${more} processes in all: ${commands.toLocaleString()} ${fromCommands}, ` +
+      `${internal.toLocaleString()}${more} internal to ${agent}, and ${itself}`;
+  }
   const beside = forest.filter((r) => !r.agent).length;
   if (beside === forest.length) return `${count}. ${possessive(agent)} process was not seen, so its commands are listed as roots`;
   if (beside === 0) return count;
