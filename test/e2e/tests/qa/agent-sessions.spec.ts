@@ -86,10 +86,10 @@ test.describe("agent sessions", () => {
     await expect(commands.nth(1).locator(".session-view__name")).toHaveText(["zsh", "zsh", "sleep"]);
 
     // Every process as one tree under the agent: the agent leads, marked, and the sleep launchd adopted stays under the subshell that
-    // created it, marked as reparented. Nothing is hidden or folded, so the count is the session's eleven and the agent.
+    // created it, marked as reparented. Nothing is hidden or folded, so the count is the eleven processes the session's commands started.
     await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Processes" }).click();
     const processes = page.locator(".session-view__processes");
-    await expect(processes.getByText("12 processes, under the agent that ran them")).toBeVisible();
+    await expect(processes.getByText("11 processes from the session's commands")).toBeVisible();
     await expect(processes.locator(".session-view__name").first()).toHaveText("claude");
     // One root: all four commands' shells sit under the agent, none beside it.
     await expect(processes.locator(":scope > ul > li")).toHaveCount(1);

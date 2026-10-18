@@ -27,7 +27,6 @@ import {
   searchRows,
   buildProcessForest,
   countOwn,
-  countRows,
   summarizeSession,
   type SearchHits,
   type SessionRow,
@@ -56,10 +55,17 @@ const SESSION_LENSES: readonly { lens: SessionLens; label: string }[] = [
 const REPORTED_LABEL = "Reported by agent";
 const REPORTED_TITLE = "From the agent's session transcript, which the agent and its user can write; not observed by the sensor";
 
-// OWN_SUMMARY and OWN_TITLE say what the agent's own processes are (issue #1361): what the agent ran for itself, not commands the
-// session ran.
-const OWN_SUMMARY = "Plugin scans, shell snapshots and other work the agent ran for itself, not commands the session ran.";
-const OWN_TITLE = "The agent ran this for itself. It carries no session marker and is not a command the session ran.";
+// AGENT_NAMES are the product names the Processes view calls an agent by, from the agent name its session records.
+const AGENT_NAMES = new Map([["claude-code", "Claude Code"]]);
+
+// agentLabel is the name the Processes view calls a session's agent by: its product name, or the agent name it records, or "the
+// agent" when it records none.
+function agentLabel(agentName: string | undefined): string {
+  return (agentName ? AGENT_NAMES.get(agentName) : undefined) ?? agentName ?? "the agent";
+}
+
+// INTERNAL_TITLE says what an internal process is (issue #1361): one the agent ran for itself, outside any command.
+const INTERNAL_TITLE = "The agent ran this for itself, outside any command. It carries no session marker.";
 
 // REPARENTED_TITLE explains a reparented badge: the server marks a process launchd adopted (issue #1280), and the views list it
 // under the process that created it, not under launchd.
@@ -283,7 +289,9 @@ export function SessionView() {
               ))}
             </div>
             {view === "commands" && <SessionBody read={current} groups={groups} />}
-            {view === "processes" && <ProcessesBody read={current} forest={forest} showOwn={showOwn} onShowOwn={setShowOwn} />}
+            {view === "processes" && (
+              <ProcessesBody read={current} forest={forest} agent={agentLabel(agentName)} showOwn={showOwn} onShowOwn={setShowOwn} />
+            )}
             {view === "activity" && (
               <ActivityTabs
                 label="Session activity"
@@ -413,9 +421,11 @@ function SessionBody({ read, groups }: { readonly read: SessionRead | null; read
 
 // ProcessesBody lists every process the session ran as one tree rooted at the agent (issue #1335), with nothing hidden or folded: the
 // forensic counterpart to the commands, which group and trim the same processes for reading.
-function ProcessesBody({ read, forest, showOwn, onShowOwn }: {
+function ProcessesBody({ read, forest, agent, showOwn, onShowOwn }: {
   readonly read: SessionRead | null;
   readonly forest: SessionRow[];
+  // agent is the name the view calls the session's agent by, such as Claude Code.
+  readonly agent: string;
   readonly showOwn: boolean;
   readonly onShowOwn: (show: boolean) => void;
 }) {
@@ -425,16 +435,18 @@ function ProcessesBody({ read, forest, showOwn, onShowOwn }: {
   const own = countOwn(read.tree.agents ?? []);
   return (
     <div className="session-view__processes">
-      <p className="session-view__processes-summary">{processesSummary(forest)}</p>
+      <p className="session-view__processes-summary">{processesSummary(forest, agent)}</p>
       {own > 0 && (
         <div className="session-view__own">
           <Toggle
             id="session-own"
-            label={`Show the agent's own processes (${own.toLocaleString()}${read.tree.agent_own_truncated ? "+" : ""})`}
+            label={`Show ${possessive(agent)} internal processes (${own.toLocaleString()}${read.tree.agent_own_truncated ? "+" : ""})`}
             checked={showOwn}
             onChange={(e) => { onShowOwn(e.target.checked); }}
           />
-          <span className="session-view__meta">{OWN_SUMMARY}</span>
+          <span className="session-view__meta">
+            {`Plugin scans, git checks, keychain reads and shell snapshots ${agent} ran for itself, outside any command.`}
+          </span>
         </div>
       )}
       <ProcessRows rows={forest} />
@@ -442,14 +454,26 @@ function ProcessesBody({ read, forest, showOwn, onShowOwn }: {
   );
 }
 
-// processesSummary counts what the Processes view lists and says where it hangs: under the agent, beside it when a root's creator was
-// not read, or as roots when the agent was not seen.
-function processesSummary(forest: readonly SessionRow[]): string {
-  const count = plural(countRows(forest), "process", "processes");
+// possessive is a name with its possessive ending: "Claude Code's", "the agent's".
+function possessive(name: string): string {
+  return `${name}'s`;
+}
+
+// countCommandRows counts the processes the session's commands started that a forest lists, folded ones included: not the agent's
+// own row, and not its internal processes.
+function countCommandRows(rows: readonly SessionRow[]): number {
+  return rows.reduce((sum, listed) =>
+    sum + (listed.agent || listed.own ? 0 : 1 + (listed.folded?.length ?? 0)) + countCommandRows(listed.children), 0);
+}
+
+// processesSummary counts the processes the session's commands started (issue #1361) and says where they hang: under the agent,
+// beside it when a root's creator was not read, or as roots when the agent was not seen.
+function processesSummary(forest: readonly SessionRow[], agent: string): string {
+  const count = `${plural(countCommandRows(forest), "process", "processes")} from the session's commands`;
   const beside = forest.filter((r) => !r.agent).length;
-  if (beside === forest.length) return `${count}. The agent process was not seen, so its commands are listed as roots`;
-  if (beside === 0) return `${count}, under the agent that ran them`;
-  return `${count}. ${plural(beside, "root sits", "roots sit")} beside the agent: the process that created ${beside === 1 ? "it" : "them"} ` +
+  if (beside === forest.length) return `${count}. ${possessive(agent)} process was not seen, so its commands are listed as roots`;
+  if (beside === 0) return count;
+  return `${count}. ${plural(beside, "root sits", "roots sit")} beside ${agent}: the process that created ${beside === 1 ? "it" : "them"} ` +
     "was not read";
 }
 
@@ -554,8 +578,8 @@ function ProcessRow({ listed }: { readonly listed: SessionRow }) {
         <span className="session-view__mono session-view__cmdline">{commandLine(node.path, node.args)}</span>
         {agent && <Badge variant="info">agent</Badge>}
         {own && (
-          <span title={OWN_TITLE}>
-            <Badge variant="neutral">agent's own</Badge>
+          <span title={INTERNAL_TITLE}>
+            <Badge variant="neutral">internal</Badge>
           </span>
         )}
         {folded && <Badge variant="neutral">{`×${String(folded.length + 1)}`}</Badge>}
