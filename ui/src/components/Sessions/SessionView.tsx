@@ -64,8 +64,8 @@ function agentLabel(agentName: string | undefined): string {
   return (agentName ? AGENT_NAMES.get(agentName) : undefined) ?? agentName ?? "the agent";
 }
 
-// internalTitle explains the internal processes toggle (issue #1361): what the agent ran for itself, outside any command.
-function internalTitle(agent: string): string {
+// internalHelp explains the internal processes toggle (issue #1361): what the agent ran for itself, outside any command.
+function internalHelp(agent: string): string {
   return `Plugin scans, git checks, keychain reads and shell snapshots ${agent} ran for itself, outside any command.`;
 }
 
@@ -444,13 +444,16 @@ function ProcessesBody({ read, forest, agent, showOwn, onShowOwn }: {
         {processesSummary(forest, agent, showOwn && read.tree.agent_own_truncated === true)}
       </p>
       {own > 0 && (
-        <div className="session-view__own" title={internalTitle(agent)}>
+        <div className="session-view__own">
           <Toggle
             id="session-own"
             label={`Show internal processes (${own.toLocaleString()}${read.tree.agent_own_truncated ? "+" : ""})`}
+            aria-describedby="session-own-help"
             checked={showOwn}
             onChange={(e) => { onShowOwn(e.target.checked); }}
           />
+          {/* The switch's description: read with it by a screen reader, and shown beside it on hover or keyboard focus. */}
+          <span id="session-own-help" className="session-view__own-help">{internalHelp(agent)}</span>
         </div>
       )}
       <ProcessRows rows={forest} />

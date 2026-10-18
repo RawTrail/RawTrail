@@ -509,6 +509,8 @@ describe("SessionView", () => {
     expect(names()).toEqual(["claude", "zsh"]);
     expect(screen.queryByText("internal")).toBeNull();
     const toggle = screen.getByLabelText("Show internal processes (3)");
+    expect(toggle).toHaveAccessibleDescription(
+      "Plugin scans, git checks, keychain reads and shell snapshots Claude Code ran for itself, outside any command.");
     expect(await screen.findByText("1 process", { selector: ".session-view__processes-summary" })).toBeVisible();
     expect(toggle).toBeVisible();
 
@@ -583,8 +585,8 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], agents: [agent] }));
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
-    expect(screen.getByLabelText("Show internal processes (1)").closest(".session-view__own"))
-      .toHaveAttribute("title", expect.stringContaining("codex ran for itself"));
+    expect(screen.getByRole("switch", { name: "Show internal processes (1)" }))
+      .toHaveAccessibleDescription(expect.stringContaining("codex ran for itself"));
   });
 
   it("offers no agent's own processes toggle when the agent ran none", async () => {
