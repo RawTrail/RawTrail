@@ -52,7 +52,7 @@ Each profile has a `PayloadIdentifier` that Fleet uses to track uniqueness; keep
 Verify on a target Mac:
 
 ```sh
-sudo profiles list | grep fleetdm
+sudo profiles list | grep rawtrail
 # Expect:
 #   io.rawtrail.profile.system-extension
 #   io.rawtrail.profile.tcc-fda
@@ -146,7 +146,7 @@ sudo launchctl print system/io.rawtrail.agent | grep 'state ='
 # Sysext activated silently (the pkg's activation LaunchAgent + the
 # system-extension profile). If this prints nothing and nobody was logged
 # in when the pkg installed, activation fires at the next login.
-systemextensionsctl list | grep fleetdm
+systemextensionsctl list | grep rawtrail
 # Expect: * * FDG8Q7N4CC io.rawtrail.securityextension ... [activated enabled]
 
 # Agent enrolled with the server (grep the whole log; enrollment happens

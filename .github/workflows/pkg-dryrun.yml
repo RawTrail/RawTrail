@@ -45,7 +45,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          PATTERN='^packaging/|^agent/.*\.go$|^agent/go\.mod$|^agent/com\.fleetdm\.edr\.agent\.plist$|^\.github/workflows/pkg-dryrun\.yml$'
+          PATTERN='^packaging/|^agent/.*\.go$|^agent/go\.mod$|^agent/io\.rawtrail\.agent\.plist$|^\.github/workflows/pkg-dryrun\.yml$'
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "Triggered by $EVENT_NAME; running unconditionally."

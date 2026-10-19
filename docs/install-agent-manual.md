@@ -144,7 +144,7 @@ Each extension moves `activated waiting for user` → `activated enabled`.
 Verify:
 
 ```sh
-systemextensionsctl list | grep fleetdm
+systemextensionsctl list | grep rawtrail
 # Expect two rows, both ending [activated enabled]:
 #   ... io.rawtrail.securityextension ... [activated enabled]
 #   ... io.rawtrail.networkextension  ... [activated enabled]

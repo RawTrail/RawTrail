@@ -54,7 +54,7 @@ What the profile does: pre-approves the bundle IDs `io.rawtrail.securityextensio
 Verify on a target Mac:
 
 ```sh
-profiles list | grep fleetdm
+profiles list | grep rawtrail
 # Expect three profiles once all are pushed:
 #   io.rawtrail.profile.system-extension
 #   io.rawtrail.profile.tcc-fda
@@ -131,7 +131,7 @@ sudo launchctl print system/io.rawtrail.agent | grep 'state ='
 # Expect: "state = running"
 
 # Both system extensions activated
-systemextensionsctl list | grep fleetdm
+systemextensionsctl list | grep rawtrail
 # Expect two rows, both ending "[activated enabled]"
 
 # Recent log
@@ -206,7 +206,7 @@ See [fleet-deployment.md](fleet-deployment.md) for the full Fleet workflow.
 
 ## Troubleshoot
 
-**pkg installs but sysext stays in `activated waiting for user`.** The system-extension profile hasn't reached the Mac yet, or it was scoped differently. Check `profiles list | grep fleetdm` for the `io.rawtrail.profile.system-extension` entry. Re-scope + re-push if missing.
+**pkg installs but sysext stays in `activated waiting for user`.** The system-extension profile hasn't reached the Mac yet, or it was scoped differently. Check `profiles list | grep rawtrail` for the `io.rawtrail.profile.system-extension` entry. Re-scope + re-push if missing.
 
 **Agent log shows `ES_NEW_CLIENT_RESULT_ERR_NOT_PERMITTED`.** TCC FDA profile not pushed, or scoped to a different set of Macs than the pkg. Check `profiles list` for `io.rawtrail.profile.tcc-fda`.
 
