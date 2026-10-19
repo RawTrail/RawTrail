@@ -29,6 +29,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ### Fixed
 
+- **No application-control rule can block the agent itself.** The extensions and the app were already exempt, but the agent was not, so a block on the RawTrail signing team or certificate would have stopped it from restarting.
 - **A command containing a single quote now shows as the agent ran it** in an agent session, with its "Reported by agent" label, instead of garbled.
 - **The agent session view's Commands, Processes and Activity switcher no longer moves** when switching views.
 - **The server now works out the alert timeline's process chain.** With the alert-chain focus on, the timeline no longer stops at what the graph had loaded, and still narrows when the graph cannot load. When it reaches only part of the chain, it says so and why.

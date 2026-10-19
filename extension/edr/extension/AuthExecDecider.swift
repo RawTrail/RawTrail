@@ -203,6 +203,41 @@ func evaluateAuthExec(
     return walk.finish(.allow)
 }
 
+/// selfAllowSigningIDs is the exhaustive set of code-signing identifiers RawTrail signs its own binaries with: the agent, both
+/// extensions and the host app. The agent's entry is its signing identifier, not its launchd label `io.rawtrail.agent`.
+let selfAllowSigningIDs: Set<String> = [
+    PeerCodeSigningRequirement.agentIdentifier,
+    "io.rawtrail.securityextension",
+    "io.rawtrail.networkextension",
+    "io.rawtrail"
+]
+
+/// isSelfAllowed reports whether an exec target is one of RawTrail's own binaries, which AUTH_EXEC allows before consulting the
+/// snapshot so that no rule can block the EDR itself. It requires BOTH the release team ID and a signing identifier in
+/// selfAllowSigningIDs: the team ID alone would exempt every binary the team has ever signed.
+func isSelfAllowed(teamID: String, signingID: String) -> Bool {
+    teamID == PeerCodeSigningRequirement.teamID && selfAllowSigningIDs.contains(signingID)
+}
+
+/// AuthExecFastPath is the reason AUTH_EXEC allows an exec without consulting the snapshot, or .snapshot when it must consult it.
+enum AuthExecFastPath: Equatable, Sendable {
+    case platformBinary
+    case selfAllowed
+    case snapshot
+}
+
+/// authExecFastPath decides, in the order AUTH_EXEC applies them, the allows it grants before the snapshot: the platform-binary
+/// carve-out, then the self-allow failsafe. Only an exec that neither covers reaches the snapshot, so no rule can block either.
+func authExecFastPath(isPlatformBinary: Bool, teamID: String, signingID: String) -> AuthExecFastPath {
+    if isPlatformBinary {
+        return .platformBinary
+    }
+    if isSelfAllowed(teamID: teamID, signingID: signingID) {
+        return .selfAllowed
+    }
+    return .snapshot
+}
+
 /// isDetectRule reports whether a rule is a BLOCK rule in DETECT, the kind of match that is recorded and never decides a verdict.
 ///
 /// The posture consults it through hasEnforcingBinaryRules. The hash is computed whenever the snapshot has any BINARY rule, DETECT
