@@ -189,7 +189,7 @@ jobs:
             out.
             Do not flag: style or formatting that linters own (golangci-lint, SwiftLint, Prettier, dash-lint); Go 1.27 language
             and stdlib features (integer range expressions, strings.SplitSeq, stdlib uuid) as compile errors; the words "fleet"
-            and "fleets" in docs/fleet-deployment.md; long Markdown lines, because prose here is never hard-wrapped.
+            and "fleets" in the Fleet section of docs/mdm-deployment.md; long Markdown lines, because prose here is never hard-wrapped.
             Files under openspec/ use literal tool-parsed markers ("## ADDED Requirements", "### Requirement:",
             "#### Scenario:") that are exempt from heading-style rules. A behavior change is specified by a delta under
             openspec/changes/<name>/specs/**; the canonical openspec/specs/** tree changes only when `openspec archive` runs at

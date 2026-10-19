@@ -1,8 +1,8 @@
 // Package appconfig owns the app_config table: the deployment's general settings as a single versioned JSON document deserialized into
 // a typed AppConfig struct. This is the scalable home for admin-editable, non-secret settings (issue #375): add a field to AppConfig
 // and it is persisted with no migration. Secrets do NOT live here (they go in dedicated sealed stores, e.g. ssoconfig's encrypted
-// client-secret column); strongly-relational config gets its own typed table. The document is the "Fleet-style" app-config pattern with
-// two refinements: secrets stay out, and a version counter provides optimistic-concurrency / cache invalidation.
+// client-secret column); strongly-relational config gets its own typed table. The document is the common single-document app-config pattern
+// with two refinements: secrets stay out, and a version counter provides optimistic-concurrency / cache invalidation.
 package appconfig
 
 import (

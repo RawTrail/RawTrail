@@ -16,7 +16,6 @@ FILES=(
   docs/install-server.md
   docs/install-agent-manual.md
   docs/mdm-deployment.md
-  docs/fleet-deployment.md
   bootstrap.sh
   docker-compose.prod.README.md
 )

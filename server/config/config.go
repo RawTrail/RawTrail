@@ -100,8 +100,7 @@ type Config struct {
 	// TLSTerminatedByProxy lets the server listen plaintext HTTP when a TLS-terminating proxy (a PaaS edge, an ALB, nginx, or
 	// Cloudflare) sits in front. It is the gated exception to the mandatory-TLS default (issue #140): the default still refuses
 	// to boot without certs, but an operator who sets EDR_TLS_TERMINATED_BY_PROXY=1 asserts that something in front terminates
-	// TLS, so the data plane is still encrypted end-to-edge. Setting it together with cert files is rejected as ambiguous. This
-	// is the same posture Fleet ships (FLEET_SERVER_TLS=false behind an ALB).
+	// TLS, so the data plane is still encrypted end-to-edge. Setting it together with cert files is rejected as ambiguous.
 	TLSTerminatedByProxy bool
 	// ShutdownDrain is how long RunAndShutdown keeps serving after SIGTERM (with /readyz reporting 503) before closing the
 	// listener, so a load balancer drains this replica first. Default 30s; 0 disables the drain wait. From EDR_SHUTDOWN_DRAIN.

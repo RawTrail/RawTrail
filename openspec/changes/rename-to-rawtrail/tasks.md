@@ -15,6 +15,11 @@
 - [x] 2.4 Rename the control channel's gRPC package to `rawtrail.control.v1`
 - [ ] 2.5 Replace the three Developer ID provisioning profiles with ones issued for the `io.rawtrail` App IDs before the release build
 
-## 3. Release archive
+## 3. Fleet as one MDM among others (#1368)
 
-- [ ] 3.1 Reword the Purpose sections that still say "Fleet EDR" (`endpoint-event-collection`, `server-admin-surface`, `server-availability`, `web-ui`), and the `server-admin-surface` ATT&CK coverage requirement's "Fleet EDR is a macOS-only product" aside, in the release archive, since a delta cannot modify a Purpose
+- [x] 3.1 Fold the Fleet guide into the MDM deployment guide as one vendor section beside the others
+- [x] 3.2 Remove Fleet branding and any special relationship from the README, operator docs, comments and the project context, and note the rename in ADR-0003
+
+## 4. Release archive
+
+- [ ] 4.1 Reword the Purpose sections that still say "Fleet EDR" (`endpoint-event-collection`, `server-admin-surface`, `server-availability`, `web-ui`), and the `server-admin-surface` ATT&CK coverage requirement's "Fleet EDR is a macOS-only product" aside, in the release archive, since a delta cannot modify a Purpose

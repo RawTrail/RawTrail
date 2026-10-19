@@ -1,6 +1,6 @@
 # Go conventions
 
-Go coding conventions for the EDR project, derived from the Fleet codebase.
+Go coding conventions for the RawTrail codebase.
 
 ## Database access (sqlx)
 

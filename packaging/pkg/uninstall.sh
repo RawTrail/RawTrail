@@ -55,7 +55,7 @@ CONSOLE_UID=$(/usr/bin/stat -f %u /dev/console 2>/dev/null || echo 0)
 #   PENDING_EXTS   count of extensions the OS staged for removal on the next reboot ("...waiting to uninstall on reboot").
 #   ACTIVE_EXTS    count of extensions still present in ANY non-staged state (activated enabled, activated waiting for
 #                  user, activating, ...): anything that is NOT staged-for-reboot counts as "still here".
-# Treating "still present" as "any fleetdm line that is not staged for reboot" (rather than only "activated enabled")
+# Treating "still present" as "any io.rawtrail line that is not staged for reboot" (rather than only "activated enabled")
 # means a half-approved state, an unexpected state string, or a failed listing can never be misread as a clean removal.
 read_sysext_state() {
     if ! sysext_list=$(/usr/bin/systemextensionsctl list 2>/dev/null); then

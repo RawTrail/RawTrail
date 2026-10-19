@@ -60,18 +60,18 @@ The list of trust-only invariants. Each is small enough that review catches viol
 - Single-process, single-DB hot path; cross-context calls go through narrow interfaces with no allocation in the inner loop: ✓ (`detection.api.GraphReader` is the canonical example).
 - Three-layer test pyramid: ✓ (unit + per-context + cross-context).
 
-**Stronger than the Fleet (`fleetdm/fleet`) reference the strategic plan cites:**
+**Stronger than the common layered Go monolith:**
 
-- Explicit bounded contexts vs. Fleet's layered datastore + service + handler shape. Both are valid; ours scales better as the rule catalog grows because rules + detection + response are separated from each other rather than all sharing one `service` package.
-- `<X>/api/` + `<X>/bootstrap/` + `<X>/internal/` + `<X>/testkit/` peer subpackages, each with a distinct purpose, vs. Fleet's mixed-concerns packages.
-- Declarative `arch-go.yml` vs. Fleet's bespoke `archtest` (~200 LOC of Go). Both work; ours has fewer maintenance hands.
-- A coordinated `<X>/testkit` test surface vs. Fleet's per-package test helpers that drift with their callers.
+- Explicit bounded contexts vs. a layered datastore + service + handler shape. Both are valid; ours scales better as the rule catalog grows because rules + detection + response are separated from each other rather than all sharing one `service` package.
+- `<X>/api/` + `<X>/bootstrap/` + `<X>/internal/` + `<X>/testkit/` peer subpackages, each with a distinct purpose, vs. mixed-concerns packages.
+- Declarative `arch-go.yml` vs. a bespoke architecture test written in Go. Both work; ours has fewer maintenance hands.
+- A coordinated `<X>/testkit` test surface vs. per-package test helpers that drift with their callers.
 
 **What we deliberately don't do (yet):**
 
 - **No Anti-Corruption Layer (ACL) packages.** Cross-context value types are simple. ACL packages translate type-shapes between contexts when they diverge; today rules.api re-exports detection.api types directly (and re-export is documented as an explicit alias). When a future change requires rules to model `Event` differently than detection (e.g. adding a `RuleHints` field that detection doesn't care about), the right move is an ACL package (`server/rules/internal/eventacl/`) that converts between shapes.
 - **No event-driven cross-context communication (Kafka / NATS / Watermill).** All cross-context calls today are direct interface invocations. This is fine and faster for a single-process monolith; switching to events would be an architectural choice driven by multi-process scale-out, not by isolation needs.
-- **No database-per-context.** All eight contexts share one MySQL instance, partitioned by table ownership. Fleet, GitLab, GitHub-the-monolith all do the same; database-per-service is a microservices decision. The one deliberate exception is `visibility`, which owns a ClickHouse store alongside its MySQL tables (ADR-0015). That split was driven by the query shape of the event archive, not by context isolation, which is why it does not generalise into a per-context rule.
+- **No database-per-context.** All eight contexts share one MySQL instance, partitioned by table ownership. GitLab and GitHub-the-monolith do the same; database-per-service is a microservices decision. The one deliberate exception is `visibility`, which owns a ClickHouse store alongside its MySQL tables (ADR-0015). That split was driven by the query shape of the event archive, not by context isolation, which is why it does not generalise into a per-context rule.
 
 ## Graduation criteria
 
@@ -114,4 +114,4 @@ When to invest in the next tier of architectural patterns. The criteria are scal
 - This doc is referenced from [`0004-modular-monolith-bounded-contexts.md`](adr/0004-modular-monolith-bounded-contexts.md) as the "what's enforced + when to graduate" companion. Update it when:
   - A new arch-go rule family lands.
   - A graduation criterion fires (and the response is to invest).
-  - Industry practice shifts the comparison points (e.g. Fleet refactors away from the layered datastore-service shape).
+  - Industry practice shifts the comparison points (e.g. large Go monoliths move away from the layered datastore-service shape).

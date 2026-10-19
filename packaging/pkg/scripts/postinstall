@@ -8,8 +8,8 @@
 # extensions; only the host app running in a user session can submit the
 # OSSystemExtensionRequest.)
 #
-# Fleet's install-script contract writes /etc/rawtrail.conf BEFORE invoking
-# `installer`, so by the time we run, the agent has its enroll secret + server
+# The MDM install script writes /etc/rawtrail.conf BEFORE the pkg installs
+# (docs/mdm-deployment.md), so by the time we run, the agent has its enroll secret + server
 # URL ready to read. Standalone installs may not have /etc/rawtrail.conf yet;
 # the agent will log "EDR_ENROLL_SECRET unset" and exit, then the operator
 # writes the conf file and `launchctl kickstart -k system/io.rawtrail.agent`
