@@ -13,7 +13,7 @@
 - [x] 2.2 Rename the host app, the extensions' bundle identifiers, app group, XPC services and display names
 - [x] 2.3 Rename the package, its scripts, the activation LaunchAgent and the configuration profiles
 - [x] 2.4 Rename the control channel's gRPC package to `rawtrail.control.v1`
-- [ ] 2.5 Replace the three Developer ID provisioning profiles with ones issued for the `io.rawtrail` App IDs before the release build
+- [x] 2.5 Replace the three Developer ID provisioning profiles with ones issued for the `io.rawtrail` App IDs before the release build
 
 ## 3. Fleet as one MDM among others (#1368)
 
