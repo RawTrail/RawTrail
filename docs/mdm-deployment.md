@@ -204,7 +204,25 @@ For an unmanaged Mac (no profile), the script removes the extensions itself by s
 
 - Pkg upload: **Software > Add software > Custom package**, with the target fleet selected in the scope picker. Check **Automatic install** to install on every in-scope Mac that lacks it.
 - Profiles: **Controls > OS settings > Custom settings**, upload all three `.mobileconfig` files to the same fleet. Fleet signs them at delivery and rejects pre-signed uploads, so upload them as shipped.
-- Install script: under the package's **Advanced options**, replace the default install script. Fleet runs this script instead of the installer, so end it with `installer -pkg "$INSTALLER_PATH" -target /`. Store the server URL and enroll secret as custom variables (**Settings > Integrations > MDM > Custom variables**) and read them as `$FLEET_SECRET_EDR_SERVER_URL` and `$FLEET_SECRET_EDR_ENROLL_SECRET`. Paste the uninstall script above into the uninstall script field.
+- Install script: under the package's **Advanced options**, replace the default install script with the one below. Fleet runs this script instead of the installer, so it calls `installer` itself, and it reads the server URL and enroll secret from custom variables (**Settings > Integrations > MDM > Custom variables**) named `EDR_SERVER_URL` and `EDR_ENROLL_SECRET`. Paste the uninstall script above into the uninstall script field.
+
+```sh
+#!/bin/sh
+set -eu
+
+# Fleet expands $FLEET_SECRET_* from its custom variables when the script runs.
+EDR_SERVER_URL="$FLEET_SECRET_EDR_SERVER_URL"
+EDR_ENROLL_SECRET="$FLEET_SECRET_EDR_ENROLL_SECRET"
+
+install -m 0600 /dev/null /etc/rawtrail.conf
+cat > /etc/rawtrail.conf <<CONF
+EDR_SERVER_URL=$EDR_SERVER_URL
+EDR_ENROLL_SECRET=$EDR_ENROLL_SECRET
+CONF
+
+# Fleet sets $INSTALLER_PATH to the downloaded pkg.
+installer -pkg "$INSTALLER_PATH" -target /
+```
 
 ## Troubleshoot
 
