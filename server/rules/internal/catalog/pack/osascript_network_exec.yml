@@ -14,7 +14,7 @@ description: |-
   Reverse-direction triggering is deliberate: by the time the temp-exec event lands, the entire ancestor chain has already been ingested and materialised by earlier batches, so the rule is race-immune. Forward triggering (fire on the osascript exec, look for descendants) misses chains that complete across an agent flush boundary.
 
   The rule requires both halves of the chain to be present, so download-only or temp-exec-only flows do not fire here: those overlap with suspicious_exec.
-author: Fleet EDR
+author: RawTrail
 level: critical
 tags:
   - attack.t1059.002

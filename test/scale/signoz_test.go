@@ -160,8 +160,8 @@ func TestQuerySigNozServerP99_MaxAcrossSeries(t *testing.T) {
 func TestSigNozQueryTargetsTheEDRServer(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "fleet-edr-server", signozServiceName,
-		"must match `serviceName` in server/cmd/fleet-edr-server/main.go; \"fleet\" is the MDM Fleet server, a different product")
+	assert.Equal(t, "rawtrail-server", signozServiceName,
+		"must match `serviceName` in server/cmd/rawtrail-server/main.go; \"fleet\" is the MDM Fleet server, a different product")
 	assert.Equal(t, "http.server.request.duration", signozMetricHTTPServerDuration,
 		"stable-semconv name, reported in seconds; the superseded `http.server.duration` is milliseconds and is emitted "+
 			"by other services on the shared instance, so querying it succeeds with the wrong data instead of failing")

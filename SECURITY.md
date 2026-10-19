@@ -1,6 +1,6 @@
 # Security policy
 
-Fleet EDR is a security product. We take vulnerabilities seriously and welcome reports from researchers, customers, and the wider community.
+RawTrail is a security product. We take vulnerabilities seriously and welcome reports from researchers, customers, and the wider community.
 
 ## Supported versions
 
@@ -35,4 +35,4 @@ The following classes of finding are not security vulnerabilities for this proje
 - Denial of service from a single authorised host against its own server (e.g. flooding `/api/events` with valid tokens). DoS that affects other hosts in the same deployment is in scope.
 - Findings against `ai/`, scratch, or `tmp/` directories: these are developer aids, not shipped artifacts.
 
-Thank you for helping keep Fleet EDR's users safe.
+Thank you for helping keep RawTrail's users safe.

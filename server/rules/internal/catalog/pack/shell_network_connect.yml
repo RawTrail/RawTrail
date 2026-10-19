@@ -16,7 +16,7 @@ description: |-
   `suspicious_exec` covers the same chain executing a binary from a temp directory. At this rule's monitor default a chain doing both raises one `suspicious_exec` alert and records a match here; once this rule is promoted the same chain raises one alert per rule.
 
   30 seconds is the temporal cap between the shell exec and the connection.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1059.004

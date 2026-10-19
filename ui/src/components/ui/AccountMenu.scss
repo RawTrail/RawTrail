@@ -13,7 +13,7 @@
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    color: $core-fleet-white;
+    color: $core-white;
     font: inherit;
 
     &:hover {
@@ -28,8 +28,8 @@
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: $core-fleet-green;
-    color: $core-fleet-white;
+    background: $core-green;
+    color: $core-white;
     font-size: 13px;
     font-weight: 600;
     text-transform: uppercase;
@@ -41,7 +41,7 @@
     // Solid gold pill with dark text so the badge is readable on the DARK nav bar. The previous translucent-gold fill + brown text was
     // tuned for a light background and vanished (brown on navy); a solid amber also reads as "attention" for a break-glass session.
     background: $ui-warning;
-    color: $core-fleet-black;
+    color: $core-black;
     font-size: 11px;
     font-weight: 600;
   }
@@ -60,7 +60,7 @@
     top: calc(100% + 8px);
     right: 0;
     width: 236px;
-    background: $core-fleet-white;
+    background: $core-white;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(25, 33, 71, 0.16);
     padding: 8px;
@@ -69,9 +69,9 @@
 
   &__header {
     padding: 8px 10px;
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-size: 12px;
-    border-bottom: 1px solid $ui-fleet-black-10;
+    border-bottom: 1px solid $ui-black-10;
     margin-bottom: 4px;
     overflow-wrap: anywhere;
   }
@@ -93,29 +93,29 @@
     border: none;
     background: transparent;
     border-radius: 4px;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font: inherit;
     font-size: 14px;
     text-decoration: none;
     cursor: pointer;
 
     &:hover {
-      background: $ui-fleet-black-5;
+      background: $ui-black-5;
     }
 
     &--highlight {
-      color: $core-fleet-green;
+      color: $core-green;
       font-weight: 600;
     }
 
     &--logout {
-      color: $ui-fleet-black-75;
+      color: $ui-black-75;
     }
   }
 
   &__divider {
     height: 1px;
-    background: $ui-fleet-black-10;
+    background: $ui-black-10;
     margin: 4px 0;
   }
 }

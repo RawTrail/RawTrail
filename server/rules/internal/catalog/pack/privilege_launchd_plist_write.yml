@@ -16,7 +16,7 @@ description: |-
   The decision keys on the REGISTERED EXECUTABLE's code-signing, not on who registered it: a `launchctl bootstrap` is always instigated by Apple's `smd`, so the instigator cannot discriminate. A daemon whose executable is an Apple platform binary, MDM-managed, or signed by an allowlisted vendor team ID is skipped; an ad-hoc, unsigned, or unknown-vendor executable fires. Paired with `persistence_launchagent` (user-domain LaunchAgents).
 
   Notarization is deliberately NOT a trust signal: it is an automated Apple scan, not an endorsement (Apple has notarized malware), and is not checkable network-free on the ES callback thread. Trust is the operator's team-ID allowlist; notarization, if ever used, belongs in a server-side reputation layer off the hot path.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1543.004

@@ -277,7 +277,7 @@ func UndiscriminatingSearchesOf(r Rule) []string {
 // surface that renders attribution only when it happens to be non-empty is one upstream rule away from displaying a match with no
 // credit at all, and it also reads as though an uncredited rule came from nowhere. Giving our own rules a real value makes the
 // presence of attribution invariant and moves the question a reader is actually asking ("whose rule is this?") onto the value.
-const ProjectOrigin = "Fleet EDR"
+const ProjectOrigin = "RawTrail"
 
 // LocalOrigin is the attribution carried by a rule an operator wrote on their own deployment.
 //

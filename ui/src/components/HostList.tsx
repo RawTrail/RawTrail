@@ -37,7 +37,7 @@ export function HostList() {
       });
   }, []);
 
-  // Fleet-overview counts, derived inline on every render rather than memoised on `hosts`.
+  // Overview counts, derived inline on every render rather than memoised on `hosts`.
   // isOnline() reads Date.now(), and each row re-evaluates it per render for its pill; a
   // useMemo keyed on `hosts` alone would let the summary cards show a stale online/offline
   // split (after the 5-min threshold elapses with no refetch) while the row pills had already

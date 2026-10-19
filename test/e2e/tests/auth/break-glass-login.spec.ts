@@ -45,7 +45,7 @@ test.describe("break-glass day-to-day login", () => {
       // it rolled back, the URL would still flip to /ui/ but no
       // webauthn_credentials row would exist.
       const [credRows] = (await db.query(
-        "SELECT COUNT(*) AS n FROM webauthn_credentials WHERE user_id = (SELECT id FROM users WHERE email = 'admin@fleet-edr.local')",
+        "SELECT COUNT(*) AS n FROM webauthn_credentials WHERE user_id = (SELECT id FROM users WHERE email = 'admin@rawtrail.local')",
       )) as [Array<{ n: number }>, unknown];
       if (Number(credRows[0].n) !== 1) {
         throw new Error(
@@ -70,7 +70,7 @@ test.describe("break-glass day-to-day login", () => {
     await page.goto("/ui/login");
     await page.getByRole("link", { name: /break-glass/i }).click();
 
-    await page.getByLabel(/email/i).fill("admin@fleet-edr.local");
+    await page.getByLabel(/email/i).fill("admin@rawtrail.local");
     await page.getByLabel(/password/i).fill(password);
     await page.getByRole("button", { name: /sign in with security key/i }).click();
 

@@ -21,7 +21,7 @@ test.describe("break-glass IP allowlist conceals the surface", () => {
   test("login challenge POST returns 404 from an off-list IP", async ({ request }) => {
     const resp = await request.post("/admin/break-glass/challenge", {
       headers: { "Content-Type": "application/json" },
-      data: { email: "admin@fleet-edr.local" },
+      data: { email: "admin@rawtrail.local" },
     });
     expect(resp.status()).toBe(404);
   });

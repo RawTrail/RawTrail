@@ -104,7 +104,7 @@ test.describe("break-glass redemption ceremony", () => {
         INSERT INTO bootstrap_tokens (token_hash, user_id, kind, expires_at)
         SELECT UNHEX('00000000000000000000000000000000000000000000000000000000deadbeef'),
                id, 'breakglass_setup', NOW(6) - INTERVAL 1 HOUR
-        FROM users WHERE email = 'admin@fleet-edr.local'
+        FROM users WHERE email = 'admin@rawtrail.local'
       `);
     } finally {
       await db.end();

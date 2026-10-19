@@ -76,11 +76,6 @@ func (s *Store) BackfillAlertOrigins(ctx context.Context, origins map[string]str
 	selectSQL := "SELECT id FROM alerts WHERE origin = '' AND rule_id IN (?" +
 		strings.Repeat(", ?", len(ruleIDs)-1) + ") AND id > ? ORDER BY id LIMIT ?"
 
-	// Walked by PRIMARY KEY, in batches, and the cursor is the whole point. A LIMIT alone was the first attempt and it made the
-	// total work WORSE, which both reviewers caught: with no usable index every statement restarts from the beginning, so N
-	// batches cost N scans rather than one. Resuming from the last id turns that back into a single forward pass whose locks are
-	// still bounded per statement.
-	//
 	// alerts carries no index this predicate can use. There is none on origin, and rule_id leads no index: it sits behind source,
 	// disposition, and host_id in the dedup key, and behind disposition in (disposition, rule_id, created_at), so
 	// `origin = '' AND rule_id IN (...)` cannot be satisfied by a lookup however it is written. Walking the primary key is what
@@ -96,30 +91,64 @@ func (s *Store) BackfillAlertOrigins(ctx context.Context, origins map[string]str
 	// rule_id would help, and would tax every alert INSERT, on the hot detection path, for the life of the deployment, to save a
 	// scan on a leader-only path that runs off the request path while the server is still coming up. The scan is the cheaper side
 	// of that trade.
+	return s.walkAlertBatches(ctx, "backfill alert origins", selectSQL, ruleArgs, func(ctx context.Context, ids []int64) (sql.Result, error) {
+		// Updated by primary key, so this statement touches exactly the rows just identified and holds nothing else.
+		query, updateArgs, err := sqlx.In(updateSQL, append(append([]any{}, caseArgs...), ids)...)
+		if err != nil {
+			return nil, fmt.Errorf("expand: %w", err)
+		}
+		return s.db.ExecContext(ctx, s.db.Rebind(query), updateArgs...)
+	})
+}
+
+// RecreditAlertOrigin moves every alert credited from to credited to, which is how alerts raised under the product's former name
+// take its current one (#1366). It walks the table the way BackfillAlertOrigins does, for the same reason: alerts has no index on
+// origin, and one statement over the whole table would hold its row locks until commit, blocking alert writes from replicas still
+// serving through a rolling upgrade. Batches commit independently, so each holds at most backfillBatchSize rows.
+//
+// Only rows still credited from are touched, so a re-run, or a replica racing this one, rewrites nothing twice. updated_at keeps its
+// value: a rename by the product is not triage activity, and alert retention measures an alert's age from it.
+func (s *Store) RecreditAlertOrigin(ctx context.Context, from, to string) (int64, error) {
+	const selectSQL = "SELECT id FROM alerts WHERE origin = ? AND id > ? ORDER BY id LIMIT ?"
+	const updateSQL = "UPDATE alerts SET origin = ?, updated_at = updated_at WHERE origin = ? AND id IN (?)"
+	recredit := func(ctx context.Context, ids []int64) (sql.Result, error) {
+		query, args, err := sqlx.In(updateSQL, to, from, ids)
+		if err != nil {
+			return nil, fmt.Errorf("expand: %w", err)
+		}
+		return s.db.ExecContext(ctx, s.db.Rebind(query), args...)
+	}
+	return s.walkAlertBatches(ctx, "recredit alert origin", selectSQL, []any{from}, recredit)
+}
+
+// walkAlertBatches drives a one-shot rewrite of alerts forward along the primary key: selectSQL, given args followed by the cursor
+// and the batch size, names the next batch of ids, and update rewrites exactly those. It returns the rows updated in total.
+//
+// Walked by PRIMARY KEY, in batches, and the cursor is the whole point. A LIMIT alone was the first attempt and it made the total
+// work WORSE, which both reviewers caught: with no usable index every statement restarts from the beginning, so N batches cost N
+// scans rather than one. Resuming from the last id turns that back into a single forward pass whose locks are still bounded per
+// statement.
+func (s *Store) walkAlertBatches(
+	ctx context.Context, label, selectSQL string, args []any, update func(context.Context, []int64) (sql.Result, error),
+) (int64, error) {
 	var total int64
 	var cursor int64
 	for {
 		var ids []int64
-		selectArgs := append(append([]any{}, ruleArgs...), cursor, backfillBatchSize)
+		selectArgs := append(append([]any{}, args...), cursor, backfillBatchSize)
 		if err := s.db.SelectContext(ctx, &ids, selectSQL, selectArgs...); err != nil {
-			return total, fmt.Errorf("backfill alert origins select: %w", err)
+			return total, fmt.Errorf("%s select: %w", label, err)
 		}
 		if len(ids) == 0 {
 			return total, nil
 		}
-
-		// Updated by primary key, so this statement touches exactly the rows just identified and holds nothing else.
-		query, updateArgs, err := sqlx.In(updateSQL, append(append([]any{}, caseArgs...), ids)...)
+		res, err := update(ctx, ids)
 		if err != nil {
-			return total, fmt.Errorf("backfill alert origins expand: %w", err)
-		}
-		res, err := s.db.ExecContext(ctx, s.db.Rebind(query), updateArgs...)
-		if err != nil {
-			return total, fmt.Errorf("backfill alert origins: %w", err)
+			return total, fmt.Errorf("%s: %w", label, err)
 		}
 		updated, err := res.RowsAffected()
 		if err != nil {
-			return total, fmt.Errorf("backfill alert origins rows affected: %w", err)
+			return total, fmt.Errorf("%s rows affected: %w", label, err)
 		}
 		total += updated
 		cursor = ids[len(ids)-1]

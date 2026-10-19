@@ -17,7 +17,7 @@
   &__label {
     font-size: $xx-small;
     font-weight: $bold;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 
@@ -25,7 +25,7 @@
       text-transform: none;
       font-weight: $regular;
       font-size: $x-small;
-      color: $core-fleet-black;
+      color: $core-black;
     }
   }
 
@@ -33,20 +33,20 @@
     padding: $pad-small $pad-smedium;
     font-size: $x-small;
     font-family: inherit;
-    color: $core-fleet-black;
-    background-color: $core-fleet-white;
-    border: 1px solid $ui-fleet-black-25;
+    color: $core-black;
+    background-color: $core-white;
+    border: 1px solid $ui-black-25;
     border-radius: $border-radius;
     height: 36px;
     outline: none;
     transition: border-color 150ms ease-in-out;
 
     &:hover {
-      border-color: $ui-fleet-black-50;
+      border-color: $ui-black-50;
     }
 
     &:focus {
-      border-color: $core-fleet-green;
+      border-color: $core-green;
       box-shadow: 0 0 0 3px rgba(0, 154, 125, 0.15);
     }
 
@@ -54,7 +54,7 @@
     // The previous browser default looked too much like real text - operators
     // reported clicking on /private/tmp/payload thinking it was already there.
     &::placeholder {
-      color: $ui-fleet-black-50;
+      color: $ui-black-50;
       font-style: italic;
       opacity: 1; // Firefox defaults to 0.54; force the colour we set instead.
     }
@@ -65,8 +65,8 @@ select.field__input {
   cursor: pointer;
 
   // Draw our own caret instead of the browser default, which macOS crams against the right edge. appearance:none drops the
-  // native control; the SVG chevron sits $pad-smedium (12px) off the edge with padding-right clearing it, matching Fleet's
-  // Dropdown caret spacing. The data-URI is split across lines (SCSS string concatenation) to stay under the 140-char limit.
+  // native control; the SVG chevron sits $pad-smedium (12px) off the edge with padding-right clearing it.
+  // The data-URI is split across lines (SCSS string concatenation) to stay under the 140-char limit.
   appearance: none;
   -webkit-appearance: none;
   background-image: url(

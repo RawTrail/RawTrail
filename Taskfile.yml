@@ -15,11 +15,11 @@ vars:
   # The OpenSpec CLI version the release archive must run. Keep in step with the pin in .github/workflows/openspec-validate.yml,
   # so the archive applies deltas with the same CLI that validated them.
   OPENSPEC_VERSION: 1.14.0
-  SERVER_PKG: ./server/cmd/fleet-edr-server
-  INGEST_PKG: ./server/cmd/fleet-edr-ingest
+  SERVER_PKG: ./server/cmd/rawtrail-server
+  INGEST_PKG: ./server/cmd/rawtrail-ingest
   AGENT_PKG: ./agent/cmd/fleet-edr-agent
-  SERVER_BIN: server/tmp/fleet-edr-server
-  INGEST_BIN: server/tmp/fleet-edr-ingest
+  SERVER_BIN: server/tmp/rawtrail-server
+  INGEST_BIN: server/tmp/rawtrail-ingest
   AGENT_BIN: agent/tmp/fleet-edr-agent
 
 tasks:
@@ -39,7 +39,7 @@ tasks:
       - task: build:agent
 
   build:server:
-    desc: Build the main fleet-edr-server binary into server/tmp/
+    desc: Build the main rawtrail-server binary into server/tmp/
     cmds:
       - go build -o {{.SERVER_BIN}} {{.SERVER_PKG}}
 
@@ -879,7 +879,7 @@ tasks:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       OTEL_EXPORTER_OTLP_INSECURE: "true"
-      OTEL_SERVICE_NAME: fleet-edr-server
+      OTEL_SERVICE_NAME: rawtrail-server
     cmds:
       - go run {{.SERVER_PKG}}
 
@@ -1022,7 +1022,7 @@ tasks:
           fi
           sleep 1
         done
-        echo "dex did not become ready within 30s; check 'docker logs fleet-edr-dex'"
+        echo "dex did not become ready within 30s; check 'docker logs rawtrail-dex'"
         exit 1
 
   qa:down:
@@ -1072,12 +1072,12 @@ tasks:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       OTEL_EXPORTER_OTLP_INSECURE: "true"
-      OTEL_SERVICE_NAME: fleet-edr-server
+      OTEL_SERVICE_NAME: rawtrail-server
     cmds:
       # Apply migrations so oidc_config exists, seed the dex SSO config into the durable store, then boot. --oidc-force overwrites any
       # existing row so a rerun always restores the QA dex issuer/client/external-URL (a plain seed is a no-op once a row exists).
-      - go run ./server/cmd/fleet-edr-migrate
-      - go run ./server/cmd/fleet-edr-demo-seed --oidc-only --oidc-force
+      - go run ./server/cmd/rawtrail-migrate
+      - go run ./server/cmd/rawtrail-demo-seed --oidc-only --oidc-force
       - go run {{.SERVER_PKG}}
 
   # -------- install tools / hooks --------
@@ -1184,11 +1184,11 @@ tasks:
 
   docker:server:
     desc: |
-      Build the server container image locally as fleet-edr-server:dev.
+      Build the server container image locally as rawtrail-server:dev.
       Uses the multi-stage Dockerfile; no push. For the prod-compose stack,
       see docker-compose.prod.yml and docker-compose.prod.README.md.
     cmds:
-      - docker build -f server/Dockerfile -t fleet-edr-server:dev --build-arg VERSION=dev .
+      - docker build -f server/Dockerfile -t rawtrail-server:dev --build-arg VERSION=dev .
 
   docker:prod:up:
     desc: |

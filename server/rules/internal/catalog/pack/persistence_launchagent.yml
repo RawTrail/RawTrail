@@ -14,7 +14,7 @@ description: |-
   Keyed on the registration rather than on `launchctl`, so a plist that becomes active at the next login without anyone running `launchctl` is caught, as is one loaded by any other means.
 
   The decision keys on the REGISTERED EXECUTABLE's code signature, not on who registered it. An agent whose program is an Apple platform binary or that MDM manages is skipped; an ad-hoc, unsigned or unknown-vendor program fires. Paired with `privilege_launchd_plist_write` for LaunchDaemons.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1543.001

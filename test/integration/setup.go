@@ -12,7 +12,7 @@
 // server/<context>/ subtree).
 //
 // setup.go is the canonical layer-3 fixture: Setup(t) wires every context
-// the way cmd/fleet-edr-server's main.go does, returns the composed
+// the way cmd/rawtrail-server's main.go does, returns the composed
 // http.Handler + service handles. Tests call HTTP via httptest.NewServer
 // and/or call service methods directly, depending on what surface they're
 // exercising.
@@ -67,7 +67,7 @@ type Stack struct {
 func (s *Stack) ResponseService() responseapi.Service   { return s.Response.Service() }
 func (s *Stack) DetectionService() detectionapi.Service { return s.Detection.Service() }
 
-// Setup composes seven of the eight contexts (all but observability) the same way cmd/fleet-edr-server's
+// Setup composes seven of the eight contexts (all but observability) the same way cmd/rawtrail-server's
 // main.go does, against an isolated MySQL test database with every schema
 // pre-applied. Background goroutines (detection processor + retention,
 // identity session-cleanup) start; t.Cleanup stops them.
@@ -381,7 +381,7 @@ func setupReplicaWith(t *testing.T, db *sqlx.DB, cfg setupConfig) *Stack {
 	}
 }
 
-// buildMux mirrors cmd/fleet-edr-server's mux composition for the routes the cross-context tests exercise. Operator routes that
+// buildMux mirrors cmd/rawtrail-server's mux composition for the routes the cross-context tests exercise. Operator routes that
 // require an authenticated admin session are wired the same way as production (Session + CSRF middleware), but tests typically skip
 // the HTTP path for those and call Service methods directly via the Stack handles: session minting + CSRF-token plumbing belongs in
 // dedicated identity tests, not in every cross-context smoke.

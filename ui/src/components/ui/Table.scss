@@ -6,8 +6,8 @@
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
-  background-color: $core-fleet-white;
-  border: 1px solid $ui-fleet-black-10;
+  background-color: $core-white;
+  border: 1px solid $ui-black-10;
   border-radius: $border-radius;
 }
 
@@ -25,17 +25,17 @@
 
   thead th {
     padding: $pad-smedium $pad-medium;
-    background-color: $ui-fleet-black-5;
-    color: $ui-fleet-black-75;
+    background-color: $ui-black-5;
+    color: $ui-black-75;
     text-transform: uppercase;
     font-size: $xx-small;
     font-weight: $bold;
     letter-spacing: 0.5px;
-    border-bottom: 1px solid $ui-fleet-black-10;
+    border-bottom: 1px solid $ui-black-10;
   }
 
   tbody tr {
-    border-bottom: 1px solid $ui-fleet-black-5;
+    border-bottom: 1px solid $ui-black-5;
 
     &:last-child {
       border-bottom: 0;
@@ -54,8 +54,8 @@
 .table-empty {
   padding: $pad-large;
   text-align: center;
-  color: $ui-fleet-black-50;
-  background-color: $core-fleet-white;
-  border: 1px solid $ui-fleet-black-10;
+  color: $ui-black-50;
+  background-color: $core-white;
+  border: 1px solid $ui-black-10;
   border-radius: $border-radius;
 }

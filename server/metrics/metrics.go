@@ -101,7 +101,7 @@ type Options struct {
 // New builds a Recorder and registers every metric against the OTel meter. When OTEL_EXPORTER_OTLP_ENDPOINT is unset
 // `observability.Init` leaves the SDK in its no-op state; in that case every `Add`/`Record`/`Observe` call is a no-op and this
 // constructor still succeeds, so unit tests and offline dev don't need a collector. Passing nil for `gauges` skips observable gauge
-// registration: unit tests do, and so does fleet-edr-ingest, since fleet-edr-server already reports the fleet-wide host gauges.
+// registration: unit tests do, and so does rawtrail-ingest, since rawtrail-server already reports the fleet-wide host gauges.
 func New(gauges GaugeSource, opts Options) *Recorder {
 	if opts.OfflineThreshold <= 0 {
 		opts.OfflineThreshold = defaultOfflineThreshold

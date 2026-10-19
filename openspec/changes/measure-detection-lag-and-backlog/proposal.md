@@ -5,7 +5,7 @@ A stalled or slow detection pipeline was invisible in metrics (issue #1218). Ale
 ## What changes
 
 - `edr.detection.lag`: a histogram, in seconds, of each event's time from the server receiving it to its batch being acknowledged after detection. Server clock (`ingested_at_ns`), so an agent's offline buffer is not lag. Recorded only once the batch is acknowledged by the attempt that processed it.
-- `edr.events.pending`: a gauge of queued events, counted up to 1,000,000 and reading the cap above that. `fleet-edr-server` reports it; `fleet-edr-ingest` does not.
+- `edr.events.pending`: a gauge of queued events, counted up to 1,000,000 and reading the cap above that. `rawtrail-server` reports it; `rawtrail-ingest` does not.
 - Two SigNoz alert rules: "EDR detection lag high" (p95 above 5 minutes for 10 minutes) and "EDR detection stalled" (events queued while no lag is recorded for 15 minutes).
 
 ## Not considered further

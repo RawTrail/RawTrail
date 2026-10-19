@@ -56,11 +56,11 @@ func TestRecord_RoundTrip(t *testing.T) {
 	t.Parallel()
 	store, db := newStore(t)
 	const userID = int64(1)
-	seedUser(t, db, userID, "admin@fleet-edr.local")
+	seedUser(t, db, userID, "admin@rawtrail.local")
 
 	uid := userID
 	require.NoError(t, store.Record(t.Context(), api.AuditEvent{
-		Actor:      api.UserPrincipal(uid, "admin@fleet-edr.local"),
+		Actor:      api.UserPrincipal(uid, "admin@rawtrail.local"),
 		Action:     api.AuditAuthLoginSuccess,
 		RemoteAddr: "127.0.0.1:54321",
 		Payload:    map[string]any{"reason": "n/a"},
@@ -71,7 +71,7 @@ func TestRecord_RoundTrip(t *testing.T) {
 	require.Len(t, rows, 1)
 	r := rows[0]
 	assert.Equal(t, api.AuditAuthLoginSuccess, r.Action)
-	assert.Equal(t, "admin@fleet-edr.local", r.UserEmail, "snapshot label surfaced as UserEmail")
+	assert.Equal(t, "admin@rawtrail.local", r.UserEmail, "snapshot label surfaced as UserEmail")
 	require.NotNil(t, r.UserID)
 	assert.Equal(t, userID, *r.UserID)
 	assert.Equal(t, "127.0.0.1:54321", r.RemoteAddr)
@@ -419,7 +419,7 @@ func TestRecord_EmitsWarnLogForBreakglassActions(t *testing.T) {
 			logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 			store, _ := newStoreWithLogger(t, logger)
 			require.NoError(t, store.Record(t.Context(), api.AuditEvent{
-				Actor:      api.PrincipalRef{Label: "admin@fleet-edr.local"},
+				Actor:      api.PrincipalRef{Label: "admin@rawtrail.local"},
 				Action:     action,
 				TargetType: "user",
 				TargetID:   "1",

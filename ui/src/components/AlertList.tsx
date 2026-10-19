@@ -195,7 +195,7 @@ export function AlertList() {
                       appears only on hover is not shown.
 
                       Guarded because an alert raised before the column existed carries no origin (migration 00012); those
-                      are all rules this project wrote. Showing nothing is right for them, and inventing "Fleet EDR" would
+                      are all rules this project wrote. Showing nothing is right for them, and inventing "RawTrail" would
                       assert something this row does not actually record. */}
                   {a.origin && <div className="alert-list__origin">{a.origin}</div>}
                 </td>

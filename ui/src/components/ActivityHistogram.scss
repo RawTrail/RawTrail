@@ -25,14 +25,14 @@
 
     &:hover:not(:disabled) .activity-histogram__fill,
     &:focus-visible .activity-histogram__fill {
-      background: $core-fleet-green-over;
+      background: $core-green-over;
     }
   }
 
   &__fill {
     display: block;
     width: 100%;
-    background: $core-fleet-green;
+    background: $core-green;
     border-radius: 2px 2px 0 0;
   }
 }

@@ -8,22 +8,22 @@
   width: 36px;
   height: 36px;
   padding: 0;
-  background-color: $core-fleet-white;
-  border: 1px solid $ui-fleet-black-25;
+  background-color: $core-white;
+  border: 1px solid $ui-black-25;
   border-radius: 4px;
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
   cursor: pointer;
   transition:
     border-color 150ms ease-in-out,
     color 150ms ease-in-out;
 
   &:hover {
-    border-color: $ui-fleet-black-50;
-    color: $core-fleet-black;
+    border-color: $ui-black-50;
+    color: $core-black;
   }
 
   &:focus-visible {
-    border-color: $core-fleet-green;
+    border-color: $core-green;
     box-shadow: 0 0 0 3px rgba(0, 154, 125, 0.15);
     outline: none;
   }

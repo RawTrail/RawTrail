@@ -14,7 +14,7 @@ A fourth script (`e2-policy-roundtrip.sh`) used to exercise the blocklist policy
 
 Before running any script:
 
-- **Server**: Fleet EDR server reachable, at least one host enrolled.
+- **Server**: RawTrail server reachable, at least one host enrolled.
 - **VM**: agent installed + sysext active + Full Disk Access granted. Verified via the manual install doc ([`install-agent-manual.md`](../../docs/install-agent-manual.md)). SSH from this workstation works without an interactive password prompt: keys in `~/.ssh/authorized_keys`. The scripts use `BatchMode=yes` so a missing key fails fast rather than hanging.
 - **Tooling on this workstation**: `bash`, `curl`, `jq`, `ssh`, `scp`, `shellcheck` (optional, only for editing the scripts). The scripts avoid bash-4-only features so macOS's bundled bash 3.2 works.
 - **Tooling on the VM**: `sqlite3` (for the network-partition queue-depth check), `pfctl` (for the partition itself; ships with macOS), `plutil` (for reading `host_id` from the persisted enrollment). All present in base macOS.

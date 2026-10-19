@@ -1,14 +1,14 @@
 # Fleet MDM deployment
 
-This is the Fleet-specific recipe for deploying the Fleet EDR agent to a fleet of Macs. For the vendor-neutral contract (what the three artifacts are and why) see [mdm-deployment.md](mdm-deployment.md).
+This is the Fleet-specific recipe for deploying the RawTrail agent to a fleet of Macs. For the vendor-neutral contract (what the three artifacts are and why) see [mdm-deployment.md](mdm-deployment.md).
 
-Fleet and Fleet EDR are independent products. Fleet owns MDM + osquery; Fleet EDR owns the endpoint security / detection data plane. The contact between them is a deployment contract: Fleet delivers a signed `.pkg`, three `.mobileconfig` profiles, and an install script. The EDR server receives events from the resulting agents directly, not via Fleet.
+Fleet and RawTrail are independent products. Fleet owns MDM + osquery; RawTrail owns the endpoint security / detection data plane. The contact between them is a deployment contract: Fleet delivers a signed `.pkg`, three `.mobileconfig` profiles, and an install script. The EDR server receives events from the resulting agents directly, not via Fleet.
 
 ## Prerequisites
 
 - A Fleet server (version 4.86+) with MDM turned on and an Apple APNs + ABM (Apple Business Manager) push certificate uploaded. Macs must be ADE-enrolled or manually UAMDM-enrolled. Without UAMDM, macOS refuses the restricted payloads in our profiles.
 - `fleetctl` installed locally and authenticated (`fleetctl login`). The UI also works; this doc uses `fleetctl` because every step is reproducible.
-- A running Fleet EDR server with a known enroll secret (the value in `./secrets/enroll_secret` from [install-server.md](install-server.md)).
+- A running RawTrail server with a known enroll secret (the value in `./secrets/enroll_secret` from [install-server.md](install-server.md)).
 - Downloaded release artifacts from [GitHub Releases](https://github.com/getvictor/fleet-edr/releases):
   - `fleet-edr-<version>.pkg`
   - `edr-system-extension.mobileconfig`
@@ -130,7 +130,7 @@ EOF
 
 Adding the package only makes it available to the fleet; nothing installs yet. An install triggers per host in one of three ways:
 
-- **Manually**: **Hosts > \<host\> > Software**, find Fleet EDR, **Actions > Install**.
+- **Manually**: **Hosts > \<host\> > Software**, find RawTrail, **Actions > Install**.
 - **Self-service**: if enabled on the package, end users install it from Fleet Desktop's Self-service tab.
 - **Automatic install**: check **Automatic install** when adding the package in the UI. Fleet creates a policy that installs the EDR on every in-scope host that doesn't have it, which is what you want for a fleet-wide rollout. The checkbox exists only on the add flow (not edit), and the `fleetctl apply` YAML path doesn't expose it; to automate a CLI-managed package, attach it to a policy automation instead.
 
@@ -171,7 +171,7 @@ Open `https://<your-edr-server>/ui/`. The Macs that finished the Fleet-driven in
     path: ./fleet-edr-uninstall.sh
 ```
 
-**Via the Fleet UI:** **Software**, select the Fleet EDR package (with the "EDR pilot" fleet in scope), then **Actions > Edit**, choose the newer pkg file, and save. The scripts carry over unless you change them.
+**Via the Fleet UI:** **Software**, select the RawTrail package (with the "EDR pilot" fleet in scope), then **Actions > Edit**, choose the newer pkg file, and save. The scripts carry over unless you change them.
 
 On each Mac the EDR pkg's preinstall stops the old daemon and the postinstall starts the new one. The host token at `/var/db/fleet-edr/enrolled.plist` survives the upgrade so agents don't re-enroll.
 
@@ -179,7 +179,7 @@ If the new release changes one of the `.mobileconfig` profiles, push the new pro
 
 ## Uninstall
 
-The uninstall script attached in Step 2 wraps the pkg's bundled `uninstall.sh`, which removes the daemon, host app, and system extension. Trigger it per host in the Fleet UI: **Hosts > \<host\> > Software**, find Fleet EDR, then **Actions > Uninstall**. There is no fleetctl command for a per-host uninstall; script results land under **Hosts > \<host\> > Activity**.
+The uninstall script attached in Step 2 wraps the pkg's bundled `uninstall.sh`, which removes the daemon, host app, and system extension. Trigger it per host in the Fleet UI: **Hosts > \<host\> > Software**, find RawTrail, then **Actions > Uninstall**. There is no fleetctl command for a per-host uninstall; script results land under **Hosts > \<host\> > Activity**.
 
 To remove the profiles as well, edit the fleet's YAML and drop the three `custom_settings` entries. Fleet removes the profiles from each Mac on the next check-in; macOS tears down the TCC grants and sysext allow-list within minutes.
 

@@ -1,4 +1,4 @@
-// Package observability wires up the OpenTelemetry SDK for every fleet-edr
+// Package observability wires up the OpenTelemetry SDK for every RawTrail
 // binary (server, ingest, agent). One Init call installs global tracer +
 // meter + logger providers backed by OTLP/gRPC when
 // OTEL_EXPORTER_OTLP_ENDPOINT is set, and leaves the SDK defaults (no-op) in
@@ -236,7 +236,7 @@ func buildResource(ctx context.Context, opts Options) (*resource.Resource, error
 		return nil, err
 	}
 	// Guarantee a consistent deployment environment on the resource. Emitting it unconditionally keeps the attribute present in every
-	// SigNoz instance a fleet-edr binary reports to, which is what lets the config/observability dashboards drive a dynamic environment
+	// SigNoz instance a RawTrail binary reports to, which is what lets the config/observability dashboards drive a dynamic environment
 	// selector; withDeploymentEnvironment also reconciles the two keys an operator can set independently via OTEL_RESOURCE_ATTRIBUTES.
 	return withDeploymentEnvironment(res)
 }

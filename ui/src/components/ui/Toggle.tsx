@@ -8,7 +8,7 @@ interface ToggleProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "type"
 
 // Toggle is an accessible on/off switch: a visually-hidden checkbox (role="switch") drives
 // a styled track + knob, so keyboard focus, the space key, and screen readers all work
-// while matching the Fleet design (44x24 pill, green when on). There is no native switch
+// in the design system's style (44x24 pill, green when on). There is no native switch
 // element, so a checkbox is the correct ARIA base.
 export function Toggle({ label, id, ...rest }: ToggleProps) {
   return (

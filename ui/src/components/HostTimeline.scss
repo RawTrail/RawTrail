@@ -21,22 +21,22 @@
 
   &__type {
     background: transparent;
-    border: 1px solid $ui-fleet-black-25;
+    border: 1px solid $ui-black-25;
     border-radius: 1rem;
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     cursor: pointer;
     font-size: 0.8rem;
     padding: 0.2rem 0.7rem;
 
     &--on {
-      background: $core-fleet-blue;
-      border-color: $core-fleet-blue;
-      color: $core-fleet-white;
+      background: $core-blue;
+      border-color: $core-blue;
+      color: $core-white;
     }
   }
 
   &__text {
-    border: 1px solid $ui-fleet-black-25;
+    border: 1px solid $ui-black-25;
     border-radius: 0.25rem;
     flex: 1 1 16rem;
     font-size: 0.85rem;
@@ -55,7 +55,7 @@
   // scoped at all, or it is scoped to only part of the chain. Both are sentences rather than three-word labels and have to be
   // allowed to wrap; inheriting the nowrap above would push the filter row off the side of the page.
   &__scope-note--degraded {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     white-space: normal;
     max-width: 34rem;
     border-left: 3px solid $ui-warning;
@@ -89,7 +89,7 @@
 
   // The graph-node -> timeline pivot emphasizes the selected process's rows without hiding the surrounding stream.
   &__row--emphasis td {
-    background: $ui-fleet-blue-10;
+    background: $ui-blue-10;
     box-shadow: inset 3px 0 0 $core-vibrant-blue;
   }
 }

@@ -31,8 +31,8 @@
   // matches Crowdstrike Falcon and Elastic Security's coverage tables.
   &__tactic-row {
     th {
-      background: $ui-fleet-black-5;
-      color: $core-fleet-black;
+      background: $ui-black-5;
+      color: $core-black;
       font-weight: $bold;
       text-transform: none;
       letter-spacing: 0;
@@ -42,7 +42,7 @@
   }
 
   &__technique-id {
-    color: $core-fleet-green;
+    color: $core-green;
     text-decoration: none;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-weight: $bold;
@@ -56,7 +56,7 @@
   // matches the technique-id link colour so the row reads as two parallel
   // jump-off points (technique → MITRE; rule → in-app docs).
   &__rule-link {
-    color: $core-fleet-green;
+    color: $core-green;
     text-decoration: none;
 
     &:hover {
@@ -85,10 +85,10 @@
   margin-inline: 0;
   padding: 0;
   margin-bottom: $pad-medium;
-  border: 1px solid $ui-fleet-black-25;
+  border: 1px solid $ui-black-25;
   border-radius: $border-radius;
   overflow: hidden;
-  background-color: $core-fleet-white;
+  background-color: $core-white;
   line-height: 1;
 }
 
@@ -96,11 +96,11 @@
   appearance: none;
   background: transparent;
   border: 0;
-  border-right: 1px solid $ui-fleet-black-10;
+  border-right: 1px solid $ui-black-10;
   padding: $pad-xsmall $pad-smedium;
   font-size: $x-small;
   font-family: inherit;
-  color: $core-fleet-black;
+  color: $core-black;
   cursor: pointer;
   transition: background-color 100ms ease, color 100ms ease;
 
@@ -118,8 +118,8 @@
   }
 
   &--active {
-    background-color: $core-fleet-green;
-    color: $core-fleet-white;
+    background-color: $core-green;
+    color: $core-white;
     font-weight: $bold;
   }
 }

@@ -112,3 +112,13 @@ describe("TopNav account menu", () => {
     expect(screen.getByText("Role: Admin")).toBeVisible();
   });
 });
+
+describe("TopNav brand", () => {
+  // spec:product-identity/the-product-identifies-itself-as-rawtrail/the-ui-s-brand-mark-reads-rawtrail
+  it("names the product RawTrail", () => {
+    const { container } = renderNav(ALL_NAV_PERMISSIONS);
+    const brand = container.querySelector(".top-nav__brand");
+    expect(brand).toBeVisible();
+    expect(brand).toHaveTextContent(/^RawTrail$/);
+  });
+});

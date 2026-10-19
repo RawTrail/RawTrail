@@ -44,7 +44,7 @@ func TestResolveConfig(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "https://localhost:8088", c.serverURL)
 		assert.Equal(t, "demo-enroll-secret", c.enrollSecret)
-		assert.Equal(t, "demo@fleet-edr.local", c.demoEmail)
+		assert.Equal(t, "demo@rawtrail.local", c.demoEmail)
 		assert.Equal(t, "senior_analyst", c.demoRole)
 		assert.Empty(t, c.demoOIDCSubject)
 		assert.Empty(t, c.caCertPath)

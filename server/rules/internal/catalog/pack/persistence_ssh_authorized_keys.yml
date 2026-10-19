@@ -12,7 +12,7 @@ description: |-
   Detects SSH key persistence on macOS (T1098.004): a public key added to `~/.ssh/authorized_keys` (or `authorized_keys2`) lets whoever holds the private key log in as that user, and keeps working after the user's password changes. Every home is watched, root's included.
 
   The rule reads renames as well as writes, so a key file prepared elsewhere and moved into place is caught. It does not filter on Apple-signed tools, because keys are added with `cat`, `tee` and `ssh-copy-id`'s remote shell.
-author: Fleet EDR
+author: RawTrail
 level: medium
 tags:
   - attack.t1098.004

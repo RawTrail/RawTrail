@@ -2,7 +2,7 @@
 
 Use this path to:
 
-- Evaluate Fleet EDR on one to five Macs.
+- Evaluate RawTrail on one to five Macs.
 - Install on a dev machine that isn't MDM-enrolled.
 - Reproduce a customer's install-time issue without their full MDM.
 
@@ -12,7 +12,7 @@ For production deployments of more than a handful of Macs, use [mdm-deployment.m
 
 - macOS 26 (Tahoe) or later, Apple Silicon only.
 - Admin (sudo) on the Mac.
-- A reachable Fleet EDR server. You need its URL and the `enroll_secret` from the server's `./secrets/enroll_secret`.
+- A reachable RawTrail server. You need its URL and the `enroll_secret` from the server's `./secrets/enroll_secret`.
 - Optionally, the SHA-256 fingerprint of the server's TLS cert, for pinned installs. Otherwise the agent validates against the system trust store.
 
 ## Step 1: download the pkg
@@ -76,7 +76,7 @@ cosign verify-blob \
 The same `<file>.sigstore.json` bundle covers `SHA256SUMS` and all three `.mobileconfig` profiles. To verify the server image instead, pass the same keyless identity and issuer constraints:
 
 ```sh
-cosign verify ghcr.io/getvictor/fleet-edr-server:v0.7.0 \
+cosign verify ghcr.io/getvictor/rawtrail-server:v0.7.0 \
     --certificate-identity-regexp '^https://github\.com/getvictor/fleet-edr/\.github/workflows/release\.yml@refs/tags/v' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
@@ -110,7 +110,7 @@ sudo installer -pkg ~/Downloads/fleet-edr-v0.7.0.pkg -target /
 Expect:
 
 ```text
-installer: Package name is Fleet EDR
+installer: Package name is RawTrail
 installer: Installing at base path /
 installer: The install was successful.
 ```
@@ -131,13 +131,13 @@ The postinstall script loads the LaunchDaemon. The agent starts immediately, rea
 
 ## Step 5: approve the system extensions
 
-Fleet EDR ships two system extensions: an Endpoint Security extension (`com.fleetdm.edr.securityextension`, process and file events) and a Network Extension (`com.fleetdm.edr.networkextension`, network and DNS events). The pkg's activation LaunchAgent (`com.fleetdm.edr.activate`) runs the host app's `activate` right after install (and again at every login), but on a Mac that isn't MDM-managed each extension needs a human to approve it. macOS posts a notification when the host app requests activation.
+RawTrail ships two system extensions: an Endpoint Security extension (`com.fleetdm.edr.securityextension`, process and file events) and a Network Extension (`com.fleetdm.edr.networkextension`, network and DNS events). The pkg's activation LaunchAgent (`com.fleetdm.edr.activate`) runs the host app's `activate` right after install (and again at every login), but on a Mac that isn't MDM-managed each extension needs a human to approve it. macOS posts a notification when the host app requests activation.
 
 Approve each extension in System Settings:
 
 1. Open **System Settings > General > Login Items & Extensions**.
-2. Under **Extensions**, open **Endpoint Security Extensions**, enable **Fleet EDR**, and authenticate with your user password.
-3. Open **Network Extensions** and enable **Fleet EDR** the same way. macOS also prompts to allow it to filter network content; click **Allow**.
+2. Under **Extensions**, open **Endpoint Security Extensions**, enable **RawTrail**, and authenticate with your user password.
+3. Open **Network Extensions** and enable **RawTrail** the same way. macOS also prompts to allow it to filter network content; click **Allow**.
 
 Each extension moves `activated waiting for user` → `activated enabled`.
 
@@ -157,11 +157,11 @@ Each extension feeds its own receiver loop, so until a given extension is activa
 The Endpoint Security extension creates its ES client with `es_new_client`, which requires Full Disk Access. The extension is a separate TCC identity from the host app, so granting FDA to `/Applications/Fleet EDR.app` does NOT cover it. Without its own grant, `es_new_client` returns `ERR_NOT_PERMITTED`, the extension exits and relaunches in a loop, and the agent logs repeated `receiver connect` / `xpc_bridge_connect failed` warnings even though `systemextensionsctl` shows `activated enabled`.
 
 1. Open **System Settings > Privacy & Security > Full Disk Access**.
-2. After Step 5's activation the extension appears in the list as **"Fleet EDR Security Extension"** (its bundle display name). Toggle it ON and authenticate. This is the entry that lets `es_new_client` succeed.
+2. After Step 5's activation the extension appears in the list as **"RawTrail Security Extension"** (its bundle display name). Toggle it ON and authenticate. This is the entry that lets `es_new_client` succeed.
 3. Add the agent: click **+**, press Cmd+Shift+G, enter `/usr/local/bin/fleet-edr-agent`, and toggle it ON.
-4. If no **"Fleet EDR Security Extension"** entry is listed, reset its TCC state and reboot to force a fresh prompt: `sudo tccutil reset SystemPolicyAllFiles com.fleetdm.edr.securityextension`.
+4. If no **"RawTrail Security Extension"** entry is listed, reset its TCC state and reboot to force a fresh prompt: `sudo tccutil reset SystemPolicyAllFiles com.fleetdm.edr.securityextension`.
 
-Granting FDA mid-loop lets the next relaunch succeed within a few seconds; if the warnings don't clear, reboot. You don't need to grant FDA to the Network Extension ("Fleet EDR Network Extension") or to `/Applications/Fleet EDR.app`.
+Granting FDA mid-loop lets the next relaunch succeed within a few seconds; if the warnings don't clear, reboot. You don't need to grant FDA to the Network Extension ("RawTrail Network Extension") or to `/Applications/Fleet EDR.app`.
 
 ## Step 7: verify end-to-end
 
@@ -182,7 +182,7 @@ sudo tail -n 100 /var/log/fleet-edr-agent.log
 
 In the admin UI (https://edr.example.com/ui/):
 
-1. Log in as `admin@fleet-edr.local` with the password captured at server boot.
+1. Log in as `admin@rawtrail.local` with the password captured at server boot.
 2. Open the Hosts page. The new host appears with its hardware UUID, hostname, and a "last seen" timestamp that updates every ~5 seconds.
 3. Run a process on the Mac (e.g., `ls -la`). It appears in the host's process tree within a few seconds.
 
@@ -212,7 +212,7 @@ sudo rm /etc/fleet-edr.conf
 
 The script deactivates both system extensions by invoking the host app's `deactivate` request in the logged-in user's GUI session (the same Apple-sanctioned path the installer uses to activate them), so a user must be logged in at the console when you run it. It prints what actually happened:
 
-- **"Fleet EDR removed."** Both extensions were removed.
+- **"RawTrail removed."** Both extensions were removed.
 - **"staged for removal ... REBOOT to finish"** macOS removes a system extension on the next reboot. Reboot, then confirm `systemextensionsctl list` shows no `com.fleetdm.edr` entries.
 - **"WARNING: ... system extension(s) are still active"** The extensions could not be removed locally. The script keeps the host app so you can retry, and prints the cause. The usual cause on a managed Mac is an MDM configuration profile (`com.fleetdm.edr.profile.system-extension`) that approved the extensions: macOS refuses to remove a profile-approved extension, so remove that profile via your MDM (see [mdm-deployment.md](mdm-deployment.md)) and macOS removes the extensions automatically. On an unmanaged Mac, make sure a user is logged in at the console and re-run the script.
 
@@ -220,9 +220,9 @@ After uninstall, the host disappears from the admin UI only after its `last_seen
 
 ## Troubleshoot
 
-**`installer: Error - Fleet EDR requires Apple Silicon (M1 or later).`** You're on an Intel Mac. We don't ship Intel builds. Apple Silicon only.
+**`installer: Error - RawTrail requires Apple Silicon (M1 or later).`** You're on an Intel Mac. We don't ship Intel builds. Apple Silicon only.
 
-**`installer: Error - Fleet EDR requires macOS 26 (Tahoe) or later.`** Upgrade macOS before installing.
+**`installer: Error - RawTrail requires macOS 26 (Tahoe) or later.`** Upgrade macOS before installing.
 
 **Installer runs but the daemon never starts. `launchctl print` says "Could not find service".** The postinstall script probably failed. Check `sudo tail /var/log/install.log`. Common causes: `/Library/LaunchDaemons` owned by the wrong user, or `launchctl bootstrap` hit a permission error. Run:
 
@@ -237,7 +237,7 @@ sudo launchctl kickstart -k system/com.fleetdm.edr.agent
 
 **System extension stays in `activated waiting for user` forever.** Someone disabled Automation + extensions in the OS. Easiest fix: revoke the install, reinstall with the MDM path (which pushes the sysext-allow-list profile so the prompt doesn't appear).
 
-**`receiver connect` / `xpc_bridge_connect failed` warnings repeat while `systemextensionsctl list` shows `activated enabled`.** The Endpoint Security extension is exiting on launch for lack of Full Disk Access. Confirm with `log show --last 10m --predicate 'subsystem == "com.fleetdm.edr.securityextension"' | grep "ES client"`: `Failed to create ES client: 4` is `ERR_NOT_PERMITTED`. Enable the **"Fleet EDR Security Extension"** entry in Privacy & Security > Full Disk Access (Step 6). The extension is a different TCC identity from `/Applications/Fleet EDR.app`, so granting the app alone doesn't fix it.
+**`receiver connect` / `xpc_bridge_connect failed` warnings repeat while `systemextensionsctl list` shows `activated enabled`.** The Endpoint Security extension is exiting on launch for lack of Full Disk Access. Confirm with `log show --last 10m --predicate 'subsystem == "com.fleetdm.edr.securityextension"' | grep "ES client"`: `Failed to create ES client: 4` is `ERR_NOT_PERMITTED`. Enable the **"RawTrail Security Extension"** entry in Privacy & Security > Full Disk Access (Step 6). The extension is a different TCC identity from `/Applications/Fleet EDR.app`, so granting the app alone doesn't fix it.
 
 ## Enable OpenTelemetry (optional, dev/debug)
 

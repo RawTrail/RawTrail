@@ -42,6 +42,7 @@ func decode(t *testing.T, body []byte) map[string]any {
 // TestRule_ShapeAndMapping pins every field the serialiser derives rather than copies. The copied fields are uninteresting; the
 // derived ones each encode a decision (Sigma's tag vocabulary, its product name for darwin, one category per rule) that a future
 // change could silently get wrong.
+// spec:product-identity/the-product-identifies-itself-as-rawtrail/a-rule-this-project-authored-is-credited-to-rawtrail
 func TestRule_ShapeAndMapping(t *testing.T) {
 	t.Parallel()
 
@@ -51,7 +52,7 @@ func TestRule_ShapeAndMapping(t *testing.T) {
 
 	assert.Equal(t, "Example rule", got["title"])
 	assert.Equal(t, "stable", got["status"])
-	assert.Equal(t, "Fleet EDR", got["author"])
+	assert.Equal(t, "RawTrail", got["author"])
 	assert.Equal(t, api.SeverityHigh, got["level"])
 	assert.Equal(t, []any{"attack.t1059.004", "attack.t1105"}, got["tags"],
 		"techniques render in Sigma's tag vocabulary: lowercase, attack-prefixed")

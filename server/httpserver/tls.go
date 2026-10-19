@@ -11,7 +11,7 @@ import (
 	"syscall"
 )
 
-// TLSOptions configures TLS for a fleet-edr daemon. CertFile and KeyFile must both be non-empty. The TLS floor is TLS 1.3,
+// TLSOptions configures TLS for a RawTrail daemon. CertFile and KeyFile must both be non-empty. The TLS floor is TLS 1.3,
 // unconditionally: the only client is our own modern Go agent, so there is no legacy-client opt-out to maintain.
 type TLSOptions struct {
 	CertFile string

@@ -76,7 +76,7 @@ test.describe.serial("break-glass login failure reason", () => {
     // beforeAll. Drive the wrong-password login here.
     await setupPage.goto("/ui/login");
     await setupPage.getByRole("link", { name: /break-glass/i }).click();
-    await setupPage.getByLabel(/email/i).fill("admin@fleet-edr.local");
+    await setupPage.getByLabel(/email/i).fill("admin@rawtrail.local");
     await setupPage.getByLabel(/password/i).fill(WRONG_PASSWORD);
 
     // Capture the final /admin/break-glass POST status. The Playwright
@@ -115,7 +115,7 @@ test.describe.serial("break-glass login failure reason", () => {
         `SELECT JSON_UNQUOTE(JSON_EXTRACT(payload, '$.reason')) AS reason
            FROM audit_events
           WHERE action = 'auth.breakglass.failure'
-            AND actor_label = 'admin@fleet-edr.local'
+            AND actor_label = 'admin@rawtrail.local'
           ORDER BY id DESC LIMIT 1`,
       )) as [Array<{ reason: string }>, unknown];
       expect(rows).toHaveLength(1);

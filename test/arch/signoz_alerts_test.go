@@ -30,8 +30,8 @@ var (
 // serviceSourceRoots maps each OTel service.name to the source trees its binary is built from, so a rule is checked against the
 // metrics that service emits rather than against the whole repository: the agent and the server share metric names.
 var serviceSourceRoots = map[string][]string{
-	"fleet-edr-server": {"server", "internal"},
-	"fleet-edr-agent":  {"agent", "internal"},
+	"rawtrail-server": {"server", "internal"},
+	"fleet-edr-agent": {"agent", "internal"},
 }
 
 type alertRule struct {

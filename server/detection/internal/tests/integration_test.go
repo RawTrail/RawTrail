@@ -1399,7 +1399,7 @@ func TestEngine_StampsRuleAttributionOnTheAlert(t *testing.T) {
 	// render attribution unconditionally instead of only when it happens to be present.
 	assert.Equal(t, rulesapi.ProjectOrigin, byRule["stub-ours"].Origin, "a rule this project wrote credits this project")
 	assert.Equal(t, "Upstream, by Someone", byRule["stub-vendored"].Origin, "a vendored rule credits its upstream and author")
-	// Empty, not "Fleet EDR": the alert's rule_id belongs to whoever configured the blocked item, so claiming authorship of it
+	// Empty, not "RawTrail": the alert's rule_id belongs to whoever configured the blocked item, so claiming authorship of it
 	// would be a false statement about a third party. Qodo caught this on #824 when the engine used OriginOf here.
 	assert.Empty(t, byRule["stub-projection"].Origin, "a projection's alert credits nobody, since its rule id is not its own")
 
@@ -3530,7 +3530,7 @@ func TestHealthRoutes_LivezReadyz(t *testing.T) {
 
 // spec:server-availability/ingest-drains-and-resolves-clients-like-the-server/ingest-readiness-reports-not-ready-once-draining-begins
 //
-// fleet-edr-ingest builds detection in intake mode and wires its DrainState into it, as fleet-edr-server does in full mode (issue
+// rawtrail-ingest builds detection in intake mode and wires its DrainState into it, as rawtrail-server does in full mode (issue
 // #1248). This builds the same intake-mode context with the same gate and checks /readyz flips to 503 once the drain begins.
 func TestHealthRoutes_IntakeModeReadyzDrains(t *testing.T) {
 	t.Parallel()
@@ -3929,7 +3929,7 @@ func TestStore_SearchProcesses_SkipsCountWhenUnfiltered(t *testing.T) {
 	assert.EqualValues(t, 3, filtered.TotalMatched, "a filtered search reports the exact total")
 }
 
-// TestStore_SearchProcesses_IndividualFilters pins the store-level behaviour of each filter the "Fleet-wide process search endpoint"
+// TestStore_SearchProcesses_IndividualFilters pins the store-level behaviour of each filter the "fleet-wide process search endpoint"
 // requirement lists, closing the gaps the compose-only test above leaves: the path substring (including LIKE-metacharacter escaping),
 // the fork-time window bounds, exit_reason, uid in isolation, the three signer classes the platform/ad-hoc/unsigned cases skip
 // (invalid / developer-id / signed), and empty-result queries. One host's rows are exercised one filter at a time, scoped by host_id.

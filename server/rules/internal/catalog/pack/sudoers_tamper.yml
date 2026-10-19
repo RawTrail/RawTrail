@@ -14,7 +14,7 @@ description: |-
   Unlike the persistence rules, this one deliberately does NOT key on Apple-signed platform binaries: the canonical attacker tools for sudoers tampering ARE platform binaries (cp, tee, redirected shells, even `sudo vi /etc/sudoers`), so a platform-binary filter would silence every realistic attack while admitting almost nothing of value. Operators tune with a path-glob exclusion via the detection-config surface instead.
 
   The rule reads renames as well as writes, so an attacker who writes a temp file and renames it onto a sudoers path is caught at the moment the file becomes policy. It matches only the names sudo will actually parse: sudoers(5) skips files in /etc/sudoers.d whose names contain a `.` or end in `~`, and a file sudo skips grants nothing.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1548.003

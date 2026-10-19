@@ -1,4 +1,4 @@
-// Command fleet-edr-demo-seed preloads a running EDR server with demo data so the repo is evaluable in minutes without a Mac fleet.
+// Command rawtrail-demo-seed preloads a running EDR server with demo data so the repo is evaluable in minutes without a Mac fleet.
 //
 // It enrols synthetic hosts, replays a curated attack + noise corpus through the real ingest API so the server's own processor builds
 // the process graph and fires detection alerts, fabricates one application-control block, verifies the data materialised, and
@@ -7,7 +7,7 @@
 //
 // It is meant to run as a one-shot container in docker-compose.demo.yml, but runs equally well by hand against `task dev:server`:
 //
-//	go run ./server/cmd/fleet-edr-demo-seed \
+//	go run ./server/cmd/rawtrail-demo-seed \
 //	  --server-url https://localhost:8088 --enroll-secret dev-enroll-secret \
 //	  --dsn 'root:@tcp(127.0.0.1:33306)/edr?parseTime=true'
 package main

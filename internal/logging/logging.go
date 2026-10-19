@@ -63,7 +63,7 @@ func New(w io.Writer, opts Options) (*slog.Logger, error) {
 
 	name := opts.InstrumentationName
 	if name == "" {
-		name = "fleet-edr"
+		name = "rawtrail"
 	}
 	// otelslog.NewHandler reads the global LoggerProvider. When OTel is disabled this becomes a cheap no-op emitter. Upstream's Enabled()
 	// always returns true, so we wrap it in a level filter that matches the stderr handler: otherwise DEBUG and INFO records would be

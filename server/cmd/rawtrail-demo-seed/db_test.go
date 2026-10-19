@@ -78,7 +78,7 @@ func TestSeedDemoUser(t *testing.T) {
 	ctx := t.Context()
 	insertRole(t, db, "senior_analyst")
 
-	const email, subject = "demo@fleet-edr.local", "ChdkZW1vCgVsb2NhbA"
+	const email, subject = "demo@rawtrail.local", "ChdkZW1vCgVsb2NhbA"
 	require.NoError(t, seedDemoUser(ctx, db, email, subject, "senior_analyst"))
 
 	var userID int64
@@ -206,7 +206,7 @@ func runTestConfig(serverURL string) config {
 		pollInterval:    time.Millisecond,
 		readyTimeout:    2 * time.Second,
 		verifyTimeout:   2 * time.Second,
-		demoEmail:       "demo@fleet-edr.local",
+		demoEmail:       "demo@rawtrail.local",
 		demoOIDCSubject: "ChdkZW1v",
 		demoRole:        "senior_analyst",
 	}
@@ -412,7 +412,7 @@ func TestRunSeedsEndToEnd(t *testing.T) {
 
 	var userCount int
 	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM users WHERE email = 'demo@fleet-edr.local'`).Scan(&userCount))
+		`SELECT COUNT(*) FROM users WHERE email = 'demo@rawtrail.local'`).Scan(&userCount))
 	assert.Equal(t, 1, userCount, "SSO demo user provisioned")
 
 	// The fresh-seed path must actually seed the app-control rule and carry its wire id, or the demo's block alert cites a
@@ -579,7 +579,7 @@ func TestRunSkipsWhenAlreadySeeded(t *testing.T) {
 	// The demo-user seed still runs on the already-seeded path.
 	var userCount int
 	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM users WHERE email = 'demo@fleet-edr.local'`).Scan(&userCount))
+		`SELECT COUNT(*) FROM users WHERE email = 'demo@rawtrail.local'`).Scan(&userCount))
 	assert.Equal(t, 1, userCount)
 }
 

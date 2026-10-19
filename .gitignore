@@ -25,7 +25,7 @@ Package.resolved
 # Root-level Go binaries: `go build` from the repo root drops them next
 # to go.mod and they don't belong in version control. The release pipeline
 # writes to /dist/ instead (see below).
-/fleet-edr-server
+/rawtrail-server
 /fleet-edr-agent
 
 # Release-build output: signed pkg + signed profiles + checksums.

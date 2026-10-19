@@ -1,6 +1,6 @@
 # Documentation versioning
 
-How Fleet EDR keeps its docs matched to releases. The short version: `main` documents the development build, and the "current" docs a reader should follow are the docs at the latest stable git tag.
+How RawTrail keeps its docs matched to releases. The short version: `main` documents the development build, and the "current" docs a reader should follow are the docs at the latest stable git tag.
 
 ## The model
 

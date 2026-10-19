@@ -11,7 +11,7 @@ import { Page, test, expect } from "@playwright/test";
 // runs. This spec only signs in as the bundled demo SSO user and asserts the
 // seeded data surfaces through both the UI and the operator API.
 //
-// The expected shape is fixed by server/cmd/fleet-edr-demo-seed/hosts.go:
+// The expected shape is fixed by server/cmd/rawtrail-demo-seed/hosts.go:
 //   - two hosts: alex-mbp.local, ci-builder.local
 //   - four detection-source alerts: credential_keychain_dump, dns_c2_beacon,
 //     sudoers_tamper, persistence_launchagent
@@ -23,7 +23,7 @@ import { Page, test, expect } from "@playwright/test";
 // for the source build, skipped (with a host_id fallback) when an older released
 // image doesn't expose them. The check auto-tightens once `latest` catches up.
 
-const DEMO_EMAIL = "demo@fleet-edr.local";
+const DEMO_EMAIL = "demo@rawtrail.local";
 const DEMO_PASSWORD = "demo"; // NOSONAR(typescript:S2068): checked-in demo credential, not a secret
 const DEMO_HOSTNAMES = ["alex-mbp.local", "ci-builder.local"];
 const DETECTION_RULE_IDS = ["credential_keychain_dump", "dns_c2_beacon", "sudoers_tamper", "persistence_launchagent"];

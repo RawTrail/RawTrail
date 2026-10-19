@@ -117,7 +117,7 @@ export function AttackCoverage() {
 
   const downloadLayer = () => {
     if (!layer) return;
-    downloadText(JSON.stringify(layer, null, 2), "fleet-edr-attack-coverage.json", "application/json");
+    downloadText(JSON.stringify(layer, null, 2), "rawtrail-attack-coverage.json", "application/json");
   };
 
   const { groups, distinctRules } = useMemo(() => buildCoverageGroups(layer), [layer]);

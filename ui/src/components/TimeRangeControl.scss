@@ -7,7 +7,7 @@
   gap: 0.25rem;
 
   &__label {
-    border: 1px solid $ui-fleet-black-25;
+    border: 1px solid $ui-black-25;
     border-radius: 6px;
     background: #fff;
     padding: 0.35rem 0.75rem;
@@ -16,7 +16,7 @@
     white-space: nowrap;
 
     &:hover {
-      border-color: $core-fleet-green;
+      border-color: $core-green;
     }
   }
 
@@ -29,7 +29,7 @@
     gap: 1rem;
     padding: 0.75rem;
     background: #fff;
-    border: 1px solid $ui-fleet-black-25;
+    border: 1px solid $ui-black-25;
     border-radius: 8px;
     box-shadow: 0 6px 20px rgb(25 33 71 / 15%);
   }
@@ -59,7 +59,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    border-left: 1px solid $ui-fleet-black-25;
+    border-left: 1px solid $ui-black-25;
     padding-left: 1rem;
 
     label {

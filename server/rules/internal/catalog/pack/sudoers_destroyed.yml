@@ -14,7 +14,7 @@ description: |-
   Emptying is detected however it is done. `truncate(2)` and a shell's `: > file` redirect are different kernel operations reaching the same outcome, and the redirect is the common one; before this rule existed it produced no telemetry at all.
 
   Only files sudo would actually load are considered: sudoers(5) skips names in /etc/sudoers.d that contain a `.` or end in `~`, and destroying a file sudo ignores destroys no policy. That also keeps `visudo` quiet, since it removes its own temporary file on every run.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1070.004

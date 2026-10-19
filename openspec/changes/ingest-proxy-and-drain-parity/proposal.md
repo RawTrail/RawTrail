@@ -1,6 +1,6 @@
 ## Why
 
-`fleet-edr-ingest`, the standalone ingest binary, ignored two settings `fleet-edr-server` honors (issue #1248). Behind a load balancer it logged every agent at the proxy's address, because it ignored `EDR_TRUSTED_PROXIES`. On SIGTERM it closed its listener at once, because it ignored `EDR_SHUTDOWN_DRAIN`, so a rolling restart refused in-flight agent uploads. The binary is not released yet, and it should reach parity before it is.
+`rawtrail-ingest`, the standalone ingest binary, ignored two settings `rawtrail-server` honors (issue #1248). Behind a load balancer it logged every agent at the proxy's address, because it ignored `EDR_TRUSTED_PROXIES`. On SIGTERM it closed its listener at once, because it ignored `EDR_SHUTDOWN_DRAIN`, so a rolling restart refused in-flight agent uploads. The binary is not released yet, and it should reach parity before it is.
 
 ## What changes
 

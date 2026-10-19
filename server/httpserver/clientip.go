@@ -13,7 +13,7 @@ import (
 )
 
 // ClientIPResolver resolves the trustworthy client IP from an
-// *http.Request when fleet-edr-server is deployed behind one or more
+// *http.Request when rawtrail-server is deployed behind one or more
 // reverse proxies / load balancers.
 //
 // Issue #81. Default behaviour (zero or empty trusted list) is the
@@ -34,7 +34,7 @@ import (
 //     to the peer IP.
 //
 // The right-to-left walk handles chained proxies (alb -> nginx ->
-// fleet-edr-server) safely: each hop appends to XFF, so the rightmost
+// rawtrail-server) safely: each hop appends to XFF, so the rightmost
 // non-trusted entry is the closest hop the trusted infrastructure
 // vouches for. The leftmost entry is whatever the client originally
 // claimed and is never inherently trustworthy.

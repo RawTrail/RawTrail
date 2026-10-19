@@ -12,13 +12,13 @@ import (
 // cannot drift in name, versions, or colour.
 const (
 	// navigatorLayerName is the layer's display title in the Navigator UI.
-	navigatorLayerName = "Fleet EDR coverage"
+	navigatorLayerName = "RawTrail coverage"
 	// navigatorLayerDescription is the layer's human-readable subtitle.
-	navigatorLayerDescription = "MITRE ATT&CK techniques covered by currently-registered Fleet EDR detection rules. " +
+	navigatorLayerDescription = "MITRE ATT&CK techniques covered by currently-registered RawTrail detection rules. " +
 		"Amber techniques are covered only by rules that raise no alert as built in, whether because they record " +
 		"without alerting or are off by default."
 	// navigatorDomain pins the layer to the enterprise matrix; combined with the macOS platform filter this renders only the
-	// macOS columns Fleet EDR actually covers.
+	// macOS columns RawTrail actually covers.
 	navigatorDomain = "enterprise-attack"
 	// navigatorCoveredScore is the score a technique gets when any rule covers it. Binary coverage (1) rather than a graded heat:
 	// the catalog has no notion of "partial" coverage of a technique today.
@@ -32,7 +32,7 @@ const (
 	// make the product look like it raises something it does not.
 	navigatorNotAlertingScore = 0.5
 	navigatorNotAlertingColor = "#fdae6b"
-	// navigatorPlatformMacOS is the canonical ATT&CK platform string Fleet EDR scopes the layer to. Fleet EDR is a macOS-only
+	// navigatorPlatformMacOS is the canonical ATT&CK platform string RawTrail scopes the layer to. RawTrail is a macOS-only
 	// product, so the layer filters the matrix to the macOS columns rather than rendering the full cross-platform enterprise grid.
 	navigatorPlatformMacOS = "macOS"
 	// navigatorATTACKVersion is the ATT&CK content version the layer is authored against. BUMP THIS on each ATT&CK release
@@ -56,7 +56,7 @@ type NavigatorTechnique struct {
 	Comment     string  `json:"comment,omitempty"`
 }
 
-// NavigatorFilters carries the layer's platform scoping. Fleet EDR sets Platforms to the single macOS value so the Navigator
+// NavigatorFilters carries the layer's platform scoping. RawTrail sets Platforms to the single macOS value so the Navigator
 // renders only the macOS matrix.
 type NavigatorFilters struct {
 	Platforms []string `json:"platforms"`

@@ -35,8 +35,8 @@
     width: 56px;
     height: 56px;
     border-radius: 12px;
-    background-color: $core-fleet-green;
-    color: $core-fleet-white;
+    background-color: $core-green;
+    color: $core-white;
     font-size: $large;
     font-weight: $bold;
     margin-bottom: $pad-small;
@@ -46,16 +46,16 @@
     margin: 0;
     font-size: $large;
     font-weight: $bold;
-    color: $core-fleet-black;
+    color: $core-black;
   }
 
   &__accent {
-    color: $core-fleet-green;
+    color: $core-green;
   }
 
   &__subtitle {
     margin: 0;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: $x-small;
   }
 
@@ -83,12 +83,12 @@
   }
 
   &__break-glass {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: $xx-small;
     text-decoration: none;
 
     &:hover {
-      color: $core-fleet-black;
+      color: $core-black;
       text-decoration: underline;
     }
   }

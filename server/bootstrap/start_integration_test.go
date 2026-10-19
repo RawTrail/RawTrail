@@ -54,7 +54,7 @@ func TestStartAfterInit(t *testing.T) {
 			FlushOTel: func() { record("flush") },
 		}, rec
 	}
-	opts := Options{ServiceName: "fleet-edr-start-test"}
+	opts := Options{ServiceName: "rawtrail-start-test"}
 
 	// spec:observability-instrumentation/shutdown-exports-the-final-gauge-values/the-final-collection-reaches-the-data-store
 	t.Run("stop cancels and flushes, then closes the pool", func(t *testing.T) {

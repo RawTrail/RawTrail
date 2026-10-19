@@ -32,7 +32,7 @@ export function TopNav({ user, authMethod, roles, onLogout }: TopNavProps) {
       <div className="top-nav__inner">
         <div className="top-nav__brand">
           <span className="top-nav__logo-text">
-            Fleet <span className="top-nav__logo-accent">EDR</span>
+            Raw<span className="top-nav__logo-accent">Trail</span>
           </span>
         </div>
         <ul className="top-nav__links">

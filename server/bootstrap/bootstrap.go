@@ -1,4 +1,4 @@
-// Package bootstrap wires the one-time daemon prelude that every fleet-edr Go
+// Package bootstrap wires the one-time daemon prelude that every RawTrail Go
 // binary needs: load config from env, install a signal-cancel context, initialise
 // OTel, initialise the structured logger, and hand back a deferred flush.
 //

@@ -2,7 +2,7 @@
 
 ### Requirement: Pipeline lag and backlog are measured
 
-The server SHALL record `edr.detection.lag`, a histogram of each event's seconds from the server receiving it to its batch being acknowledged after detection, recorded only by the attempt whose acknowledgement succeeded. `fleet-edr-server` SHALL report `edr.events.pending`, the count of events waiting for or in detection, stopping at 1,000,000 so the count stays within the gauge's collection budget.
+The server SHALL record `edr.detection.lag`, a histogram of each event's seconds from the server receiving it to its batch being acknowledged after detection, recorded only by the attempt whose acknowledgement succeeded. `rawtrail-server` SHALL report `edr.events.pending`, the count of events waiting for or in detection, stopping at 1,000,000 so the count stays within the gauge's collection budget.
 
 #### Scenario: Detection lag is recorded per processed event
 

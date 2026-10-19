@@ -78,11 +78,11 @@ export default defineConfig({
     // the process is up; tests that hit DB-backed endpoints need
     // the readiness guarantee.
     // The schema is created first, because nothing else creates it. docker-compose.yml seeds only `edr` (MYSQL_DATABASE), and
-    // fleet-edr-migrate refuses a missing one outright ("Unknown database"), so a genuinely fresh lane B could not spawn a server
+    // rawtrail-migrate refuses a missing one outright ("Unknown database"), so a genuinely fresh lane B could not spawn a server
     // at all: this worked here only because that worktree's schema already existed from earlier by-hand setup. IF NOT EXISTS, so
     // lane A's existing data is never touched and a rerun is a no-op.
     // The lane's schemas are ensured first, because nothing else creates them for a second worktree and neither
-    // fleet-edr-migrate nor the server will: migrate stops at "Unknown database" and the server at "Database <name> does not
+    // rawtrail-migrate nor the server will: migrate stops at "Unknown database" and the server at "Database <name> does not
     // exist". Both stores, not just MySQL: the ClickHouse database is equally absent on a fresh lane and equally fatal. The
     // script is IF NOT EXISTS throughout, so on a lane that already has them it is a no-op.
     //

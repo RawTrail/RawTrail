@@ -1,6 +1,6 @@
 # Demo scripts
 
-Self-contained scripts that fire a real Fleet EDR detection on a live host, for demos and hands-on walkthroughs. Unlike the synthetic efficacy corpus (`test/efficacy/corpus/`, which replays events through the fakeagent library with no host) and the SSH-driven QA harness (`scripts/qa/`, `scripts/uat/`, which drive a VM from your workstation), each script here runs **directly on the enrolled Mac** and narrates what it is doing as it goes.
+Self-contained scripts that fire a real RawTrail detection on a live host, for demos and hands-on walkthroughs. Unlike the synthetic efficacy corpus (`test/efficacy/corpus/`, which replays events through the fakeagent library with no host) and the SSH-driven QA harness (`scripts/qa/`, `scripts/uat/`, which drive a VM from your workstation), each script here runs **directly on the enrolled Mac** and narrates what it is doing as it goes.
 
 | Script              | Detection it triggers | ATT&CK                  |
 | ------------------- | --------------------- | ----------------------- |
@@ -10,7 +10,7 @@ Self-contained scripts that fire a real Fleet EDR detection on a live host, for 
 
 - An Apple Silicon Mac on macOS 26 or later with the agent installed, the system + network extensions active, and Full Disk Access granted. See [`docs/install-agent-manual.md`](../../docs/install-agent-manual.md).
 - Outbound internet from that host: the beacon resolves a [nip.io](https://nip.io) name over plain UDP DNS (which the proxy sees, unlike DoH/DoT) and opens a real outbound TCP connection to the resolved address.
-- The Fleet EDR server reachable with this host enrolled, so the alert surfaces in the UI.
+- The RawTrail server reachable with this host enrolled, so the alert surfaces in the UI.
 
 ## `trigger-dns-c2.sh`
 

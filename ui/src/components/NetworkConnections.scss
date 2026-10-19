@@ -5,18 +5,18 @@
 .net-empty {
   margin: $pad-medium 0 0 0;
   font-size: $x-small;
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
 }
 
 .net-section {
   margin-top: $pad-medium;
   padding-top: $pad-medium;
-  border-top: 1px solid $ui-fleet-black-10;
+  border-top: 1px solid $ui-black-10;
 
   &__title {
     font-size: $xx-small;
     margin: 0 0 $pad-small 0;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 
@@ -48,9 +48,9 @@
   th {
     text-align: left;
     padding: $pad-xsmall $pad-small;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-weight: $bold;
-    border-bottom: 1px solid $ui-fleet-black-10;
+    border-bottom: 1px solid $ui-black-10;
     text-transform: uppercase;
     font-size: $xxx-small;
     letter-spacing: 0.5px;
@@ -58,14 +58,14 @@
 
   td {
     padding: $pad-xsmall $pad-small;
-    border-bottom: 1px solid $ui-fleet-black-5;
-    color: $core-fleet-black;
+    border-bottom: 1px solid $ui-black-5;
+    color: $core-black;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     overflow-wrap: anywhere;
 
     &:last-child {
       font-family: inherit;
-      color: $ui-fleet-black-50;
+      color: $ui-black-50;
     }
   }
 

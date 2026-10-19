@@ -16,10 +16,11 @@ import (
 // becoming wrong, which is precisely how a mutation of ProjectOrigin to "SigmaHQ" survived the catalog-level assertions: every
 // caller moved with it. Pinning the literal here is the one place that mutation is visible, so changing either value should be a
 // deliberate edit to this file rather than a silent consequence of a rename.
+// spec:product-identity/the-product-identifies-itself-as-rawtrail/a-rule-this-project-authored-is-credited-to-rawtrail
 func TestAttributionConstantsArePinned(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "Fleet EDR", api.ProjectOrigin, "the credit shown for every rule this project wrote")
+	assert.Equal(t, "RawTrail", api.ProjectOrigin, "the credit shown for every rule this project wrote")
 	assert.Equal(t, "unknown upstream", api.UnknownOrigin, "the credit shown for a rule that declares a source but names nobody")
 	// Pinned as a LITERAL for the same reason as the others, and it is the one most easily missed: every other assertion about
 	// this value compares against the constant, so a rename would pass all of them while changing what is written to every

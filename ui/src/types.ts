@@ -466,7 +466,7 @@ export interface Alert {
   severity: string;
   title: string;
   description: string;
-  // origin credits whoever wrote the rule that fired: "Fleet EDR" for a rule
+  // origin credits whoever wrote the rule that fired: "RawTrail" for a rule
   // this project authored, "Locally authored" for one written on this
   // deployment, and "SigmaHQ, by <author>" for one from the imported corpus. Captured when the alert was raised rather than looked up from
   // today's catalog, so it stays correct for a rule that has since changed or

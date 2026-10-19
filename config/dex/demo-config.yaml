@@ -2,7 +2,7 @@
 # (docker-compose.demo.yml). It backs the one reviewer SSO account so a
 # reviewer can sign in and click around without an MDM, a Mac, or a real IdP.
 #
-# A single static user is defined here: demo@fleet-edr.local / demo. The demo
+# A single static user is defined here: demo@rawtrail.local / demo. The demo
 # seeder pre-binds this user's dex subject to an admin role binding
 # (docker-compose.demo.yml EDR_DEMO_OIDC_SUBJECT + EDR_DEMO_ROLE), so first
 # sign-in matches that pre-bound identity (admin) rather than JIT-provisioning
@@ -36,7 +36,7 @@ oauth2:
 
 staticClients:
   - id: edr-demo
-    name: "Fleet EDR demo"
+    name: "RawTrail demo"
     secret: edr-demo-client-secret-do-not-use-in-prod
     redirectURIs:
       # Must match the redirect derived from the seeder's EDR_DEMO_OIDC_EXTERNAL_URL
@@ -49,7 +49,7 @@ enablePasswordDB: true
 
 staticPasswords:
   # Password is "demo"; hash generated with `htpasswd -bnBC 10 "" demo | tr -d ':\n'`.
-  - email: "demo@fleet-edr.local"
+  - email: "demo@rawtrail.local"
     username: "demo"
     userID: "de300000-0000-4000-8000-000000000001"
     hash: "$2y$10$EckN0c12ycD1XJti5eWMceLbY9Xz6FDro.jF8cNz7roAmhgefLc52"

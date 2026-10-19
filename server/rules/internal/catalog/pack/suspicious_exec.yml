@@ -16,7 +16,7 @@ description: |-
   The same chain making an outbound connection is `shell_network_connect`, which ships in monitor: a chain doing both raises one alert here and records a match there, and raises one alert per rule once that rule is promoted.
 
   30 seconds is the temporal cap between the shell exec and the temp exec.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1059.004

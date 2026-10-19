@@ -105,7 +105,7 @@ When to invest in the next tier of architectural patterns. The criteria are scal
 
 **Trigger:** context lifecycles diverge enough that a single deployment unit is the bottleneck. For example: detection rule reload requires a server restart that drops in-flight ingest, OR ingest QPS demands horizontal scaling that the operator API can't usefully share.
 
-**Today:** `cmd/fleet-edr-server` (full surface) and `cmd/fleet-edr-ingest` (intake-only) already split for that reason. Both share one MySQL.
+**Today:** `cmd/rawtrail-server` (full surface) and `cmd/rawtrail-ingest` (intake-only) already split for that reason. Both share one MySQL.
 
 **Migration if triggered:** introduce a third binary, `cmd/fleet-edr-{operator|response|rules}` per the new boundary. The bounded-context split makes this primarily a wiring change in cmd/, not a restructure of `server/`. The remaining work is authentication between processes (mTLS or token-keyed API).
 

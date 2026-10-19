@@ -1,11 +1,15 @@
 # Changelog
 
-Notable changes to Fleet EDR, newest first. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0).
+Notable changes to RawTrail (formerly Fleet EDR), newest first. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0).
 
 ## [Unreleased]
 
 ### Upgrade notes (action required)
 
+- **Fleet EDR is now RawTrail.** The images are `ghcr.io/getvictor/rawtrail-server` and `ghcr.io/getvictor/rawtrail-demo-seed`; point your compose file or manifests at them before upgrading, since the old image names receive no further releases. The `ingest` and `migrate` binaries are now `rawtrail-ingest` and `rawtrail-migrate`. Existing alerts credited to Fleet EDR are re-credited to RawTrail.
+- **Telemetry reports as `rawtrail-server`.** Update any dashboard, alert or saved query that filters on `service.name = 'fleet-edr-server'`; the shipped SigNoz dashboards and alert rules already use the new name, so re-import them.
+- **Webhook deliveries send `User-Agent: rawtrail-webhook/1`.** Update any receiver or firewall rule that matches the old `fleet-edr-webhook/1`.
+- **The break-glass account is now `admin@rawtrail.local`.** The upgrade moves the existing account, with its passkey and role, so sign in with the new address.
 - **The agent requires macOS 26 (Tahoe) or later.** The installer now refuses older Macs and says so. Earlier packages installed on macOS 13 to 26.1 but could not run there, so upgrade any such Mac to macOS 26 first.
 
 ### Added

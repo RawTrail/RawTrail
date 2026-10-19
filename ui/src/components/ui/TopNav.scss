@@ -5,7 +5,7 @@
 
 .top-nav {
   background: $gradients-dark-gradient;
-  color: $core-fleet-white;
+  color: $core-white;
   padding: 0 $pad-page;
 
   &__inner {
@@ -30,7 +30,7 @@
   }
 
   &__logo-accent {
-    color: $core-fleet-green;
+    color: $core-green;
   }
 
   &__links {
@@ -44,26 +44,26 @@
   &__link {
     display: inline-block;
     padding: $pad-smedium $pad-medium;
-    color: $ui-fleet-black-10;
+    color: $ui-black-10;
     font-weight: $bold;
     font-size: $x-small;
     text-decoration: none;
     border-bottom: 2px solid transparent;
 
     &:hover {
-      color: $core-fleet-white;
+      color: $core-white;
       text-decoration: none;
     }
 
     &--active {
-      color: $core-fleet-white;
-      border-bottom-color: $core-fleet-green;
+      color: $core-white;
+      border-bottom-color: $core-green;
     }
   }
 
   // Account section: pushed to the right with margin-left:auto so the user menu
-  // sits opposite the brand. Avatar + email + log out, in the order Atlassian /
-  // GitHub / Fleet itself use. The avatar is a flat circle with the user's
+  // sits opposite the brand. Avatar + email + log out, in the order Atlassian
+  // and GitHub use. The avatar is a flat circle with the user's
   // first letter - no image fetch, fine for a 5-host pilot.
   &__account {
     display: flex;
@@ -80,8 +80,8 @@
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background-color: $core-fleet-green;
-    color: $core-fleet-white;
+    background-color: $core-green;
+    color: $core-white;
     font-weight: $bold;
     font-size: $x-small;
     text-transform: uppercase;
@@ -89,15 +89,15 @@
 
   &__user {
     font-size: $x-small;
-    color: $ui-fleet-black-10;
+    color: $ui-black-10;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   &__logout {
     background: transparent;
-    border: 1px solid $ui-fleet-black-50;
+    border: 1px solid $ui-black-50;
     border-radius: $border-radius;
-    color: $ui-fleet-black-10;
+    color: $ui-black-10;
     font-size: $xx-small;
     font-weight: $bold;
     padding: 6px $pad-smedium;
@@ -106,12 +106,12 @@
 
     &:hover {
       background-color: rgba(255, 255, 255, 0.1);
-      border-color: $core-fleet-white;
-      color: $core-fleet-white;
+      border-color: $core-white;
+      color: $core-white;
     }
 
     &:focus-visible {
-      outline: 2px solid $core-fleet-green;
+      outline: 2px solid $core-green;
       outline-offset: 2px;
     }
   }

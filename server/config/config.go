@@ -143,7 +143,7 @@ type Config struct {
 
 	// TrustedProxies is the set of CIDRs (or bare IPs) the server will trust X-Forwarded-For from. Populated from EDR_TRUSTED_PROXIES
 	// (comma-separated). Empty by default: XFF is ignored and the per-IP rate limiter + audit log see the direct TCP peer (issue #81).
-	// Set this to your reverse proxy / load-balancer pool the moment you put an ALB / nginx / Cloudflare in front of fleet-edr-server,
+	// Set this to your reverse proxy / load-balancer pool the moment you put an ALB / nginx / Cloudflare in front of rawtrail-server,
 	// or one user hitting the rate limit will lock out everyone behind the proxy.
 	TrustedProxies []string
 

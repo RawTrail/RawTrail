@@ -1,7 +1,7 @@
 {
   "version": "v5",
   "title": "EDR HTTP server (RED)",
-  "description": "Rate, errors, and latency for the EDR server's HTTP API. Import via SigNoz: Dashboards -> New dashboard -> Import JSON. Requires the server to export OTLP with service.name=fleet-edr-server.",
+  "description": "Rate, errors, and latency for the EDR server's HTTP API. Import via SigNoz: Dashboards -> New dashboard -> Import JSON. Requires the server to export OTLP with service.name=rawtrail-server.",
   "tags": ["edr", "http", "red"],
   "uploadedGrafana": false,
   "panelMap": {},
@@ -9,7 +9,7 @@
     "environment": {
       "id": "environment",
       "name": "environment",
-      "description": "Deployment environment to view, auto-discovered from the deployment.environment resource attribute. The fleet-edr server always emits deployment.environment (default value 'default', overridable via OTEL_RESOURCE_ATTRIBUTES) so this key exists in every SigNoz instance it reports to, which makes the dynamic lookup safe. Defaults to ALL so all environments show.",
+      "description": "Deployment environment to view, auto-discovered from the deployment.environment resource attribute. The RawTrail server always emits deployment.environment (default value 'default', overridable via OTEL_RESOURCE_ATTRIBUTES) so this key exists in every SigNoz instance it reports to, which makes the dynamic lookup safe. Defaults to ALL so all environments show.",
       "type": "DYNAMIC",
       "dynamicVariablesAttribute": "deployment.environment",
       "dynamicVariablesSource": "Metrics",
@@ -63,7 +63,7 @@
                   "spaceAggregation": "sum"
                 }
               ],
-              "filter": { "expression": "service.name = 'fleet-edr-server' AND deployment.environment IN $environment" },
+              "filter": { "expression": "service.name = 'rawtrail-server' AND deployment.environment IN $environment" },
               "groupBy": [{ "key": "http.route", "dataType": "string", "type": "tag" }],
               "legend": "{{http.route}}",
               "functions": [],
@@ -105,7 +105,7 @@
                   "spaceAggregation": "sum"
                 }
               ],
-              "filter": { "expression": "service.name = 'fleet-edr-server' AND http.response.status_code >= 500 AND deployment.environment IN $environment" },
+              "filter": { "expression": "service.name = 'rawtrail-server' AND http.response.status_code >= 500 AND deployment.environment IN $environment" },
               "groupBy": [{ "key": "http.route", "dataType": "string", "type": "tag" }],
               "legend": "{{http.route}}",
               "functions": [],
@@ -147,7 +147,7 @@
                   "spaceAggregation": "p95"
                 }
               ],
-              "filter": { "expression": "service.name = 'fleet-edr-server' AND deployment.environment IN $environment" },
+              "filter": { "expression": "service.name = 'rawtrail-server' AND deployment.environment IN $environment" },
               "groupBy": [{ "key": "http.route", "dataType": "string", "type": "tag" }],
               "legend": "{{http.route}}",
               "functions": [],
@@ -189,7 +189,7 @@
                   "spaceAggregation": "p99"
                 }
               ],
-              "filter": { "expression": "service.name = 'fleet-edr-server' AND deployment.environment IN $environment" },
+              "filter": { "expression": "service.name = 'rawtrail-server' AND deployment.environment IN $environment" },
               "groupBy": [{ "key": "http.route", "dataType": "string", "type": "tag" }],
               "legend": "{{http.route}}",
               "functions": [],
@@ -231,7 +231,7 @@
                   "spaceAggregation": "sum"
                 }
               ],
-              "filter": { "expression": "service.name = 'fleet-edr-server' AND deployment.environment IN $environment" },
+              "filter": { "expression": "service.name = 'rawtrail-server' AND deployment.environment IN $environment" },
               "groupBy": [{ "key": "http.response.status_code", "dataType": "string", "type": "tag" }],
               "legend": "{{http.response.status_code}}",
               "functions": [],
@@ -273,7 +273,7 @@
                   "spaceAggregation": "sum"
                 }
               ],
-              "filter": { "expression": "service.name = 'fleet-edr-server' AND deployment.environment IN $environment" },
+              "filter": { "expression": "service.name = 'rawtrail-server' AND deployment.environment IN $environment" },
               "groupBy": [{ "key": "http.request.method", "dataType": "string", "type": "tag" }],
               "legend": "{{http.request.method}}",
               "functions": [],

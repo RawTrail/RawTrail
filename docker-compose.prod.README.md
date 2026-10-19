@@ -1,6 +1,6 @@
-# Fleet EDR server: docker-compose quickstart
+# RawTrail server: docker-compose quickstart
 
-This stack runs the fleet-edr-server + MySQL on a single host. It's the simplest way to stand up the server for a pilot deployment of 10-500 agents. For larger fleets, use this as the starting shape and split MySQL onto its own instance.
+This stack runs the rawtrail-server + MySQL on a single host. It's the simplest way to stand up the server for a pilot deployment of 10-500 agents. For larger fleets, use this as the starting shape and split MySQL onto its own instance.
 
 ## One-time setup
 
@@ -87,7 +87,7 @@ Existing per-host tokens are not affected by enroll-secret rotation because they
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` in `.env` to your SigNoz / collector endpoint. The server emits:
 
 - Traces for every HTTP request + DB query.
-- Logs via `otelslog` with `service.name=fleet-edr-server`.
+- Logs via `otelslog` with `service.name=rawtrail-server`.
 - Metrics: `edr.events.ingested`, `edr.alerts.created`, `edr.enrolled.hosts`, `edr.offline.hosts`, `edr.retention.processes.rows_deleted`, `edr.db.query.duration`, `edr.agent.queue.dropped`. See [docs/install-server.md](docs/install-server.md#otel-metrics-and-logs) for the full list and [docs/operations.md](docs/operations.md#metrics-and-monitoring) for what to alert on.
 
 There is no Prometheus scrape endpoint.

@@ -2,7 +2,7 @@
 
 The break-glass account is the single emergency path into the EDR server when SSO is unavailable or has not been configured. It uses **password + WebAuthn** with no fallback factor; the current release has no SMS / TOTP recovery. Lose the security key and recovery requires a DB-level intervention documented below.
 
-The seeded break-glass account email is `admin@fleet-edr.local`.
+The seeded break-glass account email is `admin@rawtrail.local`.
 
 ## First-boot redemption
 
@@ -11,7 +11,7 @@ The seeded break-glass account email is `admin@fleet-edr.local`.
 ```text
 ================================================================
 BREAK-GLASS ADMIN SETUP (one-shot redemption URL - open in a browser)
-  Email: admin@fleet-edr.local
+  Email: admin@rawtrail.local
   URL:   https://<your-host>/admin/break-glass/setup?token=<plaintext>
   TTL:   1h0m0s
 ================================================================
@@ -29,7 +29,7 @@ The TTL defaults to one hour and is configurable via `EDR_BREAKGLASS_BOOTSTRAP_T
 
 ### What's persisted
 
-- `users` row for `admin@fleet-edr.local` with the password's Argon2id hash + salt.
+- `users` row for `admin@rawtrail.local` with the password's Argon2id hash + salt.
 - `webauthn_credentials` row binding the registered authenticator to the user.
 - `bootstrap_tokens.redeemed_at` set on the row that minted the URL.
 - One `auth.breakglass.bootstrap` audit row recording the successful redemption (token issuance itself is not audited). The next `auth.breakglass.success` row lands the first time the operator signs in via the day-to-day login flow.
@@ -66,7 +66,7 @@ The current release redeems exactly one credential per bootstrap token. To add a
    INSERT INTO bootstrap_tokens (token_hash, user_id, kind, expires_at)
    VALUES (
      UNHEX('<sha256-hex-from-step-1>'),
-     (SELECT id FROM users WHERE email = 'admin@fleet-edr.local'),
+     (SELECT id FROM users WHERE email = 'admin@rawtrail.local'),
      'breakglass_setup',
      NOW(6) + INTERVAL 1 HOUR
    );
@@ -96,7 +96,7 @@ If every registered security key is lost, the only path back in is DB-level. Res
 
    ```sql
    DELETE FROM webauthn_credentials
-   WHERE user_id = (SELECT id FROM users WHERE email = 'admin@fleet-edr.local');
+   WHERE user_id = (SELECT id FROM users WHERE email = 'admin@rawtrail.local');
    ```
 
 4. Issue a fresh bootstrap token following the steps in the previous section. The redemption flow re-registers a credential alongside any that survived the DELETE.

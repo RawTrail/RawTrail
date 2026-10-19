@@ -9,7 +9,7 @@ name: Demo nightly
 #
 #   - released: `docker compose -f docker-compose.demo.yml up`, exactly what a
 #     reviewer following the README runs today. It pulls the PUBLISHED images
-#     (ghcr fleet-edr-server / fleet-edr-demo-seed at the compose default tag,
+#     (ghcr rawtrail-server / rawtrail-demo-seed at the compose default tag,
 #     `latest`, which release.yml points at the newest non-prerelease release),
 #     so this leg catches the published demo breaking (a bad image pull, infra
 #     drift, an expired dependency) independent of main, and always tracks the
@@ -77,7 +77,7 @@ jobs:
       # COMPOSE_FILE (colon-delimited on Linux) is read by every `docker compose`
       # below, so no -f flags are needed.
       COMPOSE_FILE: ${{ matrix.compose_file }}
-      COMPOSE_PROJECT_NAME: fleet-edr-demo
+      COMPOSE_PROJECT_NAME: rawtrail-demo
       EDR_VERSION: ${{ matrix.edr_version }}
       # Used only by the build override (source mode) to stamp the built image.
       EDR_COMMIT: ${{ github.sha }}

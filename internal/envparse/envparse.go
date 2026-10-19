@@ -1,5 +1,5 @@
 // Package envparse provides the small handful of validated env-var parsers that
-// the fleet-edr server and agent both need, so both binaries share the same
+// the RawTrail server and agent both need, so both binaries share the same
 // validation surface.
 //
 // Every helper follows the same shape:

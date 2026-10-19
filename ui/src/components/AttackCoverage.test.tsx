@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { AttackCoverage } from "./AttackCoverage";
 import * as api from "../api";
+import * as download from "../download";
 import { PermissionsContext, PermissionAction } from "../permissions-core";
 import type { AttackNavigatorLayer } from "../api";
 
@@ -11,12 +12,12 @@ import type { AttackNavigatorLayer } from "../api";
 // refactor stays covered: three metric cards with the covered-technique,
 // distinct-rule and tactic counts derived from the layer.
 const layer: AttackNavigatorLayer = {
-  name: "Fleet EDR coverage",
+  name: "RawTrail coverage",
   // Mirror what the server's BuildNavigatorLayer emits (attack v19, navigator 5.2.0) so the fixture stays representative of
   // the real wire shape, even though this component only reads `techniques`.
   versions: { attack: "19", navigator: "5.2.0", layer: "4.5" },
   domain: "enterprise-attack",
-  description: "MITRE ATT&CK techniques covered by currently-registered Fleet EDR detection rules.",
+  description: "MITRE ATT&CK techniques covered by currently-registered RawTrail detection rules.",
   filters: { platforms: ["macOS"] },
   techniques: [
     // score separates coverage that alerts (1) from coverage that only records (below 1). The component reads it: most of the
@@ -253,5 +254,19 @@ describe("AttackCoverage multi-tactic techniques", () => {
     expect(screen.getByText("Persistence")).toBeVisible();
     expect(screen.getByText("Privilege Escalation")).toBeVisible();
     expect(screen.getAllByText("T1543.004")).toHaveLength(2);
+  });
+});
+
+describe("AttackCoverage export", () => {
+  // spec:product-identity/the-product-identifies-itself-as-rawtrail/the-navigator-layer-is-named-for-rawtrail
+  it("downloads the layer under the product's name", async () => {
+    const save = vi.spyOn(download, "downloadText").mockImplementation(() => undefined);
+    render(
+      <PermissionsContext.Provider value={[PermissionAction.AlertRead]}>
+        <MemoryRouter><AttackCoverage /></MemoryRouter>
+      </PermissionsContext.Provider>,
+    );
+    (await screen.findByRole("button", { name: "Export JSON" })).click();
+    expect(save).toHaveBeenCalledWith(JSON.stringify(layer, null, 2), "rawtrail-attack-coverage.json", "application/json");
   });
 });

@@ -1,6 +1,6 @@
 # MDM deployment (vendor-neutral)
 
-Fleet EDR ships through any MDM that can deliver a `.pkg` + three `.mobileconfig` profiles + a one-line install script: Jamf Pro, Kandji, Intune, mosyle, Fleet, or any equivalent platform.
+RawTrail ships through any MDM that can deliver a `.pkg` + three `.mobileconfig` profiles + a one-line install script: Jamf Pro, Kandji, Intune, mosyle, Fleet, or any equivalent platform.
 
 For the Fleet-specific recipe see [fleet-deployment.md](fleet-deployment.md). For single-Mac eval without an MDM see [install-agent-manual.md](install-agent-manual.md).
 
@@ -81,7 +81,7 @@ Upload `edr-login-items.mobileconfig` the same way.
 
 What the profile does: a `com.apple.servicemanagement` payload with one rule matching team ID `FDG8Q7N4CC` marks every background item the team signs as managed: the agent daemon (`com.fleetdm.edr.agent`) and the activation LaunchAgent (`com.fleetdm.edr.activate`). Without it, a user can turn either off in **System Settings > General > Login Items & Extensions**, which stops the agent or the re-activation after an upgrade. With it, both show as managed and cannot be turned off.
 
-Verify after the pkg installs: in **System Settings > General > Login Items & Extensions**, the Fleet EDR items show as managed by your organization, with no switch to turn them off.
+Verify after the pkg installs: in **System Settings > General > Login Items & Extensions**, the RawTrail items show as managed by your organization, with no switch to turn them off.
 
 ## Step 4: install script
 
@@ -141,7 +141,7 @@ sudo tail -n 20 /var/log/fleet-edr-agent.log
 
 ## Verify in the admin UI
 
-Log into the Fleet EDR server's admin UI at `https://<your-server>/ui/`. The Macs you pushed to appear on the Hosts page with:
+Log into the RawTrail server's admin UI at `https://<your-server>/ui/`. The Macs you pushed to appear on the Hosts page with:
 
 - Hostname
 - Hardware UUID
@@ -170,7 +170,7 @@ fi
 
 The uninstaller removes all binaries, LaunchDaemons, `/var/db/fleet-edr`, and `/var/log/fleet-edr-agent.log`. It preserves `/etc/fleet-edr.conf` so a future reinstall picks up the same enroll config. If you want a truly clean slate, add `rm -f /etc/fleet-edr.conf` to the script above.
 
-On a managed Mac the uninstall script cannot remove the system extensions by itself. The extensions were approved by the `com.fleetdm.edr.profile.system-extension` profile (`AllowedSystemExtensions`, `AllowUserOverrides=false`), and macOS refuses any local deactivation of a profile-approved extension (`OSSystemExtensionErrorDomain` `authorizationRequired`). The script detects this, keeps the host app so a later attempt can succeed, and tells you to remove the profile. **Removing the extensions is a two-part teardown:** run the uninstall script (removes the agent, LaunchDaemons, and runtime state, and keeps the host app while the extensions remain active so you can retry) AND remove the Fleet EDR MDM profiles from your MDM's custom-settings scope. When the `com.fleetdm.edr.profile.system-extension` profile leaves the host the extensions are no longer authorized, so the OS removes them (and the TCC grants from the FDA profile) within minutes. Order does not matter; do both.
+On a managed Mac the uninstall script cannot remove the system extensions by itself. The extensions were approved by the `com.fleetdm.edr.profile.system-extension` profile (`AllowedSystemExtensions`, `AllowUserOverrides=false`), and macOS refuses any local deactivation of a profile-approved extension (`OSSystemExtensionErrorDomain` `authorizationRequired`). The script detects this, keeps the host app so a later attempt can succeed, and tells you to remove the profile. **Removing the extensions is a two-part teardown:** run the uninstall script (removes the agent, LaunchDaemons, and runtime state, and keeps the host app while the extensions remain active so you can retry) AND remove the RawTrail MDM profiles from your MDM's custom-settings scope. When the `com.fleetdm.edr.profile.system-extension` profile leaves the host the extensions are no longer authorized, so the OS removes them (and the TCC grants from the FDA profile) within minutes. Order does not matter; do both.
 
 For an unmanaged Mac (no profile), the script removes the extensions itself by submitting the host app's `deactivate` request in the logged-in user's GUI session, so leave a user logged in at the console while the run-script action executes.
 
@@ -210,7 +210,7 @@ See [fleet-deployment.md](fleet-deployment.md) for the full Fleet workflow.
 
 **Agent log shows `ES_NEW_CLIENT_RESULT_ERR_NOT_PERMITTED`.** TCC FDA profile not pushed, or scoped to a different set of Macs than the pkg. Check `profiles list` for `com.fleetdm.edr.profile.tcc-fda`.
 
-**`installer: Error - Fleet EDR requires Apple Silicon (M1 or later).`** Intel Mac scoped into the deployment. Narrow the scope by model type.
+**`installer: Error - RawTrail requires Apple Silicon (M1 or later).`** Intel Mac scoped into the deployment. Narrow the scope by model type.
 
 **Install script writes the conf file but the agent still fails to enroll.** The install script probably ran AFTER the pkg. Most MDMs run scripts + pkgs in parallel by default. Force "script first" via your MDM's ordering controls (see vendor notes above).
 

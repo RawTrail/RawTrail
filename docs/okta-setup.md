@@ -2,7 +2,7 @@
 
 The EDR server speaks OIDC with PKCE. Okta is the reference IdP: every other conformant OIDC provider follows the same shape, but the screen names and field labels in this guide are Okta's. Sister IdPs (Azure AD, Google Workspace, Auth0) need only the issuer URL, client ID, client secret, and external URL adjusted; the EDR-side flow does not change.
 
-SSO covers everyday operator login. The break-glass account at `admin@fleet-edr.local` is the only path in when SSO is unavailable (see [`breakglass.md`](breakglass.md)).
+SSO covers everyday operator login. The break-glass account at `admin@rawtrail.local` is the only path in when SSO is unavailable (see [`breakglass.md`](breakglass.md)).
 
 SSO is configured entirely in the UI under **Admin settings -> Single sign-on**; the stored configuration is the source of truth and survives restarts. The server reads no `EDR_OIDC_*` environment variables.
 
@@ -33,7 +33,7 @@ In the **General Settings** step:
 
 | Field                  | Value                                                   |
 | ---------------------- | ------------------------------------------------------- |
-| App integration name   | `Fleet EDR` (or any operator-friendly name)             |
+| App integration name   | `RawTrail` (or any operator-friendly name)              |
 | Logo                   | optional                                                |
 | Grant type             | Authorization Code (default; do not enable Implicit)    |
 | Sign-in redirect URIs  | `https://<edr-host>/api/auth/callback`                  |

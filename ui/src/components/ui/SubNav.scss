@@ -8,7 +8,7 @@
   display: flex;
   gap: $pad-medium;
   margin-bottom: $pad-medium;
-  border-bottom: 1px solid $ui-fleet-black-10;
+  border-bottom: 1px solid $ui-black-10;
 }
 
 .sub-nav__item {
@@ -17,12 +17,12 @@
   margin-bottom: -1px;
   border-bottom: 2px solid transparent;
   padding: $pad-small $pad-xxsmall;
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
   font-size: $x-small;
   text-decoration: none;
 
   &:hover {
-    color: $core-fleet-blue;
+    color: $core-blue;
   }
 
   &:focus-visible {
@@ -32,7 +32,7 @@
 
   &--current {
     border-bottom-color: $core-vibrant-blue;
-    color: $core-fleet-blue;
+    color: $core-blue;
     font-weight: $bold;
   }
 }

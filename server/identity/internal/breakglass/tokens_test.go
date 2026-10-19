@@ -24,7 +24,7 @@ func newTokenStore(t *testing.T) (*breakglass.TokenStore, *sqlx.DB, int64) {
 	require.NoError(t, testkit.ApplySchema(t.Context(), db))
 	res, err := db.ExecContext(t.Context(),
 		`INSERT INTO users (email, is_breakglass) VALUES (?, ?)`,
-		"admin@fleet-edr.local", true)
+		"admin@rawtrail.local", true)
 	require.NoError(t, err)
 	uid, err := res.LastInsertId()
 	require.NoError(t, err)

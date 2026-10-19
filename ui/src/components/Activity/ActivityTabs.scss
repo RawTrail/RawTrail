@@ -2,7 +2,7 @@
 
 .activity-tabs {
   &__list {
-    border-bottom: 1px solid $ui-fleet-black-10;
+    border-bottom: 1px solid $ui-black-10;
     display: flex;
     gap: 1rem;
     margin-bottom: 0.75rem;
@@ -12,7 +12,7 @@
     background: none;
     border: 0;
     border-bottom: 2px solid transparent;
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     cursor: pointer;
     font: inherit;
     font-size: 0.9rem;
@@ -20,30 +20,30 @@
     padding: 0.4rem 0.1rem;
 
     &:hover {
-      color: $core-fleet-blue;
+      color: $core-blue;
     }
 
     &[aria-pressed="true"] {
       border-bottom-color: $core-vibrant-blue;
-      color: $core-fleet-blue;
+      color: $core-blue;
       font-weight: 600;
     }
   }
 
   &__count {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-size: 0.8rem;
     font-weight: 400;
   }
 
   &__summary {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: 0.85rem;
     margin: 0 0 0.5rem;
   }
 
   &__note {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: 0.85rem;
     margin: 0 0 0.5rem;
   }
@@ -59,11 +59,11 @@
   }
 
   &__hostname {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
   }
 
   &__rollup {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-family: inherit;
   }
 
@@ -77,7 +77,7 @@
   &__process {
     background: none;
     border: 0;
-    color: $core-fleet-green;
+    color: $core-green;
     cursor: pointer;
     font: inherit;
     padding: 0;

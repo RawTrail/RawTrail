@@ -6,7 +6,7 @@
 
 ## Context
 
-The repo ships multiple Go binaries: `fleet-edr-server`, `fleet-edr-ingest`, and `fleet-edr-agent`. They share a non-trivial amount of code: env-variable parsing, structured-logging bootstrap, OpenTelemetry initialisation, TLS config with SIGHUP cert reloading, HTTP middleware, shared attribute keys. They also legitimately need to NOT pull in each other's packages at the Go import level (the agent must not reach into the server's MySQL store; the server must not reach into the agent's XPC receiver).
+The repo ships multiple Go binaries: `rawtrail-server`, `rawtrail-ingest`, and `fleet-edr-agent`. They share a non-trivial amount of code: env-variable parsing, structured-logging bootstrap, OpenTelemetry initialisation, TLS config with SIGHUP cert reloading, HTTP middleware, shared attribute keys. They also legitimately need to NOT pull in each other's packages at the Go import level (the agent must not reach into the server's MySQL store; the server must not reach into the agent's XPC receiver).
 
 Go offers several layouts for this shape:
 

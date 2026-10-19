@@ -20,7 +20,7 @@
             ],
             "disabled": false,
             "filter": {
-              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod' AND name = 'detection.periodic.retention'"
+              "expression": "service.name = 'rawtrail-server' AND deployment.environment = 'prod' AND name = 'detection.periodic.retention'"
             },
             "order": [
               {
@@ -60,7 +60,7 @@
     }
   },
   "labels": {
-    "service": "fleet-edr-server",
+    "service": "rawtrail-server",
     "severity": "warning",
     "team": "edr"
   },
