@@ -30,7 +30,7 @@ func TestNewContainment(t *testing.T) {
 		sent.Add(1)
 		return nil
 	}
-	cfg := &config.Config{ServerURL: "https://edr.example.com:8443", NetXPCService: "group.com.fleetdm.edr.networkextension"}
+	cfg := &config.Config{ServerURL: "https://edr.example.com:8443", NetXPCService: "group.io.rawtrail.networkextension"}
 
 	var dialed []string
 	record := func(_ context.Context, _, addr string) (net.Conn, error) {
@@ -365,7 +365,7 @@ func TestNewContainment_SeedsFromTheExtensionsPersistedState(t *testing.T) {
 		dialed = append(dialed, addr)
 		return nil, errors.New("recorded")
 	}
-	cfg := &config.Config{ServerURL: "https://edr.example.com:8443", NetXPCService: "group.com.fleetdm.edr.networkextension"}
+	cfg := &config.Config{ServerURL: "https://edr.example.com:8443", NetXPCService: "group.io.rawtrail.networkextension"}
 
 	_, dial := newContainment(cfg, func([]byte) error { return nil }, record, slog.Default(), path)
 	_, _ = dial(t.Context(), "tcp", "edr.example.com:8443")

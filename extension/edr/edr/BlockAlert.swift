@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr", category: "BlockAlert")
+private let logger = Logger(subsystem: "io.rawtrail", category: "BlockAlert")
 
 /// BlockAlertPresenter is the protocol the XPC listener calls into.
 /// Real life uses BlockAlertPresenterAppKit; tests use a fake.
@@ -30,7 +30,7 @@ protocol BlockAlertPresenter {
 /// retry many times in a tight loop; we don't want to bury the
 /// user's screen in modals.
 final class BlockAlertPresenterAppKit: NSObject, BlockAlertPresenter {
-    private let queue = DispatchQueue(label: "com.fleetdm.edr.block-alert")
+    private let queue = DispatchQueue(label: "io.rawtrail.block-alert")
     private let dedupWindow: TimeInterval
     private var recent: [String: Date] = [:]
 

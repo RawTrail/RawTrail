@@ -2,7 +2,7 @@
 
 ### Requirement: Peer code-signing validation
 
-The extensions SHALL reject any inbound XPC connection whose peer does not satisfy a code-signing requirement chained to the Apple anchor, the Fleet Device Management team identifier, and the agent's code-signing identifier `fleet-edr-agent`. All three MUST hold together: a binary signed with the team identifier but any other code-signing identifier SHALL be rejected. The validation MUST run before any event is delivered to the peer and before any inbound message from the peer is processed.
+The extensions SHALL reject any inbound XPC connection whose peer does not satisfy a code-signing requirement chained to the Apple anchor, the release signing team identifier, and the agent's code-signing identifier `rawtrail-agent`. All three MUST hold together: a binary signed with the team identifier but any other code-signing identifier SHALL be rejected. The validation MUST run before any event is delivered to the peer and before any inbound message from the peer is processed.
 
 Implementations MUST use `xpc_connection_set_peer_code_signing_requirement` (macOS 13+) as the sole peer-validation gate. Implementations MUST NOT additionally call `SecCodeCheckValidity`, `SecCodeCopyGuestWithAttributes`, or any other user-side variant of the same check against the same requirement string. The rationale and threat model are documented in [ADR-0007](../../../docs/adr/0007-xpc-peer-validation-libxpc-only.md).
 
@@ -19,7 +19,7 @@ A debug-configured extension MAY additionally accept the locally-built ad-hoc ag
 #### Scenario: A team-signed peer with another identifier is rejected
 
 - **GIVEN** a release-configured extension's XPC service is listening
-- **WHEN** a process signed with team ID `FDG8Q7N4CC` but a code-signing identifier other than `fleet-edr-agent` attempts to connect
+- **WHEN** a process signed with team ID `FDG8Q7N4CC` but a code-signing identifier other than `rawtrail-agent` attempts to connect
 - **THEN** the extension cancels the connection
 - **AND** the peer can neither receive events nor deliver containment, application-control or watched-path documents
 
@@ -41,6 +41,6 @@ A debug-configured extension MAY additionally accept the locally-built ad-hoc ag
 #### Scenario: A correctly-signed agent is accepted
 
 - **GIVEN** an extension's XPC service is listening
-- **WHEN** a process signed with the hardened runtime, team ID `FDG8Q7N4CC` and the code-signing identifier `fleet-edr-agent` connects
+- **WHEN** a process signed with the hardened runtime, team ID `FDG8Q7N4CC` and the code-signing identifier `rawtrail-agent` connects
 - **THEN** the connection is accepted
 - **AND** the peer is added to the broadcast set

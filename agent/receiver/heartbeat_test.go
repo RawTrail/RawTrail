@@ -56,7 +56,7 @@ func newHeartbeatLoop(interval, timeout time.Duration) *Loop {
 	}
 }
 
-// These tests cover the heartbeat goroutine in isolation. They previously lived in agent/cmd/fleet-edr-agent/heartbeat_test.go against
+// These tests cover the heartbeat goroutine in isolation. They previously lived in agent/cmd/rawtrail-agent/heartbeat_test.go against
 // the standalone runXPCHeartbeat function; the heartbeat moved into Loop.runHeartbeat when the reconnect/backoff/heartbeat machinery
 // consolidated into the receiver package.
 

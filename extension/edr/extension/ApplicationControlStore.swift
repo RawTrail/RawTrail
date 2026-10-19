@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "ApplicationControlStore")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ApplicationControlStore")
 
 // ApplicationControlSnapshot is the typed in-memory shape the AUTH_EXEC decision
 // engine consults on every exec. Rules are indexed by (rule_type, identifier)
@@ -173,14 +173,14 @@ enum ApplicationControlEnforcement {
 final class ApplicationControlStore {
     /// Singleton entry point used by every production callsite. The AUTH_EXEC handler, the XPC
     /// dispatcher and the extension's boot path all go through `.shared`. Tests should NOT use
-    /// `.shared` because it persists to `/var/db/com.fleetdm.edr/application-control.json`, which
+    /// `.shared` because it persists to `/var/db/io.rawtrail/application-control.json`, which
     /// is both global state and a real production file. Construct a per-test instance with
     /// `ApplicationControlStore(storagePath: tempFile)` instead so each test gets an empty
     /// snapshot AND the async persist lands in a temp directory the test cleans up.
     static let shared = ApplicationControlStore()
 
     private let lock = OSAllocatedUnfairLock(initialState: ApplicationControlSnapshot.empty)
-    private let persistQueue = DispatchQueue(label: "com.fleetdm.edr.appcontrol.persist", qos: .utility)
+    private let persistQueue = DispatchQueue(label: "io.rawtrail.appcontrol.persist", qos: .utility)
     private let storagePath: String
 
     /// resyncReporter is invoked when apply() accepts a snapshot whose policy_version regressed below the active snapshot's
@@ -202,7 +202,7 @@ final class ApplicationControlStore {
     /// argument so Sonar S1075 (hardcoded URI in source) lands on the named constant rather than the function signature;
     /// the constant is still in one place and the doc-comment on `.shared` continues to discourage production callers
     /// from bypassing the singleton.
-    static let defaultStoragePath = "/var/db/com.fleetdm.edr/application-control.json"
+    static let defaultStoragePath = "/var/db/io.rawtrail/application-control.json"
 
     /// The `storagePath` argument exists for XCTest isolation; production code uses `.shared`
     /// which initializes via the default value (the real on-disk policy file under /var/db).

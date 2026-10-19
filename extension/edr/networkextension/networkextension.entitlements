@@ -9,7 +9,7 @@
 	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.fleetdm.edr.networkextension</string>
+		<string>group.io.rawtrail.networkextension</string>
 	</array>
 </dict>
 </plist>

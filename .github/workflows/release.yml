@@ -204,8 +204,8 @@ jobs:
         with:
           path: '.'
           format: spdx-json
-          artifact-name: fleet-edr-${{ github.ref_name }}-sbom.spdx.json
-          output-file: dist/fleet-edr-${{ github.ref_name }}-sbom.spdx.json
+          artifact-name: rawtrail-${{ github.ref_name }}-sbom.spdx.json
+          output-file: dist/rawtrail-${{ github.ref_name }}-sbom.spdx.json
           upload-release-assets: false
 
       - name: Generate CycloneDX SBOM (source tree)
@@ -214,8 +214,8 @@ jobs:
         with:
           path: '.'
           format: cyclonedx-json
-          artifact-name: fleet-edr-${{ github.ref_name }}-sbom.cdx.json
-          output-file: dist/fleet-edr-${{ github.ref_name }}-sbom.cdx.json
+          artifact-name: rawtrail-${{ github.ref_name }}-sbom.cdx.json
+          output-file: dist/rawtrail-${{ github.ref_name }}-sbom.cdx.json
           upload-release-assets: false
 
       - name: Generate SHA256SUMS
@@ -226,10 +226,10 @@ jobs:
           # absent on a dry-run.
           shopt -s nullglob
           shasum -a 256 \
-            ./fleet-edr-*.pkg \
+            ./rawtrail-*.pkg \
             ./*.mobileconfig \
-            ./fleet-edr-*-sbom.spdx.json \
-            ./fleet-edr-*-sbom.cdx.json \
+            ./rawtrail-*-sbom.spdx.json \
+            ./rawtrail-*-sbom.cdx.json \
             > SHA256SUMS
           cat SHA256SUMS
 
@@ -237,9 +237,9 @@ jobs:
         if: env.DRY_RUN != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fleet-edr-dryrun-${{ github.sha }}
+          name: rawtrail-dryrun-${{ github.sha }}
           path: |
-            dist/fleet-edr-*.pkg
+            dist/rawtrail-*.pkg
             dist/*.mobileconfig
             dist/SHA256SUMS
           retention-days: 7
@@ -266,12 +266,12 @@ jobs:
             --generate-notes \
             --title "$RELEASE_TAG" \
             $PRERELEASE_FLAG \
-            dist/fleet-edr-*.pkg \
+            dist/rawtrail-*.pkg \
             dist/edr-system-extension.mobileconfig \
             dist/edr-tcc-fda.mobileconfig \
             dist/edr-login-items.mobileconfig \
-            "dist/fleet-edr-${RELEASE_TAG}-sbom.spdx.json" \
-            "dist/fleet-edr-${RELEASE_TAG}-sbom.cdx.json" \
+            "dist/rawtrail-${RELEASE_TAG}-sbom.spdx.json" \
+            "dist/rawtrail-${RELEASE_TAG}-sbom.cdx.json" \
             dist/SHA256SUMS
 
       # Sigstore keyless signing of every release artifact. Skipped on
@@ -314,24 +314,24 @@ jobs:
         run: |
           cd dist
           for f in \
-              fleet-edr-*.pkg \
+              rawtrail-*.pkg \
               edr-system-extension.mobileconfig \
               edr-tcc-fda.mobileconfig \
               edr-login-items.mobileconfig \
-              "fleet-edr-${RELEASE_TAG}-sbom.spdx.json" \
-              "fleet-edr-${RELEASE_TAG}-sbom.cdx.json" \
+              "rawtrail-${RELEASE_TAG}-sbom.spdx.json" \
+              "rawtrail-${RELEASE_TAG}-sbom.cdx.json" \
               SHA256SUMS; do
             cosign sign-blob \
               --bundle "${f}.sigstore.json" \
               "$f"
           done
           gh release upload "$RELEASE_TAG" \
-            ./fleet-edr-*.pkg.sigstore.json \
+            ./rawtrail-*.pkg.sigstore.json \
             ./edr-system-extension.mobileconfig.sigstore.json \
             ./edr-tcc-fda.mobileconfig.sigstore.json \
             ./edr-login-items.mobileconfig.sigstore.json \
-            "./fleet-edr-${RELEASE_TAG}-sbom.spdx.json.sigstore.json" \
-            "./fleet-edr-${RELEASE_TAG}-sbom.cdx.json.sigstore.json" \
+            "./rawtrail-${RELEASE_TAG}-sbom.spdx.json.sigstore.json" \
+            "./rawtrail-${RELEASE_TAG}-sbom.cdx.json.sigstore.json" \
             ./SHA256SUMS.sigstore.json
 
       # SLSA build provenance for every shipped artifact. The action
@@ -348,12 +348,12 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
-            dist/fleet-edr-*.pkg
+            dist/rawtrail-*.pkg
             dist/edr-system-extension.mobileconfig
             dist/edr-tcc-fda.mobileconfig
             dist/edr-login-items.mobileconfig
-            dist/fleet-edr-*-sbom.spdx.json
-            dist/fleet-edr-*-sbom.cdx.json
+            dist/rawtrail-*-sbom.spdx.json
+            dist/rawtrail-*-sbom.cdx.json
             dist/SHA256SUMS
 
       - name: Teardown keychain

@@ -1,12 +1,12 @@
 syntax = "proto3";
 
-// Package fleetedr.control.v1 is the wire contract for the persistent agent
+// Package rawtrail.control.v1 is the wire contract for the persistent agent
 // control channel: a single bidirectional stream that pushes commands to a
 // connected host in real time and carries command outcomes back. It is the
 // push replacement for the GET /api/commands short-poll (issue #477). The
 // channel authenticates once at connect via the host bearer token in
 // connection metadata; there is no per-frame credential.
-package fleetedr.control.v1;
+package rawtrail.control.v1;
 
 option go_package = "github.com/rawtrail/rawtrail/internal/control;control";
 

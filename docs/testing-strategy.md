@@ -64,7 +64,7 @@ A run at any layer implies all lower layers have already passed; CI gates enforc
 
 - The Go core of the agent (queue, uploader, enrolment) runs in CI against the real server, on Linux, with the macOS extension dependency stubbed out behind build tags.
 - The macOS-only packages (`agent/receiver`, `agent/xpcbridge`) are split with build tags: `//go:build darwin && cgo` for the CGo XPC implementation, `//go:build !darwin || !cgo` for the stub receiver. The stub exposes an `Inject` entry point so the headless binary and tests can deliver events as if they had arrived from the XPC peer. The production agent's call sites use `*receiver.Receiver` directly; the build tags select the right struct per platform without an interface. UAT plan milestone **M1** delivered this split; the linux compile invariant is enforced by `task build:agent:linux` in CI (`agent-test` job).
-- The headless binary `agent/cmd/fleet-edr-agent-headless` wires the same `queue + uploader + enrollment` pipeline as production but with the stub receiver, and exposes a small local control plane on a unix socket:
+- The headless binary `agent/cmd/rawtrail-agent-headless` wires the same `queue + uploader + enrollment` pipeline as production but with the stub receiver, and exposes a small local control plane on a unix socket:
   - `POST /event`: inject one JSON event into the stub receiver's events channel.
   - `GET /state`: return `{events_injected, inject_errors, last_inject_at_unix, queue_depth}`. Built by `task build:agent:headless` (also gated in CI). UAT plan milestone **M2** delivered this binary; **M3** shipped the `test/fakeagent` library that loads YAML scenarios and feeds the control plane.
 - The L3 end-to-end test at `test/integration/agentserver/` is UAT plan milestone **M4**. It boots the real server via `test/integration.Setup` (full Stack + real MySQL + processor goroutines), runs the M2 headless agent's `Run` in-process, drives each scenario from the M3 fakeagent starter corpus via `FeedControlPlane`, and asserts on the detection service's `ListHosts` event counts. Gated by the existing `server-test` CI job via the recursive `./test/integration/...` glob; local devs run with `task test:integration:agent-server`. Scenarios use canonical UUID host ids so they pass the enrollment endpoint's `hardware_uuid` regex.
@@ -112,7 +112,7 @@ The per-RC scale gate (#203) sits above the smoke: `test/scale/scalegate_test.go
 The same library serves multiple consumers, so the wire contract is exercised end to end at every layer that uses it:
 
 - `test/fakeagent/`: Go library (UAT plan **M3**). Loads YAML scenarios, emits wire-format envelopes with deterministic timestamps, and feeds them either through the headless binary's `POST /event` control plane (`FeedControlPlane`) or directly to a server's ingest endpoint with a bearer token (`PostDirect`). Functional options cover start time, host id override, playback speed multiplier, and `PostDirect` batch size.
-- `agent/cmd/fleet-edr-agent-headless`: production agent built with the stub receiver, plus an opt-in unix-socket control plane for tests. Doubles as the load generator.
+- `agent/cmd/rawtrail-agent-headless`: production agent built with the stub receiver, plus an opt-in unix-socket control plane for tests. Doubles as the load generator.
 - `test/fakeagent/scenarios/`: starter YAML scenarios shipped with M3 (`quiet-host`, `exec-fork-exit`, `dns-and-network`). The M10 efficacy corpus and the L3 integration job add their own scenarios under separate paths.
 
 A scenario file looks like:

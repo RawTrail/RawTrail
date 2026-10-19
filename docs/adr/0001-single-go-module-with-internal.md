@@ -6,7 +6,7 @@
 
 ## Context
 
-The repo ships multiple Go binaries: `rawtrail-server`, `rawtrail-ingest`, and `fleet-edr-agent`. They share a non-trivial amount of code: env-variable parsing, structured-logging bootstrap, OpenTelemetry initialisation, TLS config with SIGHUP cert reloading, HTTP middleware, shared attribute keys. They also legitimately need to NOT pull in each other's packages at the Go import level (the agent must not reach into the server's MySQL store; the server must not reach into the agent's XPC receiver).
+The repo ships multiple Go binaries: `rawtrail-server`, `rawtrail-ingest`, and `rawtrail-agent`. They share a non-trivial amount of code: env-variable parsing, structured-logging bootstrap, OpenTelemetry initialisation, TLS config with SIGHUP cert reloading, HTTP middleware, shared attribute keys. They also legitimately need to NOT pull in each other's packages at the Go import level (the agent must not reach into the server's MySQL store; the server must not reach into the agent's XPC receiver).
 
 Go offers several layouts for this shape:
 
@@ -22,7 +22,7 @@ The constraints we're optimising for, in priority order:
 - **Architectural clarity.** Someone reading the tree should be able to tell server-only code from agent-only code from shared code at a glance.
 - **Compatibility with the Go ecosystem.** Tooling (gopls, golangci-lint, vulncheck, Sonar) should work without module-specific workarounds.
 
-Observation: `go build` tree-shakes per binary. A package that exists in the module but isn't imported by `cmd/fleet-edr-agent/main.go` is not linked into the agent binary. Verified: with MySQL in the shared module's `go.sum`, the agent binary contains zero strings from `go-sql-driver/mysql`, and `go list -deps ./agent/cmd/fleet-edr-agent/...` returns no `mysql` package. This means the "dep isolation" constraint is satisfied by import hygiene, not by module boundaries.
+Observation: `go build` tree-shakes per binary. A package that exists in the module but isn't imported by `cmd/rawtrail-agent/main.go` is not linked into the agent binary. Verified: with MySQL in the shared module's `go.sum`, the agent binary contains zero strings from `go-sql-driver/mysql`, and `go list -deps ./agent/cmd/rawtrail-agent/...` returns no `mysql` package. This means the "dep isolation" constraint is satisfied by import hygiene, not by module boundaries.
 
 Observation: every mature Go monorepo of comparable scope uses layout (2). Kubernetes, Docker, Consul, Vault, Nomad, Terraform, CockroachDB, Prometheus, and Fleet itself all ship one module with many `cmd/*` targets and shared packages under `internal/` or similar. Splitting modules is almost always driven by external-publishing needs (e.g. `k8s.io/api` as a consumable sub-module) which don't apply here.
 

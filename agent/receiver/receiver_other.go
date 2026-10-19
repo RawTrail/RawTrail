@@ -20,7 +20,7 @@ var ErrUnsupported = errors.New("receiver: XPC not available on this platform")
 
 // Receiver is the non-darwin stub. It exposes the same public surface as
 // the darwin Receiver in receiver.go so the agent's call sites
-// (cmd/fleet-edr-agent/main.go) compile without a per-platform import or
+// (cmd/rawtrail-agent/main.go) compile without a per-platform import or
 // interface indirection.
 type Receiver struct {
 	serviceName string
@@ -73,7 +73,7 @@ func (r *Receiver) Disconnect() {
 
 // Inject pushes a raw JSON event onto the receiver's Events() channel as if it had arrived from the XPC peer. Only the non-darwin / no-cgo
 // stub exposes this entry point; the production XPC receiver receives events from the kernel via the system extension and has no
-// in-process injection surface. The headless agent binary (agent/cmd/fleet-edr-agent-headless) uses Inject from its control-plane HTTP
+// in-process injection surface. The headless agent binary (agent/cmd/rawtrail-agent-headless) uses Inject from its control-plane HTTP
 // handler so test scenarios can drive the queue + uploader pipeline without a real ESF extension.
 //
 // Non-blocking by design: if the events buffer is full (the Receiver was constructed with a fixed buffer in New), Inject returns

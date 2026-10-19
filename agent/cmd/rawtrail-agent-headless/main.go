@@ -1,6 +1,6 @@
 //go:build !darwin || !cgo
 
-// fleet-edr-agent-headless is the test-only build of the agent's Go core. It wires the same enrollment + queue + uploader pipeline as
+// rawtrail-agent-headless is the test-only build of the agent's Go core. It wires the same enrollment + queue + uploader pipeline as
 // the production agent, substitutes the non-darwin stub receiver for the XPC bridge, and exposes a unix-socket control plane so test
 // scenarios can inject events. See UAT plan layer L3 in docs/testing-strategy.md.
 //
@@ -18,14 +18,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/rawtrail/rawtrail/agent/cmd/fleet-edr-agent-headless/headless"
+	"github.com/rawtrail/rawtrail/agent/cmd/rawtrail-agent-headless/headless"
 	"github.com/rawtrail/rawtrail/agent/config"
 	"github.com/rawtrail/rawtrail/agent/enrollment"
 )
 
 func main() {
 	if err := mainErr(); err != nil {
-		fmt.Fprintf(os.Stderr, "fleet-edr-agent-headless: %v\n", err)
+		fmt.Fprintf(os.Stderr, "rawtrail-agent-headless: %v\n", err)
 		os.Exit(1)
 	}
 }

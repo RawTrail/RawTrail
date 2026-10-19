@@ -16,7 +16,7 @@ import (
 )
 
 // defaultPollInterval is the fallback Interval when Config.Interval is zero.
-// Mirrored as commanderPollInterval in agent/cmd/fleet-edr-agent.
+// Mirrored as commanderPollInterval in agent/cmd/rawtrail-agent.
 const defaultPollInterval = 5 * time.Second
 
 // statusPending is the server-side status the poll asks for new work with. It is not among the statuses the agent REPORTS, which is

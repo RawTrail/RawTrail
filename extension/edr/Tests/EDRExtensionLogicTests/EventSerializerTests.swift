@@ -279,11 +279,11 @@ final class EventSerializerTests: XCTestCase {
     // MARK: CodeSigning
 
     func testCodeSigningWireKeys() throws {
-        let signing = CodeSigning(teamID: "FDG8Q7N4CC", signingID: "com.fleetdm.edr", flags: 0x600, isPlatformBinary: false)
+        let signing = CodeSigning(teamID: "FDG8Q7N4CC", signingID: "io.rawtrail", flags: 0x600, isPlatformBinary: false)
         let json = String(data: try encoder.encode(signing), encoding: .utf8) ?? ""
         XCTAssertEqual(
             json,
-            #"{"flags":1536,"is_platform_binary":false,"signing_id":"com.fleetdm.edr","team_id":"FDG8Q7N4CC"}"#
+            #"{"flags":1536,"is_platform_binary":false,"signing_id":"io.rawtrail","team_id":"FDG8Q7N4CC"}"#
         )
     }
 

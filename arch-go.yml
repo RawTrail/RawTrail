@@ -455,7 +455,7 @@ dependenciesRules:
   #     too, not bootstrap.
   #
   # The remaining production-reachable bootstrap importers are
-  # cmd/fleet-edr-{server,ingest} and each <X>/testkit. New packages
+  # cmd/rawtrail-{server,ingest} and each <X>/testkit. New packages
   # outside those slots would have to be added explicitly; code review
   # is the gate. If arch-go ever ships a "shouldOnlyBeAccessedBy" rule
   # family in v2, this section becomes the single declarative

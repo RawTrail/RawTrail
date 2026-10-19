@@ -22,7 +22,7 @@ function process(id: number, pid: number, ppid: number, path: string): ProcessNo
 }
 
 const forest: ProcessNode[] = [
-  { ...process(1, 100, 1, "/sbin/launchd"), children: [process(2, 200, 100, "/usr/local/bin/fleet-edr-agent")] },
+  { ...process(1, 100, 1, "/sbin/launchd"), children: [process(2, 200, 100, "/usr/local/bin/rawtrail-agent")] },
 ];
 
 const alert: AlertDetail = {
@@ -75,7 +75,7 @@ describe("AlertGraphRoute", () => {
     expect(screen.getByRole("link", { name: "Graph" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Timeline" })).toBeInTheDocument();
     // ...and the host's process node from the tree fetch.
-    expect(await screen.findByText(/fleet-edr-agent/)).toBeInTheDocument();
+    expect(await screen.findByText(/rawtrail-agent/)).toBeInTheDocument();
   });
 
   it("fetches by the alertId parsed from the route param", async () => {

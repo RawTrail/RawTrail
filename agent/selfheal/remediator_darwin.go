@@ -16,7 +16,7 @@ import (
 // HostAppPath is the host application binary that owns the NetworkExtension configuration. Only this binary can change it:
 // the NEFilterManager / NEDNSProxyManager preferences are keyed to the app's code signature, so the agent cannot write them
 // directly and shells out instead.
-const HostAppPath = "/Applications/Fleet EDR.app/Contents/MacOS/edr"
+const HostAppPath = "/Applications/RawTrail.app/Contents/MacOS/edr"
 
 // enableTimeout bounds one enable. The measured happy path is a few seconds (the provider was back 13 seconds after the
 // subcommand returned on edr-dev), but loadFromPreferences / saveToPreferences talk to nesessionmanager, and a wedged

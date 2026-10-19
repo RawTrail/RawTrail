@@ -2,7 +2,7 @@ import Foundation
 import os
 import Security
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.networkextension", category: "ProviderLookup")
+private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "ProviderLookup")
 
 /// NetworkExtensionProviderLookup answers one question on the DNS hot path: does the process that opened this flow hold
 /// `com.apple.developer.networking.networkextension`, i.e. is it itself a network-extension provider?

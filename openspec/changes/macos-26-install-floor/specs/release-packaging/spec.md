@@ -16,4 +16,4 @@ The installer SHALL refuse to install on a Mac whose macOS version is older than
 - **GIVEN** a Mac running macOS 15
 - **WHEN** an operator opens the release package
 - **THEN** the installer refuses before installing anything
-- **AND** the message says Fleet EDR requires macOS 26 (Tahoe) or later
+- **AND** the message says RawTrail requires macOS 26 (Tahoe) or later

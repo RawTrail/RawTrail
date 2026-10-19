@@ -150,7 +150,7 @@ func TargetFor(serverURL string, proxy func(*http.Request) (*url.URL, error)) (T
 
 // ExtensionStatePath is where the network extension persists the containment it holds. The agent reads it once at startup, before it
 // can be told the state over XPC, so a contained host's first connection to the server already goes to the lifeline addresses.
-const ExtensionStatePath = "/var/db/com.fleetdm.edr/network-containment.json"
+const ExtensionStatePath = "/var/db/io.rawtrail/network-containment.json"
 
 // Resolver resolves the lifeline target. Production uses net.Resolver with PreferGo, which queries the configured resolvers directly:
 // measured on macOS 26.3, mDNSResponder sends no query at all while the host is contained, so a getaddrinfo lookup would find nothing.

@@ -53,7 +53,7 @@ bash scripts/qa/e4-uninstall.sh               # run last; it removes the agent
 
 The network-partition script records pf's enabled/disabled state before the partition and rolls back to that state on exit. The uninstall script removes the agent by design; rerun with `--reinstall` to put it back.
 
-The uninstall script is destructive in the "agent is gone afterwards" sense, so keep it last. Add `--reinstall path/to/fleet-edr-vX.Y.Z.pkg` to also exercise the re-install half (proves `/etc/fleet-edr.conf` is preserved across the round-trip).
+The uninstall script is destructive in the "agent is gone afterwards" sense, so keep it last. Add `--reinstall path/to/rawtrail-vX.Y.Z.pkg` to also exercise the re-install half (proves `/etc/rawtrail.conf` is preserved across the round-trip).
 
 ## Filing the QA report
 

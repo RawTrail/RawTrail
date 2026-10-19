@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "WatchedPaths")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "WatchedPaths")
 
 /// WatchedPathMatch is how a watched path covers files, and maps one-to-one onto the Endpoint Security target mute types the
 /// file-tamper client applies it with.
@@ -247,7 +247,7 @@ enum WatchedPaths {
 /// back to the built-in paths until the agent next pushes, and in memory, so a delayed older set is recognised and turned away.
 final class WatchedPathStore: Sendable {
     /// defaultStoragePath sits beside the application-control snapshot, in the directory the extension already owns.
-    static let defaultStoragePath = "/var/db/com.fleetdm.edr/watched-paths.json"
+    static let defaultStoragePath = "/var/db/io.rawtrail/watched-paths.json"
 
     let storagePath: String
     private let accepted: OSAllocatedUnfairLock<WatchedPathsUpdate?>

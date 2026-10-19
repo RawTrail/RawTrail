@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "FileHashCache")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "FileHashCache")
 
 /// FileHashCache memoises SHA-256 digests of executable Mach-O files keyed
 /// by their on-disk identity tuple `(inode, mtimeSec, mtimeNsec)`. The
@@ -46,7 +46,7 @@ final class FileHashCache {
     // sees the full hex string or "not yet cached". The queue's only job
     // is to keep the fill work off the AUTH_EXEC callback thread.
     private let computeQueue = DispatchQueue(
-        label: "com.fleetdm.edr.filehashcache.compute",
+        label: "io.rawtrail.filehashcache.compute",
         qos: .userInitiated,
         attributes: .concurrent
     )

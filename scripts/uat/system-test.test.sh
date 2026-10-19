@@ -140,39 +140,39 @@ RECEIPT_SAW_COUNT="$TMP/receipt-calls.txt"
 uat_ssh() { printf '%s' "$*" > "$RECEIPT_SAW"; echo "call" >> "$RECEIPT_SAW_COUNT"; printf '%s' "$RECEIPT_OUT"; }
 
 RECEIPT_OUT="2000"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent 1000 1 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent 1000 1 && got=0 || got=1
 check "accepts a receipt newer than the mark" "0" "$got"
 
 # Equal counts as fresh: an install that lands in the same second as the mark did happen, and rejecting it would make
 # the gate flaky on a fast install rather than catching anything.
 RECEIPT_OUT="1000"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent 1000 1 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent 1000 1 && got=0 || got=1
 check "accepts a receipt exactly at the mark" "0" "$got"
 
 # The case the whole check exists for: the previous install's receipt must not certify this one.
 RECEIPT_OUT="999"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent 1000 1 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent 1000 1 && got=0 || got=1
 check "rejects the receipt left by an earlier install" "1" "$got"
 
 # No receipt at all: the package was never installed, which must not read as success.
 RECEIPT_OUT=""
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent 1000 1 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent 1000 1 && got=0 || got=1
 check "rejects an absent receipt" "1" "$got"
 
 # Anything non-numeric is a broken read, not a timestamp. Without the numeric test, bash's `>=` on a string would
 # either error under `set -e` or compare as zero, and a zero compares older than any real mark by luck rather than by
 # intent.
 RECEIPT_OUT="not-a-timestamp"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent 1000 1 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent 1000 1 && got=0 || got=1
 check "rejects a malformed receipt value" "1" "$got"
 
 # A non-numeric mark is what a failed VM clock read produces. It must refuse rather than certify: the old fallback of 0
 # is older than every receipt, so the PREVIOUS install's receipt proved the current one, which is the false positive the
 # receipt check exists to prevent.
 RECEIPT_OUT="2000"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent "" 1 >/dev/null 2>&1 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent "" 1 >/dev/null 2>&1 && got=0 || got=1
 check "refuses an empty install mark" "1" "$got"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent "[driver] DRY-RUN ssh" 1 >/dev/null 2>&1 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent "[driver] DRY-RUN ssh" 1 >/dev/null 2>&1 && got=0 || got=1
 check "refuses a non-numeric install mark" "1" "$got"
 
 # The helper must ask about the package it was given, not a hardcoded one.
@@ -185,17 +185,17 @@ check "queries the package id it was passed" "1" "$(grep -c 'com.example.other' 
 # ran, the receipt was never read, and an install that had worked was reported as a failure (issue #1055). The pair matters:
 # reading once must not turn into accepting anything, so the stale receipt is still refused over the same elapsed window.
 RECEIPT_OUT="2000"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent 1000 0 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent 1000 0 && got=0 || got=1
 check "reads the receipt even when the window has already elapsed" "0" "$got"
 
 RECEIPT_OUT="999"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent 1000 0 && got=0 || got=1
+uat_wait_for_pkg_receipt vm io.rawtrail.agent 1000 0 && got=0 || got=1
 check "still refuses a stale receipt over an elapsed window" "1" "$got"
 
 # And the read happens exactly once over an elapsed window: looking is right, spinning is not.
 RECEIPT_OUT="999"
 : > "$RECEIPT_SAW_COUNT"
-uat_wait_for_pkg_receipt vm com.fleetdm.edr.agent 1000 0 >/dev/null || true
+uat_wait_for_pkg_receipt vm io.rawtrail.agent 1000 0 >/dev/null || true
 check "looks once over an elapsed window, not repeatedly" "1" "$(wc -l < "$RECEIPT_SAW_COUNT" | tr -d ' ')"
 
 unset -f sleep uat_ssh

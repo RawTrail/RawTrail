@@ -14,7 +14,7 @@
 #   --skip-install        Skip PKG install + extension-activation wait. Useful
 #                         when iterating on a scenario against an already-
 #                         enrolled VM.
-#   --pkg-path=PATH       Override the PKG path; default is dist/fleet-edr-*.pkg
+#   --pkg-path=PATH       Override the PKG path; default is dist/rawtrail-*.pkg
 #                         (the release pipeline output, see packaging/pkg/).
 #   --dry-run             Don't actually SSH / curl anything. Walks the
 #                         scenario shape so a contributor can verify the
@@ -65,7 +65,7 @@ export UAT_TMPDIR
 # The agent component's installer identifier, as packaging/pkg/build.sh passes it to pkgbuild --identifier. The receipt
 # check after the install reads this, so the two have to stay in step; a rename there makes the gate report an install that
 # never landed.
-UAT_PKG_ID="com.fleetdm.edr.agent"
+UAT_PKG_ID="io.rawtrail.agent"
 
 # Where the scenario's attack.sh records the steps it could not run. Exported so attack.sh writes to the same path the
 # rule classification below reads, and inside UAT_TMPDIR so the EXIT trap takes it with everything else.
@@ -184,14 +184,14 @@ fi
 
 if [[ "$UAT_SKIP_INSTALL" != "1" ]]; then
   if [[ -z "$UAT_PKG_PATH" ]]; then
-    # Pick the most recent fleet-edr-*.pkg in dist/. The release pipeline
+    # Pick the most recent rawtrail-*.pkg in dist/. The release pipeline
     # writes there; for ad-hoc runs the operator passes --pkg-path explicitly.
     # shellcheck disable=SC2012  # ls -t is fine: release PKG filenames are alphanumeric semver, no spaces
-    UAT_PKG_PATH=$(ls -t dist/fleet-edr-*.pkg 2>/dev/null | head -1 || true)
+    UAT_PKG_PATH=$(ls -t dist/rawtrail-*.pkg 2>/dev/null | head -1 || true)
   fi
   if [[ -z "$UAT_PKG_PATH" || ! -f "$UAT_PKG_PATH" ]]; then
     if [[ "$UAT_DRY_RUN" == "1" ]]; then
-      UAT_PKG_PATH="dist/fleet-edr-DRYRUN.pkg"
+      UAT_PKG_PATH="dist/rawtrail-DRYRUN.pkg"
     else
       uat_log driver "no PKG found; build one via packaging/pkg/build.sh or pass --pkg-path or --skip-install"
       exit 1

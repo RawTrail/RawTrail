@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
 	<key>NSEndpointSecurityMachServiceName</key>
-	<string>FDG8Q7N4CC.com.fleetdm.edr.securityextension.xpc</string>
+	<string>FDG8Q7N4CC.io.rawtrail.securityextension.xpc</string>
 	<key>NSSystemExtensionUsageDescription</key>
-	<string>Fleet EDR monitors endpoint security events for threat detection.</string>
+	<string>RawTrail monitors endpoint security events for threat detection.</string>
 </dict>
 </plist>

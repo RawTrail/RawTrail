@@ -35,7 +35,7 @@ The driver uses `ssh -o BatchMode=yes`, so the VM needs key auth and passwordles
 ```sh
 # ~victor/.ssh/authorized_keys        <- your UAT_SSH_KEY's public half
 # /etc/sudoers.d/edr-uat (mode 440)
-victor ALL=(root) NOPASSWD: /Applications/Fleet\ EDR.app/Contents/MacOS/edr, /usr/bin/log
+victor ALL=(root) NOPASSWD: /Applications/RawTrail.app/Contents/MacOS/edr, /usr/bin/log
 ```
 
 `/usr/bin/log` is load-bearing, not convenience. `log show --info` returns another process's info-level messages only to root, so an unprivileged read comes back EMPTY and every provider assertion fails while the provider is behaving perfectly. That failure mode is silent and reads like a broken product, so it is worth knowing before debugging one.

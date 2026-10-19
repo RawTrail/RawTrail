@@ -45,7 +45,7 @@ func TestReadLaunchdJob_AsTheUser(t *testing.T) {
 	own := writePlist(t, dir, "own.plist", 0o600)
 	job, ok := ReadLaunchdJob(own, me, myGroup)
 	require.True(t, ok, "a user reads their own plist")
-	assert.Equal(t, "com.fleetdm.qa1341.load", job.Label)
+	assert.Equal(t, "com.example.qa1341.load", job.Label)
 	assert.Equal(t, []string{"/bin/sleep", "71"}, job.ProgramArguments)
 
 	link := filepath.Join(dir, "link.plist")
@@ -143,7 +143,7 @@ func TestReadLaunchdJob_BinaryPlist(t *testing.T) {
 	require.NoError(t, err, string(out))
 	job, ok := ReadLaunchdJob(p, os.Getuid(), os.Getgid())
 	require.True(t, ok)
-	assert.Equal(t, "com.fleetdm.qa1341.load", job.Label)
+	assert.Equal(t, "com.example.qa1341.load", job.Label)
 	assert.Equal(t, []string{"/bin/sleep", "71"}, job.ProgramArguments)
 }
 
@@ -167,7 +167,7 @@ func TestReadLaunchdJobs_Directory(t *testing.T) {
 	paths := func(jobs []LaunchdJob) []string {
 		var out []string
 		for _, j := range jobs {
-			assert.Equal(t, "com.fleetdm.qa1341.load", j.Label)
+			assert.Equal(t, "com.example.qa1341.load", j.Label)
 			out = append(out, filepath.Base(j.PlistPath))
 		}
 		return out

@@ -74,7 +74,7 @@ int xpc_bridge_connect(const char *service_name, const void *context, xpc_bridge
 
     // Create a unique dispatch queue label per connection.
     char label[64];
-    snprintf(label, sizeof(label), "com.fleetdm.edr.xpcbridge.%d", handle);
+    snprintf(label, sizeof(label), "io.rawtrail.xpcbridge.%d", handle);
 
     dispatch_queue_t queue = dispatch_queue_create(label, DISPATCH_QUEUE_SERIAL);
     if (queue == NULL) {

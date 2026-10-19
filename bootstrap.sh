@@ -111,7 +111,7 @@ Stack is starting. Caddy is requesting a Let's Encrypt certificate for $DOMAIN
 (ports 80 and 443 must be reachable from the internet and DNS must resolve here).
 
 Next steps:
-  1. Enroll secret. Put this in /etc/fleet-edr.conf on each Mac as EDR_ENROLL_SECRET:
+  1. Enroll secret. Put this in /etc/rawtrail.conf on each Mac as EDR_ENROLL_SECRET:
        $(cat secrets/enroll_secret)
   2. Server URL for the agent (EDR_SERVER_URL): https://$DOMAIN
   3. Redeem the break-glass admin. Grab the one-time URL from the logs and open it in a browser:

@@ -206,7 +206,7 @@ probe_block PATH PATH "$BIN_PATH" "$BIN_PATH" "$SENTINEL" sentinel
 # cdhash is unique to this binary, so the rule matches nothing else.
 # ===========================================================================
 BIN_CDHASH=$(build_target cdhash)
-uat_ssh "$VM" "codesign -s - -f -o runtime --identifier com.fleetdm.edr.uat-cdhash-probe $BIN_CDHASH" >/dev/null 2>&1 \
+uat_ssh "$VM" "codesign -s - -f -o runtime --identifier io.rawtrail.uat-cdhash-probe $BIN_CDHASH" >/dev/null 2>&1 \
   || uat_fail app-control-block "CDHASH: ad-hoc + hardened-runtime codesign failed"
 CDHASH=$(uat_ssh "$VM" "codesign -d -vvv $BIN_CDHASH 2>&1 | awk -F= '/^CDHash=/{print \$2}' | tr '[:upper:]' '[:lower:]'")
 if [[ "$CDHASH" =~ ^[0-9a-f]{40}$ ]]; then

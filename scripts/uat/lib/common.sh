@@ -305,7 +305,7 @@ uat_wait_for_extension() {
   local deadline
   deadline=$(( $(date +%s) + within ))
   while (( $(date +%s) < deadline )); do
-    if uat_ssh "$vm" "systemextensionsctl list | grep -q 'com.fleetdm.edr.*activated enabled'"; then
+    if uat_ssh "$vm" "systemextensionsctl list | grep -q 'io.rawtrail.*activated enabled'"; then
       return 0
     fi
     if [[ "${UAT_DRY_RUN:-0}" == "1" ]]; then

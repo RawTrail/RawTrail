@@ -1000,7 +1000,7 @@ func TestTheLifelineTargetComesFromTheConfiguredProxy(t *testing.T) {
 	}
 	cfg := &config.Config{
 		ServerURL:     "https://edr.example.com:8443",
-		NetXPCService: "group.com.fleetdm.edr.networkextension",
+		NetXPCService: "group.io.rawtrail.networkextension",
 		Proxy:         config.ProxyConfig{HTTPSProxy: "http://proxy.corp:3128"},
 	}
 

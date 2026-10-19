@@ -1,11 +1,11 @@
 #!/bin/sh
 # spec:release-packaging/uninstall-path-is-deliverable/operator-runs-the-uninstall-script
 #
-# Uninstall script for Fleet EDR. THIS script IS the spec scenario's enforcement surface: it stops + unloads the agent's
+# Uninstall script for RawTrail. THIS script IS the spec scenario's enforcement surface: it stops + unloads the agent's
 # LaunchDaemon (the launchctl bootout block below), deactivates BOTH system extensions through the host app's `deactivate`
 # subcommand (NOT systemextensionsctl, which has no deactivate verb and whose developer commands are blocked under SIP), and
 # removes the agent's binaries + runtime state. The package install path drops this script at
-# /Library/Application Support/com.fleetdm.edr/uninstall.sh so an operator (or the MDM) can invoke it without the
+# /Library/Application Support/io.rawtrail/uninstall.sh so an operator (or the MDM) can invoke it without the
 # original signed installer.
 #
 # Deactivation mirrors activation (Apple's model): OSSystemExtensionRequest must be submitted by the host app running in a
@@ -22,11 +22,11 @@
 #                                          specific guidance: MDM-managed hosts must remove the system-extension profile;
 #                                          an unmanaged host with no console user must log in and re-run.
 #
-# Leaves /etc/fleet-edr.conf in place on purpose so a subsequent re-install picks up the same enroll config without
+# Leaves /etc/rawtrail.conf in place on purpose so a subsequent re-install picks up the same enroll config without
 # re-provisioning.
 #
 # Run as root:
-#   sudo /Library/Application\ Support/com.fleetdm.edr/uninstall.sh
+#   sudo /Library/Application\ Support/io.rawtrail/uninstall.sh
 
 set -e
 
@@ -35,21 +35,21 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 2
 fi
 
-LABEL=com.fleetdm.edr.agent
+LABEL=io.rawtrail.agent
 PLIST=/Library/LaunchDaemons/${LABEL}.plist
-APP=/Applications/Fleet\ EDR.app
+APP=/Applications/RawTrail.app
 APP_BIN=$APP/Contents/MacOS/edr
-AGENT_BIN=/usr/local/bin/fleet-edr-agent
-SUPPORT=/Library/Application\ Support/com.fleetdm.edr
-VAR_DB=/var/db/fleet-edr
-LOG=/var/log/fleet-edr-agent.log
-SYSEXT_PROFILE=com.fleetdm.edr.profile.system-extension
+AGENT_BIN=/usr/local/bin/rawtrail-agent
+SUPPORT=/Library/Application\ Support/io.rawtrail
+VAR_DB=/var/db/rawtrail
+LOG=/var/log/rawtrail-agent.log
+SYSEXT_PROFILE=io.rawtrail.profile.system-extension
 
 # Console user whose GUI (Aqua) session can submit OSSystemExtensionRequests. 0 means the login window (no user), in which
 # case the host app cannot deactivate the extensions and we fall back to guidance.
 CONSOLE_UID=$(/usr/bin/stat -f %u /dev/console 2>/dev/null || echo 0)
 
-# read_sysext_state reads the live systemextensionsctl list ONCE and classifies the Fleet EDR extensions, so the script
+# read_sysext_state reads the live systemextensionsctl list ONCE and classifies the RawTrail extensions, so the script
 # reports what actually happened rather than what a command's exit code claimed. It sets three globals:
 #   STATE_UNKNOWN  1 when `systemextensionsctl list` itself failed, so the state cannot be trusted (stay conservative).
 #   PENDING_EXTS   count of extensions the OS staged for removal on the next reboot ("...waiting to uninstall on reboot").
@@ -65,8 +65,8 @@ read_sysext_state() {
         return
     fi
     STATE_UNKNOWN=0
-    PENDING_EXTS=$(printf '%s\n' "$sysext_list" | /usr/bin/grep "com.fleetdm.edr" | /usr/bin/grep -c "uninstall on reboot" || true)
-    ACTIVE_EXTS=$(printf '%s\n' "$sysext_list" | /usr/bin/grep "com.fleetdm.edr" | /usr/bin/grep -vc "uninstall on reboot" || true)
+    PENDING_EXTS=$(printf '%s\n' "$sysext_list" | /usr/bin/grep "io.rawtrail" | /usr/bin/grep -c "uninstall on reboot" || true)
+    ACTIVE_EXTS=$(printf '%s\n' "$sysext_list" | /usr/bin/grep "io.rawtrail" | /usr/bin/grep -vc "uninstall on reboot" || true)
 }
 mdm_sysext_profile_present() {
     /usr/bin/profiles list -all 2>/dev/null | /usr/bin/grep -q "$SYSEXT_PROFILE"
@@ -80,7 +80,7 @@ fi
 
 # spec:release-packaging/installation-activates-the-system-extensions/uninstall-removes-the-activation-launchagent
 echo "==> removing activation LaunchAgent"
-ACTIVATE_LA=/Library/LaunchAgents/com.fleetdm.edr.activate.plist
+ACTIVATE_LA=/Library/LaunchAgents/io.rawtrail.activate.plist
 if [ -f "$ACTIVATE_LA" ]; then
     if [ "$CONSOLE_UID" -gt 0 ]; then
         /bin/launchctl bootout "gui/$CONSOLE_UID" "$ACTIVATE_LA" 2>/dev/null || true
@@ -137,12 +137,12 @@ if [ "$STATE_UNKNOWN" -ne 0 ]; then
     echo "'$APP' was kept so you can retry. Check 'systemextensionsctl list', then re-run:"
     echo "     sudo $SUPPORT/uninstall.sh"
 elif [ "$ACTIVE_EXTS" -eq 0 ] && [ "$PENDING_EXTS" -eq 0 ]; then
-    echo "Fleet EDR removed."
+    echo "RawTrail removed."
 elif [ "$ACTIVE_EXTS" -eq 0 ] && [ "$PENDING_EXTS" -gt 0 ]; then
-    echo "Fleet EDR removed. The system extensions are staged for removal:"
-    echo "REBOOT to finish removing them. After reboot, 'systemextensionsctl list' shows no com.fleetdm.edr entries."
+    echo "RawTrail removed. The system extensions are staged for removal:"
+    echo "REBOOT to finish removing them. After reboot, 'systemextensionsctl list' shows no io.rawtrail entries."
 else
-    echo "WARNING: $ACTIVE_EXTS Fleet EDR system extension(s) are still active and were NOT removed."
+    echo "WARNING: $ACTIVE_EXTS RawTrail system extension(s) are still active and were NOT removed."
     echo "The agent binaries are gone, but the extensions remain. To remove them:"
     if mdm_sysext_profile_present; then
         echo ""
@@ -162,7 +162,7 @@ else
         echo "  '$SYSEXT_PROFILE' profile."
     else
         echo ""
-        echo "  Open System Settings > General > Login Items & Extensions, find the Fleet EDR entries"
+        echo "  Open System Settings > General > Login Items & Extensions, find the RawTrail entries"
         echo "  under Endpoint Security Extensions and Network Extensions, and remove them. If removal is"
         echo "  blocked, the extensions are managed by a configuration profile that must be removed first."
     fi
@@ -170,9 +170,9 @@ else
     echo "  The host app at '$APP' was kept so you can retry after clearing the blocker."
 fi
 echo ""
-echo "/etc/fleet-edr.conf preserved so a future re-install picks up the existing enroll config."
+echo "/etc/rawtrail.conf preserved so a future re-install picks up the existing enroll config."
 echo "Delete it manually if you want a clean slate:"
-echo "   sudo rm /etc/fleet-edr.conf"
+echo "   sudo rm /etc/rawtrail.conf"
 
 # Delete the support dir (which contains THIS script) as the very last action. Removing it earlier risks the shell
 # failing to read the rest of the script once its own file is gone; `exec` replaces the shell with `rm`, so there is no

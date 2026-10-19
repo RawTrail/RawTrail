@@ -1,7 +1,7 @@
 //go:build integration && (!darwin || !cgo)
 
 // Package agentserver is the UAT plan layer-3 (L3) integration test: a full real EDR server (via the M1-M3 production wiring composed
-// by test/integration.Setup), the real M2 headless agent (via the agent/cmd/fleet-edr-agent-headless/headless package, in-process so
+// by test/integration.Setup), the real M2 headless agent (via the agent/cmd/rawtrail-agent-headless/headless package, in-process so
 // the test doesn't pay subprocess startup), and the M3 fakeagent library driving each starter scenario through the agent's POST /event
 // control plane. The pipeline under test is: scenario YAML -> fakeagent envelopes -> headless control plane -> stub receiver ->
 // pumpEvents -> queue -> uploader -> /api/events -> detection processor -> events table -> ListHosts EventCount.
@@ -28,7 +28,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/rawtrail/rawtrail/agent/cmd/fleet-edr-agent-headless/headless"
+	"github.com/rawtrail/rawtrail/agent/cmd/rawtrail-agent-headless/headless"
 	"github.com/rawtrail/rawtrail/test/fakeagent"
 	"github.com/rawtrail/rawtrail/test/integration"
 )

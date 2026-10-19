@@ -22,7 +22,7 @@ var kernelProcessGUID = windows.GUID{Data1: 0x22FB2CD6, Data2: 0x0E7B, Data3: 0x
 
 const (
 	kernelProcessKeywordProcess = 0x10
-	sessionName                 = "fleet-edr-kernel-process"
+	sessionName                 = "rawtrail-kernel-process"
 	eventProcessStart           = 1
 	eventProcessStop            = 2
 )

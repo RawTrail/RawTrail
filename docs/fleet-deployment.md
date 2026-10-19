@@ -10,7 +10,7 @@ Fleet and RawTrail are independent products. Fleet owns MDM + osquery; RawTrail 
 - `fleetctl` installed locally and authenticated (`fleetctl login`). The UI also works; this doc uses `fleetctl` because every step is reproducible.
 - A running RawTrail server with a known enroll secret (the value in `./secrets/enroll_secret` from [install-server.md](install-server.md)).
 - Downloaded release artifacts from [GitHub Releases](https://github.com/getvictor/fleet-edr/releases):
-  - `fleet-edr-<version>.pkg`
+  - `rawtrail-<version>.pkg`
   - `edr-system-extension.mobileconfig`
   - `edr-tcc-fda.mobileconfig`
   - `edr-login-items.mobileconfig`
@@ -52,11 +52,11 @@ Each profile has a `PayloadIdentifier` that Fleet uses to track uniqueness; keep
 Verify on a target Mac:
 
 ```sh
-sudo profiles list | grep fleetdm
+sudo profiles list | grep rawtrail
 # Expect:
-#   com.fleetdm.edr.profile.system-extension
-#   com.fleetdm.edr.profile.tcc-fda
-#   com.fleetdm.edr.profile.login-items
+#   io.rawtrail.profile.system-extension
+#   io.rawtrail.profile.tcc-fda
+#   io.rawtrail.profile.login-items
 ```
 
 ## Step 2: add the pkg with a custom install script
@@ -66,7 +66,7 @@ Fleet's software packages carry an `install_script` that replaces the default in
 Write the install and uninstall scripts to local files:
 
 ```sh
-cat > fleet-edr-install.sh <<'EOF'
+cat > rawtrail-install.sh <<'EOF'
 #!/bin/sh
 set -eu
 
@@ -76,8 +76,8 @@ set -eu
 EDR_SERVER_URL="$FLEET_SECRET_EDR_SERVER_URL"
 EDR_ENROLL_SECRET="$FLEET_SECRET_EDR_ENROLL_SECRET"
 
-install -m 0600 /dev/null /etc/fleet-edr.conf
-cat > /etc/fleet-edr.conf <<CONF
+install -m 0600 /dev/null /etc/rawtrail.conf
+cat > /etc/rawtrail.conf <<CONF
 EDR_SERVER_URL=$EDR_SERVER_URL
 EDR_ENROLL_SECRET=$EDR_ENROLL_SECRET
 CONF
@@ -86,11 +86,11 @@ CONF
 installer -pkg "$INSTALLER_PATH" -target /
 EOF
 
-cat > fleet-edr-uninstall.sh <<'EOF'
+cat > rawtrail-uninstall.sh <<'EOF'
 #!/bin/sh
 set -eu
-if [ -x "/Library/Application Support/com.fleetdm.edr/uninstall.sh" ]; then
-    "/Library/Application Support/com.fleetdm.edr/uninstall.sh"
+if [ -x "/Library/Application Support/io.rawtrail/uninstall.sh" ]; then
+    "/Library/Application Support/io.rawtrail/uninstall.sh"
 fi
 EOF
 ```
@@ -112,20 +112,20 @@ spec:
     name: EDR pilot
     software:
       packages:
-        - url: https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/fleet-edr-v0.7.0.pkg
+        - url: https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
           hash_sha256: <sha256 of the pkg, from SHA256SUMS>
           install_script:
-            path: ./fleet-edr-install.sh
+            path: ./rawtrail-install.sh
           uninstall_script:
-            path: ./fleet-edr-uninstall.sh
+            path: ./rawtrail-uninstall.sh
 EOF
 ```
 
 **Via the Fleet UI** (this path accepts a local pkg file instead of a URL):
 
 1. **Software > Add software > Custom package**, with the "EDR pilot" fleet selected in the scope picker.
-2. **Choose file** and select `fleet-edr-v0.7.0.pkg`.
-3. Expand **Advanced options** and replace the default install script with the contents of `fleet-edr-install.sh`; paste `fleet-edr-uninstall.sh` into the uninstall script field.
+2. **Choose file** and select `rawtrail-v0.7.0.pkg`.
+3. Expand **Advanced options** and replace the default install script with the contents of `rawtrail-install.sh`; paste `rawtrail-uninstall.sh` into the uninstall script field.
 4. **Add software**.
 
 Adding the package only makes it available to the fleet; nothing installs yet. An install triggers per host in one of three ways:
@@ -140,18 +140,18 @@ Verify on a target Mac after Fleet runs the install:
 
 ```sh
 # Daemon loaded and running
-sudo launchctl print system/com.fleetdm.edr.agent | grep 'state ='
+sudo launchctl print system/io.rawtrail.agent | grep 'state ='
 # Expect: state = running
 
 # Sysext activated silently (the pkg's activation LaunchAgent + the
 # system-extension profile). If this prints nothing and nobody was logged
 # in when the pkg installed, activation fires at the next login.
-systemextensionsctl list | grep fleetdm
-# Expect: * * FDG8Q7N4CC com.fleetdm.edr.securityextension ... [activated enabled]
+systemextensionsctl list | grep rawtrail
+# Expect: * * FDG8Q7N4CC io.rawtrail.securityextension ... [activated enabled]
 
 # Agent enrolled with the server (grep the whole log; enrollment happens
 # once at startup and scrolls out of a tail quickly)
-grep "agent enrolled" /var/log/fleet-edr-agent.log
+grep "agent enrolled" /var/log/rawtrail-agent.log
 ```
 
 ## Step 3: confirm in the EDR admin UI
@@ -163,17 +163,17 @@ Open `https://<your-edr-server>/ui/`. The Macs that finished the Fleet-driven in
 **Via fleetctl:** bump the `url` and `hash_sha256` in the Step 2 spec to the new release and re-apply. Fleet replaces the software package in-place; the install script doesn't change.
 
 ```yaml
-- url: https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/fleet-edr-v0.7.0.pkg
+- url: https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
   hash_sha256: <sha256 of the new pkg>
   install_script:
-    path: ./fleet-edr-install.sh
+    path: ./rawtrail-install.sh
   uninstall_script:
-    path: ./fleet-edr-uninstall.sh
+    path: ./rawtrail-uninstall.sh
 ```
 
 **Via the Fleet UI:** **Software**, select the RawTrail package (with the "EDR pilot" fleet in scope), then **Actions > Edit**, choose the newer pkg file, and save. The scripts carry over unless you change them.
 
-On each Mac the EDR pkg's preinstall stops the old daemon and the postinstall starts the new one. The host token at `/var/db/fleet-edr/enrolled.plist` survives the upgrade so agents don't re-enroll.
+On each Mac the EDR pkg's preinstall stops the old daemon and the postinstall starts the new one. The host token at `/var/db/rawtrail/enrolled.plist` survives the upgrade so agents don't re-enroll.
 
 If the new release changes one of the `.mobileconfig` profiles, push the new profile first (Step 1), wait for Fleet to confirm delivery, then push the new pkg. The reverse order risks an activation prompt if the pkg expects a payload that hasn't landed yet.
 
@@ -203,6 +203,6 @@ Existing hosts keep working because they authenticate with their per-host token,
 
 **Software install reports "failed" or the pkg never ran.** The install script owns both the config write and the `installer -pkg` call, so its exit status is the install result. Check **Hosts > \<host\> > Activity** and open the install details for the script's stdout/stderr; a non-zero exit from `installer` (or an unset `$FLEET_SECRET_*` variable tripping `set -eu`) shows up there.
 
-**Agent enrolls but events don't appear in the EDR UI.** The TCC FDA profile didn't reach the Mac. Check `sudo profiles list | grep tcc-fda` on the host; if missing, re-scope the profile to the fleet. After it lands, kick the daemon: `sudo launchctl kickstart -k system/com.fleetdm.edr.agent`.
+**Agent enrolls but events don't appear in the EDR UI.** The TCC FDA profile didn't reach the Mac. Check `sudo profiles list | grep tcc-fda` on the host; if missing, re-scope the profile to the fleet. After it lands, kick the daemon: `sudo launchctl kickstart -k system/io.rawtrail.agent`.
 
-**Install script runs but `/etc/fleet-edr.conf` is empty or missing a variable.** A custom variable referenced by the script isn't defined in Fleet. The script uses `set -eu`, so an unset `FLEET_SECRET_*` fails fast; check **Settings > Integrations > MDM > Custom variables**.
+**Install script runs but `/etc/rawtrail.conf` is empty or missing a variable.** A custom variable referenced by the script isn't defined in Fleet. The script uses `set -eu`, so an unset `FLEET_SECRET_*` fails fast; check **Settings > Integrations > MDM > Custom variables**.

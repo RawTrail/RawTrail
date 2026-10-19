@@ -86,7 +86,7 @@ Events produced:
 
 Also contains a `NEDNSProxyProvider` for DNS query capture (disabled by default). When enabled, it intercepts DNS queries, extracts query name/type, forwards to the upstream resolver, and emits `dns_query` events with response addresses.
 
-The XPC Mach service uses the `NEMachServiceName` from the `NetworkExtension` dict in Info.plist (`group.com.fleetdm.edr.networkextension`), which nesessionmanager registers in the global bootstrap namespace.
+The XPC Mach service uses the `NEMachServiceName` from the `NetworkExtension` dict in Info.plist (`group.io.rawtrail.networkextension`), which nesessionmanager registers in the global bootstrap namespace.
 
 Key files:
 
@@ -116,7 +116,7 @@ A daemon that bridges the system extensions to the cloud server. Written in Go w
 
 ```text
 agent/
-├── cmd/fleet-edr-agent/   # entry point, goroutine orchestration
+├── cmd/rawtrail-agent/   # entry point, goroutine orchestration
 ├── receiver/              # XPC client (C bridge to Go channels)
 ├── queue/                 # SQLite WAL queue for crash-safe event buffering
 ├── uploader/              # HTTP batch uploader with retry

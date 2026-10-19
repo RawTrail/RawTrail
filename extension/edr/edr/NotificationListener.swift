@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr", category: "NotificationListener")
+private let logger = Logger(subsystem: "io.rawtrail", category: "NotificationListener")
 
 /// NotificationListener is the host-app's inbound surface for block
 /// notifications the extension drops on AUTH_EXEC denial. The
@@ -39,7 +39,7 @@ private let logger = Logger(subsystem: "com.fleetdm.edr", category: "Notificatio
 final class NotificationListener {
     private let dropDir: String
     private let presenter: BlockAlertPresenter
-    private let queue = DispatchQueue(label: "com.fleetdm.edr.notification-listener")
+    private let queue = DispatchQueue(label: "io.rawtrail.notification-listener")
     private var source: DispatchSourceFileSystemObject?
     private var fd: Int32 = -1
     // processed records the UUIDs we've already presented to avoid

@@ -10,7 +10,7 @@
 //      contamination via the process-global .shared singleton.
 //   2. An isolated on-disk policy file that addTeardownBlock removes when the
 //      test finishes, so the async persist no longer writes against (or fails
-//      against) /var/db/com.fleetdm.edr/application-control.json.
+//      against) /var/db/io.rawtrail/application-control.json.
 //
 // The unique-policy-id-per-test gymnastics the previous revision needed are
 // gone. Policy IDs can be 1, 2, 3 (whatever reads cleanly) because each
@@ -60,7 +60,7 @@ final class ApplicationControlStoreTests: AppControlStoreTestCase {
             rules: [
                 RuleSpec(type: "BINARY", identifier: "binary-hex", ruleID: "r1"),
                 RuleSpec(type: "CDHASH", identifier: "cdhash-hex", ruleID: "r2"),
-                RuleSpec(type: "SIGNINGID", identifier: "FDG8Q7N4CC:com.fleetdm.edr", ruleID: "r3"),
+                RuleSpec(type: "SIGNINGID", identifier: "FDG8Q7N4CC:io.rawtrail", ruleID: "r3"),
                 RuleSpec(type: "CERTIFICATE", identifier: "cert-hex", ruleID: "r4"),
                 RuleSpec(type: "TEAMID", identifier: "FDG8Q7N4CC", ruleID: "r5"),
                 RuleSpec(type: "PATH", identifier: "/usr/local/bin/foo", ruleID: "r6")
@@ -72,7 +72,7 @@ final class ApplicationControlStoreTests: AppControlStoreTestCase {
         XCTAssertEqual(snapshot.policyVersion, 1)
         XCTAssertEqual(snapshot.binaryRules["binary-hex"]?.ruleID, "r1")
         XCTAssertEqual(snapshot.cdhashRules["cdhash-hex"]?.ruleID, "r2")
-        XCTAssertEqual(snapshot.signingIDRules["FDG8Q7N4CC:com.fleetdm.edr"]?.ruleID, "r3")
+        XCTAssertEqual(snapshot.signingIDRules["FDG8Q7N4CC:io.rawtrail"]?.ruleID, "r3")
         XCTAssertEqual(snapshot.certificateRules["cert-hex"]?.ruleID, "r4")
         XCTAssertEqual(snapshot.teamIDRules["FDG8Q7N4CC"]?.ruleID, "r5")
         XCTAssertEqual(snapshot.pathRules["/usr/local/bin/foo"]?.ruleID, "r6")
@@ -107,7 +107,7 @@ final class ApplicationControlStoreTests: AppControlStoreTestCase {
         // ApplicationControlStore returns no rule; the subscriber's "no match -> allow" branch fires.
         XCTAssertNil(snapshot.binaryRules["unregistered-binary-hex"])
         XCTAssertNil(snapshot.pathRules["/usr/bin/ls"])
-        XCTAssertNil(snapshot.signingIDRules["FDG8Q7N4CC:com.fleetdm.allowed"])
+        XCTAssertNil(snapshot.signingIDRules["FDG8Q7N4CC:com.example.allowed"])
         XCTAssertNil(snapshot.teamIDRules["FDG8Q7N4CC"])
         // Cross-type lookups also miss: a path that happens to coincide with a binary-hex string lands in
         // the wrong map by construction (each rule type's identifier shape is distinct). This pins the

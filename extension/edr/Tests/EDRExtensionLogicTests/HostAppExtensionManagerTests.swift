@@ -180,8 +180,8 @@ final class HostAppExtensionManagerTests: XCTestCase {
                       "the saved content-filter preference must be isEnabled=true so macOS restores the filter on reboot")
         XCTAssertTrue(activateFilterConfig.filterSockets,
                       "socket filtering must be persisted so the network extension sees flow events post-reboot")
-        XCTAssertEqual(activateFilterConfig.localizedDescription, "Fleet EDR Network Monitor",
-                       "the System Settings -> Network -> Filters label must be the documented Fleet EDR copy")
+        XCTAssertEqual(activateFilterConfig.localizedDescription, "RawTrail Network Monitor",
+                       "the System Settings -> Network -> Filters label must be the documented RawTrail copy")
 
         XCTAssertTrue(activateDNSProxyConfig.isEnabled,
                       "the saved DNS-proxy preference must be isEnabled=true so macOS restores DNS capture on reboot")
@@ -312,18 +312,18 @@ final class HostAppExtensionManagerTests: XCTestCase {
     // spec:host-app-extension-manager/activation-outcomes-are-reported-to-the-operator/a-failed-activation-states-why
     func testAFailureIsWrittenToStderrAndCarriesTheReason() {
         let recorder = RecordingReporter()
-        recorder.reporter.outcome(.failed, "activate failed for com.fleetdm.edr.extension: operation not permitted")
+        recorder.reporter.outcome(.failed, "activate failed for io.rawtrail.extension: operation not permitted")
 
         // The reason has to survive verbatim onto the error stream. A caller that captures or pipes normal output must
         // still observe the failure: the install path's activation service is exactly such a caller, and before this its
         // only signal was a non-zero exit code.
-        XCTAssertEqual(recorder.err.lines, ["activate failed for com.fleetdm.edr.extension: operation not permitted"])
+        XCTAssertEqual(recorder.err.lines, ["activate failed for io.rawtrail.extension: operation not permitted"])
         XCTAssertEqual(recorder.out.lines, [], "a failure must not be buried in normal output")
 
         // And the same text, unabridged, has to reach the log. Interpolating a non-literal into an os_log message
         // defaults it to `privacy: .private`, which is how the original failure reason read back as `<private>` even to
         // an operator who went looking for it. Asserting the full string is what would catch a redacted reintroduction.
-        XCTAssertEqual(recorder.log.lines, ["activate failed for com.fleetdm.edr.extension: operation not permitted"])
+        XCTAssertEqual(recorder.log.lines, ["activate failed for io.rawtrail.extension: operation not permitted"])
     }
 
     // spec:host-app-extension-manager/activation-outcomes-are-reported-to-the-operator/a-successful-activation-still-reports-its-result

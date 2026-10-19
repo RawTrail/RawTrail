@@ -3,7 +3,7 @@ import Network
 import NetworkExtension
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.networkextension", category: "NetworkFilter")
+private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "NetworkFilter")
 
 /// IANA L4 protocol numbers we attribute by name. Anything else falls through to
 /// "ip-N". Mirrors <netinet/in.h>'s IPPROTO_* values.

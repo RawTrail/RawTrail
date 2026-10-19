@@ -111,7 +111,7 @@ Options:
                           Useful when iterating on a scenario against an
                           already-enrolled VM.
     --pkg-path=PATH       Override the PKG path; default is the most
-                          recently built dist/fleet-edr-*.pkg.
+                          recently built dist/rawtrail-*.pkg.
     --dry-run             Walk the orchestration shape without actually
                           SSH-ing or curl-ing. Always exits 0 on success;
                           useful for verifying a scenario's expected.yaml

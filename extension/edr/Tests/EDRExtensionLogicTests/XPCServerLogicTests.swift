@@ -48,10 +48,10 @@ final class XPCServerLogicTests: XCTestCase {
     func testProductionRequirementPinsTheFleetTeamID() {
         // The production requirement string is the one a release-configured extension hands to
         // xpc_connection_set_peer_code_signing_requirement. A peer signed with a different team OU will fail to satisfy
-        // it and libxpc will cancel the connection. Asserting the language explicitly (Apple anchor + the FDM team ID
+        // it and libxpc will cancel the connection. Asserting the language explicitly (Apple anchor + the release team ID
         // string) catches a regression where the team ID changes silently or the anchor clause is accidentally dropped.
         XCTAssertTrue(PeerCodeSigningRequirement.production.contains("FDG8Q7N4CC"),
-                      "production requirement must pin the Fleet Device Management team ID")
+                      "production requirement must pin the release signing team ID")
         XCTAssertTrue(PeerCodeSigningRequirement.production.contains("anchor apple generic"),
                       "production requirement must chain to the Apple anchor")
     }
@@ -75,19 +75,19 @@ final class XPCServerLogicTests: XCTestCase {
         // string, and the same signature checked against another identifier does not.
         XCTAssertEqual(
             PeerCodeSigningRequirement.production,
-            "anchor apple generic and identifier \"fleet-edr-agent\" and certificate leaf[subject.OU] = \"FDG8Q7N4CC\"",
+            "anchor apple generic and identifier \"rawtrail-agent\" and certificate leaf[subject.OU] = \"FDG8Q7N4CC\"",
             "production requirement must be the anchor, the agent identifier and the team ID, all required")
     }
 
     // spec:extension-xpc-server/peer-code-signing-validation/an-ad-hoc-signed-peer-is-accepted-in-debug-builds-by-its-signing-identifier
     func testDebugRequirementPinsTheAgentIdentifierAndIncludesProductionClause() {
         // Debug requirement = production-style team-id clause OR the ad-hoc agent's fixed code-signing identifier. The
-        // identifier is stable across rebuilds (task build:agent pins it with --identifier fleet-edr-agent), so the dev
+        // identifier is stable across rebuilds (task build:agent pins it with --identifier rawtrail-agent), so the dev
         // pin no longer goes stale the way the old committed cdhash did (issue #623). Asserting both halves catches a
         // regression where either clause is dropped (which would lock dev iteration out or drop production team-id
         // acceptance), and that the content-derived cdhash clause is gone.
         XCTAssertTrue(PeerCodeSigningRequirement.debug.contains("FDG8Q7N4CC"),
-                      "debug requirement must still accept the FDM team ID")
+                      "debug requirement must still accept the release team ID")
         XCTAssertTrue(PeerCodeSigningRequirement.debug.contains("identifier \"\(PeerCodeSigningRequirement.agentIdentifier)\""),
                       "debug requirement must accept the ad-hoc agent by its fixed identifier")
         XCTAssertFalse(PeerCodeSigningRequirement.debug.contains("cdhash"),
@@ -103,7 +103,7 @@ final class XPCServerLogicTests: XCTestCase {
         // a correctly-signed peer is accepted on whichever path the build picked.
         for requirement in [PeerCodeSigningRequirement.production, PeerCodeSigningRequirement.debug] {
             XCTAssertTrue(requirement.contains("FDG8Q7N4CC"),
-                          "every canonical requirement must include the Fleet team ID")
+                          "every canonical requirement must include the release team ID")
         }
     }
 

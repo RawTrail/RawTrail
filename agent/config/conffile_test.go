@@ -113,7 +113,7 @@ func TestLoad_ConfFileProvidesDefaults(t *testing.T) {
 	// Config with values drawn from the file. Drives the wiring boundary the same way Load() does in production, just with
 	// fake getenv + lookupEnv so the test stays parallel-safe.
 	dir := t.TempDir()
-	confPath := filepath.Join(dir, "fleet-edr.conf")
+	confPath := filepath.Join(dir, "rawtrail.conf")
 	require.NoError(t, os.WriteFile(confPath, []byte(
 		"EDR_SERVER_URL=https://edr.conf.example\nEDR_ENROLL_SECRET=conf-secret\nEDR_ALLOW_INSECURE=0\n",
 	), 0o600))

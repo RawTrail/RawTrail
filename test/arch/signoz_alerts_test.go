@@ -31,7 +31,7 @@ var (
 // metrics that service emits rather than against the whole repository: the agent and the server share metric names.
 var serviceSourceRoots = map[string][]string{
 	"rawtrail-server": {"server", "internal"},
-	"fleet-edr-agent": {"agent", "internal"},
+	"rawtrail-agent":  {"agent", "internal"},
 }
 
 type alertRule struct {

@@ -15,7 +15,7 @@
 #
 # Steps:
 #  1. Snapshot the agent's queue depth via SQL on
-#     /var/db/fleet-edr/events.db.
+#     /var/db/rawtrail/events.db.
 #  2. Drop a pf anchor rule on the VM that blocks the server's IP.
 #  3. Generate ~30 synthetic processes on the VM (each is one
 #     fork+exec event pair, fully observable). Wait 10 minutes; the
@@ -81,7 +81,7 @@ esac
 umask 077
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/edr-e3-partition.XXXXXX")
 chmod 700 "$WORKDIR"
-PF_ANCHOR="com.fleetdm.edr.e3"
+PF_ANCHOR="io.rawtrail.e3"
 # Captured before we touch pf so the cleanup trap can roll back to the
 # operator's original PF state instead of leaving it enabled.
 PF_WAS_ENABLED=""
@@ -125,7 +125,7 @@ if [[ "$http_code" != "200" ]]; then
   exit 1
 fi
 HOST_ID=$(ssh -o BatchMode=yes "$VM_SSH_TARGET" \
-  "sudo /usr/bin/plutil -extract host_id raw -o - /var/db/fleet-edr/enrolled.plist" \
+  "sudo /usr/bin/plutil -extract host_id raw -o - /var/db/rawtrail/enrolled.plist" \
   | tr -d '[:space:]')
 [[ -n "$HOST_ID" ]] || { echo "[e3] could not read host_id from VM"; exit 1; }
 echo "[e3] host_id=$HOST_ID"
@@ -135,7 +135,7 @@ hr
 echo "[e3] step 2: snapshot baselines"
 queue_depth() {
   ssh -o BatchMode=yes "$VM_SSH_TARGET" \
-    "sudo /usr/bin/sqlite3 /var/db/fleet-edr/events.db 'SELECT COUNT(*) FROM events;' 2>/dev/null" \
+    "sudo /usr/bin/sqlite3 /var/db/rawtrail/events.db 'SELECT COUNT(*) FROM events;' 2>/dev/null" \
     | tr -d '[:space:]'
   return 0
 }
@@ -182,7 +182,7 @@ echo "[e3] queue depth during partition: $mid_queue"
 expected_at_least=$((baseline_queue + 60))
 if [[ "$mid_queue" -lt "$expected_at_least" ]]; then
   echo "[e3] WARNING: expected queue ≥ $expected_at_least, got $mid_queue."
-  echo "[e3] events may not have been observed by ESF - check /var/log/fleet-edr-agent.log"
+  echo "[e3] events may not have been observed by ESF - check /var/log/rawtrail-agent.log"
 fi
 
 # Heal the partition.

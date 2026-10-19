@@ -8,9 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		57B10CFC2F43BC89007F4B27 /* libEndpointSecurity.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 57B10CFB2F43BC89007F4B27 /* libEndpointSecurity.tbd */; };
-		57B10D042F43BC89007F4B27 /* com.fleetdm.edr.securityextension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 57B10CF92F43BC89007F4B27 /* com.fleetdm.edr.securityextension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		57B10D042F43BC89007F4B27 /* io.rawtrail.securityextension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 57B10CF92F43BC89007F4B27 /* io.rawtrail.securityextension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		57B10E102F43BC89007F4B27 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 57B10E142F43BC89007F4B27 /* NetworkExtension.framework */; };
-		57B10E112F43BC89007F4B27 /* com.fleetdm.edr.networkextension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 57B10E132F43BC89007F4B27 /* com.fleetdm.edr.networkextension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		57B10E112F43BC89007F4B27 /* io.rawtrail.networkextension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 57B10E132F43BC89007F4B27 /* io.rawtrail.networkextension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -37,8 +37,8 @@
 			dstPath = "$(SYSTEM_EXTENSIONS_FOLDER_PATH)";
 			dstSubfolderSpec = 16;
 			files = (
-				57B10D042F43BC89007F4B27 /* com.fleetdm.edr.securityextension.systemextension in Embed System Extensions */,
-				57B10E112F43BC89007F4B27 /* com.fleetdm.edr.networkextension.systemextension in Embed System Extensions */,
+				57B10D042F43BC89007F4B27 /* io.rawtrail.securityextension.systemextension in Embed System Extensions */,
+				57B10E112F43BC89007F4B27 /* io.rawtrail.networkextension.systemextension in Embed System Extensions */,
 			);
 			name = "Embed System Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -47,9 +47,9 @@
 
 /* Begin PBXFileReference section */
 		57B10CCB2F43BBBF007F4B27 /* edr.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = edr.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		57B10CF92F43BC89007F4B27 /* com.fleetdm.edr.securityextension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = com.fleetdm.edr.securityextension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		57B10CF92F43BC89007F4B27 /* io.rawtrail.securityextension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = io.rawtrail.securityextension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
 		57B10CFB2F43BC89007F4B27 /* libEndpointSecurity.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libEndpointSecurity.tbd; path = usr/lib/libEndpointSecurity.tbd; sourceTree = SDKROOT; };
-		57B10E132F43BC89007F4B27 /* com.fleetdm.edr.networkextension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = com.fleetdm.edr.networkextension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		57B10E132F43BC89007F4B27 /* io.rawtrail.networkextension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = io.rawtrail.networkextension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
 		57B10E142F43BC89007F4B27 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -152,8 +152,8 @@
 			isa = PBXGroup;
 			children = (
 				57B10CCB2F43BBBF007F4B27 /* edr.app */,
-				57B10CF92F43BC89007F4B27 /* com.fleetdm.edr.securityextension.systemextension */,
-				57B10E132F43BC89007F4B27 /* com.fleetdm.edr.networkextension.systemextension */,
+				57B10CF92F43BC89007F4B27 /* io.rawtrail.securityextension.systemextension */,
+				57B10E132F43BC89007F4B27 /* io.rawtrail.networkextension.systemextension */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -216,7 +216,7 @@
 			packageProductDependencies = (
 			);
 			productName = extension;
-			productReference = 57B10CF92F43BC89007F4B27 /* com.fleetdm.edr.securityextension.systemextension */;
+			productReference = 57B10CF92F43BC89007F4B27 /* io.rawtrail.securityextension.systemextension */;
 			productType = "com.apple.product-type.system-extension";
 		};
 		57B10E172F43BC89007F4B27 /* networkextension */ = {
@@ -239,7 +239,7 @@
 			packageProductDependencies = (
 			);
 			productName = networkextension;
-			productReference = 57B10E132F43BC89007F4B27 /* com.fleetdm.edr.networkextension.systemextension */;
+			productReference = 57B10E132F43BC89007F4B27 /* io.rawtrail.networkextension.systemextension */;
 			productType = "com.apple.product-type.system-extension";
 		};
 /* End PBXNativeTarget section */
@@ -474,7 +474,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.fleetdm.edr;
+				PRODUCT_BUNDLE_IDENTIFIER = io.rawtrail;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 			};
@@ -494,7 +494,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.fleetdm.edr;
+				PRODUCT_BUNDLE_IDENTIFIER = io.rawtrail;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 			};
@@ -508,7 +508,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = extension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Fleet EDR Security Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "RawTrail Security Extension";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -517,7 +517,7 @@
 				);
 				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = "-lbsm";
-				PRODUCT_BUNDLE_IDENTIFIER = com.fleetdm.edr.securityextension;
+				PRODUCT_BUNDLE_IDENTIFIER = io.rawtrail.securityextension;
 				PRODUCT_NAME = "$(inherited)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
@@ -532,7 +532,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = extension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Fleet EDR Security Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "RawTrail Security Extension";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -541,7 +541,7 @@
 				);
 				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = "-lbsm";
-				PRODUCT_BUNDLE_IDENTIFIER = com.fleetdm.edr.securityextension;
+				PRODUCT_BUNDLE_IDENTIFIER = io.rawtrail.securityextension;
 				PRODUCT_NAME = "$(inherited)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
@@ -556,7 +556,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = networkextension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Fleet EDR Network Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "RawTrail Network Extension";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -565,7 +565,7 @@
 				);
 				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = "-lbsm";
-				PRODUCT_BUNDLE_IDENTIFIER = com.fleetdm.edr.networkextension;
+				PRODUCT_BUNDLE_IDENTIFIER = io.rawtrail.networkextension;
 				PRODUCT_NAME = "$(inherited)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
@@ -580,7 +580,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = networkextension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Fleet EDR Network Extension";
+				INFOPLIST_KEY_CFBundleDisplayName = "RawTrail Network Extension";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -589,7 +589,7 @@
 				);
 				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = "-lbsm";
-				PRODUCT_BUNDLE_IDENTIFIER = com.fleetdm.edr.networkextension;
+				PRODUCT_BUNDLE_IDENTIFIER = io.rawtrail.networkextension;
 				PRODUCT_NAME = "$(inherited)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;

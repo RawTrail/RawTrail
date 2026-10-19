@@ -9,7 +9,7 @@ For the Fleet-specific recipe see [fleet-deployment.md](fleet-deployment.md). Fo
 Three artifacts, delivered in this order:
 
 1. **Three unsigned `.mobileconfig` profiles** pushed via MDM "custom settings". They pre-approve the Endpoint Security and Network system extensions, grant Full Disk Access, and keep users from turning off the agent's background items. These must arrive BEFORE the pkg so the extensions activate silently on install. The profiles ship unsigned on purpose: every supported MDM signs profiles itself at delivery time, and Fleet rejects a pre-signed upload outright.
-2. **An install script** your MDM runs before the pkg installer. It writes `/etc/fleet-edr.conf` with the enroll secret + server URL.
+2. **An install script** your MDM runs before the pkg installer. It writes `/etc/rawtrail.conf` with the enroll secret + server URL.
 3. **The signed `.pkg`** pushed via MDM "software installer".
 
 Each MDM names these three primitives differently; the mapping is in the vendor-specific section below.
@@ -18,7 +18,7 @@ Each MDM names these three primitives differently; the mapping is in the vendor-
 
 Restricted Apple payload types (`com.apple.system-extension-policy`, `com.apple.TCC.configuration-profile-policy`, `com.apple.servicemanagement`) require delivery by an MDM the Mac has user-approved. Any other delivery path (web download, `profiles install`) is rejected on modern macOS. That's why the profiles MUST come from your MDM; there's no workaround.
 
-The install script is the clean hand-off for the enroll secret. Your MDM knows the secret (you configured it as an MDM variable); the pkg itself is customer-agnostic so it can ship from our Releases page unmodified. The script bridges the gap by dropping the secret into `/etc/fleet-edr.conf` on each Mac.
+The install script is the clean hand-off for the enroll secret. Your MDM knows the secret (you configured it as an MDM variable); the pkg itself is customer-agnostic so it can ship from our Releases page unmodified. The script bridges the gap by dropping the secret into `/etc/rawtrail.conf` on each Mac.
 
 ## Artifacts
 
@@ -26,7 +26,7 @@ These files live on the [GitHub Release page](https://github.com/getvictor/fleet
 
 | Artifact                 | Filename on Release                 | Notes                                                  |
 | ------------------------ | ----------------------------------- | ------------------------------------------------------ |
-| Pkg installer            | `fleet-edr-<version>.pkg`           | Signed with Developer ID Installer, notarized, stapled |
+| Pkg installer            | `rawtrail-<version>.pkg`            | Signed with Developer ID Installer, notarized, stapled |
 | System-extension profile | `edr-system-extension.mobileconfig` | Unsigned XML; your MDM signs it at delivery            |
 | TCC FDA profile          | `edr-tcc-fda.mobileconfig`          | Unsigned XML; your MDM signs it at delivery            |
 | Background items profile | `edr-login-items.mobileconfig`      | Unsigned XML; your MDM signs it at delivery            |
@@ -36,7 +36,7 @@ Download all five, verify checksums, then upload the four artifacts into your MD
 
 ```sh
 cd ~/Downloads
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/fleet-edr-v0.7.0.pkg
+curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
 curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/edr-system-extension.mobileconfig
 curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/edr-tcc-fda.mobileconfig
 curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/edr-login-items.mobileconfig
@@ -49,43 +49,43 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 
 Upload `edr-system-extension.mobileconfig` to your MDM as a custom configuration profile and scope it to the Macs that will run the agent.
 
-What the profile does: pre-approves the bundle IDs `com.fleetdm.edr.securityextension` and `com.fleetdm.edr.networkextension` under team ID `FDG8Q7N4CC` in the `com.apple.system-extension-policy` payload. When the pkg's activation LaunchAgent runs the host app's sysext-activation request, macOS finds the pre-approval, skips the user prompt, and activates both extensions immediately.
+What the profile does: pre-approves the bundle IDs `io.rawtrail.securityextension` and `io.rawtrail.networkextension` under team ID `FDG8Q7N4CC` in the `com.apple.system-extension-policy` payload. When the pkg's activation LaunchAgent runs the host app's sysext-activation request, macOS finds the pre-approval, skips the user prompt, and activates both extensions immediately.
 
 Verify on a target Mac:
 
 ```sh
-profiles list | grep fleetdm
+profiles list | grep rawtrail
 # Expect three profiles once all are pushed:
-#   com.fleetdm.edr.profile.system-extension
-#   com.fleetdm.edr.profile.tcc-fda
-#   com.fleetdm.edr.profile.login-items
+#   io.rawtrail.profile.system-extension
+#   io.rawtrail.profile.tcc-fda
+#   io.rawtrail.profile.login-items
 ```
 
 ## Step 2: push the TCC FDA profile
 
 Upload `edr-tcc-fda.mobileconfig` the same way.
 
-What the profile does: grants Full Disk Access to the agent (`/usr/local/bin/fleet-edr-agent`) and the sysext (`com.fleetdm.edr.securityextension`) via a `com.apple.TCC.configuration-profile-policy` payload. Without it, the sysext's `es_new_client` call returns `ERR_NOT_PERMITTED` and no events flow.
+What the profile does: grants Full Disk Access to the agent (`/usr/local/bin/rawtrail-agent`) and the sysext (`io.rawtrail.securityextension`) via a `com.apple.TCC.configuration-profile-policy` payload. Without it, the sysext's `es_new_client` call returns `ERR_NOT_PERMITTED` and no events flow.
 
 Verify after the pkg installs:
 
 ```sh
 # The sysext needs to create an ES client; failures would show up here.
-sudo tail -n 50 /var/log/fleet-edr-agent.log | grep -E 'ES|receiver'
-# Expect: receiver connected ... (FDG8Q7N4CC.com.fleetdm.edr.securityextension.xpc)
+sudo tail -n 50 /var/log/rawtrail-agent.log | grep -E 'ES|receiver'
+# Expect: receiver connected ... (FDG8Q7N4CC.io.rawtrail.securityextension.xpc)
 ```
 
 ## Step 3: push the background items profile
 
 Upload `edr-login-items.mobileconfig` the same way.
 
-What the profile does: a `com.apple.servicemanagement` payload with one rule matching team ID `FDG8Q7N4CC` marks every background item the team signs as managed: the agent daemon (`com.fleetdm.edr.agent`) and the activation LaunchAgent (`com.fleetdm.edr.activate`). Without it, a user can turn either off in **System Settings > General > Login Items & Extensions**, which stops the agent or the re-activation after an upgrade. With it, both show as managed and cannot be turned off.
+What the profile does: a `com.apple.servicemanagement` payload with one rule matching team ID `FDG8Q7N4CC` marks every background item the team signs as managed: the agent daemon (`io.rawtrail.agent`) and the activation LaunchAgent (`io.rawtrail.activate`). Without it, a user can turn either off in **System Settings > General > Login Items & Extensions**, which stops the agent or the re-activation after an upgrade. With it, both show as managed and cannot be turned off.
 
 Verify after the pkg installs: in **System Settings > General > Login Items & Extensions**, the RawTrail items show as managed by your organization, with no switch to turn them off.
 
 ## Step 4: install script
 
-Your MDM must run this script BEFORE the pkg installer. It writes the enroll secret + server URL into `/etc/fleet-edr.conf`. The pkg's postinstall starts the agent, which reads that file and enrolls.
+Your MDM must run this script BEFORE the pkg installer. It writes the enroll secret + server URL into `/etc/rawtrail.conf`. The pkg's postinstall starts the agent, which reads that file and enrolls.
 
 ```sh
 #!/bin/sh
@@ -101,8 +101,8 @@ EDR_ENROLL_SECRET="${EDR_ENROLL_SECRET:?EDR_ENROLL_SECRET must be set}"
 # `sha256:` prefix and `:` byte separators are accepted but not required.
 # EDR_SERVER_FINGERPRINT="sha256:AA:BB:CC:DD:EE:FF:..."
 
-install -m 0600 /dev/null /etc/fleet-edr.conf
-cat > /etc/fleet-edr.conf <<EOF
+install -m 0600 /dev/null /etc/rawtrail.conf
+cat > /etc/rawtrail.conf <<EOF
 EDR_SERVER_URL=$EDR_SERVER_URL
 EDR_ENROLL_SECRET=$EDR_ENROLL_SECRET
 ${EDR_SERVER_FINGERPRINT:+EDR_SERVER_FINGERPRINT=$EDR_SERVER_FINGERPRINT}
@@ -113,29 +113,29 @@ EOF
 
 ## Step 5: push the pkg
 
-Upload `fleet-edr-<version>.pkg` to your MDM as a software installer and scope to the same Macs. The release tag is part of the filename verbatim (e.g., tag `v0.7.0` ships as `fleet-edr-v0.7.0.pkg`).
+Upload `rawtrail-<version>.pkg` to your MDM as a software installer and scope to the same Macs. The release tag is part of the filename verbatim (e.g., tag `v0.7.0` ships as `rawtrail-v0.7.0.pkg`).
 
 The pkg's install flow:
 
 1. `installationCheck()` validates the Mac is Apple Silicon + macOS 26 or later.
-2. Preinstall script stops any existing `com.fleetdm.edr.agent` LaunchDaemon and boots out the activation LaunchAgent (idempotent; no-op on fresh installs). It does not deactivate the system extension: the post-upgrade activation replaces the old bundle in place.
-3. Payload lands under `/usr/local/bin`, `/Applications`, `/Library/LaunchDaemons`, `/Library/LaunchAgents`, `/Library/Application Support/com.fleetdm.edr`.
-4. Postinstall script loads the LaunchDaemon (`launchctl bootstrap system ...`) and kickstarts it. The agent reads `/etc/fleet-edr.conf`, enrolls, starts polling.
-5. Postinstall also starts the activation LaunchAgent (`com.fleetdm.edr.activate`) in the console user's GUI session, which runs the host app's `activate` and brings up the system extensions. Thanks to Step 1's profile this is silent. If nobody is logged in at install time (loginwindow, ADE), activation happens at the next login instead: the LaunchAgent runs at every login, which also re-activates the new bundle after upgrades. Until activation, the agent runs and enrolls but logs `receiver connect` warnings; that's the expected pre-activation state, not a failure.
+2. Preinstall script stops any existing `io.rawtrail.agent` LaunchDaemon and boots out the activation LaunchAgent (idempotent; no-op on fresh installs). It does not deactivate the system extension: the post-upgrade activation replaces the old bundle in place.
+3. Payload lands under `/usr/local/bin`, `/Applications`, `/Library/LaunchDaemons`, `/Library/LaunchAgents`, `/Library/Application Support/io.rawtrail`.
+4. Postinstall script loads the LaunchDaemon (`launchctl bootstrap system ...`) and kickstarts it. The agent reads `/etc/rawtrail.conf`, enrolls, starts polling.
+5. Postinstall also starts the activation LaunchAgent (`io.rawtrail.activate`) in the console user's GUI session, which runs the host app's `activate` and brings up the system extensions. Thanks to Step 1's profile this is silent. If nobody is logged in at install time (loginwindow, ADE), activation happens at the next login instead: the LaunchAgent runs at every login, which also re-activates the new bundle after upgrades. Until activation, the agent runs and enrolls but logs `receiver connect` warnings; that's the expected pre-activation state, not a failure.
 
 Verify on a target Mac:
 
 ```sh
 # Daemon loaded and running
-sudo launchctl print system/com.fleetdm.edr.agent | grep 'state ='
+sudo launchctl print system/io.rawtrail.agent | grep 'state ='
 # Expect: "state = running"
 
 # Both system extensions activated
-systemextensionsctl list | grep fleetdm
+systemextensionsctl list | grep rawtrail
 # Expect two rows, both ending "[activated enabled]"
 
 # Recent log
-sudo tail -n 20 /var/log/fleet-edr-agent.log
+sudo tail -n 20 /var/log/rawtrail-agent.log
 # Expect: "agent enrolled" + "commander polling" lines
 ```
 
@@ -152,7 +152,7 @@ Pick any host and view its process tree; executions from that Mac appear within 
 
 ## Upgrade
 
-Push the newer `.pkg` via your MDM. Same scope. The agent's preinstall stops the old daemon, postinstall starts the new one, and the persisted token at `/var/db/fleet-edr/enrolled.plist` survives so enrollments don't churn.
+Push the newer `.pkg` via your MDM. Same scope. The agent's preinstall stops the old daemon, postinstall starts the new one, and the persisted token at `/var/db/rawtrail/enrolled.plist` survives so enrollments don't churn.
 
 If a new version changes the profiles (rare), push the new ones first, then the new pkg. Profile changes are live immediately; pkg changes require the upgrade cycle.
 
@@ -163,14 +163,14 @@ Push this as a run-script action:
 ```sh
 #!/bin/sh
 set -eu
-if [ -x "/Library/Application Support/com.fleetdm.edr/uninstall.sh" ]; then
-    "/Library/Application Support/com.fleetdm.edr/uninstall.sh"
+if [ -x "/Library/Application Support/io.rawtrail/uninstall.sh" ]; then
+    "/Library/Application Support/io.rawtrail/uninstall.sh"
 fi
 ```
 
-The uninstaller removes all binaries, LaunchDaemons, `/var/db/fleet-edr`, and `/var/log/fleet-edr-agent.log`. It preserves `/etc/fleet-edr.conf` so a future reinstall picks up the same enroll config. If you want a truly clean slate, add `rm -f /etc/fleet-edr.conf` to the script above.
+The uninstaller removes all binaries, LaunchDaemons, `/var/db/rawtrail`, and `/var/log/rawtrail-agent.log`. It preserves `/etc/rawtrail.conf` so a future reinstall picks up the same enroll config. If you want a truly clean slate, add `rm -f /etc/rawtrail.conf` to the script above.
 
-On a managed Mac the uninstall script cannot remove the system extensions by itself. The extensions were approved by the `com.fleetdm.edr.profile.system-extension` profile (`AllowedSystemExtensions`, `AllowUserOverrides=false`), and macOS refuses any local deactivation of a profile-approved extension (`OSSystemExtensionErrorDomain` `authorizationRequired`). The script detects this, keeps the host app so a later attempt can succeed, and tells you to remove the profile. **Removing the extensions is a two-part teardown:** run the uninstall script (removes the agent, LaunchDaemons, and runtime state, and keeps the host app while the extensions remain active so you can retry) AND remove the RawTrail MDM profiles from your MDM's custom-settings scope. When the `com.fleetdm.edr.profile.system-extension` profile leaves the host the extensions are no longer authorized, so the OS removes them (and the TCC grants from the FDA profile) within minutes. Order does not matter; do both.
+On a managed Mac the uninstall script cannot remove the system extensions by itself. The extensions were approved by the `io.rawtrail.profile.system-extension` profile (`AllowedSystemExtensions`, `AllowUserOverrides=false`), and macOS refuses any local deactivation of a profile-approved extension (`OSSystemExtensionErrorDomain` `authorizationRequired`). The script detects this, keeps the host app so a later attempt can succeed, and tells you to remove the profile. **Removing the extensions is a two-part teardown:** run the uninstall script (removes the agent, LaunchDaemons, and runtime state, and keeps the host app while the extensions remain active so you can retry) AND remove the RawTrail MDM profiles from your MDM's custom-settings scope. When the `io.rawtrail.profile.system-extension` profile leaves the host the extensions are no longer authorized, so the OS removes them (and the TCC grants from the FDA profile) within minutes. Order does not matter; do both.
 
 For an unmanaged Mac (no profile), the script removes the extensions itself by submitting the host app's `deactivate` request in the logged-in user's GUI session, so leave a user logged in at the console while the run-script action executes.
 
@@ -206,12 +206,12 @@ See [fleet-deployment.md](fleet-deployment.md) for the full Fleet workflow.
 
 ## Troubleshoot
 
-**pkg installs but sysext stays in `activated waiting for user`.** The system-extension profile hasn't reached the Mac yet, or it was scoped differently. Check `profiles list | grep fleetdm` for the `com.fleetdm.edr.profile.system-extension` entry. Re-scope + re-push if missing.
+**pkg installs but sysext stays in `activated waiting for user`.** The system-extension profile hasn't reached the Mac yet, or it was scoped differently. Check `profiles list | grep rawtrail` for the `io.rawtrail.profile.system-extension` entry. Re-scope + re-push if missing.
 
-**Agent log shows `ES_NEW_CLIENT_RESULT_ERR_NOT_PERMITTED`.** TCC FDA profile not pushed, or scoped to a different set of Macs than the pkg. Check `profiles list` for `com.fleetdm.edr.profile.tcc-fda`.
+**Agent log shows `ES_NEW_CLIENT_RESULT_ERR_NOT_PERMITTED`.** TCC FDA profile not pushed, or scoped to a different set of Macs than the pkg. Check `profiles list` for `io.rawtrail.profile.tcc-fda`.
 
 **`installer: Error - RawTrail requires Apple Silicon (M1 or later).`** Intel Mac scoped into the deployment. Narrow the scope by model type.
 
 **Install script writes the conf file but the agent still fails to enroll.** The install script probably ran AFTER the pkg. Most MDMs run scripts + pkgs in parallel by default. Force "script first" via your MDM's ordering controls (see vendor notes above).
 
-**Agent enrolls but events don't appear in the admin UI.** TCC FDA profile not applied to the sysext. The agent daemon ENROLLS fine without FDA (it only talks HTTP); it's the sysext's ES client that needs FDA to observe events. Verify TCC profile delivery, then `sudo launchctl kickstart -k system/com.fleetdm.edr.agent` to force a sysext reconnect.
+**Agent enrolls but events don't appear in the admin UI.** TCC FDA profile not applied to the sysext. The agent daemon ENROLLS fine without FDA (it only talks HTTP); it's the sysext's ES client that needs FDA to observe events. Verify TCC profile delivery, then `sudo launchctl kickstart -k system/io.rawtrail.agent` to force a sysext reconnect.

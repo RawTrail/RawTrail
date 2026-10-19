@@ -26,7 +26,7 @@ Package.resolved
 # to go.mod and they don't belong in version control. The release pipeline
 # writes to /dist/ instead (see below).
 /rawtrail-server
-/fleet-edr-agent
+/rawtrail-agent
 
 # Release-build output: signed pkg + signed profiles + checksums.
 # Regenerated on every `packaging/pkg/build.sh` run; never committed.

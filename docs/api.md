@@ -34,7 +34,7 @@ Request bodies are `application/json; charset=utf-8`, except that `POST /api/oau
 
 ### Host token (agents)
 
-An agent POSTs `/api/enroll` once with the shared enroll secret and its hardware UUID. It receives an opaque `host_token`, stored in `/var/db/fleet-edr/enrolled.plist`. Every subsequent request carries:
+An agent POSTs `/api/enroll` once with the shared enroll secret and its hardware UUID. It receives an opaque `host_token`, stored in `/var/db/rawtrail/enrolled.plist`. Every subsequent request carries:
 
 ```text
 Authorization: Bearer <host_token>

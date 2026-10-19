@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.networkextension", category: "ProviderStatus")
+private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "ProviderStatus")
 
 /// ProviderStatusReporter broadcasts which providers are running, so agent health can key on provider liveness instead
 /// of on XPC connectivity (issue #649).

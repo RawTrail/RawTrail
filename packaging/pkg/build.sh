@@ -1,6 +1,6 @@
 #!/bin/sh
 # shellcheck disable=SC2086
-# Build, sign, notarize, and staple the Fleet EDR .pkg.
+# Build, sign, notarize, and staple the RawTrail .pkg.
 #
 # KEYCHAIN_ARG is deliberately unquoted in invocations so that an empty value
 # expands to zero CLI args (when CI_KEYCHAIN is unset). Quoting would pass an
@@ -23,7 +23,7 @@
 #   APPLE_NOTARY_APP_PASSWORD     app-specific password
 #
 # Artifacts land in dist/:
-#   dist/fleet-edr-<tag>.pkg       signed + notarized + stapled
+#   dist/rawtrail-<tag>.pkg       signed + notarized + stapled
 
 set -eu
 
@@ -49,8 +49,8 @@ INSTALLER_IDENTITY="Developer ID Installer: VICTOR LYUBOSLAVSKY ($TEAM_ID)"
 CODESIGN_FLAGS="--options runtime --timestamp --force"
 # Code-signing identifier the system extension's XPC peer requirement pins (XPCEventServer.agentIdentifierDebug). Set
 # explicitly at signing time because codesign's default differs by signing mode: an ad-hoc signature of a bare Mach-O
-# derives `fleet-edr-agent-<hash>`, which the extension rejects.
-AGENT_SIGNING_IDENTIFIER="fleet-edr-agent"
+# derives `rawtrail-agent-<hash>`, which the extension rejects.
+AGENT_SIGNING_IDENTIFIER="rawtrail-agent"
 
 KEYCHAIN_ARG=""
 if [ -n "${CI_KEYCHAIN:-}" ]; then
@@ -89,7 +89,7 @@ STAGE="$ROOT/dist/stage"
 rm -rf "$DIST" "$STAGE"
 mkdir -p "$DIST" "$STAGE"
 
-echo "==> building fleet-edr-agent ($VERSION, $COMMIT)"
+echo "==> building rawtrail-agent ($VERSION, $COMMIT)"
 AGENT_ROOT="$STAGE/agent-root"
 mkdir -p "$AGENT_ROOT/usr/local/bin" "$AGENT_ROOT/Library/LaunchDaemons"
 (
@@ -97,21 +97,21 @@ mkdir -p "$AGENT_ROOT/usr/local/bin" "$AGENT_ROOT/Library/LaunchDaemons"
     CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build \
         -trimpath \
         -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.buildTime=$BUILD_TIME" \
-        -o "$AGENT_ROOT/usr/local/bin/fleet-edr-agent" \
-        ./cmd/fleet-edr-agent
+        -o "$AGENT_ROOT/usr/local/bin/rawtrail-agent" \
+        ./cmd/rawtrail-agent
 )
-cp "$ROOT/agent/com.fleetdm.edr.agent.plist" \
-    "$AGENT_ROOT/Library/LaunchDaemons/com.fleetdm.edr.agent.plist"
+cp "$ROOT/agent/io.rawtrail.agent.plist" \
+    "$AGENT_ROOT/Library/LaunchDaemons/io.rawtrail.agent.plist"
 
-echo "==> codesigning fleet-edr-agent"
+echo "==> codesigning rawtrail-agent"
 # --identifier is pinned rather than left to codesign's default. For a bare Mach-O signed ad-hoc, codesign derives
-# `fleet-edr-agent-<hash>`, and the extension's debug XPC peer requirement pins the bare `fleet-edr-agent`, so a dry-run
+# `rawtrail-agent-<hash>`, and the extension's debug XPC peer requirement pins the bare `rawtrail-agent`, so a dry-run
 # pkg installs an agent the extension then refuses to talk to (it reports never_connected and the host silently loses
 # telemetry). Setting it explicitly also makes the release path deterministic rather than relying on codesign's default
 # happening to match what XPCEventServer documents the notarized release as carrying. Matches `task build:agent`.
 # shellcheck disable=SC2086  # intentional word-split on CODESIGN_FLAGS + KEYCHAIN_ARG
 codesign $CODESIGN_FLAGS --identifier "$AGENT_SIGNING_IDENTIFIER" --sign "$APP_IDENTITY" $KEYCHAIN_ARG \
-    "$AGENT_ROOT/usr/local/bin/fleet-edr-agent"
+    "$AGENT_ROOT/usr/local/bin/rawtrail-agent"
 
 # Assert what was actually produced rather than trusting the flag. This runs on BOTH paths, so the dry-run CI job
 # enforces the identifier for the ad-hoc mode and a real tag enforces it for the Developer ID mode; that is what makes
@@ -124,7 +124,7 @@ codesign $CODESIGN_FLAGS --identifier "$AGENT_SIGNING_IDENTIFIER" --sign "$APP_I
 # identifier would come back empty and the mismatch branch below would report "the identifier is wrong" when the truth
 # is "codesign could not read the binary", with codesign's own diagnostics filtered into the pipe and lost. Capturing
 # first keeps the two failures distinguishable and preserves the diagnostics.
-if ! SIGNING_INFO=$(codesign -dvv "$AGENT_ROOT/usr/local/bin/fleet-edr-agent" 2>&1); then
+if ! SIGNING_INFO=$(codesign -dvv "$AGENT_ROOT/usr/local/bin/rawtrail-agent" 2>&1); then
     echo "could not read the packaged agent's code signature:" >&2
     echo "$SIGNING_INFO" >&2
     exit 16
@@ -148,7 +148,7 @@ cp "$ROOT/packaging/pkg/scripts/preinstall" "$AGENT_SCRIPTS_DIR/preinstall"
 cp "$ROOT/packaging/pkg/scripts/postinstall" "$AGENT_SCRIPTS_DIR/postinstall"
 chmod 0755 "$AGENT_SCRIPTS_DIR/preinstall" "$AGENT_SCRIPTS_DIR/postinstall"
 sign_pkg pkgbuild \
-    --identifier com.fleetdm.edr.agent \
+    --identifier io.rawtrail.agent \
     --version "$VERSION" \
     --root "$AGENT_ROOT" \
     --install-location / \
@@ -173,14 +173,14 @@ if [ "$DRY_RUN" -eq 1 ]; then
         exit 3
     fi
     mkdir -p "$STAGE/app-root/Applications"
-    cp -R "$SRC_APP" "$STAGE/app-root/Applications/Fleet EDR.app"
+    cp -R "$SRC_APP" "$STAGE/app-root/Applications/RawTrail.app"
 else
     # Release build path: Developer ID-signed host app + sysext. The provisioning profiles are embedded further down,
     # after the shared bundle checks.
     #
     # Scheme `edr` builds the host app with both extensions embedded. Scheme
     # `extension` is sysext-only and its archive lacks the host app, which
-    # breaks the pkg build (pkgbuild wraps Fleet EDR.app).
+    # breaks the pkg build (pkgbuild wraps RawTrail.app).
     xcodebuild \
         -project "$ROOT/extension/edr/edr.xcodeproj" \
         -scheme edr \
@@ -194,7 +194,7 @@ else
 
     SRC_APP="$XCODE_BUILD/edr.xcarchive/Products/Applications/edr.app"
     mkdir -p "$STAGE/app-root/Applications"
-    cp -R "$SRC_APP" "$STAGE/app-root/Applications/Fleet EDR.app"
+    cp -R "$SRC_APP" "$STAGE/app-root/Applications/RawTrail.app"
 fi
 
 # ---------------------------------------------------------------
@@ -202,9 +202,9 @@ fi
 # missing an extension produces a package that installs and then does nothing,
 # which is worth failing the build over whichever way the app was built.
 # ---------------------------------------------------------------
-APP_BUNDLE="$STAGE/app-root/Applications/Fleet EDR.app"
-SYSEXT="$APP_BUNDLE/Contents/Library/SystemExtensions/com.fleetdm.edr.securityextension.systemextension"
-NETEXT="$APP_BUNDLE/Contents/Library/SystemExtensions/com.fleetdm.edr.networkextension.systemextension"
+APP_BUNDLE="$STAGE/app-root/Applications/RawTrail.app"
+SYSEXT="$APP_BUNDLE/Contents/Library/SystemExtensions/io.rawtrail.securityextension.systemextension"
+NETEXT="$APP_BUNDLE/Contents/Library/SystemExtensions/io.rawtrail.networkextension.systemextension"
 if [ ! -d "$SYSEXT" ]; then
     echo "ERROR: expected sysext bundle at $SYSEXT but it does not exist." >&2
     echo "       Check the Xcode project's embedded-targets settings." >&2
@@ -218,6 +218,19 @@ if [ ! -d "$NETEXT" ]; then
     echo "       Check the Xcode project's embedded-targets settings." >&2
     exit 14
 fi
+
+# require_profile_matches fails the build when a provisioning profile was issued for a different App ID than the bundle it
+# is embedded in. A mismatched profile signs and packages cleanly, then the bundle's restricted entitlements are refused at
+# launch on a SIP-on host, so the release would install and do nothing.
+require_profile_matches() {
+    profile_app_id=$(security cms -D -i "$1" | plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - -)
+    bundle_app_id="$TEAM_ID.$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$2/Contents/Info.plist")"
+    if [ "$profile_app_id" != "$bundle_app_id" ]; then
+        echo "ERROR: $1 is issued for $profile_app_id, but $2 is $bundle_app_id." >&2
+        echo "       Issue a Developer ID provisioning profile for $bundle_app_id and replace the file." >&2
+        exit 21
+    fi
+}
 
 if [ "$DRY_RUN" -eq 0 ]; then
     # Embed the provisioning profiles inside each restricted-entitlement
@@ -237,6 +250,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
         echo "missing $PROFILE_SYSEXT" >&2
         exit 4
     fi
+    require_profile_matches "$PROFILE_SYSEXT" "$SYSEXT"
     cp "$PROFILE_SYSEXT" "$SYSEXT/Contents/embedded.provisionprofile"
 
     PROFILE_NET="$ROOT/packaging/provisioning/networkextension.provisionprofile"
@@ -248,6 +262,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
         echo "       A NE re-signed without an embedded profile fails activation on SIP-on hosts." >&2
         exit 8
     fi
+    require_profile_matches "$PROFILE_NET" "$NETEXT"
     cp "$PROFILE_NET" "$NETEXT/Contents/embedded.provisionprofile"
 
     # Host app needs its own embedded profile because
@@ -263,7 +278,8 @@ if [ "$DRY_RUN" -eq 0 ]; then
         echo "missing $PROFILE_HOST" >&2
         exit 9
     fi
-    cp "$PROFILE_HOST" "$STAGE/app-root/Applications/Fleet EDR.app/Contents/embedded.provisionprofile"
+    require_profile_matches "$PROFILE_HOST" "$APP_BUNDLE"
+    cp "$PROFILE_HOST" "$STAGE/app-root/Applications/RawTrail.app/Contents/embedded.provisionprofile"
 
 fi
 
@@ -386,21 +402,21 @@ assert_entitlement "$NETEXT" "com.apple.developer.networking.networkextension" n
 # Guard the extensions' user-facing display names. macOS reads
 # CFBundleDisplayName verbatim for the Login Items & Extensions and Full
 # Disk Access entries; a generic value ("extension" / "networkextension")
-# leaves a manual installer unable to tell which FDA entry is Fleet EDR's,
+# leaves a manual installer unable to tell which FDA entry is RawTrail's,
 # which boot-loops the ES extension on a missing grant (issue #370). Fail
 # the build rather than ship a pkg whose extensions are unrecognizable in
 # System Settings. Runs on both the dry-run and release paths because the
 # name is baked in at xcodebuild time, independent of signing.
 #
-# Both extensions are part of the shipped product (Fleet EDR is two system
+# Both extensions are part of the shipped product (RawTrail is two system
 # extensions: Endpoint Security + Network), so a staged bundle that is
 # missing entirely is a hard build failure with its own exit code, not a
 # silently skipped check. Asserting the Info.plist exists before querying
 # it also keeps the display-name error from misfiring (a missing plist
 # would otherwise yield an empty name and a misleading "wrong name" error).
-STAGED_APP="$STAGE/app-root/Applications/Fleet EDR.app"
-STAGED_SYSEXT="$STAGED_APP/Contents/Library/SystemExtensions/com.fleetdm.edr.securityextension.systemextension"
-STAGED_NETEXT="$STAGED_APP/Contents/Library/SystemExtensions/com.fleetdm.edr.networkextension.systemextension"
+STAGED_APP="$STAGE/app-root/Applications/RawTrail.app"
+STAGED_SYSEXT="$STAGED_APP/Contents/Library/SystemExtensions/io.rawtrail.securityextension.systemextension"
+STAGED_NETEXT="$STAGED_APP/Contents/Library/SystemExtensions/io.rawtrail.networkextension.systemextension"
 if [ ! -f "$STAGED_SYSEXT/Contents/Info.plist" ]; then
     echo "ERROR: expected Endpoint Security extension at $STAGED_SYSEXT but its Info.plist is missing." >&2
     echo "       The extension was not built or staged correctly (issue #370)." >&2
@@ -408,8 +424,8 @@ if [ ! -f "$STAGED_SYSEXT/Contents/Info.plist" ]; then
 fi
 # spec:release-packaging/system-extensions-present-recognizable-display-names/security-extension-shows-a-recognizable-name
 SYSEXT_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$STAGED_SYSEXT/Contents/Info.plist" 2>/dev/null || true)"
-if [ "$SYSEXT_NAME" != "Fleet EDR Security Extension" ]; then
-    echo "ERROR: Endpoint Security extension CFBundleDisplayName is '$SYSEXT_NAME', expected 'Fleet EDR Security Extension'." >&2
+if [ "$SYSEXT_NAME" != "RawTrail Security Extension" ]; then
+    echo "ERROR: Endpoint Security extension CFBundleDisplayName is '$SYSEXT_NAME', expected 'RawTrail Security Extension'." >&2
     echo "       Check INFOPLIST_KEY_CFBundleDisplayName on the securityextension target (issue #370)." >&2
     exit 10
 fi
@@ -420,8 +436,8 @@ if [ ! -f "$STAGED_NETEXT/Contents/Info.plist" ]; then
 fi
 # spec:release-packaging/system-extensions-present-recognizable-display-names/network-extension-shows-a-recognizable-name
 NETEXT_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$STAGED_NETEXT/Contents/Info.plist" 2>/dev/null || true)"
-if [ "$NETEXT_NAME" != "Fleet EDR Network Extension" ]; then
-    echo "ERROR: Network Extension CFBundleDisplayName is '$NETEXT_NAME', expected 'Fleet EDR Network Extension'." >&2
+if [ "$NETEXT_NAME" != "RawTrail Network Extension" ]; then
+    echo "ERROR: Network Extension CFBundleDisplayName is '$NETEXT_NAME', expected 'RawTrail Network Extension'." >&2
     echo "       Check INFOPLIST_KEY_CFBundleDisplayName on the networkextension target (issue #370)." >&2
     exit 11
 fi
@@ -436,9 +452,9 @@ fi
 # spectrace cannot scan (no .sh extension); this staging block plus that
 # script are the scenario's enforcement surface.
 mkdir -p "$STAGE/app-root/Library/LaunchAgents"
-cp "$ROOT/packaging/pkg/com.fleetdm.edr.activate.plist" \
-    "$STAGE/app-root/Library/LaunchAgents/com.fleetdm.edr.activate.plist"
-chmod 0644 "$STAGE/app-root/Library/LaunchAgents/com.fleetdm.edr.activate.plist"
+cp "$ROOT/packaging/pkg/io.rawtrail.activate.plist" \
+    "$STAGE/app-root/Library/LaunchAgents/io.rawtrail.activate.plist"
+chmod 0644 "$STAGE/app-root/Library/LaunchAgents/io.rawtrail.activate.plist"
 
 # Version-checking is what makes a release upgrade replace the app only when the version actually moves. It also makes a
 # DRY-RUN package useless for install testing, and silently so: every dry-run build stamps the Debug bundle's fixed 1.1/1,
@@ -455,7 +471,7 @@ fi
 
 echo "==> packaging app component pkg"
 sign_pkg pkgbuild \
-    --identifier com.fleetdm.edr.app \
+    --identifier io.rawtrail.app \
     --version "$VERSION" \
     --root "$STAGE/app-root" \
     --install-location / \
@@ -470,7 +486,7 @@ sign_pkg pkgbuild \
         <key>BundleIsRelocatable</key><false/>
         <key>BundleIsVersionChecked</key><$BUNDLE_VERSION_CHECKED/>
         <key>BundleOverwriteAction</key><string>upgrade</string>
-        <key>RootRelativeBundlePath</key><string>Applications/Fleet EDR.app</string>
+        <key>RootRelativeBundlePath</key><string>Applications/RawTrail.app</string>
     </dict>
 </array>
 </plist>
@@ -481,14 +497,14 @@ PLIST
 # ---------------------------------------------------------------
 echo "==> building support component pkg"
 SUPPORT_ROOT="$STAGE/support-root"
-mkdir -p "$SUPPORT_ROOT/Library/Application Support/com.fleetdm.edr"
+mkdir -p "$SUPPORT_ROOT/Library/Application Support/io.rawtrail"
 cp "$ROOT/packaging/pkg/uninstall.sh" \
-    "$SUPPORT_ROOT/Library/Application Support/com.fleetdm.edr/uninstall.sh"
-chmod 0755 "$SUPPORT_ROOT/Library/Application Support/com.fleetdm.edr/uninstall.sh"
-printf '%s' "$VERSION" > "$SUPPORT_ROOT/Library/Application Support/com.fleetdm.edr/VERSION"
+    "$SUPPORT_ROOT/Library/Application Support/io.rawtrail/uninstall.sh"
+chmod 0755 "$SUPPORT_ROOT/Library/Application Support/io.rawtrail/uninstall.sh"
+printf '%s' "$VERSION" > "$SUPPORT_ROOT/Library/Application Support/io.rawtrail/VERSION"
 
 sign_pkg pkgbuild \
-    --identifier com.fleetdm.edr.support \
+    --identifier io.rawtrail.support \
     --version "$VERSION" \
     --root "$SUPPORT_ROOT" \
     --install-location / \
@@ -515,12 +531,12 @@ sed "s|__VERSION__|$ESCAPED_VERSION|g" "$ROOT/packaging/pkg/distribution.xml" > 
 # spec:release-packaging/final-artifact-naming/tag-with-a-path-separator-character
 #
 # Both spec scenarios pin the same two lines below:
-#   - versioned-package-name: dist/fleet-edr-<tag>.pkg is the canonical artifact path. A tag like `v1.2.3` lands as
-#     `dist/fleet-edr-v1.2.3.pkg`.
+#   - versioned-package-name: dist/rawtrail-<tag>.pkg is the canonical artifact path. A tag like `v1.2.3` lands as
+#     `dist/rawtrail-v1.2.3.pkg`.
 #   - tag-with-a-path-separator-character: a namespaced tag like `release/v1.2` would otherwise try to write into a
-#     non-existent subdirectory. The `tr '/' '-'` substitution makes it land as `dist/fleet-edr-release-v1.2.pkg`.
+#     non-existent subdirectory. The `tr '/' '-'` substitution makes it land as `dist/rawtrail-release-v1.2.pkg`.
 SAFE_VERSION=$(printf '%s' "$VERSION" | tr '/' '-')
-PKG_OUT="$DIST/fleet-edr-${SAFE_VERSION}.pkg"
+PKG_OUT="$DIST/rawtrail-${SAFE_VERSION}.pkg"
 sign_pkg productbuild \
     --distribution "$DIST_XML" \
     --package-path "$STAGE" \

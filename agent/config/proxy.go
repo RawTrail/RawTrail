@@ -12,7 +12,7 @@ import (
 //
 // It is read through the same layered lookup as every other setting, which is the whole point of it existing (issue #1117). The
 // agent used to take its proxy from http.ProxyFromEnvironment, which reads the REAL process environment, while the launchd
-// plist tells the reader that all tunables come from /etc/fleet-edr.conf. So an operator who put HTTPS_PROXY in that file got no
+// plist tells the reader that all tunables come from /etc/rawtrail.conf. So an operator who put HTTPS_PROXY in that file got no
 // proxy at all, silently, and nothing in the operator docs said where else to put it.
 //
 // The variables keep their conventional names rather than gaining an EDR_ prefix: an operator configuring a proxy already knows

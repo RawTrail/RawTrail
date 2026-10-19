@@ -2,18 +2,18 @@ import EndpointSecurity
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "ESFSubscriber")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ESFSubscriber")
 
-/// Self-allow failsafe inputs: AUTH_EXEC exempts Fleet's own components from app-control enforcement only when target.team_id
-/// matches extensionTeamID AND target.signing_id is in fleetSelfAllowSigningIDs. Team-id-only would exempt every binary Fleet
+/// Self-allow failsafe inputs: AUTH_EXEC exempts RawTrail's own components from app-control enforcement only when target.team_id
+/// matches extensionTeamID AND target.signing_id is in selfAllowSigningIDs. Team-id-only would exempt every binary the team
 /// has ever signed. Phase B replaces both with a server-pushed allowlist so operators can extend without an agent re-release.
 private let extensionTeamID = "FDG8Q7N4CC"
 
-private let fleetSelfAllowSigningIDs: Set<String> = [
-    "com.fleetdm.edr.agent",
-    "com.fleetdm.edr.securityextension",
-    "com.fleetdm.edr.networkextension",
-    "com.fleetdm.edr"
+private let selfAllowSigningIDs: Set<String> = [
+    "io.rawtrail.agent",
+    "io.rawtrail.securityextension",
+    "io.rawtrail.networkextension",
+    "io.rawtrail"
 ]
 
 /// authWorkerConcurrency bounds how many AUTH_EXEC decisions hash/decide in parallel off the ES delivery thread (#298). The
@@ -63,7 +63,7 @@ final class ESFSubscriber: Sendable {
     // annotation only tells Swift 6 this immutable shared reference is intentional.
     nonisolated(unsafe) let authDecisionQueue: OperationQueue = {
         let queue = OperationQueue()
-        queue.name = "com.fleetdm.edr.authexec.decision"
+        queue.name = "io.rawtrail.authexec.decision"
         queue.maxConcurrentOperationCount = authWorkerConcurrency
         queue.qualityOfService = .userInitiated
         return queue
@@ -203,10 +203,10 @@ final class ESFSubscriber: Sendable {
         }
 
         // Self-allow failsafe: exempt the agent + extensions + host app from app-control enforcement so a misconfigured rule cannot
-        // brick the EDR itself. Match BOTH team_id and the exhaustive Fleet bundle-id set; team_id alone would exempt every binary
+        // brick the EDR itself. Match BOTH team_id and the exhaustive RawTrail signing-ID set; team_id alone would exempt every binary
         // ever signed by extensionTeamID, which is broader than intended.
-        if teamID == extensionTeamID, fleetSelfAllowSigningIDs.contains(signingID) {
-            // cache:true is safe here: the answer is a function of the binary's intrinsic identity (extensionTeamID + a Fleet
+        if teamID == extensionTeamID, selfAllowSigningIDs.contains(signingID) {
+            // cache:true is safe here: the answer is a function of the binary's intrinsic identity (extensionTeamID + a RawTrail
             // signing_id), which is stable for the lifetime of the binary on disk, and the kernel keys the AUTH cache on
             // (dev,inode,mtime) so any binary swap forces a fresh decision. Caching elides the per-exec handler cost during a
             // fork-exec storm of our own tools (#209).

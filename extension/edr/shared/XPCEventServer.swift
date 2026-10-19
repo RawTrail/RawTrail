@@ -5,8 +5,8 @@ import os.log
 /// constants so the unit tests can assert the requirement language on both production and debug paths without spinning
 /// up an XPC listener.
 ///
-/// Production: a peer must chain to the Apple anchor, carry the Fleet Device Management team ID (FDG8Q7N4CC) in its leaf
-/// certificate, AND be signed with the agent's identifier `fleet-edr-agent`. Team ID alone is not enough: the inbound
+/// Production: a peer must chain to the Apple anchor, carry the release signing team ID (FDG8Q7N4CC) in its leaf
+/// certificate, AND be signed with the agent's identifier `rawtrail-agent`. Team ID alone is not enough: the inbound
 /// documents (containment, application-control rules, watched paths) would otherwise be accepted from any binary the team
 /// ever signed. The release package signs the agent with this identifier explicitly (packaging/pkg/build.sh), so the pin
 /// cannot drift from what ships (ADR-0007, 2026-10-10 amendment).
@@ -17,13 +17,13 @@ import os.log
 /// stale on every rebuild the way the old committed cdhash did (issue #623). The active `peerCodeSigningRequirement`
 /// constant below excludes the identifier-only branch from release builds.
 enum PeerCodeSigningRequirement {
-    /// FDM team ID. Every signed peer that reaches us in production must chain to a leaf cert carrying this OU.
+    /// Release signing team ID. Every signed peer that reaches us in production must chain to a leaf cert carrying this OU.
     static let teamID = "FDG8Q7N4CC"
 
     /// Code-signing identifier of the agent, in release (packaging/pkg/build.sh) and in dev (`task build:agent`) alike.
-    static let agentIdentifier = "fleet-edr-agent"
+    static let agentIdentifier = "rawtrail-agent"
 
-    /// Production requirement string: Apple anchor, the agent's identifier, and the FDM team ID, all three. Used by
+    /// Production requirement string: Apple anchor, the agent's identifier, and the release team ID, all three. Used by
     /// release-configured extensions.
     static let production = """
         anchor apple generic and identifier "\(agentIdentifier)" and certificate leaf[subject.OU] = "\(teamID)"
@@ -203,7 +203,7 @@ final class XPCEventServer {
     private var onPeerConnected: (() -> Void)?
     private var listener: xpc_connection_t?
     private var peers: Set<XPCPeer> = []
-    private let queue = DispatchQueue(label: "com.fleetdm.edr.xpceventserver")
+    private let queue = DispatchQueue(label: "io.rawtrail.xpceventserver")
     /// FIFO buffer of event payloads enqueued while no peer was connected. Drained to the next peer that completes the
     /// hello handshake (in order, oldest-first). All access on `queue`.
     private var pendingBuffer = PendingBuffer(cap: pendingSendCap)

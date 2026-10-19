@@ -27,9 +27,9 @@ func TestLaunchdJobs_StoredAndLinked(t *testing.T) {
 	ctx := t.Context()
 	host := "launchd-jobs-" + t.Name()
 	env := `"env":{"CLAUDE_CODE_SESSION_ID":"` + jobsSession + `","CLAUDE_PID":"30995","AI_AGENT":"claude-code_2-1-300_agent"}`
-	jobs := `"launchd_jobs":[{"plist_path":"/Users/v/exp/load.plist","label":"com.fleetdm.qa1341.load",` +
+	jobs := `"launchd_jobs":[{"plist_path":"/Users/v/exp/load.plist","label":"com.example.qa1341.load",` +
 		`"program_arguments":["/bin/sleep","71"]},` +
-		`{"plist_path":"/Users/v/exp/two.plist","label":"com.fleetdm.qa1341.two","program":"/bin/sleep"}]`
+		`{"plist_path":"/Users/v/exp/two.plist","label":"com.example.qa1341.two","program":"/bin/sleep"}]`
 	evt := func(id, typ string, ms int64, payload string) api.Event {
 		return api.Event{EventID: id, HostID: host, TimestampNs: at(float64(ms) / 1000), IngestedAtNs: at(float64(ms)/1000) + 1, EventType: typ,
 			Payload: json.RawMessage(payload)}
@@ -54,11 +54,11 @@ func TestLaunchdJobs_StoredAndLinked(t *testing.T) {
 		evt("load-x", "exec", 1011, `{"pid":31158,"ppid":31157,"path":"/bin/launchctl","args":["launchctl","load","load.plist","two.plist"],`+
 			`"cwd":"/Users/v/exp","uid":501,"gid":20,`+env+`,`+jobs+`}`),
 	}
-	events = append(events, launchdJob("job-decoy", 31160, 1012, "com.fleetdm.unrelated")...)
-	events = append(events, launchdJob("job-load", 31159, 1013, "com.fleetdm.qa1341.load")...)
+	events = append(events, launchdJob("job-decoy", 31160, 1012, "com.example.unrelated")...)
+	events = append(events, launchdJob("job-load", 31159, 1013, "com.example.qa1341.load")...)
 	// The first job started again (a KeepAlive restart) before the second started: it must not use up the second's launch.
-	events = append(events, launchdJob("job-load-again", 31162, 1013, "com.fleetdm.qa1341.load")...)
-	events = append(events, launchdJob("job-two", 31161, 1014, "com.fleetdm.qa1341.two")...)
+	events = append(events, launchdJob("job-load-again", 31162, 1013, "com.example.qa1341.load")...)
+	events = append(events, launchdJob("job-two", 31161, 1014, "com.example.qa1341.two")...)
 	require.NoError(t, graph.NewBuilder(store, discardLogger()).ProcessBatch(ctx, events))
 
 	var stored api.NullRawJSON
@@ -66,7 +66,7 @@ func TestLaunchdJobs_StoredAndLinked(t *testing.T) {
 	var got []map[string]any
 	require.NoError(t, json.Unmarshal(stored, &got))
 	require.Len(t, got, 2, "the exec's job definitions are on its row")
-	assert.Equal(t, "com.fleetdm.qa1341.load", got[0]["label"])
+	assert.Equal(t, "com.example.qa1341.load", got[0]["label"])
 	assert.Equal(t, []any{"/bin/sleep", "71"}, got[0]["program_arguments"])
 	var unrelated api.NullRawJSON
 	require.NoError(t, db.GetContext(ctx, &unrelated, "SELECT launchd_jobs FROM processes WHERE host_id = ? AND pid = 31157", host))

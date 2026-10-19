@@ -1,4 +1,4 @@
-// fleet-edr-agent is the Go daemon that receives ESF and network events from system extensions over XPC, queues them in SQLite, and
+// rawtrail-agent is the Go daemon that receives ESF and network events from system extensions over XPC, queues them in SQLite, and
 // uploads them to the ingestion server. Configuration is loaded from environment variables; see agent/config for the full reference.
 package main
 
@@ -61,7 +61,7 @@ var (
 )
 
 const (
-	serviceName = "fleet-edr-agent"
+	serviceName = "rawtrail-agent"
 
 	// launchdReadWait is the most the event loop waits for a launchctl exec's plist read (issue #1341). A plist the user's own tools
 	// read in milliseconds; a read still running past this goes on without holding the telemetry behind it.
@@ -338,7 +338,7 @@ func newAgentLogger(cfg *config.Config, hostID string) (*slog.Logger, error) {
 // logAgentStart emits the startup banner + the insecure-HTTP warning when
 // applicable. Factored out of run() so complexity stays under the linter cap.
 func logAgentStart(ctx context.Context, logger *slog.Logger, cfg *config.Config) {
-	logger.InfoContext(ctx, "fleet-edr-agent starting",
+	logger.InfoContext(ctx, "rawtrail-agent starting",
 		"version", version,
 		"commit", commit,
 		"build_time", buildTime,
