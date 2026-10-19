@@ -4,7 +4,7 @@
 
 ## Why this matters
 
-[`docs/threat-model.md`](../../threat-model.md) is the architectural assertion of who can do what to whom. If it was written before mTLS, before the network extension, before per-context boundaries, before `/etc/fleet-edr.conf`, before the QA VM existed, then it isn't a threat model, it's a fossil. New threats become invisible because they're not on the map.
+[`docs/threat-model.md`](../../threat-model.md) is the architectural assertion of who can do what to whom. If it was written before mTLS, before the network extension, before per-context boundaries, before `/etc/rawtrail.conf`, before the QA VM existed, then it isn't a threat model, it's a fossil. New threats become invisible because they're not on the map.
 
 CodeQL, OSV-scanner, and Scorecard catch implementation-level CVEs and known patterns. They do NOT catch:
 
@@ -30,7 +30,7 @@ List every trust boundary the system actually has, today, by inspection of the c
 | Server ↔ MySQL | `server/*/internal/mysql` |
 | Server ↔ UI (browser session) | `server/identity/internal/middleware` + `ui/src/` |
 | Server ↔ operator REST surface | per-context `server/<bounded-context>/internal/operator/` (`detection`, `rules`, `endpoint`, `response`) plus `server/identity/internal/{login,oidc,breakglass,middleware}` for the auth boundary |
-| Install / enroll secret distribution | `packaging/` + `/etc/fleet-edr.conf` |
+| Install / enroll secret distribution | `packaging/` + `/etc/rawtrail.conf` |
 | Fleet → EDR install | Fleet install script + signed `.pkg` + `.mobileconfig` |
 
 For each boundary:

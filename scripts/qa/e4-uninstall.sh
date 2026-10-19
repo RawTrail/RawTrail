@@ -4,7 +4,7 @@
 #
 # What it proves: the bundled `uninstall.sh` tears down everything
 # the .pkg installed and the runtime state under /var/db, deactivates
-# the system extension, but DELIBERATELY leaves /etc/fleet-edr.conf
+# the system extension, but DELIBERATELY leaves /etc/rawtrail.conf
 # in place so a re-install picks up the same enrollment config
 # without re-typing the secret. Plus, the host flips to "offline" in
 # the admin UI within ~5 minutes of last_seen.
@@ -12,9 +12,9 @@
 # Steps:
 #  1. Confirm pre-state on the VM: agent running, sysext activated
 #     enabled, the install receipts present.
-#  2. Run /Library/Application Support/com.fleetdm.edr/uninstall.sh.
+#  2. Run /Library/Application Support/io.rawtrail/uninstall.sh.
 #  3. Assert post-state: LaunchDaemon unloaded, sysext gone, binaries
-#     removed, /var/db/fleet-edr/ removed, /etc/fleet-edr.conf
+#     removed, /var/db/rawtrail/ removed, /etc/rawtrail.conf
 #     PRESERVED.
 #  4. Wait up to 6 minutes for the server's "offline" gauge to update
 #     (default last_seen threshold is 5 min).
@@ -33,7 +33,7 @@
 # `edr_session` cookie value from devtools, export it, reuse until the
 # session expires.
 #
-# Add --reinstall PATH/TO/fleet-edr-vX.Y.Z.pkg to also exercise the
+# Add --reinstall PATH/TO/rawtrail-vX.Y.Z.pkg to also exercise the
 # re-install half. The pkg path is the local file on this workstation
 # we'll scp to the VM.
 
@@ -85,21 +85,21 @@ echo "[e4] step 1: verify pre-uninstall state on $VM_SSH_TARGET"
 ssh -o BatchMode=yes "$VM_SSH_TARGET" "$BASH_S" <<'EOF'
 set -uo pipefail
 echo -n "[vm] LaunchDaemon present: "
-test -f /Library/LaunchDaemons/com.fleetdm.edr.agent.plist && echo ok || echo MISSING
+test -f /Library/LaunchDaemons/io.rawtrail.agent.plist && echo ok || echo MISSING
 echo -n "[vm] LaunchDaemon running: "
-sudo /bin/launchctl print system/com.fleetdm.edr.agent 2>/dev/null \
+sudo /bin/launchctl print system/io.rawtrail.agent 2>/dev/null \
   | /usr/bin/grep -q 'state = running' && echo ok || echo NOT-RUNNING
 echo -n "[vm] sysext activated enabled: "
 /usr/bin/systemextensionsctl list 2>/dev/null \
-  | /usr/bin/grep -q 'activated enabled.*com.fleetdm.edr' && echo ok || echo NOT-ACTIVATED
+  | /usr/bin/grep -q 'activated enabled.*io.rawtrail' && echo ok || echo NOT-ACTIVATED
 echo -n "[vm] agent binary present: "
-test -x /usr/local/bin/fleet-edr-agent && echo ok || echo MISSING
+test -x /usr/local/bin/rawtrail-agent && echo ok || echo MISSING
 echo -n "[vm] uninstaller present: "
-test -x "/Library/Application Support/com.fleetdm.edr/uninstall.sh" && echo ok || echo MISSING
-echo -n "[vm] /etc/fleet-edr.conf present: "
-test -f /etc/fleet-edr.conf && echo ok || echo MISSING
+test -x "/Library/Application Support/io.rawtrail/uninstall.sh" && echo ok || echo MISSING
+echo -n "[vm] /etc/rawtrail.conf present: "
+test -f /etc/rawtrail.conf && echo ok || echo MISSING
 echo -n "[vm] events.db present: "
-test -f /var/db/fleet-edr/events.db && echo ok || echo MISSING
+test -f /var/db/rawtrail/events.db && echo ok || echo MISSING
 EOF
 
 # Capture the host_id BEFORE the uninstall removes the enrolled
@@ -108,10 +108,10 @@ EOF
 # matches nothing and would silently report "host offline" without
 # ever talking to the server about a real host.
 HOST_ID=$(ssh -o BatchMode=yes "$VM_SSH_TARGET" \
-  "sudo /usr/bin/plutil -extract host_id raw -o - /var/db/fleet-edr/enrolled.plist 2>/dev/null" \
+  "sudo /usr/bin/plutil -extract host_id raw -o - /var/db/rawtrail/enrolled.plist 2>/dev/null" \
   | tr -d '[:space:]')
 if [[ -z "$HOST_ID" ]]; then
-  echo "[e4] could not read host_id from /var/db/fleet-edr/enrolled.plist" >&2
+  echo "[e4] could not read host_id from /var/db/rawtrail/enrolled.plist" >&2
   echo "[e4] step 4's offline check would be meaningless without it; aborting." >&2
   exit 1
 fi
@@ -123,7 +123,7 @@ echo "[e4] step 2: run uninstall.sh on the VM"
 # shellcheck disable=SC2087
 ssh -o BatchMode=yes "$VM_SSH_TARGET" "$BASH_S" <<EOF
 set -uo pipefail
-sudo "/Library/Application Support/com.fleetdm.edr/uninstall.sh" || \
+sudo "/Library/Application Support/io.rawtrail/uninstall.sh" || \
   echo "[vm] uninstall.sh exited non-zero (some operations may be best-effort)"
 EOF
 
@@ -133,21 +133,21 @@ echo "[e4] step 3: verify post-uninstall state"
 ssh -o BatchMode=yes "$VM_SSH_TARGET" "$BASH_S" <<'EOF'
 set -uo pipefail
 echo -n "[vm] LaunchDaemon plist removed: "
-test -f /Library/LaunchDaemons/com.fleetdm.edr.agent.plist && echo STILL-PRESENT || echo ok
+test -f /Library/LaunchDaemons/io.rawtrail.agent.plist && echo STILL-PRESENT || echo ok
 echo -n "[vm] LaunchDaemon unloaded: "
-sudo /bin/launchctl print system/com.fleetdm.edr.agent 2>/dev/null \
+sudo /bin/launchctl print system/io.rawtrail.agent 2>/dev/null \
   | /usr/bin/grep -q 'state = running' && echo STILL-RUNNING || echo ok
 echo -n "[vm] sysext deactivated: "
 /usr/bin/systemextensionsctl list 2>/dev/null \
-  | /usr/bin/grep -q 'activated.*com.fleetdm.edr' && echo STILL-ACTIVATED || echo ok
+  | /usr/bin/grep -q 'activated.*io.rawtrail' && echo STILL-ACTIVATED || echo ok
 echo -n "[vm] agent binary removed: "
-test -x /usr/local/bin/fleet-edr-agent && echo STILL-PRESENT || echo ok
+test -x /usr/local/bin/rawtrail-agent && echo STILL-PRESENT || echo ok
 echo -n "[vm] events.db removed: "
-test -f /var/db/fleet-edr/events.db && echo STILL-PRESENT || echo ok
-echo -n "[vm] /var/db/fleet-edr removed: "
-test -d /var/db/fleet-edr && echo STILL-PRESENT || echo ok
-echo -n "[vm] /etc/fleet-edr.conf preserved (intended): "
-test -f /etc/fleet-edr.conf && echo ok || echo MISSING-DELETED
+test -f /var/db/rawtrail/events.db && echo STILL-PRESENT || echo ok
+echo -n "[vm] /var/db/rawtrail removed: "
+test -d /var/db/rawtrail && echo STILL-PRESENT || echo ok
+echo -n "[vm] /etc/rawtrail.conf preserved (intended): "
+test -f /etc/rawtrail.conf && echo ok || echo MISSING-DELETED
 EOF
 
 # Wait for the server's offline gauge. Default threshold is 5 min;
@@ -196,12 +196,12 @@ if [[ -n "$REINSTALL_PKG" ]]; then
 set -uo pipefail
 sudo /usr/sbin/installer -pkg "/tmp/$pkg_basename" -target /
 EOF
-  echo "[e4] re-installed; check that /etc/fleet-edr.conf was reused (no manual config step)"
+  echo "[e4] re-installed; check that /etc/rawtrail.conf was reused (no manual config step)"
   echo "[e4] verify the agent re-enrols with the SAME host_id ($HOST_ID) - the persisted token at"
-  echo "[e4] /var/db/fleet-edr/enrolled.plist is recreated by the post-install only if the conf is read."
+  echo "[e4] /var/db/rawtrail/enrolled.plist is recreated by the post-install only if the conf is read."
 fi
 
 hr
 echo "[e4] done. Expected: every line in step 3 prints 'ok' except"
-echo "[e4]   '/etc/fleet-edr.conf preserved (intended)' which also prints 'ok'."
+echo "[e4]   '/etc/rawtrail.conf preserved (intended)' which also prints 'ok'."
 echo "[e4] cleanup: rm -rf $WORKDIR"

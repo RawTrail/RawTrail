@@ -2,7 +2,7 @@ import EndpointSecurity
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "ESFAgentFiles")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ESFAgentFiles")
 
 /// AgentFileSubscriber is the fourth, NOTIFY-only Endpoint Security client: full file activity (create, modify, rename, delete) for an
 /// AI agent and every process it starts, and for nothing else on the host (issue #1287).
@@ -27,9 +27,9 @@ final class AgentFileSubscriber: Sendable {
 
     /// queue guards the process set and the rollup's open window. The ES callbacks hold it for a lookup or an add, and the flush only
     /// long enough to swap the window out, so folding and serializing never delay delivery of the host's other events.
-    private let queue = DispatchQueue(label: "com.fleetdm.edr.agentfiles")
+    private let queue = DispatchQueue(label: "io.rawtrail.agentfiles")
     /// flushQueue runs the flush timer: folding, serializing and sending a window taken off queue.
-    private let flushQueue = DispatchQueue(label: "com.fleetdm.edr.agentfiles.flush")
+    private let flushQueue = DispatchQueue(label: "io.rawtrail.agentfiles.flush")
     private nonisolated(unsafe) var processes = AgentProcessSet(capacity: maxProcesses)
     private nonisolated(unsafe) var rollup = FileActivityRollup(budget: rowsPerFlush, maxPending: maxPendingRows)
     private nonisolated(unsafe) var flushTimer: DispatchSourceTimer?

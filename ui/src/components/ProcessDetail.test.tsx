@@ -123,7 +123,7 @@ describe("ProcessDetail metadata", () => {
           path: "/bin/launchctl",
           args: ["launchctl", "load", "a.plist", "b.plist", "c.plist"],
           launchd_jobs: [
-            { plist_path: "/Users/v/a.plist", label: "com.fleetdm.qa1341.load", program_arguments: ["/bin/sleep", "71"] },
+            { plist_path: "/Users/v/a.plist", label: "com.example.qa1341.load", program_arguments: ["/bin/sleep", "71"] },
             { plist_path: "/Users/v/b.plist", label: "com.example.b", program: "/tmp/payload", truncated: true },
             { plist_path: "/Users/v/c.plist", label: "com.example.c" },
             // Program is what launchd executes; ProgramArguments[0] is then only a name, which a plist can set to anything.
@@ -133,7 +133,7 @@ describe("ProcessDetail metadata", () => {
         onClose={vi.fn()}
       />,
     );
-    const first = screen.getByText("com.fleetdm.qa1341.load");
+    const first = screen.getByText("com.example.qa1341.load");
     expect(first).toBeVisible();
     expect(first.parentElement).toHaveAttribute("title", "/Users/v/a.plist");
     expect(screen.getByText("runs /bin/sleep 71")).toBeVisible();

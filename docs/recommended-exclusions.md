@@ -76,7 +76,7 @@ Know what it costs. The 30-second window starts when the login shell starts, so 
 
 Do not add the `/usr/bin/login` exclusion to `suspicious_exec`: there it only silences temp-directory executions during shell startup, which is the shell-profile persistence case above.
 
-The `FDG8Q7N4CC` entries are keyed on the team ID because that is what survives an upgrade of the agent. They should ideally be seeded at install time so a freshly deployed agent does not alert on its own registrations. Verify the team on the installed binary with `codesign -dv /usr/local/bin/fleet-edr-agent` before relying on it.
+The `FDG8Q7N4CC` entries are keyed on the team ID because that is what survives an upgrade of the agent. They should ideally be seeded at install time so a freshly deployed agent does not alert on its own registrations. Verify the team on the installed binary with `codesign -dv /usr/local/bin/rawtrail-agent` before relying on it.
 
 ## Environment-specific exclusions
 

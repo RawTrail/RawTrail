@@ -16,14 +16,14 @@ import (
 )
 
 const (
-	defaultXPCService = "FDG8Q7N4CC.com.fleetdm.edr.securityextension.xpc"
+	defaultXPCService = "FDG8Q7N4CC.io.rawtrail.securityextension.xpc"
 	// The network extension's only launchd-registered Mach service is its NEMachServiceName, which Apple requires to be
 	// app-group-scoped. A team-prefixed name is NOT registered for a NetworkExtension sysext (unlike the security
 	// extension, which gets its team-prefixed name registered via NSEndpointSecurityMachServiceName), so dialing one
 	// fails at the Mach bootstrap lookup with "xpc_bridge_connect failed". The agent reaches the app-group name fine
-	// (verified on edr-qa: "receiver connected" to group.com.fleetdm.edr.networkextension across many sessions). #300
+	// (verified on edr-qa: "receiver connected" to group.io.rawtrail.networkextension across many sessions). #300
 	// switched this to a team-prefixed name on a false premise and silently broke NE event delivery.
-	defaultNetXPCService = "group.com.fleetdm.edr.networkextension"
+	defaultNetXPCService = "group.io.rawtrail.networkextension"
 
 	// DefaultPruneAge drops uploaded events older than 24h from the local SQLite queue. Wired into the prune loop at boot (no longer
 	// an env knob).
@@ -77,7 +77,7 @@ type Config struct {
 	Proxy ProxyConfig
 }
 
-// Load reads configuration from the environment and validates it. The environment is layered on top of /etc/fleet-edr.conf (override
+// Load reads configuration from the environment and validates it. The environment is layered on top of /etc/rawtrail.conf (override
 // path via EDR_CONF_FILE for dev and tests) so the MDM-managed conf file sets baseline values and operator-scoped env vars override a
 // single host without editing the file. Missing or malformed entries in the conf file are logged and the load continues with env-only
 // values.

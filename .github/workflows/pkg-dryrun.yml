@@ -145,7 +145,7 @@ jobs:
         # why that layout was abandoned (Installer.app never invoked those).
         run: |
           ls -la dist/
-          pkgutil --expand dist/fleet-edr-*.pkg /tmp/expanded
+          pkgutil --expand dist/rawtrail-*.pkg /tmp/expanded
           echo "=== pkg top level ==="
           ls /tmp/expanded/
           echo "=== three component pkgs present ==="
@@ -163,7 +163,7 @@ jobs:
           # only thing that activates the extensions on hosts installed at the loginwindow.
           # lsbom reads the component BOM without unpacking the payload.
           echo "=== activation LaunchAgent present in app.pkg ==="
-          lsbom /tmp/expanded/app.pkg/Bom | grep -F "Library/LaunchAgents/com.fleetdm.edr.activate.plist" && \
+          lsbom /tmp/expanded/app.pkg/Bom | grep -F "Library/LaunchAgents/io.rawtrail.activate.plist" && \
             echo OK
           # spec:release-packaging/installation-activates-the-system-extensions/install-with-a-user-logged-in-activates-immediately
           #
@@ -182,8 +182,8 @@ jobs:
           # under SIP), which silently removed nothing and orphaned the extensions. Assert against the
           # payload the support component actually ships.
           echo "=== shipped uninstall.sh deactivates via the host app, not systemextensionsctl ==="
-          pkgutil --expand-full dist/fleet-edr-*.pkg /tmp/expanded-full
-          UNINSTALL="/tmp/expanded-full/support.pkg/Payload/Library/Application Support/com.fleetdm.edr/uninstall.sh"
+          pkgutil --expand-full dist/rawtrail-*.pkg /tmp/expanded-full
+          UNINSTALL="/tmp/expanded-full/support.pkg/Payload/Library/Application Support/io.rawtrail/uninstall.sh"
           test -f "$UNINSTALL"
           if grep -nE 'systemextensionsctl[[:space:]]+deactivate' "$UNINSTALL"; then
             echo "FAIL: uninstall.sh still calls the bogus 'systemextensionsctl deactivate'"; exit 1
@@ -202,7 +202,7 @@ jobs:
           echo "=== shipped uninstall.sh reports the MDM profile must be removed ==="
           # shellcheck disable=SC2016  # literal text to find in the script, not expansions
           grep -qF 'mdm_sysext_profile_present' "$UNINSTALL"
-          grep -qF 'com.fleetdm.edr.profile.system-extension' "$UNINSTALL"
+          grep -qF 'io.rawtrail.profile.system-extension' "$UNINSTALL"
           grep -qi 'remove that profile via your MDM' "$UNINSTALL"
           grep -qi 'kept so you can retry' "$UNINSTALL"
           echo OK

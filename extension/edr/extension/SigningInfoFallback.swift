@@ -3,7 +3,7 @@ import Foundation
 import Security
 import os
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "SigningInfoFallback")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "SigningInfoFallback")
 
 /// SigningInfoFallback fills in the canonical Team ID and the leaf certificate SHA-256 for a binary when ESF does not provide
 /// them directly. Both fields come from one SecCodeCopySigningInformation call so the cache pays the SecCode cost once per

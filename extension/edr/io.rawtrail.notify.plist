@@ -3,21 +3,21 @@
 <plist version="1.0">
 <dict>
 	<!--
-	    Fleet EDR per-user notification surface (LaunchAgent).
+	    RawTrail per-user notification surface (LaunchAgent).
 	    Run by launchd in each user's session, this plist starts
 	    the host app in `notify` mode so the system extension's
 	    NotificationClient can post AUTH_EXEC-denial modals.
 
-	    Install path (per user): ~/Library/LaunchAgents/com.fleetdm.edr.notify.plist
-	    System-wide alternative: /Library/LaunchAgents/com.fleetdm.edr.notify.plist
+	    Install path (per user): ~/Library/LaunchAgents/io.rawtrail.notify.plist
+	    System-wide alternative: /Library/LaunchAgents/io.rawtrail.notify.plist
 	    The system-wide path requires a logout/login cycle on first install.
 	-->
 	<key>Label</key>
-	<string>com.fleetdm.edr.notify</string>
+	<string>io.rawtrail.notify</string>
 
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Applications/Fleet EDR.app/Contents/MacOS/edr</string>
+		<string>/Applications/RawTrail.app/Contents/MacOS/edr</string>
 		<string>notify</string>
 	</array>
 
@@ -36,7 +36,7 @@
 	-->
 	<key>MachServices</key>
 	<dict>
-		<key>FDG8Q7N4CC.com.fleetdm.edr.notifications</key>
+		<key>FDG8Q7N4CC.io.rawtrail.notifications</key>
 		<true/>
 	</dict>
 
@@ -58,9 +58,9 @@
 
 	<!--
 	    No StandardOutPath / StandardErrorPath: the host app routes
-	    its output through os_log (Logger(subsystem: "com.fleetdm.edr"))
+	    its output through os_log (Logger(subsystem: "io.rawtrail"))
 	    so anything worth keeping shows up in the unified log and is
-	    queryable via `log show --predicate 'subsystem == "com.fleetdm.edr"'`.
+	    queryable via `log show --predicate 'subsystem == "io.rawtrail"'`.
 	    A shared file path under /tmp would race across users on a
 	    multi-user install (the first user's launchd creates the file
 	    with permissions that lock out later sessions) - caught by
@@ -69,7 +69,7 @@
 	    Packaging note: the dist/pkg path does NOT yet copy this
 	    plist into /Library/LaunchAgents. The demo dry-run runs the
 	    host app manually in a Terminal session
-	    (`sudo /Applications/Fleet\ EDR.app/Contents/MacOS/edr notify`)
+	    (`sudo /Applications/RawTrail.app/Contents/MacOS/edr notify`)
 	    so the daemon's Mach lookup lands in the same bootstrap
 	    namespace as the user's process. Production packaging hooks
 	    are a follow-up tracked alongside the LaunchAgent installer

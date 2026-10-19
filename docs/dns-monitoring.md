@@ -35,11 +35,11 @@ Read the network extension's own unified log (not the agent log). On macOS the `
 
 ```bash
 # Is the proxy in the resolution path right now? Run a query and watch for "DNS query:" lines.
-/usr/bin/log stream --predicate 'subsystem == "com.fleetdm.edr.networkextension" AND category == "DNSProxy"' --info --debug --style compact &
+/usr/bin/log stream --predicate 'subsystem == "io.rawtrail.networkextension" AND category == "DNSProxy"' --info --debug --style compact &
 dig google.com >/dev/null; sleep 1; kill %1
 
 # What failed during the outage window? Errors are .error level and persist in the store.
-/usr/bin/log show --predicate 'subsystem == "com.fleetdm.edr.networkextension" AND category == "DNSProxy"' \
+/usr/bin/log show --predicate 'subsystem == "io.rawtrail.networkextension" AND category == "DNSProxy"' \
   --info --start "YYYY-MM-DD HH:MM:SS" --end "YYYY-MM-DD HH:MM:SS" --style compact | grep ' E '
 ```
 
@@ -55,7 +55,7 @@ The single test that settles causation: **disable our DNS proxy and see if resol
 - Targeted (and to keep the proxy off): run the host-app subcommand `disable-dns-proxy`, which flips `NEDNSProxyManager.isEnabled = false` (`extension/edr/edr/main.swift`) and persists that. Re-enable later with `enable-dns-proxy`.
 
 ```bash
-'/Applications/Fleet EDR.app/Contents/MacOS/edr' disable-dns-proxy
+'/Applications/RawTrail.app/Contents/MacOS/edr' disable-dns-proxy
 ```
 
 If DNS recovers the moment the proxy is off, our extension caused it. If it stays broken, look elsewhere (upstream resolver down, VPN, captive portal).
@@ -68,5 +68,5 @@ If DNS recovers the moment the proxy is off, our extension caused it. If it stay
 
 ### Where the evidence lives
 
-- Network extension logs: unified log store, subsystem `com.fleetdm.edr.networkextension`, categories `DNSProxy` / `NetworkFilter` / `XPCServer`. The store (`/var/db/diagnostics`) keeps roughly a few days; `.debug` lines (including the per-query `DNS query:` lines) are not persisted, so capture them live with `log stream --debug`. `.error` lines do persist, which is what makes a past outage reconstructable.
-- Confirm the extensions and their PIDs with `systemextensionsctl list` (look for `com.fleetdm.edr.networkextension ... [activated enabled]`).
+- Network extension logs: unified log store, subsystem `io.rawtrail.networkextension`, categories `DNSProxy` / `NetworkFilter` / `XPCServer`. The store (`/var/db/diagnostics`) keeps roughly a few days; `.debug` lines (including the per-query `DNS query:` lines) are not persisted, so capture them live with `log stream --debug`. `.error` lines do persist, which is what makes a past outage reconstructable.
+- Confirm the extensions and their PIDs with `systemextensionsctl list` (look for `io.rawtrail.networkextension ... [activated enabled]`).

@@ -15,11 +15,11 @@ final class BlockNotificationTests: XCTestCase {
     // MARK: Wire-shape constants
 
     func testServiceNameIsCanonical() {
-        XCTAssertEqual(blockNotificationServiceName, "FDG8Q7N4CC.com.fleetdm.edr.notifications")
+        XCTAssertEqual(blockNotificationServiceName, "FDG8Q7N4CC.io.rawtrail.notifications")
     }
 
     func testDropDirIsCanonical() {
-        XCTAssertEqual(blockNotificationDropDir, "/private/tmp/fleet-edr-notify-drop")
+        XCTAssertEqual(blockNotificationDropDir, "/private/tmp/rawtrail-notify-drop")
     }
 
     func testMessageTypeIsCanonical() {

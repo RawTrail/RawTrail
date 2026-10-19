@@ -10,7 +10,7 @@ import (
 // neExtensionBundleID is the network extension's bundle identifier as systemextensionsctl reports it (NOT the app-group Mach
 // service name the agent connects to). A staged upgrade leaves the previous version of this bundle waiting to uninstall on
 // reboot while the new version is active, which strands the NE's Mach service registration on the dead version (#399).
-const neExtensionBundleID = "com.fleetdm.edr.networkextension"
+const neExtensionBundleID = "io.rawtrail.networkextension"
 
 // uninstallOnRebootMarker is the state phrase systemextensionsctl prints for a version macOS will remove on the next reboot.
 const uninstallOnRebootMarker = "waiting to uninstall on reboot"

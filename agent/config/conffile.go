@@ -15,8 +15,8 @@ import (
 // depends on.
 type LookupEnvFunc func(string) (string, bool)
 
-// DefaultConfFile is where the installer drops the agent's static configuration: /etc/fleet-edr.conf on macOS and Linux,
-// %ProgramData%\FleetEDR\fleet-edr.conf on Windows (see paths_*.go). Fleet's install-script contract writes the enroll secret + server
+// DefaultConfFile is where the installer drops the agent's static configuration: /etc/rawtrail.conf on macOS and Linux,
+// %ProgramData%\RawTrail\rawtrail.conf on Windows (see paths_*.go). Fleet's install-script contract writes the enroll secret + server
 // URL here before invoking the installer; standalone deployments do the same by hand. Env vars always win over conf file entries so
 // operators can override a single host without editing the file. A var (not a const) because the Windows path is computed at init.
 var DefaultConfFile = platformConfFile

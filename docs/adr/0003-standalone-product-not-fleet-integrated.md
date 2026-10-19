@@ -21,13 +21,13 @@ The forces:
 
 ## Decision
 
-The EDR is a standalone product. It ships its own server (`rawtrail-server`), agent (`fleet-edr-agent`), UI (embedded in the server binary), and installer (signed `.pkg`). It has its own database (MySQL), its own auth (session cookies + CSRF for the UI, bearer tokens for agent-to-server), and its own API at `/api/*`.
+The EDR is a standalone product. It ships its own server (`rawtrail-server`), agent (`rawtrail-agent`), UI (embedded in the server binary), and installer (signed `.pkg`). It has its own database (MySQL), its own auth (session cookies + CSRF for the UI, bearer tokens for agent-to-server), and its own API at `/api/*`.
 
 Fleet is one of several supported deployment channels. The contract between Fleet and the EDR is deliberately thin and consists of three things the MDM must do on the endpoint:
 
 1. Deliver the signed `.pkg` via the MDM's package-management channel.
 2. Push two `.mobileconfig` profiles (system extension allowlist and network extension allowlist) so the TCC prompts don't block the user.
-3. Provision the enroll secret for the agent to read at startup. Today the agent reads `EDR_ENROLL_SECRET` from its environment (see `agent/config`); the MDM-owned LaunchDaemon plist that wraps the agent is where that env var lands. A future revision may switch to reading from a root-owned config file at `/etc/fleet-edr.conf` so the secret doesn't appear in `launchctl print` output, but that is an implementation choice inside the enroll-secret provisioning step, not a separate contract.
+3. Provision the enroll secret for the agent to read at startup. Today the agent reads `EDR_ENROLL_SECRET` from its environment (see `agent/config`); the MDM-owned LaunchDaemon plist that wraps the agent is where that env var lands. A future revision may switch to reading from a root-owned config file at `/etc/rawtrail.conf` so the secret doesn't appear in `launchctl print` output, but that is an implementation choice inside the enroll-secret provisioning step, not a separate contract.
 
 Jamf, Kandji, mosyle, and Intune use equivalent mechanisms. None of them are privileged over the others in the EDR's design.
 

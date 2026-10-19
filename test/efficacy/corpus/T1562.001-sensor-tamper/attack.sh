@@ -16,7 +16,7 @@
 # technique directory, and because the one-line reproduction is worth having
 # next to the synthetic scenario it complements:
 #
-#   sudo "/Applications/Fleet EDR.app/Contents/MacOS/edr" disable-filter
+#   sudo "/Applications/RawTrail.app/Contents/MacOS/edr" disable-filter
 #
 # The agent's self-heal restores capture about 35 seconds later, which is
 # exactly why the alert has to exist: host health reads healthy again and

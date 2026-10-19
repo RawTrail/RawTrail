@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.networkextension", category: "NetworkContainment")
+private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "NetworkContainment")
 
 /// NetworkContainmentUpdate is a decoded `network_containment.update`: whether the host is contained, the version and epoch that order
 /// it against earlier updates, and the EDR server endpoint the host must keep reaching while contained.
@@ -318,7 +318,7 @@ struct ReleasedLifeline {
 /// is back, and in memory, so a delayed older update is turned away.
 final class NetworkContainmentStore: Sendable {
     /// defaultStoragePath sits beside the application-control snapshot and the watched-path set.
-    static let defaultStoragePath = "/var/db/com.fleetdm.edr/network-containment.json"
+    static let defaultStoragePath = "/var/db/io.rawtrail/network-containment.json"
 
     let storagePath: String
     private let accepted: OSAllocatedUnfairLock<NetworkContainmentUpdate?>

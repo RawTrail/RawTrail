@@ -4,7 +4,7 @@
 // - protoc             v7.34.1
 // source: internal/control/control.proto
 
-// Package fleetedr.control.v1 is the wire contract for the persistent agent
+// Package rawtrail.control.v1 is the wire contract for the persistent agent
 // control channel: a single bidirectional stream that pushes commands to a
 // connected host in real time and carries command outcomes back. It is the
 // push replacement for the GET /api/commands short-poll (issue #477). The
@@ -26,7 +26,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ControlChannel_Connect_FullMethodName = "/fleetedr.control.v1.ControlChannel/Connect"
+	ControlChannel_Connect_FullMethodName = "/rawtrail.control.v1.ControlChannel/Connect"
 )
 
 // ControlChannelClient is the client API for ControlChannel service.
@@ -125,7 +125,7 @@ type ControlChannel_ConnectServer = grpc.BidiStreamingServer[AgentFrame, ServerF
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ControlChannel_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "fleetedr.control.v1.ControlChannel",
+	ServiceName: "rawtrail.control.v1.ControlChannel",
 	HandlerType: (*ControlChannelServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

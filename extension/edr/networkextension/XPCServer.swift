@@ -13,8 +13,8 @@ import os.log
 /// team-prefixed name on a false premise and silently broke NE event delivery.
 enum XPCServer {
     static let shared = XPCEventServer(
-        serviceName: "group.com.fleetdm.edr.networkextension",
-        logger: Logger(subsystem: "com.fleetdm.edr.networkextension", category: "XPCServer"),
+        serviceName: "group.io.rawtrail.networkextension",
+        logger: Logger(subsystem: "io.rawtrail.networkextension", category: "XPCServer"),
         onNetworkContainment: { NetworkContainmentController.shared.receive($0) }
     )
 }

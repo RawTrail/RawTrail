@@ -3,7 +3,7 @@ import Network
 import NetworkExtension
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.networkextension", category: "DNSProxy")
+private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "DNSProxy")
 
 /// DNSProxyProvider intercepts DNS queries, captures metadata for EDR telemetry,
 /// and forwards queries to the originally-intended DNS server. Process attribution

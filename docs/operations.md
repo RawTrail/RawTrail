@@ -9,8 +9,8 @@ This is the runbook for operating a RawTrail server + agent fleet that's already
 | Server health | `curl -s https://<server>/readyz \| jq .` |
 | Server version | `curl -s https://<server>/readyz \| jq -r .version` |
 | Tail server log | `docker compose logs -f server` |
-| Tail agent log (on Mac) | `sudo tail -f /var/log/fleet-edr-agent.log` |
-| Agent state (on Mac) | `sudo launchctl print system/com.fleetdm.edr.agent` |
+| Tail agent log (on Mac) | `sudo tail -f /var/log/rawtrail-agent.log` |
+| Agent state (on Mac) | `sudo launchctl print system/io.rawtrail.agent` |
 | Reload TLS cert | `docker compose kill -s HUP server` |
 | Restart server | `docker compose restart server` |
 | Backup DB | `docker compose exec -T mysql mysqldump --single-transaction -uroot -p"$(cat secrets/mysql_root)" edr \| gzip > edr-$(date +%F).sql.gz` |
@@ -268,7 +268,7 @@ A match from a rule in monitor mode is kept as a **monitor record** for **7 days
 The ClickHouse TTL bounds how long events live; three levers reduce how many are written in the first place:
 
 - **`snapshot_heartbeat` events are not persisted.** The server applies their freshness side effect (the `processes.last_seen_ns` bump that exempts a live snapshot row from the 6h TTL force-exit) at ingest and drops them, so they never occupy an archive or queue row. Watch `edr.ingest.heartbeats_dropped` to see the row-count savings.
-- **`EDR_PROCESS_RECONCILE_INTERVAL` is the heartbeat-rate lever** (agent-side, default `60s`). Each interval the agent emits one heartbeat per live snapshot PID (~900 on a normal macOS host). Heartbeats cost no archive or queue row, but they do cost an ingest request and a freshness UPDATE; raising the interval (for example `EDR_PROCESS_RECONCILE_INTERVAL=5m` in `/etc/fleet-edr.conf`) cuts that traffic ~5x. Keep it well under the 6h stale-process TTL so a live snapshot row is always re-freshened before the TTL would force-exit it.
+- **`EDR_PROCESS_RECONCILE_INTERVAL` is the heartbeat-rate lever** (agent-side, default `60s`). Each interval the agent emits one heartbeat per live snapshot PID (~900 on a normal macOS host). Heartbeats cost no archive or queue row, but they do cost an ingest request and a freshness UPDATE; raising the interval (for example `EDR_PROCESS_RECONCILE_INTERVAL=5m` in `/etc/rawtrail.conf`) cuts that traffic ~5x. Keep it well under the 6h stale-process TTL so a live snapshot row is always re-freshened before the TTL would force-exit it.
 - **Repetitive network/DNS telemetry is coalesced automatically** (agent-side, fixed `10s` window). Within each window the agent collapses repeated identical connection 5-tuples and repeated DNS lookups into one representative event plus a `coalesced_count`, preserving the earliest timestamp and (for DNS) the union of resolved addresses. The window is a fixed constant, deliberately well under the 30s DNS-to-connect beacon-correlation window so coalescing can never push a representative outside it.
 
 ### Watching more file paths
@@ -286,7 +286,7 @@ ESF is best-effort and exit events go missing under kernel back-pressure, sysext
 
 **Server-side TTL** (fixed `6h`). On each pass the server force-greys any process whose `fork_time_ns` is older than the TTL and which still has no `exit_time_ns`. The synthesized exit is tagged `exit_reason = ttl_reconciliation`. The reconciler pass runs every `10m`.
 
-**Agent-side `kill(pid, 0)` sweep** (`EDR_PROCESS_RECONCILE_INTERVAL`, default `60s` on the agent). Every interval the agent walks its in-memory PID table and probes each tracked PID with `kill(pid, 0)`. Any PID that returns `ESRCH` ("no such process") is gone: the agent emits a synthetic exit event tagged `exit_reason = host_reconciled`, which the server records on the row. PIDs younger than 30s are skipped to avoid racing the exec; at most 256 synthetic exits are emitted per pass to bound queue pressure on a host that just lost a large burst of exits. Set the interval to `0` on the agent (via `/etc/fleet-edr.conf` or env) to disable; useful only for narrow QA where synthetic exits would distort what a clean ESF feed looks like.
+**Agent-side `kill(pid, 0)` sweep** (`EDR_PROCESS_RECONCILE_INTERVAL`, default `60s` on the agent). Every interval the agent walks its in-memory PID table and probes each tracked PID with `kill(pid, 0)`. Any PID that returns `ESRCH` ("no such process") is gone: the agent emits a synthetic exit event tagged `exit_reason = host_reconciled`, which the server records on the row. PIDs younger than 30s are skipped to avoid racing the exec; at most 256 synthetic exits are emitted per pass to bound queue pressure on a host that just lost a large burst of exits. Set the interval to `0` on the agent (via `/etc/rawtrail.conf` or env) to disable; useful only for narrow QA where synthetic exits would distort what a clean ESF feed looks like.
 
 The two reconcilers are complementary: the agent closes rows within ~minute granularity for hosts that are alive and reachable, and the server's TTL is the safety net for hosts that go offline before they can reconcile themselves.
 
@@ -309,7 +309,7 @@ Core metrics to chart:
 | `edr.retention.processes.rows_deleted` | counter | Completed process rows pruned per retention run (hourly). Raw-event pruning is ClickHouse-native TTL, not a server metric |
 | `edr.processes.ttl_reconciled` | counter | TTL-driven synthetic-exit emissions. The counter only increments when the reconciler synthesises an exit (it no-ops when there's nothing stale), so a non-zero rate or spike means the reconciler is firing, typically because a host missed an exec/exit pair. A sustained zero is ambiguous (either no stale processes to reconcile, or the reconciler has wedged); rely on logs/traces or a separate heartbeat to distinguish |
 | `db.sql.latency` | histogram | DB call latency, emitted by the otelsql driver instrumentation (not a bespoke metric). p99 creeping up = DB overloaded or a slow query regressed |
-| `edr.agent.queue.dropped` | counter | Exported by the agent (`fleet-edr-agent`) when its OTel export is configured. `lossy=true` non-zero = the local queue hit its cap and dropped undelivered events. Investigate connectivity |
+| `edr.agent.queue.dropped` | counter | Exported by the agent (`rawtrail-agent`) when its OTel export is configured. `lossy=true` non-zero = the local queue hit its cap and dropped undelivered events. Investigate connectivity |
 | `edr.events.set_aside` | counter | By `host_id`. Non-zero = a batch failed repeatedly and was withdrawn; the log line's `consequence` names what the host lost |
 | `edr.detection.rule_evaluation_skipped` | counter | By `rule_id`. Non-zero = that rule stopped running on a replica after exceeding its evaluation budget; fix the rule, then restart |
 
@@ -390,7 +390,7 @@ The committed [alert rules](#alert-rules) cover audit write failures and break-g
 
 ## Reaching the server through a proxy
 
-Set the proxy in `/etc/fleet-edr.conf` on each Mac, alongside `EDR_SERVER_URL`:
+Set the proxy in `/etc/rawtrail.conf` on each Mac, alongside `EDR_SERVER_URL`:
 
 ```sh
 HTTPS_PROXY=http://proxy.corp:3128
@@ -403,7 +403,7 @@ The agent speaks four proxy schemes: `http`, `https`, `socks5` and `socks5h`. A 
 
 The proxy applies to everything the agent sends: enrollment, event uploads, command polling, token refresh, and the control channel. It is deliberately all or nothing. A proxy that covered only some of that would hide the parts it did not cover, and the containment lifeline would pin an address the rest of the agent was not using.
 
-Restart the agent after changing it: `sudo launchctl kickstart -k system/com.fleetdm.edr.agent`.
+Restart the agent after changing it: `sudo launchctl kickstart -k system/io.rawtrail.agent`.
 
 **A contained host keeps reaching its proxy.** Containment pins the proxy's addresses rather than the server's, because the proxy is what the host actually dials, and the agent tunnels the control channel through it so commands keep arriving in real time while the host is contained. That works for every scheme the agent speaks. A host whose proxy setting was ignored is contained to the server's own addresses instead, as an unproxied host is, and its control channel keeps working there.
 
@@ -415,7 +415,7 @@ Common causes, in order:
 
 1. **Endpoint is powered off / asleep.** Nothing to do; the host reconnects on next wake.
 2. **Network-level change.** Moved to a VPN / Wi-Fi with egress filtering. Validate `curl -v https://<edr-server>/livez` from the endpoint.
-3. **Agent crashed.** `sudo launchctl print system/com.fleetdm.edr.agent` shows `state = running`? If not: `sudo launchctl kickstart -k system/com.fleetdm.edr.agent`.
+3. **Agent crashed.** `sudo launchctl print system/io.rawtrail.agent` shows `state = running`? If not: `sudo launchctl kickstart -k system/io.rawtrail.agent`.
 4. **Enrollment revoked.** Check the audit log for an `enrollment.revoke` entry. An agent that holds the enroll secret re-enrolls on its own within a minute or two; one that does not needs the MDM install script re-run and the daemon restarted.
 5. **DB clock skew / server down.** `edr.enrolled.hosts` gauge returning -1 means the DB query failed.
 
@@ -494,7 +494,7 @@ Application Control enforces operator-managed policies (named, versioned, audite
 Two unconditional carve-outs run before any rule:
 
 1. **Platform-binary carve-out.** If the kernel sets `target.is_platform_binary` (launchd, xpcproxy, fseventsd, kextd, sysextd, WindowServer, etc.) the handler returns ALLOW with the kernel cache pinned. An admin who pastes the SHA-256 of `/sbin/launchd` into a BINARY rule will NOT brick the host: the carve-out fires before the snapshot walk.
-2. **Self-allow failsafe.** The agent / extensions / host app (matched by both Fleet's team_id and the exhaustive Fleet bundle-id allowlist) ALLOW unconditionally. A misconfigured rule cannot block the EDR itself.
+2. **Self-allow failsafe.** The agent / extensions / host app (matched by both the release team ID and the exhaustive RawTrail signing-ID allowlist) ALLOW unconditionally. A misconfigured rule cannot block the EDR itself.
 
 ### Detect mode
 
@@ -546,7 +546,7 @@ The trade-off on an exclusion is real: an attacker who pivots into a host via a 
 
 **Server log: `exporter export timeout`.** OTel collector unreachable. Fix connectivity to `OTEL_EXPORTER_OTLP_ENDPOINT` or unset the var to disable metrics export. Server functionality is unaffected; only telemetry is dropped.
 
-**Admin UI shows a host but `last_seen` is stuck >30 min ago.** Either the host is offline (see above) or its agent is running but failing to post events. SSH to the host, tail `/var/log/fleet-edr-agent.log`; expect TLS / network / 401 errors if the agent is failing to reach the server.
+**Admin UI shows a host but `last_seen` is stuck >30 min ago.** Either the host is offline (see above) or its agent is running but failing to post events. SSH to the host, tail `/var/log/rawtrail-agent.log`; expect TLS / network / 401 errors if the agent is failing to reach the server.
 
 **Alerts appear for a binary you know is benign.** Add a detection-config exclusion for it (see [Detection-rule tuning](#detection-rule-tuning) above), or add an allow rule in the UI for the rule that fired. Mark the existing alerts as `resolved` once you've confirmed they're false positives.
 

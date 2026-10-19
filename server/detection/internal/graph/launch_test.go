@@ -86,9 +86,9 @@ func TestLaunchTarget(t *testing.T) {
 		},
 		{
 			name:     "launchctl kickstart -k of a gui job",
-			launcher: launcher(t, "/bin/launchctl", "launchctl", "kickstart", "-k", "gui/501/com.fleetdm.qa1341.bootstrap"),
-			matches:  []api.Process{xpc(t, "com.fleetdm.qa1341.bootstrap")},
-			misses:   []api.Process{xpc(t, "com.fleetdm.qa1341.load"), exe("/bin/sleep")},
+			launcher: launcher(t, "/bin/launchctl", "launchctl", "kickstart", "-k", "gui/501/com.example.qa1341.bootstrap"),
+			matches:  []api.Process{xpc(t, "com.example.qa1341.bootstrap")},
+			misses:   []api.Process{xpc(t, "com.example.qa1341.load"), exe("/bin/sleep")},
 			window:   exactLaunchWindow,
 		},
 		{

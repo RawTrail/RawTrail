@@ -93,7 +93,7 @@ func connectStatus(t *testing.T, recorder *tracetest.SpanRecorder) sdktrace.Stat
 	var recorded sdktrace.Status
 	require.Eventually(t, func() bool {
 		for _, s := range recorder.Ended() {
-			if s.Name() == "fleetedr.control.v1.ControlChannel/Connect" {
+			if s.Name() == "rawtrail.control.v1.ControlChannel/Connect" {
 				recorded = s.Status()
 				return true
 			}
@@ -169,7 +169,7 @@ func TestAnRPCThatReportedNoVerdictKeepsItsFailure(t *testing.T) {
 	t.Parallel()
 	inner := newRecordingStats()
 	wrapped := handlerVerdictStats{Handler: inner}
-	ctx := wrapped.TagRPC(context.Background(), &stats.RPCTagInfo{FullMethodName: "/fleetedr.control.v1.ControlChannel/Connect"})
+	ctx := wrapped.TagRPC(context.Background(), &stats.RPCTagInfo{FullMethodName: "/rawtrail.control.v1.ControlChannel/Connect"})
 	refused := status.Error(codes.Unauthenticated, "invalid host token")
 
 	wrapped.HandleRPC(ctx, &stats.End{Error: refused})
@@ -184,7 +184,7 @@ func TestAnRPCWhoseHandlerSucceededIsForwardedWithoutTheTransportError(t *testin
 	t.Parallel()
 	inner := newRecordingStats()
 	wrapped := handlerVerdictStats{Handler: inner}
-	ctx := wrapped.TagRPC(context.Background(), &stats.RPCTagInfo{FullMethodName: "/fleetedr.control.v1.ControlChannel/Connect"})
+	ctx := wrapped.TagRPC(context.Background(), &stats.RPCTagInfo{FullMethodName: "/rawtrail.control.v1.ControlChannel/Connect"})
 	recordSpanVerdict(ctx, nil)
 
 	transportDied := errors.New("transport is closing")
@@ -202,7 +202,7 @@ func TestTheVerdictRidesTheContextTheEndEventCarries(t *testing.T) {
 	t.Parallel()
 	wrapped := handlerVerdictStats{Handler: otelgrpc.NewServerHandler()}
 
-	ctx := wrapped.TagRPC(context.Background(), &stats.RPCTagInfo{FullMethodName: "/fleetedr.control.v1.ControlChannel/Connect"})
+	ctx := wrapped.TagRPC(context.Background(), &stats.RPCTagInfo{FullMethodName: "/rawtrail.control.v1.ControlChannel/Connect"})
 
 	verdict, ok := ctx.Value(spanVerdictKey{}).(*spanVerdict)
 	require.True(t, ok, "without this the wrapper is an expensive passthrough")

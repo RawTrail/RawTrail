@@ -2,7 +2,7 @@ import Foundation
 import IOKit
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.networkextension", category: "Serializer")
+private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "Serializer")
 
 // NetworkConnectPayload / DNSQueryPayload moved to NetworkPayloads.swift so their Codable wire shape is unit-testable via the
 // SwiftPM logic module without dragging this file's EventEnvelope (which collides with the ESF serializer's copy).

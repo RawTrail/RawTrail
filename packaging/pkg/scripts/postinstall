@@ -1,5 +1,5 @@
 #!/bin/sh
-# Post-install script for Fleet EDR.
+# Post-install script for RawTrail.
 #
 # Runs after pkg payload is laid down. Loads the agent LaunchDaemon, ensures
 # var/db + var/log directories exist, and starts the activation LaunchAgent in
@@ -8,19 +8,19 @@
 # extensions; only the host app running in a user session can submit the
 # OSSystemExtensionRequest.)
 #
-# Fleet's install-script contract writes /etc/fleet-edr.conf BEFORE invoking
+# Fleet's install-script contract writes /etc/rawtrail.conf BEFORE invoking
 # `installer`, so by the time we run, the agent has its enroll secret + server
-# URL ready to read. Standalone installs may not have /etc/fleet-edr.conf yet;
+# URL ready to read. Standalone installs may not have /etc/rawtrail.conf yet;
 # the agent will log "EDR_ENROLL_SECRET unset" and exit, then the operator
-# writes the conf file and `launchctl kickstart -k system/com.fleetdm.edr.agent`
+# writes the conf file and `launchctl kickstart -k system/io.rawtrail.agent`
 # picks it up.
 
 set -e
 
-LABEL=com.fleetdm.edr.agent
+LABEL=io.rawtrail.agent
 PLIST=/Library/LaunchDaemons/${LABEL}.plist
-LOG=/var/log/fleet-edr-agent.log
-VAR_DB=/var/db/fleet-edr
+LOG=/var/log/rawtrail-agent.log
+VAR_DB=/var/db/rawtrail
 
 # Runtime directories. Permissions are 0750 so only root + members of the
 # wheel group can read the queue DB (holds un-uploaded events). The agent
@@ -58,7 +58,7 @@ fi
 # at the loginwindow skip this (no console user); the LaunchAgent's RunAtLoad
 # covers them on the next login. Nothing here may fail the install: a Mac
 # where activation needs the user's click still installed correctly.
-ACTIVATE_LA=/Library/LaunchAgents/com.fleetdm.edr.activate.plist
+ACTIVATE_LA=/Library/LaunchAgents/io.rawtrail.activate.plist
 CONSOLE_UID=$(/usr/bin/stat -f %u /dev/console 2>/dev/null || echo 0)
 if [ -f "$ACTIVATE_LA" ] && [ "$CONSOLE_UID" -gt 0 ]; then
     # bootstrap returns 37 ("already loaded") on reinstalls; kickstart re-runs
@@ -67,8 +67,8 @@ if [ -f "$ACTIVATE_LA" ] && [ "$CONSOLE_UID" -gt 0 ]; then
     # into /var/log/install.log) so the failure is diagnosable, but still
     # exit 0: the LaunchAgent's RunAtLoad retries at the next login.
     if ! /bin/launchctl bootstrap "gui/$CONSOLE_UID" "$ACTIVATE_LA" 2>/dev/null; then
-        if ! /bin/launchctl kickstart -k "gui/$CONSOLE_UID/com.fleetdm.edr.activate" 2>/dev/null; then
-            echo "postinstall: could not start com.fleetdm.edr.activate in gui/$CONSOLE_UID;" \
+        if ! /bin/launchctl kickstart -k "gui/$CONSOLE_UID/io.rawtrail.activate" 2>/dev/null; then
+            echo "postinstall: could not start io.rawtrail.activate in gui/$CONSOLE_UID;" \
                 "extension activation deferred to next login" >&2
         fi
     fi

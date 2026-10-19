@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "NotificationClient")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "NotificationClient")
 
 /// NotificationClient is the extension's outbound channel to the
 /// host app's block-notification surface. The decision engine fires
@@ -26,7 +26,7 @@ private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", cate
 final class NotificationClient {
     static let shared = NotificationClient()
 
-    private let queue = DispatchQueue(label: "com.fleetdm.edr.securityextension.notification-client")
+    private let queue = DispatchQueue(label: "io.rawtrail.securityextension.notification-client")
     // Encoder is configured once. Sorted keys makes a captured wire
     // sample diffable across runs, useful for the unified-log
     // forensic trail, not for behavior. The host-app side dedups on

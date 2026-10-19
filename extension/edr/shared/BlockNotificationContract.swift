@@ -16,19 +16,19 @@ import Foundation
 
 /// Mach service name the host app vends so the system extension can push a desktop notification on every AUTH_EXEC denial. The
 /// team-id prefix matches the convention the agent-to-extension XPC channel already uses
-/// (`FDG8Q7N4CC.com.fleetdm.edr.securityextension.xpc`). See the host app's MachServices declaration for the launchd registration.
+/// (`FDG8Q7N4CC.io.rawtrail.securityextension.xpc`). See the host app's MachServices declaration for the launchd registration.
 ///
 /// This is the production-target transport. The demo cut uses a file-based fallback (see `blockNotificationDropDir`) because a daemon
 /// in the system bootstrap reaching a user-session GUI Mach service needs a session-bridging helper that is out of scope for the demo.
 /// A production deployment with the LaunchAgent installed at /Library/LaunchAgents switches back to the XPC path.
-let blockNotificationServiceName = "FDG8Q7N4CC.com.fleetdm.edr.notifications"
+let blockNotificationServiceName = "FDG8Q7N4CC.io.rawtrail.notifications"
 
 /// Drop directory for the file-based fallback, shared by the extension (writer, running as root) and the host app (reader, running as
 /// the user). The extension creates it with the sticky bit (mode 1777) so the user-session host app can read daemon-written files
 /// without a privileged helper, and writes each file 0644 so the user can read it but only root can replace it. The host app processes
 /// each file once and leaves it on disk; the extension purges its own writes older than `blockNotificationPurgeWindow` on the next
 /// notify.
-let blockNotificationDropDir = "/private/tmp/fleet-edr-notify-drop"
+let blockNotificationDropDir = "/private/tmp/rawtrail-notify-drop"
 
 /// How long a dropped notification file survives before the extension purges it on a later notify. Only the writer acts on this, but
 /// it belongs with the rest of the contract: it is what bounds how long a reader can still find a given drop.

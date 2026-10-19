@@ -47,7 +47,7 @@ The list of trust-only invariants. Each is small enough that review catches viol
 - **Platform's `server/testdb` may not import a context.** The leaf package is clean today; arch-go's prefix-match catches the sub-package `testdb/full` which legitimately imports each testkit. Review heuristic: any new import in `server/testdb/open.go` (the leaf) that targets a `server/<X>/` path is the violation.
 - **No cross-context FKs.** The migration dropped the only one (`fk_alerts_updated_by`) and replaced it with the `identity.api.UserExists` code-level check. Schema review on every DDL change is the gate; arch-go doesn't see DDL.
 - **Wire format (`schema/events.json`) is the contract between two codebases (Swift extension, Go server) plus the Go agent that shuttles bytes between them.** Changes to it require coordinated PR work. Review heuristic: any change to `schema/events.json` that doesn't include corresponding changes in `server/detection/api/wire/` (server-side decode/encode) and the Swift extension's event serializer is incomplete. The agent itself stores events as opaque `json.RawMessage` in its SQLite queue and re-emits them verbatim, so it generally doesn't need a wire/ package of its own. The exception: new fields the agent has to read (`agent_version`, `host_id`) still require an `agent/uploader` change.
-- **`bootstrap` is for production wiring.** Production importers of `<X>/bootstrap` are `cmd/fleet-edr-{server,ingest}` and `<X>/testkit`. Tests at `<X>/internal/tests/` and `test/integration/` import bootstrap legitimately for service composition; arch-go doesn't see test-file imports, so a stray production import of bootstrap from a non-listed package is a review smell. The fact that the only realistic vector is "someone introduces a brand-new package outside cmd/ that wires services" makes this very low risk.
+- **`bootstrap` is for production wiring.** Production importers of `<X>/bootstrap` are `cmd/rawtrail-{server,ingest}` and `<X>/testkit`. Tests at `<X>/internal/tests/` and `test/integration/` import bootstrap legitimately for service composition; arch-go doesn't see test-file imports, so a stray production import of bootstrap from a non-listed package is a review smell. The fact that the only realistic vector is "someone introduces a brand-new package outside cmd/ that wires services" makes this very low risk.
 
 ## Comparison to industry practice
 
@@ -107,7 +107,7 @@ When to invest in the next tier of architectural patterns. The criteria are scal
 
 **Today:** `cmd/rawtrail-server` (full surface) and `cmd/rawtrail-ingest` (intake-only) already split for that reason. Both share one MySQL.
 
-**Migration if triggered:** introduce a third binary, `cmd/fleet-edr-{operator|response|rules}` per the new boundary. The bounded-context split makes this primarily a wiring change in cmd/, not a restructure of `server/`. The remaining work is authentication between processes (mTLS or token-keyed API).
+**Migration if triggered:** introduce a third binary, `cmd/rawtrail-{operator|response|rules}` per the new boundary. The bounded-context split makes this primarily a wiring change in cmd/, not a restructure of `server/`. The remaining work is authentication between processes (mTLS or token-keyed API).
 
 ## Maintenance
 

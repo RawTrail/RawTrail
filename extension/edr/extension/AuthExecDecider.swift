@@ -1,6 +1,6 @@
 import os
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "AuthExecDecider")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "AuthExecDecider")
 
 /// FallbackPosture is the operator-selectable verdict when sync hashing for a BINARY rule consultation cannot complete within the
 /// AUTH_EXEC kernel deadline budget. The three options trade enforcement strictness against exec-startup latency:

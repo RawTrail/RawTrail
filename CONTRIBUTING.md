@@ -79,7 +79,7 @@ For non-security bugs, open a [GitHub issue](https://github.com/getvictor/fleet-
 - Version or commit SHA.
 - Reproduction steps.
 - Expected vs. actual behaviour.
-- Relevant logs (`log show --predicate 'subsystem == "com.fleetdm.edr"'` for macOS components, server stdout for the daemon).
+- Relevant logs (`log show --predicate 'subsystem == "io.rawtrail"'` for macOS components, server stdout for the daemon).
 
 ## License
 

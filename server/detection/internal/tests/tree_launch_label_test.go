@@ -55,18 +55,18 @@ func TestLaunchLinks_ByLabelAndBundleID(t *testing.T) {
 	}
 	// kickstart -k, and the job's restart 8.3 s later: launchd throttles a restart for up to its ThrottleInterval (10 s by default;
 	// 5.0 s on edr-dev), past the 5 s a path match allows. Another job starts between them.
-	kickstart := launcher(31275, 21.7, "/bin/launchctl", "launchctl", "kickstart", "-k", "gui/501/com.fleetdm.qa1341.bootstrap")
-	job(31300, 22, "com.fleetdm.other", "/bin/sleep", 501)
+	kickstart := launcher(31275, 21.7, "/bin/launchctl", "launchctl", "kickstart", "-k", "gui/501/com.example.qa1341.bootstrap")
+	job(31300, 22, "com.example.other", "/bin/sleep", 501)
 	// The same label in another logged-in user's session, starting first: not this kickstart's.
-	_, otherUser := job(31301, 23, "com.fleetdm.qa1341.bootstrap", "/bin/sleep", 502)
-	kickXPC, kickProgram := job(31383, 30.0, "com.fleetdm.qa1341.bootstrap", "/bin/sleep", 501)
+	_, otherUser := job(31301, 23, "com.example.qa1341.bootstrap", "/bin/sleep", 502)
+	kickXPC, kickProgram := job(31383, 30.0, "com.example.qa1341.bootstrap", "/bin/sleep", 501)
 	// start by label, and the same label started again past the window, which is not this start's.
-	start := launcher(31400, 40, "/bin/launchctl", "launchctl", "start", "com.fleetdm.qa1341.start")
-	_, startProgram := job(31401, 41, "com.fleetdm.qa1341.start", "/bin/sleep", 501)
-	_, lateProgram := job(31402, 70, "com.fleetdm.qa1341.start", "/bin/sleep", 501)
+	start := launcher(31400, 40, "/bin/launchctl", "launchctl", "start", "com.example.qa1341.start")
+	_, startProgram := job(31401, 41, "com.example.qa1341.start", "/bin/sleep", 501)
+	_, lateProgram := job(31402, 70, "com.example.qa1341.start", "/bin/sleep", 501)
 	// A start of an empty label, as an unset shell variable gives, names no job: the launchd child after it is not its.
 	launcher(31500, 80, "/bin/launchctl", "launchctl", "start", "")
-	_, afterEmpty := job(31501, 81, "com.fleetdm.unrelated", "/bin/sleep", 501)
+	_, afterEmpty := job(31501, 81, "com.example.unrelated", "/bin/sleep", 501)
 	// open -b, an app signed with another identifier first, then TextEdit, which carries the session as the capture's did.
 	openB := launcher(31387, 29.6, "/usr/bin/open", "open", "-b", "com.apple.TextEdit")
 	insert(api.Process{PID: 31388, PPID: 1, Path: "/System/Applications/Notes.app/Contents/MacOS/Notes", ForkTimeNs: at(29.7),

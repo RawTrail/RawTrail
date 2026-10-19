@@ -3,7 +3,7 @@ import Network
 import NetworkExtension
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.networkextension", category: "NetworkContainment")
+private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "NetworkContainment")
 
 /// NetworkContainmentController applies host network containment as content-filter settings and reports what it applied (#948).
 ///
@@ -28,7 +28,7 @@ final class NetworkContainmentController: @unchecked Sendable {
     static let shared = NetworkContainmentController()
 
     private let store = NetworkContainmentStore()
-    private let queue = DispatchQueue(label: "com.fleetdm.edr.networkcontainment")
+    private let queue = DispatchQueue(label: "io.rawtrail.networkcontainment")
     private let serializer = NetworkEventSerializer()
     // Everything below is guarded by queue.
     private let sequencer = ContainmentSequencer<NEFilterDataProvider>()

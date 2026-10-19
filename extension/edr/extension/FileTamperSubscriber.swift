@@ -2,7 +2,7 @@ import EndpointSecurity
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "ESFFileTamper")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ESFFileTamper")
 
 /// FileTamperSubscriber is the DEDICATED, NOTIFY-only second Endpoint Security client that watches a small set of sensitive
 /// target paths for content changes (ADR-0008, #301). The set is the built-in sudoers paths plus whatever the server
@@ -43,7 +43,7 @@ final class FileTamperSubscriber: Sendable {
 
     /// applyQueue serializes every change to the muted set, so a pushed set arriving over XPC and the startup configuration
     /// cannot interleave their mute calls. `applied` and `pushed` are only read and written on it.
-    private let applyQueue = DispatchQueue(label: "com.fleetdm.edr.filetamper.watched-paths")
+    private let applyQueue = DispatchQueue(label: "io.rawtrail.filetamper.watched-paths")
     /// applied is the target set currently muted, and therefore observed once inversion is on (WatchedPaths.targets).
     private nonisolated(unsafe) var applied: [WatchedPath] = []
     /// pushed is the latest server-pushed set. One that arrives before start() is held here and applied when the client starts.

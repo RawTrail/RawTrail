@@ -20,7 +20,7 @@ import os
 /// unfair lock around a constant-time dictionary read, matching the locking shape used elsewhere in the extensions.
 final class InterfaceSnapshot {
     private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "com.fleetdm.edr.networkextension.interfaces")
+    private let queue = DispatchQueue(label: "io.rawtrail.networkextension.interfaces")
     private let byName = OSAllocatedUnfairLock<[String: NWInterface]>(initialState: [:])
 
     /// start begins watching for path changes. Called from startProxy so the first claimed flow already has a snapshot;

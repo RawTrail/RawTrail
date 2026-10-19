@@ -5,7 +5,7 @@ import os.log
 // BTM launch-item handler split out of ESFSubscriber.swift to keep that file under SwiftLint's file_length /
 // type_body_length caps (same rationale as ESFSubscriber+FileEvents.swift and CDHashHex.swift). It reaches
 // ESFSubscriber's module-internal `serializer` and `onEvent`.
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "ESFBTM")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ESFBTM")
 
 extension ESFSubscriber {
     /// handleBtmLaunchItemAdd surfaces a Background Task Management launch-item registration as a `btm_launch_item_add`

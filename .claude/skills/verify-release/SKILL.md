@@ -35,12 +35,12 @@ IDENTITY="^https://github\.com/getvictor/fleet-edr/\.github/workflows/release\.y
 
 Pull the asset list for the tag and check it against what the workflow uploads. For a tag `vX.Y.Z` the release must carry these 14 assets (seven artifacts, each with its `.sigstore.json` bundle):
 
-- `fleet-edr-<TAG>.pkg` (+ `.sigstore.json`)
+- `rawtrail-<TAG>.pkg` (+ `.sigstore.json`)
 - `edr-system-extension.mobileconfig` (+ `.sigstore.json`)
 - `edr-tcc-fda.mobileconfig` (+ `.sigstore.json`)
 - `edr-login-items.mobileconfig` (+ `.sigstore.json`)
-- `fleet-edr-<TAG>-sbom.spdx.json` (+ `.sigstore.json`)
-- `fleet-edr-<TAG>-sbom.cdx.json` (+ `.sigstore.json`)
+- `rawtrail-<TAG>-sbom.spdx.json` (+ `.sigstore.json`)
+- `rawtrail-<TAG>-sbom.cdx.json` (+ `.sigstore.json`)
 - `SHA256SUMS` (+ `.sigstore.json`)
 
 ```sh
@@ -81,12 +81,12 @@ Expect `Verified OK` for the bundle, then every `shasum` line `OK`. Any `FAILED`
 `SHA256SUMS` was already verified in step 2. The same identity/issuer constraints apply to every other blob; loop over the remaining six artifacts:
 
 ```sh
-for f in fleet-edr-"$TAG".pkg \
+for f in rawtrail-"$TAG".pkg \
          edr-system-extension.mobileconfig \
          edr-tcc-fda.mobileconfig \
          edr-login-items.mobileconfig \
-         fleet-edr-"$TAG"-sbom.spdx.json \
-         fleet-edr-"$TAG"-sbom.cdx.json; do
+         rawtrail-"$TAG"-sbom.spdx.json \
+         rawtrail-"$TAG"-sbom.cdx.json; do
   echo "== $f =="
   cosign verify-blob \
     --bundle "${f}.sigstore.json" \
@@ -129,7 +129,7 @@ Skip this comparison for an `-rc` tag: `:latest` legitimately points at the prev
 The workflow attests the pkg, the three profiles, both SBOMs, `SHA256SUMS`, and the image via `actions/attest-build-provenance`. Spot-check with the GitHub attestation verifier:
 
 ```sh
-gh attestation verify fleet-edr-"$TAG".pkg --owner getvictor
+gh attestation verify rawtrail-"$TAG".pkg --owner getvictor
 gh attestation verify "oci://${IMAGE}:${TAG}" --owner getvictor
 ```
 
@@ -140,9 +140,9 @@ Expect a verified provenance summary tying each artifact to the workflow run.
 Confirms the pkg is Apple-signed, notarized, and stapled, independent of Sigstore:
 
 ```sh
-pkgutil --check-signature fleet-edr-"$TAG".pkg   # signed by Apple-issued Developer ID + notarized
-xcrun stapler validate fleet-edr-"$TAG".pkg      # stapled ticket present (works offline)
-spctl -a -v --type install fleet-edr-"$TAG".pkg  # Gatekeeper accepts: source=Notarized Developer ID
+pkgutil --check-signature rawtrail-"$TAG".pkg   # signed by Apple-issued Developer ID + notarized
+xcrun stapler validate rawtrail-"$TAG".pkg      # stapled ticket present (works offline)
+spctl -a -v --type install rawtrail-"$TAG".pkg  # Gatekeeper accepts: source=Notarized Developer ID
 ```
 
 ## Report

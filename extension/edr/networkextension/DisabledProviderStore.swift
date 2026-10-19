@@ -17,7 +17,7 @@ import Foundation
 /// it did before, which a reader already treats as "unreported" rather than as "capturing".
 final class DisabledProviderStore {
     /// defaultStoragePath sits beside the containment state and the application-control snapshot.
-    static let defaultStoragePath = "/var/db/com.fleetdm.edr/disabled-providers.json"
+    static let defaultStoragePath = "/var/db/io.rawtrail/disabled-providers.json"
 
     private let storagePath: String
 

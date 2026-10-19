@@ -257,7 +257,7 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel
   - `http.server.request.duration` (histogram, by route + method + status): request volume and latency.
   - `db.sql.latency` (histogram) and `db.sql.connection.*` (connection-pool stats): DB call latency and pool health, from the otelsql driver instrumentation.
 
-  The agent exports `edr.agent.queue.dropped` itself (service `fleet-edr-agent`, attribute `lossy`) when its own OTel export is configured; see [install-agent-manual.md](install-agent-manual.md).
+  The agent exports `edr.agent.queue.dropped` itself (service `rawtrail-agent`, attribute `lossy`) when its own OTel export is configured; see [install-agent-manual.md](install-agent-manual.md).
 
   See [operations.md](operations.md#metrics-and-monitoring) for what to alert on.
 
@@ -346,6 +346,6 @@ docker compose -f docker-compose.prod.yml restart server
 
 **Server exits with "EDR_TLS_CERT_FILE and EDR_TLS_KEY_FILE are both required"**: either cert path is unset or unreadable. The server has no unguarded plaintext-HTTP mode; mount fullchain.pem + privkey.pem under `./tls/` and re-export the `EDR_TLS_CERT_FILE` / `EDR_TLS_KEY_FILE` env vars before retrying. (Behind a TLS-terminating proxy that cannot present a backend cert, set `EDR_TLS_TERMINATED_BY_PROXY=1` and omit the cert files instead.)
 
-**Agents see "enrollment failed: unauthorized"**: the `enroll_secret` on the server and the `EDR_ENROLL_SECRET` the agent reads from `/etc/fleet-edr.conf` are different. Confirm the MDM install-script writes the exact value from `secrets/enroll_secret`.
+**Agents see "enrollment failed: unauthorized"**: the `enroll_secret` on the server and the `EDR_ENROLL_SECRET` the agent reads from `/etc/rawtrail.conf` are different. Confirm the MDM install-script writes the exact value from `secrets/enroll_secret`.
 
 **Server log shows "exporter export timeout"**: OTel collector is unreachable. Either fix connectivity to `OTEL_EXPORTER_OTLP_ENDPOINT` or unset the var. Server functionality is unaffected; only telemetry is dropped.

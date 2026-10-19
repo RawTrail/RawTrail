@@ -68,7 +68,7 @@ func seedLaunches(t *testing.T, store *mysql.Store, db *sqlx.DB, host string) la
 	// must not be taken as the later ask's launch.
 	launchdChild(22802, 2.0, "/bin/sleep", api.AgentSession{})
 	seed.launchctl = insert(api.Process{PID: 22808, PPID: 22807, Path: "/bin/launchctl",
-		Args: args("launchctl", "submit", "-l", "com.fleetdm.qa1286", "--", "/bin/sleep", "61"), ForkTimeNs: at(3), ExecTimeNs: new(at(3)),
+		Args: args("launchctl", "submit", "-l", "com.example.qa1286", "--", "/bin/sleep", "61"), ForkTimeNs: at(3), ExecTimeNs: new(at(3)),
 		ParentProcessID: &shell, AgentSession: session})
 	// The agent's own shell runs a sleep in the window too; it is not launchd's, so it is no launch.
 	insert(api.Process{PID: 22850, PPID: 22795, Path: "/bin/sleep", ForkTimeNs: at(3.1), ExecTimeNs: new(at(3.1)), ParentProcessID: &shell,

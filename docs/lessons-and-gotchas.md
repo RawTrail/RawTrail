@@ -64,7 +64,7 @@ The generic `MachServices` dict in Info.plist is for LaunchDaemons only. System 
 
 ### NEMachServiceName is the XPC endpoint for network extensions
 
-The `NEMachServiceName` value (e.g., `group.com.fleetdm.edr.networkextension`) is registered in the **global Mach bootstrap namespace** by nesessionmanager. Any unsandboxed process can connect to it. This is how LuLu and other macOS firewalls handle IPC between the NE system extension and the controlling daemon. The app-group prefix does NOT restrict connections to group members.
+The `NEMachServiceName` value (e.g., `group.io.rawtrail.networkextension`) is registered in the **global Mach bootstrap namespace** by nesessionmanager. Any unsandboxed process can connect to it. This is how LuLu and other macOS firewalls handle IPC between the NE system extension and the controlling daemon. The app-group prefix does NOT restrict connections to group members.
 
 ## Network extensions
 

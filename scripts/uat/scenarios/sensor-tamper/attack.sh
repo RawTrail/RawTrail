@@ -48,7 +48,7 @@ set -eEuo pipefail
 # same). Without this, uat_server_get trips `set -u` on an unbound array.
 uat_server_warmup
 
-EDR_CLI="/Applications/Fleet EDR.app/Contents/MacOS/edr"
+EDR_CLI="/Applications/RawTrail.app/Contents/MacOS/edr"
 
 # The provider to switch off. The MANDATORY content filter, deliberately: the
 # DNS proxy is opt-in, so #649 grades disabling it a supported configuration
@@ -113,7 +113,7 @@ saw_transition() {
   # would be refused despite correct sudoers setup, and the scenario would
   # fail for a reason that has nothing to do with the product.
   uat_ssh "$UAT_VM_SSH_TARGET" \
-    "sudo /usr/bin/log show --start '$TAMPER_AT' --info --predicate 'subsystem CONTAINS \"com.fleetdm\"' 2>/dev/null \
+    "sudo /usr/bin/log show --start '$TAMPER_AT' --info --predicate 'subsystem CONTAINS \"io.rawtrail\"' 2>/dev/null \
        | grep -qE 'Provider $PROVIDER $want'"
 }
 

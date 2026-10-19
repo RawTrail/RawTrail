@@ -6,7 +6,7 @@ package config
 // build:agent:linux compile-parity and any Linux dev run behave exactly as before the platform split; a Linux agent can refine these
 // when it lands.
 var (
-	platformConfFile    = "/etc/fleet-edr.conf"
-	platformQueueDBPath = "/var/db/fleet-edr/events.db"
-	platformTokenFile   = "/var/db/fleet-edr/enrolled.plist" //nolint:gosec // path to the token file, not a credential.
+	platformConfFile    = "/etc/rawtrail.conf"
+	platformQueueDBPath = "/var/db/rawtrail/events.db"
+	platformTokenFile   = "/var/db/rawtrail/enrolled.plist" //nolint:gosec // path to the token file, not a credential.
 )

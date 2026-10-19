@@ -15,7 +15,7 @@ import (
 const jobPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>Label</key><string>com.fleetdm.qa1341.load</string>
+<key>Label</key><string>com.example.qa1341.load</string>
 <key>EnvironmentVariables</key><dict><key>Label</key><string>not this one</string></dict>
 <key>ProgramArguments</key><array><string>/bin/sleep</string><string>71</string></array>
 <key>KeepAlive</key><true/>
@@ -222,7 +222,7 @@ func TestParseLaunchdPlist(t *testing.T) {
 	t.Parallel()
 	job, ok := parseLaunchdPlist([]byte(jobPlist))
 	require.True(t, ok)
-	assert.Equal(t, LaunchdJob{Label: "com.fleetdm.qa1341.load", ProgramArguments: []string{"/bin/sleep", "71"}}, job,
+	assert.Equal(t, LaunchdJob{Label: "com.example.qa1341.load", ProgramArguments: []string{"/bin/sleep", "71"}}, job,
 		"the top-level keys only: a Label nested in another dictionary is not the job's")
 
 	long := strings.Repeat("é", maxJobFieldBytes)

@@ -48,7 +48,7 @@ final class SystemResolverCache {
 
     init(ttl: TimeInterval = 5,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         queue: DispatchQueue = DispatchQueue(label: "com.fleetdm.edr.networkextension.resolvers"),
+         queue: DispatchQueue = DispatchQueue(label: "io.rawtrail.networkextension.resolvers"),
          read: @escaping () -> [String] = SystemResolverCache.dynamicStoreReader()) {
         self.ttl = ttl
         self.now = now
@@ -117,7 +117,7 @@ final class SystemResolverCache {
     /// `NEDNSProxyProvider.systemDNSSettings`: measured on macOS 26.3 inside a running DNS proxy provider that returns
     /// nil while the host genuinely had two resolvers configured, so a failover built on it can never fire.
     static func dynamicStoreReader() -> () -> [String] {
-        let store = SCDynamicStoreCreate(nil, "com.fleetdm.edr.networkextension" as CFString, nil, nil)
+        let store = SCDynamicStoreCreate(nil, "io.rawtrail.networkextension" as CFString, nil, nil)
         return {
             guard let store,
                   let dns = SCDynamicStoreCopyValue(store, "State:/Network/Global/DNS" as CFString) as? [String: Any],

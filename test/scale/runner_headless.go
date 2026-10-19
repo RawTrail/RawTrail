@@ -24,7 +24,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/rawtrail/rawtrail/agent/cmd/fleet-edr-agent-headless/headless"
+	"github.com/rawtrail/rawtrail/agent/cmd/rawtrail-agent-headless/headless"
 	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 

@@ -8,7 +8,7 @@
 		     the only Mach service launchd registers for the NE sysext, and the one the agent connects to for the event
 		     channel. A team-prefixed entry here is NOT honored for a NetworkExtension sysext (only ES gets a team-prefixed
 		     registration, via NSEndpointSecurityMachServiceName), so listing one is dead config that broke NE delivery in #300. -->
-		<key>group.com.fleetdm.edr.networkextension</key>
+		<key>group.io.rawtrail.networkextension</key>
 		<true/>
 	</dict>
 	<key>NEProviderClasses</key>
@@ -28,9 +28,9 @@
 			<string>$(PRODUCT_MODULE_NAME).DNSProxyProvider</string>
 		</dict>
 		<key>NEMachServiceName</key>
-		<string>group.com.fleetdm.edr.networkextension</string>
+		<string>group.io.rawtrail.networkextension</string>
 	</dict>
 	<key>NSSystemExtensionUsageDescription</key>
-	<string>Fleet EDR monitors network connections for threat detection.</string>
+	<string>RawTrail monitors network connections for threat detection.</string>
 </dict>
 </plist>

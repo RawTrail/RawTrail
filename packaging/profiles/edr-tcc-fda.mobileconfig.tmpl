@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
     PPPC (Privacy Preferences Policy Control) profile that grants Full Disk
-    Access to the Fleet EDR agent and sysext. Required for the ES client to
+    Access to the RawTrail agent and sysext. Required for the ES client to
     receive exec + open events on SIP-enabled systems; otherwise es_new_client
     returns ES_NEW_CLIENT_RESULT_ERR_NOT_PERMITTED at startup.
 
@@ -20,24 +20,24 @@
             <key>PayloadVersion</key>
             <integer>1</integer>
             <key>PayloadIdentifier</key>
-            <string>com.fleetdm.edr.tcc.fda</string>
+            <string>io.rawtrail.tcc.fda</string>
             <key>PayloadUUID</key>
             <string>7C8EB928-9C69-4FBF-8E6F-5F0A7C0B7A83</string>
             <key>PayloadDisplayName</key>
-            <string>Fleet EDR - Full Disk Access</string>
+            <string>RawTrail - Full Disk Access</string>
             <key>PayloadDescription</key>
-            <string>Grants Full Disk Access to the Fleet EDR agent and sysext so the ES client can observe filesystem events.</string>
+            <string>Grants Full Disk Access to the RawTrail agent and sysext so the ES client can observe filesystem events.</string>
             <key>Services</key>
             <dict>
                 <key>SystemPolicyAllFiles</key>
                 <array>
                     <dict>
                         <key>Identifier</key>
-                        <string>/usr/local/bin/fleet-edr-agent</string>
+                        <string>/usr/local/bin/rawtrail-agent</string>
                         <key>IdentifierType</key>
                         <string>path</string>
                         <key>CodeRequirement</key>
-                        <string>anchor apple generic and identifier "fleet-edr-agent" and certificate leaf[subject.OU] = "__TEAM_ID__"</string>
+                        <string>anchor apple generic and identifier "rawtrail-agent" and certificate leaf[subject.OU] = "__TEAM_ID__"</string>
                         <key>Allowed</key>
                         <true/>
                         <key>Comment</key>
@@ -45,11 +45,11 @@
                     </dict>
                     <dict>
                         <key>Identifier</key>
-                        <string>com.fleetdm.edr.securityextension</string>
+                        <string>io.rawtrail.securityextension</string>
                         <key>IdentifierType</key>
                         <string>bundleID</string>
                         <key>CodeRequirement</key>
-                        <string>anchor apple generic and identifier "com.fleetdm.edr.securityextension" and certificate leaf[subject.OU] = "__TEAM_ID__"</string>
+                        <string>anchor apple generic and identifier "io.rawtrail.securityextension" and certificate leaf[subject.OU] = "__TEAM_ID__"</string>
                         <key>Allowed</key>
                         <true/>
                         <key>Comment</key>
@@ -60,13 +60,13 @@
         </dict>
     </array>
     <key>PayloadDisplayName</key>
-    <string>Fleet EDR - Full Disk Access (__TEAM_ID__)</string>
+    <string>RawTrail - Full Disk Access (__TEAM_ID__)</string>
     <key>PayloadDescription</key>
     <string>Grants Full Disk Access via PPPC so the ES client sees filesystem events. Team ID __TEAM_ID__.</string>
     <key>PayloadIdentifier</key>
-    <string>com.fleetdm.edr.profile.tcc-fda</string>
+    <string>io.rawtrail.profile.tcc-fda</string>
     <key>PayloadOrganization</key>
-    <string>Fleet EDR</string>
+    <string>RawTrail</string>
     <key>PayloadType</key>
     <string>Configuration</string>
     <key>PayloadUUID</key>

@@ -4,7 +4,7 @@ import os.log
 
 // TCC modification handler split out of ESFSubscriber.swift to keep that file under SwiftLint's length caps, as the BTM handler is.
 // It reaches ESFSubscriber's module-internal `serializer` and `onEvent`.
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "ESFTCC")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ESFTCC")
 
 extension ESFSubscriber {
     /// handleTccModify surfaces a TCC permission record being created, modified or deleted as a `tcc_modify` event (issue #1185).

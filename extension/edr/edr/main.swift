@@ -4,7 +4,7 @@ import NetworkExtension
 import os.log
 import SystemExtensions
 
-private let logger = Logger(subsystem: "com.fleetdm.edr", category: "main")
+private let logger = Logger(subsystem: "io.rawtrail", category: "main")
 
 /// reporter is the production Reporter: real stdout, real stderr, and the unified log. The boundary itself lives in
 /// ExtensionManagerLogic so it can be tested with injected sinks (issue #687); this is only the wiring.
@@ -339,7 +339,7 @@ case .disableDNSProxy:
     disableDNSProxy()
     dispatchMain()
 case .notify:
-    print("Starting Fleet EDR notification surface...")
+    print("Starting RawTrail notification surface...")
     runNotifyMode()
 case .activate, .deactivate:
     let manager = ExtensionManager(action: action)

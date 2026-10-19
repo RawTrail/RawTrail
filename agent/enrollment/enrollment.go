@@ -2,7 +2,7 @@
 //
 //   - Ensure: called once at startup. If a persisted token file exists, loads it. Otherwise,
 //     performs a fresh enrollment against the server using EDR_ENROLL_SECRET, persists the
-//     result atomically to EDR_TOKEN_FILE (default /var/db/fleet-edr/enrolled.plist), and
+//     result atomically to EDR_TOKEN_FILE (default /var/db/rawtrail/enrolled.plist), and
 //     returns the token + host_id.
 //
 //   - Token (type TokenProvider): the interface the uploader + commander consume. Returns

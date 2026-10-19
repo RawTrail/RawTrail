@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    productbuild distribution file for the Fleet EDR installer.
+    productbuild distribution file for the RawTrail installer.
 
     Enforces Apple Silicon (arm64) and macOS 26 (Tahoe) or later, the deployment
     target the app and both extensions are built for (ADR-0002). The three component packages
@@ -12,8 +12,8 @@
     example. The whole product installs atomically.
 -->
 <installer-gui-script minSpecVersion="2">
-    <title>Fleet EDR</title>
-    <organization>com.fleetdm.edr</organization>
+    <title>RawTrail</title>
+    <organization>io.rawtrail</organization>
 
     <options customize="never" require-scripts="true" hostArchitectures="arm64"/>
     <allowed-os-versions>
@@ -45,7 +45,7 @@ function installationCheck() {
         return true;
     }
     my.result.title = 'Unsupported processor';
-    my.result.message = 'Fleet EDR requires Apple Silicon (M1 or later).';
+    my.result.message = 'RawTrail requires Apple Silicon (M1 or later).';
     my.result.type = 'Fatal';
     return false;
 }
@@ -55,7 +55,7 @@ function volumeCheck() {
     var major = parseInt(ver[0], 10);
     if (isNaN(major) || major < 26) {
         my.result.title = 'Unsupported macOS';
-        my.result.message = 'Fleet EDR requires macOS 26 (Tahoe) or later.';
+        my.result.message = 'RawTrail requires macOS 26 (Tahoe) or later.';
         my.result.type = 'Fatal';
         return false;
     }
@@ -72,11 +72,11 @@ function volumeCheck() {
     </choices-outline>
 
     <choice id="default"/>
-    <choice id="agent"   visible="false" title="Agent">   <pkg-ref id="com.fleetdm.edr.agent"/></choice>
-    <choice id="app"     visible="false" title="App">     <pkg-ref id="com.fleetdm.edr.app"/></choice>
-    <choice id="support" visible="false" title="Support"> <pkg-ref id="com.fleetdm.edr.support"/></choice>
+    <choice id="agent"   visible="false" title="Agent">   <pkg-ref id="io.rawtrail.agent"/></choice>
+    <choice id="app"     visible="false" title="App">     <pkg-ref id="io.rawtrail.app"/></choice>
+    <choice id="support" visible="false" title="Support"> <pkg-ref id="io.rawtrail.support"/></choice>
 
-    <pkg-ref id="com.fleetdm.edr.agent"   version="__VERSION__" onConclusion="none">agent.pkg</pkg-ref>
-    <pkg-ref id="com.fleetdm.edr.app"     version="__VERSION__" onConclusion="none">app.pkg</pkg-ref>
-    <pkg-ref id="com.fleetdm.edr.support" version="__VERSION__" onConclusion="none">support.pkg</pkg-ref>
+    <pkg-ref id="io.rawtrail.agent"   version="__VERSION__" onConclusion="none">agent.pkg</pkg-ref>
+    <pkg-ref id="io.rawtrail.app"     version="__VERSION__" onConclusion="none">app.pkg</pkg-ref>
+    <pkg-ref id="io.rawtrail.support" version="__VERSION__" onConclusion="none">support.pkg</pkg-ref>
 </installer-gui-script>

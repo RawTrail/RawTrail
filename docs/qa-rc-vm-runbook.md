@@ -51,12 +51,12 @@ The agent binds its enrolled token to the exact `server_url`, so changing the UR
 
 ```sh
 printf 'EDR_SERVER_URL=https://192.168.64.1:8088\nEDR_ENROLL_SECRET=dev-enroll-secret\nEDR_SERVER_FINGERPRINT=%s\n' "$PIN" > /tmp/fe.conf   # $PIN from the previous block (same shell)
-echo "$PW" | sudo -S cp /tmp/fe.conf /etc/fleet-edr.conf
-echo "$PW" | sudo -S rm -f /var/db/fleet-edr/enrolled.plist
-echo "$PW" | sudo -S launchctl kickstart -k system/com.fleetdm.edr.agent
+echo "$PW" | sudo -S cp /tmp/fe.conf /etc/rawtrail.conf
+echo "$PW" | sudo -S rm -f /var/db/rawtrail/enrolled.plist
+echo "$PW" | sudo -S launchctl kickstart -k system/io.rawtrail.agent
 ```
 
-Confirm `agent enrolled` plus `receiver connected` for both the Endpoint Security and Network Extension services in `/var/log/fleet-edr-agent.log`, then confirm exec/fork/network/dns rows land in the dev DB (`docker exec rawtrail-mysql mysql -uroot -e "SELECT event_type, COUNT(*) FROM edr.events WHERE host_id LIKE '<uuid-prefix>%' AND created_at > (NOW() - INTERVAL 2 MINUTE) GROUP BY event_type;"`).
+Confirm `agent enrolled` plus `receiver connected` for both the Endpoint Security and Network Extension services in `/var/log/rawtrail-agent.log`, then confirm exec/fork/network/dns rows land in the dev DB (`docker exec rawtrail-mysql mysql -uroot -e "SELECT event_type, COUNT(*) FROM edr.events WHERE host_id LIKE '<uuid-prefix>%' AND created_at > (NOW() - INTERVAL 2 MINUTE) GROUP BY event_type;"`).
 
 ## 3. Forge an admin session for the API and UI
 
@@ -85,17 +85,17 @@ This is the step that unblocks a remote run. An in-place pkg upgrade installs th
 
 ```sh
 UID_C=$(stat -f %u /dev/console)
-sudo launchctl kickstart -k "gui/$UID_C/com.fleetdm.edr.activate"
+sudo launchctl kickstart -k "gui/$UID_C/io.rawtrail.activate"
 ```
 
 With NO console user (the usual headless state, console uid 0, no `gui/<uid>` domain), the `user/<uid>` launchd domain still exists. Run the host app's `activate` subcommand in that user context. It uses `dispatchMain()`, not AppKit, so it needs no Aqua session:
 
 ```sh
 U=<login-user>   # the VM's GUI/login user (e.g. victor); asuser needs its uid, computed below
-sudo launchctl asuser "$(id -u "$U")" sudo -u "$U" "/Applications/Fleet EDR.app/Contents/MacOS/edr" activate &
+sudo launchctl asuser "$(id -u "$U")" sudo -u "$U" "/Applications/RawTrail.app/Contents/MacOS/edr" activate &
 ```
 
-A same-team version bump auto-approves (no Allow click). The request succeeds from that `user/<uid>` context; `systemextensionsctl list` then shows the new version `activated enabled` and the old one `terminated waiting to uninstall on reboot`. The `activate` subcommand also re-enables the content filter and DNS proxy, so the new Network Extension takes over its Mach service immediately and telemetry stays continuous (no stranding). The SSH session may briefly drop while the filter re-enables; reconnect, the box is fine. Before any reboot, confirm the cutover worked: the agent log shows `receiver connected` for `group.com.fleetdm.edr.networkextension`, and the host's `dns_query` and `network_connect` events resume within a minute. A reboot afterwards only removes the inactive old-version entry; the activated extension comes back enabled headless.
+A same-team version bump auto-approves (no Allow click). The request succeeds from that `user/<uid>` context; `systemextensionsctl list` then shows the new version `activated enabled` and the old one `terminated waiting to uninstall on reboot`. The `activate` subcommand also re-enables the content filter and DNS proxy, so the new Network Extension takes over its Mach service immediately and telemetry stays continuous (no stranding). The SSH session may briefly drop while the filter re-enables; reconnect, the box is fine. Before any reboot, confirm the cutover worked: the agent log shows `receiver connected` for `group.io.rawtrail.networkextension`, and the host's `dns_query` and `network_connect` events resume within a minute. A reboot afterwards only removes the inactive old-version entry; the activated extension comes back enabled headless.
 
 ## 5. App-control exec enforcement needs a notarized binary
 
@@ -110,7 +110,7 @@ cp gh_*/bin/gh /tmp/qa-gh && /tmp/qa-gh --version    # runs (exit 0)
 shasum -a 256 /tmp/qa-gh ; codesign -dvvv /tmp/qa-gh 2>&1 | grep CDHash=
 ```
 
-Tell an app-control DENY apart from an AMFI kill by the extension log line `AUTH_EXEC DENIED` (subsystem `com.fleetdm.edr.securityextension`) with no crash report. Push a block rule by cdhash to the per-policy route (the bare `/api/v1/app-control/rules` is GET only; create lives under the policy, and DELETE wants its `reason` in a JSON body, not a query param):
+Tell an app-control DENY apart from an AMFI kill by the extension log line `AUTH_EXEC DENIED` (subsystem `io.rawtrail.securityextension`) with no crash report. Push a block rule by cdhash to the per-policy route (the bare `/api/v1/app-control/rules` is GET only; create lives under the policy, and DELETE wants its `reason` in a JSON body, not a query param):
 
 ```sh
 curl -sk -X POST https://localhost:8088/api/v1/app-control/policies/1/rules -H "Cookie: edr_session=..." -H "X-Csrf-Token: ..." \

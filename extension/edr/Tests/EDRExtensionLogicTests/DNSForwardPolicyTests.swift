@@ -12,7 +12,7 @@ import Foundation
 import XCTest
 
 final class DNSForwardPolicyTests: XCTestCase {
-    private let ownID = "com.fleetdm.edr.networkextension"
+    private let ownID = "io.rawtrail.networkextension"
 
     private func policy() -> DNSForwardPolicy {
         DNSForwardPolicy(ownSigningIdentifier: ownID)

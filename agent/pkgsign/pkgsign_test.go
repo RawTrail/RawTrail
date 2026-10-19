@@ -12,7 +12,7 @@ import (
 // The first two are verbatim `pkgutil --check-signature` output captured on edr-dev (macOS 26.3) for issue #1161: our own
 // notarized release and an unsigned pkgbuild package.
 const (
-	notarizedDeveloperID = `Package "fleet-edr-v0.6.0.pkg":
+	notarizedDeveloperID = `Package "rawtrail-v0.6.0.pkg":
    Status: signed by a developer certificate issued by Apple for distribution
    Notarization: trusted by the Apple notary service
    Signed with a trusted timestamp on: 2026-09-23 15:45:10 +0000

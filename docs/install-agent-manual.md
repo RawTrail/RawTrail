@@ -21,7 +21,7 @@ Pick a release from https://github.com/getvictor/fleet-edr/releases and download
 
 ```sh
 cd ~/Downloads
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/fleet-edr-v0.7.0.pkg
+curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
 ```
 
 Verify the download against the published SHA256SUMS:
@@ -31,7 +31,7 @@ curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/SHA256
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
-Expect: `fleet-edr-v0.7.0.pkg: OK`.
+Expect: `rawtrail-v0.7.0.pkg: OK`.
 
 ## Step 2: verify the signature
 
@@ -39,17 +39,17 @@ Before you run an installer you didn't build, confirm Gatekeeper trusts it. Thes
 
 ```sh
 # Signed by us + notarized by Apple
-pkgutil --check-signature fleet-edr-v0.7.0.pkg
+pkgutil --check-signature rawtrail-v0.7.0.pkg
 # Expect:
 #   Status: signed by a developer certificate issued by Apple for distribution
 #   Notarization: trusted by the Apple notary service
 
 # Stapled ticket embedded (works offline)
-xcrun stapler validate fleet-edr-v0.7.0.pkg
+xcrun stapler validate rawtrail-v0.7.0.pkg
 # Expect: "The validate action worked!"
 
 # Gatekeeper's install assessment
-spctl -a -v --type install fleet-edr-v0.7.0.pkg
+spctl -a -v --type install rawtrail-v0.7.0.pkg
 # Expect: "accepted / source=Notarized Developer ID"
 ```
 
@@ -63,13 +63,13 @@ Use the same release tag you downloaded in Step 1 in place of the `v0.7.0` place
 
 ```sh
 # Install cosign (v3+) if you don't have it: brew install cosign
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/fleet-edr-v0.7.0.pkg.sigstore.json
+curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/rawtrail-v0.7.0.pkg.sigstore.json
 
 cosign verify-blob \
-    --bundle fleet-edr-v0.7.0.pkg.sigstore.json \
+    --bundle rawtrail-v0.7.0.pkg.sigstore.json \
     --certificate-identity-regexp '^https://github\.com/getvictor/fleet-edr/\.github/workflows/release\.yml@refs/tags/v' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-    fleet-edr-v0.7.0.pkg
+    rawtrail-v0.7.0.pkg
 # Expect: "Verified OK"
 ```
 
@@ -83,10 +83,10 @@ cosign verify ghcr.io/getvictor/rawtrail-server:v0.7.0 \
 
 ## Step 3: write the config file
 
-The agent reads `/etc/fleet-edr.conf` on every start. Without that file, the daemon logs "EDR_SERVER_URL is not set" and exits. Create it BEFORE running the installer so the daemon enrolls on its first boot:
+The agent reads `/etc/rawtrail.conf` on every start. Without that file, the daemon logs "EDR_SERVER_URL is not set" and exits. Create it BEFORE running the installer so the daemon enrolls on its first boot:
 
 ```sh
-sudo tee /etc/fleet-edr.conf >/dev/null <<'EOF'
+sudo tee /etc/rawtrail.conf >/dev/null <<'EOF'
 EDR_SERVER_URL=https://edr.example.com
 EDR_ENROLL_SECRET=paste-the-enroll-secret-here
 # Optional: pin the server's TLS cert by SHA-256 fingerprint. Leave blank
@@ -96,7 +96,7 @@ EDR_ENROLL_SECRET=paste-the-enroll-secret-here
 # `sha256:` prefix and/or `:` separators).
 # EDR_SERVER_FINGERPRINT=sha256:AA:BB:CC:DD:EE:FF:...
 EOF
-sudo chmod 0600 /etc/fleet-edr.conf
+sudo chmod 0600 /etc/rawtrail.conf
 ```
 
 Replace `https://edr.example.com` with your server URL and `paste-the-enroll-secret-here` with the value from the server's `./secrets/enroll_secret` file or `EDR_ENROLL_SECRET` env var.
@@ -104,7 +104,7 @@ Replace `https://edr.example.com` with your server URL and `paste-the-enroll-sec
 ## Step 4: install the pkg
 
 ```sh
-sudo installer -pkg ~/Downloads/fleet-edr-v0.7.0.pkg -target /
+sudo installer -pkg ~/Downloads/rawtrail-v0.7.0.pkg -target /
 ```
 
 Expect:
@@ -117,21 +117,21 @@ installer: The install was successful.
 
 What the installer laid down:
 
-| Path                                                        | Purpose                                                |
-| ----------------------------------------------------------- | ------------------------------------------------------ |
-| `/usr/local/bin/fleet-edr-agent`                            | agent daemon binary (Go, hardened runtime)             |
-| `/Applications/Fleet EDR.app`                               | host app containing the embedded sysext                |
-| `/Library/LaunchDaemons/com.fleetdm.edr.agent.plist`        | LaunchDaemon config                                    |
-| `/Library/Application Support/com.fleetdm.edr/uninstall.sh` | uninstaller                                            |
-| `/Library/Application Support/com.fleetdm.edr/VERSION`      | installed version string                               |
-| `/var/db/fleet-edr/`                                        | queue database + enrolled token (created post-install) |
-| `/var/log/fleet-edr-agent.log`                              | agent stdout/stderr                                    |
+| Path                                                    | Purpose                                                |
+| ------------------------------------------------------- | ------------------------------------------------------ |
+| `/usr/local/bin/rawtrail-agent`                         | agent daemon binary (Go, hardened runtime)             |
+| `/Applications/RawTrail.app`                            | host app containing the embedded sysext                |
+| `/Library/LaunchDaemons/io.rawtrail.agent.plist`        | LaunchDaemon config                                    |
+| `/Library/Application Support/io.rawtrail/uninstall.sh` | uninstaller                                            |
+| `/Library/Application Support/io.rawtrail/VERSION`      | installed version string                               |
+| `/var/db/rawtrail/`                                     | queue database + enrolled token (created post-install) |
+| `/var/log/rawtrail-agent.log`                           | agent stdout/stderr                                    |
 
-The postinstall script loads the LaunchDaemon. The agent starts immediately, reads `/etc/fleet-edr.conf`, enrolls with the server, and begins polling for commands.
+The postinstall script loads the LaunchDaemon. The agent starts immediately, reads `/etc/rawtrail.conf`, enrolls with the server, and begins polling for commands.
 
 ## Step 5: approve the system extensions
 
-RawTrail ships two system extensions: an Endpoint Security extension (`com.fleetdm.edr.securityextension`, process and file events) and a Network Extension (`com.fleetdm.edr.networkextension`, network and DNS events). The pkg's activation LaunchAgent (`com.fleetdm.edr.activate`) runs the host app's `activate` right after install (and again at every login), but on a Mac that isn't MDM-managed each extension needs a human to approve it. macOS posts a notification when the host app requests activation.
+RawTrail ships two system extensions: an Endpoint Security extension (`io.rawtrail.securityextension`, process and file events) and a Network Extension (`io.rawtrail.networkextension`, network and DNS events). The pkg's activation LaunchAgent (`io.rawtrail.activate`) runs the host app's `activate` right after install (and again at every login), but on a Mac that isn't MDM-managed each extension needs a human to approve it. macOS posts a notification when the host app requests activation.
 
 Approve each extension in System Settings:
 
@@ -146,22 +146,22 @@ Verify:
 ```sh
 systemextensionsctl list | grep fleetdm
 # Expect two rows, both ending [activated enabled]:
-#   ... com.fleetdm.edr.securityextension ... [activated enabled]
-#   ... com.fleetdm.edr.networkextension  ... [activated enabled]
+#   ... io.rawtrail.securityextension ... [activated enabled]
+#   ... io.rawtrail.networkextension  ... [activated enabled]
 ```
 
-Each extension feeds its own receiver loop, so until a given extension is activated the agent simply misses that extension's events; a partially-approved install is partial coverage, not a full outage. The agent logs a `receiver connect` warning per unavailable service, and the `service` field says which one: `FDG8Q7N4CC.com.fleetdm.edr.securityextension.xpc` is the Endpoint Security extension (process and file events), `group.com.fleetdm.edr.networkextension` is the Network Extension (network and DNS events). That's expected before activation. A warning for the Endpoint Security service that persists after activation is the Full Disk Access boot-loop in Step 6; a persistent Network Extension warning means that extension still needs approval in Step 5.
+Each extension feeds its own receiver loop, so until a given extension is activated the agent simply misses that extension's events; a partially-approved install is partial coverage, not a full outage. The agent logs a `receiver connect` warning per unavailable service, and the `service` field says which one: `FDG8Q7N4CC.io.rawtrail.securityextension.xpc` is the Endpoint Security extension (process and file events), `group.io.rawtrail.networkextension` is the Network Extension (network and DNS events). That's expected before activation. A warning for the Endpoint Security service that persists after activation is the Full Disk Access boot-loop in Step 6; a persistent Network Extension warning means that extension still needs approval in Step 5.
 
 ## Step 6: grant Full Disk Access
 
-The Endpoint Security extension creates its ES client with `es_new_client`, which requires Full Disk Access. The extension is a separate TCC identity from the host app, so granting FDA to `/Applications/Fleet EDR.app` does NOT cover it. Without its own grant, `es_new_client` returns `ERR_NOT_PERMITTED`, the extension exits and relaunches in a loop, and the agent logs repeated `receiver connect` / `xpc_bridge_connect failed` warnings even though `systemextensionsctl` shows `activated enabled`.
+The Endpoint Security extension creates its ES client with `es_new_client`, which requires Full Disk Access. The extension is a separate TCC identity from the host app, so granting FDA to `/Applications/RawTrail.app` does NOT cover it. Without its own grant, `es_new_client` returns `ERR_NOT_PERMITTED`, the extension exits and relaunches in a loop, and the agent logs repeated `receiver connect` / `xpc_bridge_connect failed` warnings even though `systemextensionsctl` shows `activated enabled`.
 
 1. Open **System Settings > Privacy & Security > Full Disk Access**.
 2. After Step 5's activation the extension appears in the list as **"RawTrail Security Extension"** (its bundle display name). Toggle it ON and authenticate. This is the entry that lets `es_new_client` succeed.
-3. Add the agent: click **+**, press Cmd+Shift+G, enter `/usr/local/bin/fleet-edr-agent`, and toggle it ON.
-4. If no **"RawTrail Security Extension"** entry is listed, reset its TCC state and reboot to force a fresh prompt: `sudo tccutil reset SystemPolicyAllFiles com.fleetdm.edr.securityextension`.
+3. Add the agent: click **+**, press Cmd+Shift+G, enter `/usr/local/bin/rawtrail-agent`, and toggle it ON.
+4. If no **"RawTrail Security Extension"** entry is listed, reset its TCC state and reboot to force a fresh prompt: `sudo tccutil reset SystemPolicyAllFiles io.rawtrail.securityextension`.
 
-Granting FDA mid-loop lets the next relaunch succeed within a few seconds; if the warnings don't clear, reboot. You don't need to grant FDA to the Network Extension ("RawTrail Network Extension") or to `/Applications/Fleet EDR.app`.
+Granting FDA mid-loop lets the next relaunch succeed within a few seconds; if the warnings don't clear, reboot. You don't need to grant FDA to the Network Extension ("RawTrail Network Extension") or to `/Applications/RawTrail.app`.
 
 ## Step 7: verify end-to-end
 
@@ -171,11 +171,11 @@ On the Mac:
 
 ```sh
 # Daemon is running
-sudo launchctl print system/com.fleetdm.edr.agent | grep state
+sudo launchctl print system/io.rawtrail.agent | grep state
 # Expect: "state = running"
 
 # Recent log
-sudo tail -n 100 /var/log/fleet-edr-agent.log
+sudo tail -n 100 /var/log/rawtrail-agent.log
 # Expect an "agent enrolled" line near the top, then periodic
 # "http request" lines as the commander polls.
 ```
@@ -191,30 +191,30 @@ In the admin UI (https://edr.example.com/ui/):
 Download the newer `.pkg` and run `installer -pkg` again. The installer detects the existing receipts and performs an upgrade:
 
 ```sh
-sudo installer -pkg fleet-edr-v0.7.0.pkg -target /
+sudo installer -pkg rawtrail-v0.7.0.pkg -target /
 ```
 
-The preinstall script stops the old daemon, the postinstall script starts the new one. The persisted host token at `/var/db/fleet-edr/enrolled.plist` survives, so the agent keeps its existing enrollment; no re-approval needed.
+The preinstall script stops the old daemon, the postinstall script starts the new one. The persisted host token at `/var/db/rawtrail/enrolled.plist` survives, so the agent keeps its existing enrollment; no re-approval needed.
 
 **No reboot needed.** The new system extensions activate as soon as the pkg finishes if a user is logged in, and at the next login otherwise. Until then the previous extensions keep running and capturing. The agent itself restarts during the install, and the extensions buffer what they capture meanwhile (up to 10,000 events) and deliver it when it reconnects. Network and DNS events resume from the new Network Extension within about 30 seconds of activation. `systemextensionsctl list` keeps showing the previous version as `terminated waiting to uninstall on reboot` until the next reboot: that entry is inert, and removing it is the only thing the reboot does. Reboot only if the agent logs `network extension XPC registration is stale after an upgrade; reboot to complete the extension cutover` (the host's network extension health then reads `reboot_required`); a bare `receiver connect` warning means the extension is not approved yet, not that the upgrade needs a reboot.
 
 ## Uninstall
 
 ```sh
-sudo /Library/Application\ Support/com.fleetdm.edr/uninstall.sh
+sudo /Library/Application\ Support/io.rawtrail/uninstall.sh
 ```
 
-The script tears down everything the pkg installed + deletes the runtime state under `/var/db/fleet-edr` and `/var/log/fleet-edr-agent.log`. It DELIBERATELY preserves `/etc/fleet-edr.conf` so a subsequent re-install picks up the same enroll config. If you want a truly clean slate:
+The script tears down everything the pkg installed + deletes the runtime state under `/var/db/rawtrail` and `/var/log/rawtrail-agent.log`. It DELIBERATELY preserves `/etc/rawtrail.conf` so a subsequent re-install picks up the same enroll config. If you want a truly clean slate:
 
 ```sh
-sudo rm /etc/fleet-edr.conf
+sudo rm /etc/rawtrail.conf
 ```
 
 The script deactivates both system extensions by invoking the host app's `deactivate` request in the logged-in user's GUI session (the same Apple-sanctioned path the installer uses to activate them), so a user must be logged in at the console when you run it. It prints what actually happened:
 
 - **"RawTrail removed."** Both extensions were removed.
-- **"staged for removal ... REBOOT to finish"** macOS removes a system extension on the next reboot. Reboot, then confirm `systemextensionsctl list` shows no `com.fleetdm.edr` entries.
-- **"WARNING: ... system extension(s) are still active"** The extensions could not be removed locally. The script keeps the host app so you can retry, and prints the cause. The usual cause on a managed Mac is an MDM configuration profile (`com.fleetdm.edr.profile.system-extension`) that approved the extensions: macOS refuses to remove a profile-approved extension, so remove that profile via your MDM (see [mdm-deployment.md](mdm-deployment.md)) and macOS removes the extensions automatically. On an unmanaged Mac, make sure a user is logged in at the console and re-run the script.
+- **"staged for removal ... REBOOT to finish"** macOS removes a system extension on the next reboot. Reboot, then confirm `systemextensionsctl list` shows no `io.rawtrail` entries.
+- **"WARNING: ... system extension(s) are still active"** The extensions could not be removed locally. The script keeps the host app so you can retry, and prints the cause. The usual cause on a managed Mac is an MDM configuration profile (`io.rawtrail.profile.system-extension`) that approved the extensions: macOS refuses to remove a profile-approved extension, so remove that profile via your MDM (see [mdm-deployment.md](mdm-deployment.md)) and macOS removes the extensions automatically. On an unmanaged Mac, make sure a user is logged in at the console and re-run the script.
 
 After uninstall, the host disappears from the admin UI only after its `last_seen` threshold (default 5 min) elapses. You can also revoke the enrollment via `POST /api/enrollments/{host_id}/revoke` (see [api.md](api.md)), which ends the host tokens the uninstalled agent held.
 
@@ -227,25 +227,25 @@ After uninstall, the host disappears from the admin UI only after its `last_seen
 **Installer runs but the daemon never starts. `launchctl print` says "Could not find service".** The postinstall script probably failed. Check `sudo tail /var/log/install.log`. Common causes: `/Library/LaunchDaemons` owned by the wrong user, or `launchctl bootstrap` hit a permission error. Run:
 
 ```sh
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.fleetdm.edr.agent.plist
-sudo launchctl kickstart -k system/com.fleetdm.edr.agent
+sudo launchctl bootstrap system /Library/LaunchDaemons/io.rawtrail.agent.plist
+sudo launchctl kickstart -k system/io.rawtrail.agent
 ```
 
-**Agent log shows `enrollment failed: unauthorized (401)`.** The `EDR_ENROLL_SECRET` in `/etc/fleet-edr.conf` doesn't match what the server has in `./secrets/enroll_secret`. Copy the exact value (no trailing newline). Restart with `sudo launchctl kickstart -k system/com.fleetdm.edr.agent`.
+**Agent log shows `enrollment failed: unauthorized (401)`.** The `EDR_ENROLL_SECRET` in `/etc/rawtrail.conf` doesn't match what the server has in `./secrets/enroll_secret`. Copy the exact value (no trailing newline). Restart with `sudo launchctl kickstart -k system/io.rawtrail.agent`.
 
 **Agent log shows `tls: failed to verify certificate: x509: ...`.** Server's TLS cert isn't trusted by the system. Either install the CA that signed it into the system trust store, or use the `EDR_SERVER_FINGERPRINT` pin. Compute the value with `openssl x509 -in fullchain.pem -noout -fingerprint -sha256` and paste the hex output into the config file (optionally with a `sha256:` prefix; the `:` separators between bytes are accepted too). Don't set `EDR_ALLOW_INSECURE=1` unless you're in a lab.
 
 **System extension stays in `activated waiting for user` forever.** Someone disabled Automation + extensions in the OS. Easiest fix: revoke the install, reinstall with the MDM path (which pushes the sysext-allow-list profile so the prompt doesn't appear).
 
-**`receiver connect` / `xpc_bridge_connect failed` warnings repeat while `systemextensionsctl list` shows `activated enabled`.** The Endpoint Security extension is exiting on launch for lack of Full Disk Access. Confirm with `log show --last 10m --predicate 'subsystem == "com.fleetdm.edr.securityextension"' | grep "ES client"`: `Failed to create ES client: 4` is `ERR_NOT_PERMITTED`. Enable the **"RawTrail Security Extension"** entry in Privacy & Security > Full Disk Access (Step 6). The extension is a different TCC identity from `/Applications/Fleet EDR.app`, so granting the app alone doesn't fix it.
+**`receiver connect` / `xpc_bridge_connect failed` warnings repeat while `systemextensionsctl list` shows `activated enabled`.** The Endpoint Security extension is exiting on launch for lack of Full Disk Access. Confirm with `log show --last 10m --predicate 'subsystem == "io.rawtrail.securityextension"' | grep "ES client"`: `Failed to create ES client: 4` is `ERR_NOT_PERMITTED`. Enable the **"RawTrail Security Extension"** entry in Privacy & Security > Full Disk Access (Step 6). The extension is a different TCC identity from `/Applications/RawTrail.app`, so granting the app alone doesn't fix it.
 
 ## Enable OpenTelemetry (optional, dev/debug)
 
 The agent ships OpenTelemetry instrumentation but keeps it off by default: with no OTLP endpoint configured it installs no-op providers and emits nothing, which is the right posture for production endpoints (we do not want every host streaming telemetry to a shared collector). See [ADR-0006](adr/0006-otel-only-metrics.md). Turn it on when you are debugging a single host and want its metrics (queue depth, dropped events) and logs in a collector such as SigNoz.
 
-The agent reads the standard `OTEL_*` variables directly from its process environment, so they must go in the LaunchDaemon's `EnvironmentVariables`, NOT in `/etc/fleet-edr.conf`. The conf file is layered only into the agent's own `EDR_*` settings; it is never exported to the environment the OpenTelemetry SDK reads, so `OTEL_*` entries placed there are silently ignored.
+The agent reads the standard `OTEL_*` variables directly from its process environment, so they must go in the LaunchDaemon's `EnvironmentVariables`, NOT in `/etc/rawtrail.conf`. The conf file is layered only into the agent's own `EDR_*` settings; it is never exported to the environment the OpenTelemetry SDK reads, so `OTEL_*` entries placed there are silently ignored.
 
-Edit `/Library/LaunchDaemons/com.fleetdm.edr.agent.plist` and add these keys inside the existing `<key>EnvironmentVariables</key>` dict, substituting your collector endpoint and token:
+Edit `/Library/LaunchDaemons/io.rawtrail.agent.plist` and add these keys inside the existing `<key>EnvironmentVariables</key>` dict, substituting your collector endpoint and token:
 
 ```xml
 <key>OTEL_EXPORTER_OTLP_ENDPOINT</key>
@@ -260,16 +260,16 @@ Edit `/Library/LaunchDaemons/com.fleetdm.edr.agent.plist` and add these keys ins
 <string>debug</string>
 ```
 
-The `OTEL_EXPORTER_OTLP_HEADERS` value embeds a bearer token, so treat the plist as a secret at rest the same way `/etc/fleet-edr.conf` is locked down above. The plist is loaded by root, so restrict it to root, then reload the job so launchd re-reads the edited plist:
+The `OTEL_EXPORTER_OTLP_HEADERS` value embeds a bearer token, so treat the plist as a secret at rest the same way `/etc/rawtrail.conf` is locked down above. The plist is loaded by root, so restrict it to root, then reload the job so launchd re-reads the edited plist:
 
 ```sh
-sudo chown root:wheel /Library/LaunchDaemons/com.fleetdm.edr.agent.plist
-sudo chmod 600 /Library/LaunchDaemons/com.fleetdm.edr.agent.plist
-sudo launchctl bootout system /Library/LaunchDaemons/com.fleetdm.edr.agent.plist
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.fleetdm.edr.agent.plist
+sudo chown root:wheel /Library/LaunchDaemons/io.rawtrail.agent.plist
+sudo chmod 600 /Library/LaunchDaemons/io.rawtrail.agent.plist
+sudo launchctl bootout system /Library/LaunchDaemons/io.rawtrail.agent.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/io.rawtrail.agent.plist
 ```
 
-Use `bootout` + `bootstrap` (or a reboot), NOT `launchctl kickstart -k`. `kickstart -k` only restarts the process under the job definition launchd already has in memory, so it does not pick up edits to the plist's `EnvironmentVariables`: the agent would respawn still missing the `OTEL_*` keys, the SDK would stay on the no-op path, and nothing would reach the collector. (`kickstart -k` is fine for `/etc/fleet-edr.conf` changes, because the agent re-reads that file itself on startup; it is the plist env specifically that needs a full reload.)
+Use `bootout` + `bootstrap` (or a reboot), NOT `launchctl kickstart -k`. `kickstart -k` only restarts the process under the job definition launchd already has in memory, so it does not pick up edits to the plist's `EnvironmentVariables`: the agent would respawn still missing the `OTEL_*` keys, the SDK would stay on the no-op path, and nothing would reach the collector. (`kickstart -k` is fine for `/etc/rawtrail.conf` changes, because the agent re-reads that file itself on startup; it is the plist env specifically that needs a full reload.)
 
 Prefer a short-lived, narrowly-scoped collector token for dev/debug, and rotate it after use. To avoid putting the token on disk at all, you can instead set the `OTEL_*` variables in the shell and run the agent binary directly in the foreground for the duration of the debugging session.
 
@@ -277,7 +277,7 @@ Notes:
 
 - The agent always uses the gRPC OTLP exporter, so `OTEL_EXPORTER_OTLP_ENDPOINT` must point at a gRPC OTLP target and you do not need `OTEL_EXPORTER_OTLP_PROTOCOL` (it is ignored). `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_COMPRESSION` are honored.
 - `OTEL_RESOURCE_ATTRIBUTES` sets the `deployment.environment` so a shared backend can tell this host's telemetry apart from other deployments. Pick a per-host or per-pilot value rather than reusing `dev-local` across machines.
-- `EDR_LOG_LEVEL=debug` raises verbosity on both stderr (`/var/log/fleet-edr-agent.log`) and the OTLP log pipeline. Valid values are `debug`, `info`, `warn`, `error`.
+- `EDR_LOG_LEVEL=debug` raises verbosity on both stderr (`/var/log/rawtrail-agent.log`) and the OTLP log pipeline. Valid values are `debug`, `info`, `warn`, `error`.
 - To turn it back off, remove the `OTEL_EXPORTER_OTLP_ENDPOINT` key and reload the job again (`bootout` + `bootstrap`); with no endpoint the agent returns to the no-op path and stops exporting.
 
 **Full Disk Access grant gets wiped after every reboot.** Probably a TCC-database issue after a macOS point upgrade. Re-add the entries in Privacy & Security. If it recurs on a managed Mac, deploy the TCC profile via MDM instead.

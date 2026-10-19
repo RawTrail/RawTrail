@@ -39,7 +39,7 @@ fi
 
 # A pinned version token: vMAJOR.MINOR.PATCH with an optional -prerelease suffix. The optional suffix is anchored to a
 # leading hyphen so it matches v1.2.3-rc.1 (normalizing it to the stable TAG) without eating a trailing .pkg / .json
-# extension on filenames like fleet-edr-v1.2.3.pkg. The literal placeholder vX.Y.Z (in bootstrap.sh's warning) is not
+# extension on filenames like rawtrail-v1.2.3.pkg. The literal placeholder vX.Y.Z (in bootstrap.sh's warning) is not
 # matched, and TAG itself is validated as a stable release above, so no suffix is ever written into the docs.
 VERSION_RE='v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?'
 

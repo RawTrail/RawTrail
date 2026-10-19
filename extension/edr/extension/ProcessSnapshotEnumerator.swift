@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "ProcessSnapshot")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ProcessSnapshot")
 
 /// Hard cap on enumerated PIDs. Normal macOS process tables stay well under a few thousand
 /// and the kernel hard maximum is ~kern.maxproc (usually 2048-3072). Pinning a generous

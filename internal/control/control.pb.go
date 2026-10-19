@@ -4,7 +4,7 @@
 // 	protoc        v7.34.1
 // source: internal/control/control.proto
 
-// Package fleetedr.control.v1 is the wire contract for the persistent agent
+// Package rawtrail.control.v1 is the wire contract for the persistent agent
 // control channel: a single bidirectional stream that pushes commands to a
 // connected host in real time and carries command outcomes back. It is the
 // push replacement for the GET /api/commands short-poll (issue #477). The
@@ -368,15 +368,15 @@ var File_internal_control_control_proto protoreflect.FileDescriptor
 
 const file_internal_control_control_proto_rawDesc = "" +
 	"\n" +
-	"\x1einternal/control/control.proto\x12\x13fleetedr.control.v1\"\x90\x01\n" +
+	"\x1einternal/control/control.proto\x12\x13rawtrail.control.v1\"\x90\x01\n" +
 	"\vServerFrame\x128\n" +
-	"\acommand\x18\x01 \x01(\v2\x1c.fleetedr.control.v1.CommandH\x00R\acommand\x12>\n" +
-	"\theartbeat\x18\x02 \x01(\v2\x1e.fleetedr.control.v1.HeartbeatH\x00R\theartbeatB\a\n" +
+	"\acommand\x18\x01 \x01(\v2\x1c.rawtrail.control.v1.CommandH\x00R\acommand\x12>\n" +
+	"\theartbeat\x18\x02 \x01(\v2\x1e.rawtrail.control.v1.HeartbeatH\x00R\theartbeatB\a\n" +
 	"\x05frame\"\v\n" +
 	"\tHeartbeat\"O\n" +
 	"\n" +
 	"AgentFrame\x128\n" +
-	"\aoutcome\x18\x01 \x01(\v2\x1c.fleetedr.control.v1.OutcomeH\x00R\aoutcomeB\a\n" +
+	"\aoutcome\x18\x01 \x01(\v2\x1c.rawtrail.control.v1.OutcomeH\x00R\aoutcomeB\a\n" +
 	"\x05frame\"o\n" +
 	"\aCommand\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
@@ -388,7 +388,7 @@ const file_internal_control_control_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06result\x18\x03 \x01(\fR\x06result2b\n" +
 	"\x0eControlChannel\x12P\n" +
-	"\aConnect\x12\x1f.fleetedr.control.v1.AgentFrame\x1a .fleetedr.control.v1.ServerFrame(\x010\x01B7Z5github.com/rawtrail/rawtrail/internal/control;controlb\x06proto3"
+	"\aConnect\x12\x1f.rawtrail.control.v1.AgentFrame\x1a .rawtrail.control.v1.ServerFrame(\x010\x01B7Z5github.com/rawtrail/rawtrail/internal/control;controlb\x06proto3"
 
 var (
 	file_internal_control_control_proto_rawDescOnce sync.Once
@@ -404,18 +404,18 @@ func file_internal_control_control_proto_rawDescGZIP() []byte {
 
 var file_internal_control_control_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_internal_control_control_proto_goTypes = []any{
-	(*ServerFrame)(nil), // 0: fleetedr.control.v1.ServerFrame
-	(*Heartbeat)(nil),   // 1: fleetedr.control.v1.Heartbeat
-	(*AgentFrame)(nil),  // 2: fleetedr.control.v1.AgentFrame
-	(*Command)(nil),     // 3: fleetedr.control.v1.Command
-	(*Outcome)(nil),     // 4: fleetedr.control.v1.Outcome
+	(*ServerFrame)(nil), // 0: rawtrail.control.v1.ServerFrame
+	(*Heartbeat)(nil),   // 1: rawtrail.control.v1.Heartbeat
+	(*AgentFrame)(nil),  // 2: rawtrail.control.v1.AgentFrame
+	(*Command)(nil),     // 3: rawtrail.control.v1.Command
+	(*Outcome)(nil),     // 4: rawtrail.control.v1.Outcome
 }
 var file_internal_control_control_proto_depIdxs = []int32{
-	3, // 0: fleetedr.control.v1.ServerFrame.command:type_name -> fleetedr.control.v1.Command
-	1, // 1: fleetedr.control.v1.ServerFrame.heartbeat:type_name -> fleetedr.control.v1.Heartbeat
-	4, // 2: fleetedr.control.v1.AgentFrame.outcome:type_name -> fleetedr.control.v1.Outcome
-	2, // 3: fleetedr.control.v1.ControlChannel.Connect:input_type -> fleetedr.control.v1.AgentFrame
-	0, // 4: fleetedr.control.v1.ControlChannel.Connect:output_type -> fleetedr.control.v1.ServerFrame
+	3, // 0: rawtrail.control.v1.ServerFrame.command:type_name -> rawtrail.control.v1.Command
+	1, // 1: rawtrail.control.v1.ServerFrame.heartbeat:type_name -> rawtrail.control.v1.Heartbeat
+	4, // 2: rawtrail.control.v1.AgentFrame.outcome:type_name -> rawtrail.control.v1.Outcome
+	2, // 3: rawtrail.control.v1.ControlChannel.Connect:input_type -> rawtrail.control.v1.AgentFrame
+	0, // 4: rawtrail.control.v1.ControlChannel.Connect:output_type -> rawtrail.control.v1.ServerFrame
 	4, // [4:5] is the sub-list for method output_type
 	3, // [3:4] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name

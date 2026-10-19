@@ -34,7 +34,7 @@ function process(id: number, pid: number, ppid: number, path: string): ProcessNo
 }
 
 const forest: ProcessNode[] = [
-  { ...process(1, 100, 1, "/sbin/launchd"), children: [process(2, 200, 100, "/usr/local/bin/fleet-edr-agent")] },
+  { ...process(1, 100, 1, "/sbin/launchd"), children: [process(2, 200, 100, "/usr/local/bin/rawtrail-agent")] },
 ];
 
 const launchDaemonAlert: AlertDetail = {
@@ -45,8 +45,8 @@ const launchDaemonAlert: AlertDetail = {
   severity: "high",
   title: "LaunchDaemon persistence",
   description:
-    "Untrusted executable /usr/local/bin/fleet-edr-agent registered as system LaunchDaemon " +
-    "com.fleetdm.edr.agent.plist: persistence (MITRE T1543.004)",
+    "Untrusted executable /usr/local/bin/rawtrail-agent registered as system LaunchDaemon " +
+    "io.rawtrail.agent.plist: persistence (MITRE T1543.004)",
   techniques: ["T1543.004"],
   process_id: 0,
   status: "open",
@@ -264,7 +264,7 @@ describe("ProcessTreeView show-system toggle visibility", () => {
 
   // spec:web-ui/the-process-tree-hides-the-system-noise-toggle-when-it-changes-nothing/the-toggle-is-hidden-when-there-is-no-system-noise-to-reveal
   it("hides the Show system toggle when the view has no hidden system processes", async () => {
-    // The default forest (launchd -> fleet-edr-agent) has no system-path nodes, so flipping the toggle would change nothing.
+    // The default forest (launchd -> rawtrail-agent) has no system-path nodes, so flipping the toggle would change nothing.
     vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(forest));
     renderTree("");
     await screen.findByText(/launchd/);
@@ -436,7 +436,7 @@ describe("ProcessTreeView graph/timeline views (issue #583)", () => {
   it("resolves ?pid=&at= to the owning node and opens its detail", async () => {
     vi.spyOn(api, "getProcessTree").mockResolvedValue(treeResponse(forest));
     vi.spyOn(api, "getProcessDetail").mockResolvedValue({
-      process: { ...process(2, 200, 100, "/usr/local/bin/fleet-edr-agent") },
+      process: { ...process(2, 200, 100, "/usr/local/bin/rawtrail-agent") },
       network_connections: [],
       dns_queries: [],
     });
@@ -460,7 +460,7 @@ describe("ProcessTreeView alert technique mapping (issue #585)", () => {
     // Both statuses are fetched (open + acknowledged) to build the technique-by-node map.
     await waitFor(() => { expect(spy).toHaveBeenCalledTimes(2); });
     // The forest renders with the alerted node (id 2) present; the technique map building path ran without error.
-    expect(await screen.findByText(/fleet-edr-agent/)).toBeInTheDocument();
+    expect(await screen.findByText(/rawtrail-agent/)).toBeInTheDocument();
   });
 });
 
@@ -591,7 +591,7 @@ describe("ProcessTreeView truncation notice (issue #423)", () => {
     renderTree("");
 
     // Wait for the tree itself so the assertion runs after the fetch resolved, not before it started.
-    expect(await screen.findByText(/fleet-edr-agent \(200\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/rawtrail-agent \(200\)/)).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByText(/Showing .* of .* processes/i)).not.toBeInTheDocument();
   });
@@ -604,7 +604,7 @@ describe("ProcessTreeView truncation notice (issue #423)", () => {
     );
     renderTree("");
 
-    expect(await screen.findByText(/fleet-edr-agent \(200\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/rawtrail-agent \(200\)/)).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

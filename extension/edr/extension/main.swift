@@ -16,13 +16,13 @@ ApplicationControlStore.shared.loadFromDisk()
 // It starts from the persisted set so a restarted extension watches the operator's paths from its first event.
 let watchedPathStore = WatchedPathStore()
 let fileTamper = FileTamperSubscriber(pushed: watchedPathStore.current?.paths ?? [])
-let watchedPathsLogger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "WatchedPaths")
+let watchedPathsLogger = Logger(subsystem: "io.rawtrail.securityextension", category: "WatchedPaths")
 
 // The security extension wires the shared XPCEventServer's inbound hooks to apply app-control policy and watched-path sets pushed
 // by the agent.
 let server = XPCEventServer(
-    serviceName: "FDG8Q7N4CC.com.fleetdm.edr.securityextension.xpc",
-    logger: Logger(subsystem: "com.fleetdm.edr.securityextension", category: "XPCServer"),
+    serviceName: "FDG8Q7N4CC.io.rawtrail.securityextension.xpc",
+    logger: Logger(subsystem: "io.rawtrail.securityextension", category: "XPCServer"),
     onApplicationControl: { data in ApplicationControlStore.shared.apply(rawJSON: data) },
     onWatchedPaths: { data in
         // The store turns away a payload that is not a watched-path document and a set older than the one in force, which commands

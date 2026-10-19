@@ -1,6 +1,6 @@
 ## 1. Extensions
 
-- [x] 1.1 The production XPC peer requirement pins `identifier "fleet-edr-agent"` alongside the anchor and team ID; checked with `codesign -R` against the released agent
+- [x] 1.1 The production XPC peer requirement pins `identifier "rawtrail-agent"` alongside the anchor and team ID; checked with `codesign -R` against the released agent
 - [x] 1.2 Swift unit tests pin the full production requirement
 
 ## 2. Server and UI

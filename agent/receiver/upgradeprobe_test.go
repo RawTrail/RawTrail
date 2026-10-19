@@ -17,20 +17,20 @@ func TestParseNEUpgradePending(t *testing.T) {
 			output: "2 extension(s)\n" +
 				"--- com.apple.system_extension.network_extension\n" +
 				"enabled\tactive\tteamID\tbundleID (version)\tname\t[state]\n" +
-				"*\t*\tFDG8Q7N4CC\tcom.fleetdm.edr.networkextension (0.2.1/1)\tFleet EDR Network Extension\t[activated enabled]\n" +
-				"\t*\tFDG8Q7N4CC\tcom.fleetdm.edr.networkextension (0.1.1/1)\tnetworkextension\t[terminated waiting to uninstall on reboot]\n",
+				"*\t*\tFDG8Q7N4CC\tio.rawtrail.networkextension (0.2.1/1)\tRawTrail Network Extension\t[activated enabled]\n" +
+				"\t*\tFDG8Q7N4CC\tio.rawtrail.networkextension (0.1.1/1)\tnetworkextension\t[terminated waiting to uninstall on reboot]\n",
 			want: true,
 		},
 		{
 			name: "single active version: no pending uninstall",
 			output: "1 extension(s)\n" +
-				"*\t*\tFDG8Q7N4CC\tcom.fleetdm.edr.networkextension (0.2.1/1)\tFleet EDR Network Extension\t[activated enabled]\n",
+				"*\t*\tFDG8Q7N4CC\tio.rawtrail.networkextension (0.2.1/1)\tRawTrail Network Extension\t[activated enabled]\n",
 			want: false,
 		},
 		{
 			name: "not approved yet: NE present but no reboot marker",
 			output: "1 extension(s)\n" +
-				"\t\tFDG8Q7N4CC\tcom.fleetdm.edr.networkextension (0.2.1/1)\tFleet EDR Network Extension\t[activated waiting for user]\n",
+				"\t\tFDG8Q7N4CC\tio.rawtrail.networkextension (0.2.1/1)\tRawTrail Network Extension\t[activated waiting for user]\n",
 			want: false,
 		},
 		{

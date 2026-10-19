@@ -19,7 +19,7 @@ Reality on the ground in this codebase, before this ADR is written:
 - `extension/edr/shared/XPCEventServer.swift` line 301 calls `xpc_connection_set_peer_code_signing_requirement(event, peerCodeSigningRequirement)` inside `handleListenerEvent`, before the `xpc_connection_set_event_handler` registration. The requirement string is the production string (Apple anchor + the FDM team ID `FDG8Q7N4CC`) in release builds, OR the production string OR a pinned ad-hoc cdhash in `#if DEBUG` builds for SIP-disabled dev VMs.
 - There is no `audit_token_t`-based fallback validation in user code. There is no `SecCodeCheckValidity` call anywhere in the extension target.
 - The project targets macOS 13+ exclusively (`extension/edr/Package.swift` declares `platforms: [.macOS(.v13)]`; ADR-0002 commits the MVP to Apple Silicon + macOS 13+).
-- The `extension-xpc-server` spec requires "the extensions SHALL reject any inbound XPC connection whose peer does not satisfy a code-signing requirement chained to the Apple anchor and the Fleet Device Management team identifier" (`openspec/specs/extension-xpc-server/spec.md`). The spec is agnostic about which API enforces that requirement, which is what this ADR pins down.
+- The `extension-xpc-server` spec requires "the extensions SHALL reject any inbound XPC connection whose peer does not satisfy a code-signing requirement chained to the Apple anchor and the release signing team identifier" (`openspec/specs/extension-xpc-server/spec.md`). The spec is agnostic about which API enforces that requirement, which is what this ADR pins down.
 
 The question this ADR settles: should the extension keep using only the libxpc-side gate, or should it also call `SecCodeCheckValidity` against the same requirement string in user code (a "defense in depth" layering of the two APIs)? The question keeps coming back in AI code review (`coderabbitai[bot]` raised it on PR #269) and was historically answered "libxpc-only is enough" in conversation; writing it down stops the question being relitigated every cycle.
 
@@ -65,7 +65,7 @@ If the threat model ever requires validation of an attribute the requirement DSL
 
 ## Deferred tightening
 
-The production requirement currently accepts any binary chained to the Apple anchor and signed by the FDM team:
+The production requirement currently accepts any binary chained to the Apple anchor and signed by the release team:
 
 ```text
 anchor apple generic and certificate leaf[subject.OU] = "FDG8Q7N4CC"
@@ -75,7 +75,7 @@ This is the right gate against the realistic threat model (an arbitrary process 
 
 ```text
 (anchor apple generic and certificate leaf[subject.OU] = "FDG8Q7N4CC")
-  and identifier "com.fleetdm.edr.agent"
+  and identifier "io.rawtrail.agent"
 ```
 
 Adding the `identifier` clause would constrain the gate to one specific FDM-signed binary, raising the bar from "any FDM-signed binary" to "specifically the EDR agent binary." This is a strict narrowing that aligns with how top-end EDRs scope their IPC acceptance.
@@ -83,7 +83,7 @@ Adding the `identifier` clause would constrain the gate to one specific FDM-sign
 The reason it is **deferred** rather than landed here:
 
 - It changes the operational contract. Once the identifier is pinned, renaming the agent's signing identifier (binary rename, bundle-id shift on a future packaging change) breaks XPC accept until both the agent and the extension ship the new value together. That is a coordination cost the agent's release process is not yet wired to handle (no compatibility window, no warning on mismatch).
-- It requires deciding which identifier to pin. Ad-hoc dev builds sign with the binary basename (`fleet-edr-agent`); production builds will eventually sign with a chosen signing identifier the release pipeline pins. Until the production identifier is fixed in the packaging pipeline (`task pkg:release`), pinning would pick a value that the eventual release contradicts.
+- It requires deciding which identifier to pin. Ad-hoc dev builds sign with the binary basename (`rawtrail-agent`); production builds will eventually sign with a chosen signing identifier the release pipeline pins. Until the production identifier is fixed in the packaging pipeline (`task pkg:release`), pinning would pick a value that the eventual release contradicts.
 - It is a tightening, not a fix. The current gate is correct against unauthorized processes; the deferred work raises the bar against a more sophisticated threat (a trusted-but-malicious insider with an FDM signing key for a different binary). That threat class is not in the MVP threat model.
 
 When the agent's production signing-identifier story is locked down, narrow the constants in `PeerCodeSigningRequirement` to include the `identifier "..."` clause, update both the spec scenarios and the `XPCServerLogicTests.testProductionRequirementPinsTheFleetTeamID` assertion, and reference this ADR's "Deferred tightening" section from the change description.
@@ -92,13 +92,13 @@ When the agent's production signing-identifier story is locked down, narrow the 
 
 The tightening deferred above has landed. Both conditions it waited on now hold:
 
-- **The identifier is locked down.** `packaging/pkg/build.sh` signs the release agent with `--identifier fleet-edr-agent` explicitly, in every signing mode, and the `release-packaging` spec requires it.
+- **The identifier is locked down.** `packaging/pkg/build.sh` signs the release agent with `--identifier rawtrail-agent` explicitly, in every signing mode, and the `release-packaging` spec requires it.
 - **The threat model now needs it.** The inbound XPC documents grew: containment state, application-control rules and watched paths now arrive over this channel. With team ID alone, any binary the team ever signed could lift a host's containment or rewrite its blocklist.
 
 The production requirement is now:
 
 ```text
-anchor apple generic and identifier "fleet-edr-agent" and certificate leaf[subject.OU] = "FDG8Q7N4CC"
+anchor apple generic and identifier "rawtrail-agent" and certificate leaf[subject.OU] = "FDG8Q7N4CC"
 ```
 
 Checked with `codesign -R` against the released v0.7.0 agent: the real agent satisfies it, and the same signature checked against any other identifier does not. Debug builds keep accepting the ad-hoc dev agent by the identifier alone. Renaming the agent's signing identifier is now a coordinated change to `build.sh`, `task build:agent` and `PeerCodeSigningRequirement`, as the deferred-tightening section predicted.

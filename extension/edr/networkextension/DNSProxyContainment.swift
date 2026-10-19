@@ -3,7 +3,7 @@ import Network
 import NetworkExtension
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.networkextension", category: "DNSProxy")
+private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "DNSProxy")
 
 /// A contained host's DNS (#948). ContainedDNS decides each query; this bridges its decisions to the proxy's flows. In its own file so
 /// DNSProxyProvider stays within SwiftLint's file-length cap.

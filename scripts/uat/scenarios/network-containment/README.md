@@ -36,7 +36,7 @@ task uat:l5 -- network-containment --skip-install
 
 It takes about three minutes.
 
-- `EDR_SERVER_URL` must be the URL the agent enrolled with (`/etc/fleet-edr.conf` on the VM). The lifeline allows only the agent's own server endpoint, so a different address for the same server is blocked while the host is contained and the scenario fails on the server samples.
+- `EDR_SERVER_URL` must be the URL the agent enrolled with (`/etc/rawtrail.conf` on the VM). The lifeline allows only the agent's own server endpoint, so a different address for the same server is blocked while the host is contained and the scenario fails on the server samples.
 - Containing a host needs `host.isolate` and a recent authentication: the session must have signed in within `EDR_REAUTH_WINDOW` (30 minutes by default). An older session is refused with `reauth_required`, which the script reports before anything is contained.
 - The host must not be contained when the run starts. The script never lifts a containment it did not make: the request must report that it changed the state, and the trap releases only while the host still carries the version this run created. If another operator contains the host in the moment between the check and the request, the run stops and leaves their containment alone.
 

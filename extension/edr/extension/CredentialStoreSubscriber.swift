@@ -2,7 +2,7 @@ import EndpointSecurity
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.fleetdm.edr.securityextension", category: "ESFCredentialStores")
+private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ESFCredentialStores")
 
 /// CredentialStoreSubscriber is a third, NOTIFY-only Endpoint Security client that reports when a program other than the browser
 /// opens a browser's saved passwords or cookies (issue #1187). Infostealers read these files, and no other client reports a read:
@@ -23,7 +23,7 @@ final class CredentialStoreSubscriber: Sendable {
     nonisolated(unsafe) var onEvent: ((Data) -> Void)?
 
     /// queue serializes every change to the muted set, the start and each refresh. `applied` is only read and written on it.
-    private let queue = DispatchQueue(label: "com.fleetdm.edr.credentialstores")
+    private let queue = DispatchQueue(label: "io.rawtrail.credentialstores")
     /// applied is the literal paths currently muted, and so observed once inversion is on; appliedPrefixes is the same for the
     /// browser directories watched as prefixes.
     private nonisolated(unsafe) var applied: [String] = []

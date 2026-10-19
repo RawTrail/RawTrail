@@ -19,8 +19,8 @@ import Foundation
 /// `esfExtensionID` / `netExtensionID` constants so tests can assert the activate / deactivate flow targets
 /// exactly these two extensions and no others.
 enum HostAppExtensionID {
-    static let endpointSecurity = "com.fleetdm.edr.securityextension"
-    static let networkExtension = "com.fleetdm.edr.networkextension"
+    static let endpointSecurity = "io.rawtrail.securityextension"
+    static let networkExtension = "io.rawtrail.networkextension"
     static let all: [String] = [endpointSecurity, networkExtension]
 }
 
@@ -179,7 +179,7 @@ func postAggregateStep(for action: HostAppAction, verdict: AggregateVerdict) -> 
 /// fresh-install path free of a spurious reboot prompt. Deactivate and failure paths never warrant a reboot message.
 func rebootRequiredMessage(for action: HostAppAction, verdict: AggregateVerdict) -> String? {
     guard action == .activate, verdict == .rebootRequired else { return nil }
-    return "Fleet EDR upgrade staged; reboot to finish the extension cutover and restore network + DNS coverage."
+    return "RawTrail upgrade staged; reboot to finish the extension cutover and restore network + DNS coverage."
 }
 
 /// SubcommandIntent is the typed side-effect a single host-app subcommand invocation produces. The
@@ -240,7 +240,7 @@ struct FilterConfigIntent: Equatable, Sendable {
 let activateFilterConfig = FilterConfigIntent(
     filterSockets: true,
     filterPackets: false,
-    localizedDescription: "Fleet EDR Network Monitor",
+    localizedDescription: "RawTrail Network Monitor",
     isEnabled: true
 )
 
@@ -259,7 +259,7 @@ struct DNSProxyConfigIntent: Equatable, Sendable {
 /// survives so a subsequent enable-dns-proxy doesn't need to re-set everything.
 let activateDNSProxyConfig = DNSProxyConfigIntent(
     providerBundleIdentifier: HostAppExtensionID.networkExtension,
-    localizedDescription: "Fleet EDR DNS Monitor",
+    localizedDescription: "RawTrail DNS Monitor",
     isEnabled: true
 )
 

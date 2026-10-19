@@ -119,7 +119,7 @@ func (u *Uploader) SetMetrics(m MetricsRecorder) { u.metrics = m }
 // New creates an Uploader. The http.Client should already be wrapped with otelhttp.NewTransport if the caller wants OTel propagation;
 // callers that pass nil get a vanilla client with a 30s timeout and no instrumentation.
 //
-// ClientErrorQuarantineThreshold normalisation: production wiring (agent/cmd/fleet-edr-agent/main.go) constructs
+// ClientErrorQuarantineThreshold normalisation: production wiring (agent/cmd/rawtrail-agent/main.go) constructs
 // uploader.Config via a keyed literal that doesn't mention every field; without the normalisation below the threshold
 // would default to 0 and disable the #253 quarantine path entirely. A zero value is treated as "apply the documented
 // default"; a NEGATIVE value remains negative and is treated as "explicitly disabled" downstream so test code can opt

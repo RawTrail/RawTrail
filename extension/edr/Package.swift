@@ -89,7 +89,7 @@ let package = Package(
                 "networkextension/NetworkFilter.swift",
                 "networkextension/NetworkContainmentController.swift",
                 "networkextension/XPCServer.swift",
-                "com.fleetdm.edr.notify.plist"
+                "io.rawtrail.notify.plist"
             ],
             sources: [
                 "edr/ExtensionManagerLogic.swift",
