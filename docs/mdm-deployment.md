@@ -202,9 +202,9 @@ For an unmanaged Mac (no profile), the script removes the extensions itself by s
 
 ### Fleet
 
-- Pkg upload: **Software > Add software > Custom package**, with the target fleet selected in the scope picker. Check **Automatic install** to install on every in-scope Mac that lacks it.
-- Profiles: **Controls > OS settings > Custom settings**, upload all three `.mobileconfig` files to the same fleet. Fleet signs them at delivery and rejects pre-signed uploads, so upload them as shipped.
-- Install script: under the package's **Advanced options**, replace the default install script with the one below. Fleet runs this script instead of the installer, so it calls `installer` itself, and it reads the server URL and enroll secret from custom variables (**Settings > Integrations > MDM > Custom variables**) named `EDR_SERVER_URL` and `EDR_ENROLL_SECRET`. Paste the uninstall script above into the uninstall script field.
+- Pkg upload: **Software > Add software > Custom package**, with the target fleet selected in the scope picker. Turn on **Deploy** to install it automatically on every in-scope Mac that lacks it.
+- Profiles: **Controls > OS settings > Configuration profiles**, upload all three `.mobileconfig` files to the same fleet. Fleet signs them at delivery and rejects pre-signed uploads, so upload them as shipped.
+- Install script: under the package's **Advanced options**, replace the default **Install script** with the one below. Fleet runs this script instead of the installer, so it calls `installer` itself, and it reads the server URL and enroll secret from custom variables (**Controls > Variables**) named `EDR_SERVER_URL` and `EDR_ENROLL_SECRET`. Paste the uninstall script above into the **Uninstall script** field.
 
 ```sh
 #!/bin/sh
