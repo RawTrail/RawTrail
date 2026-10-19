@@ -223,13 +223,11 @@ fi
 # is embedded in. A mismatched profile signs and packages cleanly, then the bundle's restricted entitlements are refused at
 # launch on a SIP-on host, so the release would install and do nothing.
 require_profile_matches() {
-    local profile="$1" bundle="$2"
-    local want got
-    want="$TEAM_ID.$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle/Contents/Info.plist")"
-    got=$(security cms -D -i "$profile" | plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - -)
-    if [ "$got" != "$want" ]; then
-        echo "ERROR: $profile is issued for $got, but $bundle is $want." >&2
-        echo "       Issue a Developer ID provisioning profile for $want and replace the file." >&2
+    profile_app_id=$(security cms -D -i "$1" | plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - -)
+    bundle_app_id="$TEAM_ID.$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$2/Contents/Info.plist")"
+    if [ "$profile_app_id" != "$bundle_app_id" ]; then
+        echo "ERROR: $1 is issued for $profile_app_id, but $2 is $bundle_app_id." >&2
+        echo "       Issue a Developer ID provisioning profile for $bundle_app_id and replace the file." >&2
         exit 21
     fi
 }
