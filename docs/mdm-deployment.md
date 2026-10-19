@@ -2,13 +2,13 @@
 
 RawTrail ships through any MDM that can deliver a `.pkg` + three `.mobileconfig` profiles + a one-line install script: Jamf Pro, Kandji, Intune, mosyle, Fleet, or any equivalent platform.
 
-For the Fleet-specific recipe see [fleet-deployment.md](fleet-deployment.md). For single-Mac eval without an MDM see [install-agent-manual.md](install-agent-manual.md).
+Each MDM's names for these steps are in [Vendor-specific notes](#vendor-specific-notes). For single-Mac eval without an MDM see [install-agent-manual.md](install-agent-manual.md).
 
 ## The deployment contract
 
 Three artifacts, delivered in this order:
 
-1. **Three unsigned `.mobileconfig` profiles** pushed via MDM "custom settings". They pre-approve the Endpoint Security and Network system extensions, grant Full Disk Access, and keep users from turning off the agent's background items. These must arrive BEFORE the pkg so the extensions activate silently on install. The profiles ship unsigned on purpose: every supported MDM signs profiles itself at delivery time, and Fleet rejects a pre-signed upload outright.
+1. **Three unsigned `.mobileconfig` profiles** pushed via MDM "custom settings". They pre-approve the Endpoint Security and Network system extensions, grant Full Disk Access, and keep users from turning off the agent's background items. These must arrive BEFORE the pkg so the extensions activate silently on install. The profiles ship unsigned on purpose: every supported MDM signs profiles itself at delivery time, and some reject a pre-signed upload outright.
 2. **An install script** your MDM runs before the pkg installer. It writes `/etc/rawtrail.conf` with the enroll secret + server URL.
 3. **The signed `.pkg`** pushed via MDM "software installer".
 
@@ -200,13 +200,19 @@ For an unmanaged Mac (no profile), the script removes the extensions itself by s
 - Profiles: **Management > Profiles > Custom Profiles**. Upload all three `.mobileconfig` files and assign to the same device group.
 - Install script: **Management > Commands > Scripts**. Schedule to run before the enterprise app install.
 
-### Fleet MDM
+### Fleet
 
-See [fleet-deployment.md](fleet-deployment.md) for the full Fleet workflow.
+- Pkg upload: **Software > Add software > Custom package**, with the target fleet selected in the scope picker. Check **Automatic install** to install on every in-scope Mac that lacks it.
+- Profiles: **Controls > OS settings > Custom settings**, upload all three `.mobileconfig` files to the same fleet. Fleet signs them at delivery and rejects pre-signed uploads, so upload them as shipped.
+- Install script: under the package's **Advanced options**, replace the default install script. Fleet runs this script instead of the installer, so end it with `installer -pkg "$INSTALLER_PATH" -target /`. Store the server URL and enroll secret as custom variables (**Settings > Integrations > MDM > Custom variables**) and read them as `$FLEET_SECRET_EDR_SERVER_URL` and `$FLEET_SECRET_EDR_ENROLL_SECRET`. Paste the uninstall script above into the uninstall script field.
 
 ## Troubleshoot
 
 **pkg installs but sysext stays in `activated waiting for user`.** The system-extension profile hasn't reached the Mac yet, or it was scoped differently. Check `profiles list | grep rawtrail` for the `io.rawtrail.profile.system-extension` entry. Re-scope + re-push if missing.
+
+**Profile stays pending.** The Mac isn't user-approved MDM enrolled. Restricted payloads install only on an ADE-enrolled Mac or one whose user approved the enrollment in System Settings; re-enroll it that way.
+
+**MDM refuses the profile upload because it is signed.** The profile was signed before upload, by you or your tooling. Re-download the unsigned profiles from the release and upload those.
 
 **Agent log shows `ES_NEW_CLIENT_RESULT_ERR_NOT_PERMITTED`.** TCC FDA profile not pushed, or scoped to a different set of Macs than the pkg. Check `profiles list` for `io.rawtrail.profile.tcc-fda`.
 

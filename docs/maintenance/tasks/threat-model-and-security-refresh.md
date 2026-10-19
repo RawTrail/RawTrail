@@ -31,7 +31,7 @@ List every trust boundary the system actually has, today, by inspection of the c
 | Server ↔ UI (browser session) | `server/identity/internal/middleware` + `ui/src/` |
 | Server ↔ operator REST surface | per-context `server/<bounded-context>/internal/operator/` (`detection`, `rules`, `endpoint`, `response`) plus `server/identity/internal/{login,oidc,breakglass,middleware}` for the auth boundary |
 | Install / enroll secret distribution | `packaging/` + `/etc/rawtrail.conf` |
-| Fleet → EDR install | Fleet install script + signed `.pkg` + `.mobileconfig` |
+| MDM → agent install | MDM install script + signed `.pkg` + `.mobileconfig` |
 
 For each boundary:
 
@@ -52,7 +52,7 @@ Diff the current boundary list against the threat model's enumerated boundaries.
 The model should name the actor classes it considers (unprivileged local user, privileged local user, attacker on the local network, attacker who has compromised the agent, etc.). For each, ask:
 
 - Is the actor still in scope?
-- Have the deploy assumptions changed in a way that adds an actor (e.g. multi-tenancy via Fleet)?
+- Have the deploy assumptions changed in a way that adds an actor (e.g. multi-tenancy via an MDM)?
 - Are there new mitigations that change what the actor can do?
 
 ### 4. Cross-check with ADRs

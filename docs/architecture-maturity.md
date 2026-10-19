@@ -60,7 +60,7 @@ The list of trust-only invariants. Each is small enough that review catches viol
 - Single-process, single-DB hot path; cross-context calls go through narrow interfaces with no allocation in the inner loop: ✓ (`detection.api.GraphReader` is the canonical example).
 - Three-layer test pyramid: ✓ (unit + per-context + cross-context).
 
-**Stronger than the Fleet (`fleetdm/fleet`) reference the strategic plan cites:**
+**Stronger than Fleet (`fleetdm/fleet`), a comparable open-source Go monolith:**
 
 - Explicit bounded contexts vs. Fleet's layered datastore + service + handler shape. Both are valid; ours scales better as the rule catalog grows because rules + detection + response are separated from each other rather than all sharing one `service` package.
 - `<X>/api/` + `<X>/bootstrap/` + `<X>/internal/` + `<X>/testkit/` peer subpackages, each with a distinct purpose, vs. Fleet's mixed-concerns packages.

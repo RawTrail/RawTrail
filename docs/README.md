@@ -10,7 +10,6 @@ Operator-facing documentation for RawTrail. For developer setup see the repo-roo
 | Standing up the server with your own TLS-terminating ingress              | [`install-server.md`](install-server.md)             |
 | Evaluating the agent on a handful of Macs without MDM                     | [`install-agent-manual.md`](install-agent-manual.md) |
 | Deploying to a fleet via any MDM (Jamf, Kandji, Intune, mosyle, Fleet)    | [`mdm-deployment.md`](mdm-deployment.md)             |
-| Deploying specifically via Fleet MDM                                      | [`fleet-deployment.md`](fleet-deployment.md)         |
 | Upgrading, rotating secrets, recovering from a wiped server, reading logs | [`operations.md`](operations.md)                     |
 | Integrating with the server's HTTP API                                    | [`api.md`](api.md)                                   |
 | Delivering alerts to an external endpoint over a signed webhook           | [`webhooks.md`](webhooks.md)                         |
@@ -21,7 +20,7 @@ Operator-facing documentation for RawTrail. For developer setup see the repo-roo
 
 ## Getting started
 
-The recommended path: stand up the server on a single Linux VM with your own domain (one script, automatic Let's Encrypt certificate, no edge WAF to block agent telemetry), then push the agent to your Macs through Fleet MDM. See [quickstart-vm.md](quickstart-vm.md) for the server and [fleet-deployment.md](fleet-deployment.md) for the agents.
+The recommended path: stand up the server on a single Linux VM with your own domain (one script, automatic Let's Encrypt certificate, no edge WAF to block agent telemetry), then push the agent to your Macs through your MDM. See [quickstart-vm.md](quickstart-vm.md) for the server and [mdm-deployment.md](mdm-deployment.md) for the agents.
 
 ## Shape of a RawTrail deployment
 

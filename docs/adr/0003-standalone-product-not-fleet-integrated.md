@@ -4,6 +4,8 @@
 - Date: 2026-04-18
 - Deciders: getvictor
 
+> **Note (2026-10-19):** the product was renamed from Fleet EDR to RawTrail (epic #1369) to drop the remaining tie to Fleet's brand. The decision stands, and Fleet is now documented as one MDM among the others in `docs/mdm-deployment.md` rather than in a guide of its own. The names below are the current ones.
+
 ## Context
 
 An EDR that sits next to Fleet (the MDM + osquery platform) can be built in several shapes. Two extremes frame the design space:

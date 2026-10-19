@@ -4,9 +4,9 @@ schema: spec-driven
 # stack and conventions before drafting proposals or specs.
 context: |
   RawTrail is a standalone, macOS-first endpoint detection and response
-  product. It ships its own server, agent, UI, and installer; Fleet
-  (the MDM product) is one supported deployment channel, not an
-  owner of the data plane.
+  product. It ships its own server, agent, UI, and installer, and deploys
+  through any MDM (Jamf, Kandji, Intune, mosyle, Fleet); no MDM
+  owns its data plane.
 
   Components:
   - extension/edr/    Swift Xcode project. Endpoint Security system

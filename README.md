@@ -48,7 +48,7 @@ Two steps. Stand up a server, then push the agent to your Macs.
 
 **2. Deploy the agent to your Macs** (Apple Silicon, macOS 26+). The agent ships as a Developer ID-signed, notarized `.pkg` plus three `.mobileconfig` profiles, delivered by your MDM.
 
-- **Via MDM** (Fleet, Jamf, Kandji, Intune, mosyle): the vendor-neutral contract is in [docs/mdm-deployment.md](docs/mdm-deployment.md); the Fleet-specific recipe is in [docs/fleet-deployment.md](docs/fleet-deployment.md).
+- **Via MDM** (Jamf, Kandji, Intune, mosyle, Fleet, or any other): the contract and each MDM's steps are in [docs/mdm-deployment.md](docs/mdm-deployment.md).
 - **Manually on 1 to 5 Macs** (no MDM, for evaluation): [docs/install-agent-manual.md](docs/install-agent-manual.md).
 
 Once agents enroll, open the server's `/ui/` to watch hosts, process trees, and alerts in real time.
@@ -108,7 +108,6 @@ Operator and reference docs live in [`docs/`](docs/):
 | Deploy on a single VM with your own domain (recommended) | [`quickstart-vm.md`](docs/quickstart-vm.md)                           |
 | Self-host the server stack                               | [`install-server.md`](docs/install-server.md)                         |
 | Deploy the agent via any MDM                             | [`mdm-deployment.md`](docs/mdm-deployment.md)                         |
-| Fleet MDM recipe                                         | [`fleet-deployment.md`](docs/fleet-deployment.md)                     |
 | Evaluate on 1 to 5 Macs without an MDM                   | [`install-agent-manual.md`](docs/install-agent-manual.md)             |
 | Day-2 ops: upgrades, rotations, backups, troubleshooting | [`operations.md`](docs/operations.md)                                 |
 | Detection rules: behavior, ATT&CK mapping, configuration | [`detection-rules.md`](docs/detection-rules.md)                       |

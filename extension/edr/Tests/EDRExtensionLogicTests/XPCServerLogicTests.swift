@@ -45,7 +45,7 @@ final class XPCServerLogicTests: XCTestCase {
     // MARK: Requirement: Peer code-signing validation
 
     // spec:extension-xpc-server/peer-code-signing-validation/a-peer-with-the-wrong-team-id-is-rejected
-    func testProductionRequirementPinsTheFleetTeamID() {
+    func testProductionRequirementPinsTheReleaseTeamID() {
         // The production requirement string is the one a release-configured extension hands to
         // xpc_connection_set_peer_code_signing_requirement. A peer signed with a different team OU will fail to satisfy
         // it and libxpc will cancel the connection. Asserting the language explicitly (Apple anchor + the release team ID

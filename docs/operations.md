@@ -103,7 +103,7 @@ Changes you make, as opposed to reads, do not depend on that queue. Containing o
 
 ## Upgrade agents
 
-Agents upgrade by pushing a newer `.pkg` through your MDM. See your MDM's section in [mdm-deployment.md](mdm-deployment.md); for Fleet, see [fleet-deployment.md](fleet-deployment.md).
+Agents upgrade by pushing a newer `.pkg` through your MDM. See your MDM's section in [mdm-deployment.md](mdm-deployment.md).
 
 Never hand-install a newer pkg on a single MDM-managed Mac to "test the upgrade path". The MDM will re-deploy the old version on the next sync and you'll waste time debugging a drift you caused.
 
