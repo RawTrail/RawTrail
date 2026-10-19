@@ -4,18 +4,6 @@ import os.log
 
 private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ESFSubscriber")
 
-/// Self-allow failsafe inputs: AUTH_EXEC exempts RawTrail's own components from app-control enforcement only when target.team_id
-/// matches extensionTeamID AND target.signing_id is in selfAllowSigningIDs. Team-id-only would exempt every binary the team
-/// has ever signed. Phase B replaces both with a server-pushed allowlist so operators can extend without an agent re-release.
-private let extensionTeamID = "FDG8Q7N4CC"
-
-private let selfAllowSigningIDs: Set<String> = [
-    "io.rawtrail.agent",
-    "io.rawtrail.securityextension",
-    "io.rawtrail.networkextension",
-    "io.rawtrail"
-]
-
 /// authWorkerConcurrency bounds how many AUTH_EXEC decisions hash/decide in parallel off the ES delivery thread (#298). The
 /// ES client delivers AUTH messages on a single serial queue; running the SecCode walk + SHA-256 inline there lets one slow
 /// hash stall (and, past the kernel deadline, fail-closed DENY) every queued exec. Offloading to this many concurrent workers
@@ -203,10 +191,9 @@ final class ESFSubscriber: Sendable {
         }
 
         // Self-allow failsafe: exempt the agent + extensions + host app from app-control enforcement so a misconfigured rule cannot
-        // brick the EDR itself. Match BOTH team_id and the exhaustive RawTrail signing-ID set; team_id alone would exempt every binary
-        // ever signed by extensionTeamID, which is broader than intended.
-        if teamID == extensionTeamID, selfAllowSigningIDs.contains(signingID) {
-            // cache:true is safe here: the answer is a function of the binary's intrinsic identity (extensionTeamID + a RawTrail
+        // brick the EDR itself (isSelfAllowed in AuthExecDecider.swift).
+        if isSelfAllowed(teamID: teamID, signingID: signingID) {
+            // cache:true is safe here: the answer is a function of the binary's intrinsic identity (the release team + a RawTrail
             // signing_id), which is stable for the lifetime of the binary on disk, and the kernel keys the AUTH cache on
             // (dev,inode,mtime) so any binary swap forces a fresh decision. Caching elides the per-exec handler cost during a
             // fork-exec storm of our own tools (#209).
