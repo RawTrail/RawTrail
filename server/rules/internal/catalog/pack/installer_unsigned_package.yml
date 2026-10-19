@@ -14,7 +14,7 @@ description: |-
   Keyed on the package's signature, which the agent reads when macOS's installer runs one of its scripts. Vendors sign their packages, and macOS refuses an unsigned one unless the user overrides it, so an unsigned or untrusted package running a script is rare. One alert is raised per package, however many scripts it runs.
 
   `suspicious_exec` also reports each of a package's scripts, signed or not, and is excluded by the team that signed the package. This rule is what still reports a package that names no team to exclude.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1546.016

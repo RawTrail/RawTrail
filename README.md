@@ -1,4 +1,4 @@
-# Fleet EDR
+# RawTrail
 
 <!-- License & release -->
 
@@ -16,11 +16,11 @@
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12994/badge)](https://www.bestpractices.dev/projects/12994) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/getvictor/fleet-edr/badge)](https://scorecard.dev/viewer/?uri=github.com/getvictor/fleet-edr) [![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev/spec/v1.0/levels#build-l2) [![cosign keyless](https://img.shields.io/badge/cosign-keyless-9cf?style=flat-square&logo=sigstore)](docs/best-practices.md#4-supply-chain-security)
 
-Fleet EDR is an open-source endpoint detection and response (EDR) system for macOS fleets. It gives security teams real-time visibility into process, network, and DNS activity on Apple Silicon Macs, runs behavioral detection rules against a materialized process graph, and can block execution or kill a process on the endpoint. It is fully self-hosted: your own server, your own data, no SaaS dependency.
+RawTrail is an open-source endpoint detection and response (EDR) system for macOS fleets. It gives security teams real-time visibility into process, network, and DNS activity on Apple Silicon Macs, runs behavioral detection rules against a materialized process graph, and can block execution or kill a process on the endpoint. It is fully self-hosted: your own server, your own data, no SaaS dependency.
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=3pPhDc-AIOQ">
-    <img src="https://img.youtube.com/vi/3pPhDc-AIOQ/maxresdefault.jpg" alt="Fleet EDR demo video" width="640">
+    <img src="https://img.youtube.com/vi/3pPhDc-AIOQ/maxresdefault.jpg" alt="RawTrail demo video" width="640">
   </a>
   <br />
   <a href="https://www.youtube.com/watch?v=3pPhDc-AIOQ"><strong>▶ Watch the demo</strong></a>
@@ -61,13 +61,13 @@ Want to look before deploying? Evaluate the full server, UI, and detection pipel
 docker compose -f docker-compose.demo.yml up
 ```
 
-Open <https://localhost:8088/ui/>, accept the self-signed certificate warning, and sign in through the bundled IdP with the demo account `demo@fleet-edr.local` / `demo`. It signs in as an **admin**: user invitations, policy authoring, and every host and alert action, so you can drive the full operator surface.
+Open <https://localhost:8088/ui/>, accept the self-signed certificate warning, and sign in through the bundled IdP with the demo account `demo@rawtrail.local` / `demo`. It signs in as an **admin**: user invitations, policy authoring, and every host and alert action, so you can drive the full operator surface.
 
 You'll see two real macOS hosts (an engineer laptop and a CI build server), each with a deep process graph and correlated network and DNS activity drawn from genuine scrubbed captures. Woven into that ambient activity are five fired ATT&CK detections: a credential keychain dump and a suspicious process phoning home (exec, DNS, and outbound connection correlated across all three streams), plus sudoers tampering, launchd persistence, and an application-control block. Every alert comes from the real ingestion and detection pipeline, not hand-inserted rows, and the benign activity raises no false alarms.
 
 Notes:
 
-- Super admin: the demo account is an `admin` with SSO login; for a `super_admin` break-glass account, open the one-shot `BREAK-GLASS ADMIN SETUP` redemption URL for `admin@fleet-edr.local` that the server prints on each boot until it is redeemed (valid for one hour), and register a WebAuthn passkey. Retrieve it with `docker compose -f docker-compose.demo.yml logs server | grep -A4 BREAK-GLASS`.
+- Super admin: the demo account is an `admin` with SSO login; for a `super_admin` break-glass account, open the one-shot `BREAK-GLASS ADMIN SETUP` redemption URL for `admin@rawtrail.local` that the server prints on each boot until it is redeemed (valid for one hour), and register a WebAuthn passkey. Retrieve it with `docker compose -f docker-compose.demo.yml logs server | grep -A4 BREAK-GLASS`.
 - The on-device half (system extension, network extension, agent) needs an Apple-granted Endpoint Security entitlement and Apple Silicon, so it cannot run in Docker. The demo exercises the server, UI, and detection pipeline; deploy on a real Mac (above) to see live capture.
 - Response actions enqueue but never complete in the demo because no live agent is connected.
 - Evaluation only: empty MySQL password, self-signed cert, checked-in dev secrets. Do not expose it to the internet.

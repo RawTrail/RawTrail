@@ -1,4 +1,4 @@
-// Fleet EDR design system entry point.
+// RawTrail design system entry point.
 @use "var/global" as *;
 @use "var/colors" as *;
 @use "var/fonts" as *;
@@ -23,7 +23,7 @@ body {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: $x-small;
   line-height: $line-height;
-  color: $core-fleet-black;
+  color: $core-black;
   background-color: $ui-off-white;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -37,7 +37,7 @@ h5,
 h6 {
   font-weight: $bold;
   margin: 0 0 $pad-small 0;
-  color: $core-fleet-black;
+  color: $core-black;
 }
 
 h1 { font-size: $large; }
@@ -46,7 +46,7 @@ h3 { font-size: $small; }
 h4 { font-size: $x-small; text-transform: uppercase; letter-spacing: 0.5px; }
 
 a {
-  color: $core-fleet-green;
+  color: $core-green;
   text-decoration: none;
 
   &:hover {

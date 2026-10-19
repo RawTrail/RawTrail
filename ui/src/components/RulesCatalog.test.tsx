@@ -17,7 +17,7 @@ function rule(id: string, title: string, over: Partial<RuleDocEntry> = {}): Rule
 }
 
 const rules: RuleDocEntry[] = [
-  rule("suspicious_exec", "Suspicious exec chain", { origin: "Fleet EDR", mode: "alert", mode_source: "default" }),
+  rule("suspicious_exec", "Suspicious exec chain", { origin: "RawTrail", mode: "alert", mode_source: "default" }),
   rule("keychain_extra", "Keychain extra", { origin: "Locally authored", mode: "monitor", mode_source: "default" }),
   // An older replica mid-upgrade reports neither the mode in force nor an origin.
   rule("legacy_rule", "Legacy rule", { default_mode: "monitor" }),

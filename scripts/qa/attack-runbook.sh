@@ -31,7 +31,7 @@
 #
 # Prerequisites on the target host
 # --------------------------------
-#  - Fleet EDR agent enrolled and posting events.
+#  - RawTrail agent enrolled and posting events.
 #  - sudo for steps that need root (LaunchDaemon write, security
 #    dump-keychain). Most steps work without sudo.
 #  - Optional: `go` available to build the synthetic dropper (one rule
@@ -387,7 +387,7 @@ USAGE
 
 main() {
   parse_args "$@"
-  echo "[runbook] Fleet EDR synthetic attacker - $(date -u)"
+  echo "[runbook] RawTrail synthetic attacker - $(date -u)"
   echo "[runbook] working dir: $WORKDIR"
   if [[ "$PACE_SECONDS" -gt 0 ]]; then
     echo "[runbook] live-demo pacing: ${PACE_SECONDS}s between steps"

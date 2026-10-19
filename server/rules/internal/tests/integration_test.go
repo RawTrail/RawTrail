@@ -300,7 +300,7 @@ func TestOperator_GetRules(t *testing.T) {
 // the upstream MITRE format (domain="enterprise-attack"); the test seeds the default rule catalog so
 // the "techniques array contains an entry for every covered technique" clause is satisfied by the
 // presence of a non-empty techniques array (every built-in catalog rule declares at least one technique).
-// The document MUST also scope the matrix to the macOS platform via filters.platforms, since Fleet EDR
+// The document MUST also scope the matrix to the macOS platform via filters.platforms, since RawTrail
 // is macOS-only. The byte-identical-across-requests assertion is a stronger invariant than the spec
 // requires but it catches any non-deterministic ordering that would break snapshot-based dashboards.
 func TestOperator_GetAttackCoverage(t *testing.T) {
@@ -324,7 +324,7 @@ func TestOperator_GetAttackCoverage(t *testing.T) {
 		filters, ok := body["filters"].(map[string]any)
 		require.True(t, ok, "filters object must be present")
 		assert.Equal(t, []any{"macOS"}, filters["platforms"],
-			"layer must scope the matrix to the macOS platform Fleet EDR covers")
+			"layer must scope the matrix to the macOS platform RawTrail covers")
 		techniques, ok := body["techniques"].([]any)
 		require.True(t, ok, "techniques must be present and an array")
 		assert.NotEmpty(t, techniques, "with the default catalog wired in, techniques must be non-empty per spec")

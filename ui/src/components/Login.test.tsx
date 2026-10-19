@@ -128,3 +128,11 @@ describe("Login navigating state", () => {
     expect(assignSpy).toHaveBeenCalled();
   });
 });
+
+describe("Login brand", () => {
+  // spec:product-identity/the-product-identifies-itself-as-rawtrail/the-ui-s-brand-mark-reads-rawtrail
+  it("names the product RawTrail", () => {
+    renderAt({});
+    expect(screen.getByRole("heading", { level: 1, name: "RawTrail" })).toBeVisible();
+  });
+});

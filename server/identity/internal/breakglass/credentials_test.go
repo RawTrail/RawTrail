@@ -26,7 +26,7 @@ func newCredentialStore(t *testing.T) (*breakglass.CredentialStore, *sqlx.DB, in
 	require.NoError(t, testkit.ApplySchema(t.Context(), db))
 	res, err := db.ExecContext(t.Context(),
 		`INSERT INTO users (email, is_breakglass) VALUES (?, 1)`,
-		"admin@fleet-edr.local")
+		"admin@rawtrail.local")
 	require.NoError(t, err)
 	uid, err := res.LastInsertId()
 	require.NoError(t, err)

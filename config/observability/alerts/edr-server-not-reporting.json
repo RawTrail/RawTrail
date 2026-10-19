@@ -23,7 +23,7 @@
             ],
             "disabled": false,
             "filter": {
-              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod'"
+              "expression": "service.name = 'rawtrail-server' AND deployment.environment = 'prod'"
             },
             "order": [
               {
@@ -63,13 +63,13 @@
     }
   },
   "labels": {
-    "service": "fleet-edr-server",
+    "service": "rawtrail-server",
     "severity": "critical",
     "team": "edr"
   },
   "annotations": {
     "description": "No edr.enrolled.hosts sample for 10 minutes. Check that the server container is running (docker compose ps), its logs for a fatal env-validation error, and the OTLP export path.",
-    "summary": "fleet-edr-server stopped reporting telemetry"
+    "summary": "rawtrail-server stopped reporting telemetry"
   },
   "disabled": false,
   "version": "v5",

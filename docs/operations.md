@@ -1,6 +1,6 @@
 # Day-2 operations
 
-This is the runbook for operating a Fleet EDR server + agent fleet that's already deployed. If you're setting it up for the first time, start with [install-server.md](install-server.md) and [mdm-deployment.md](mdm-deployment.md).
+This is the runbook for operating a RawTrail server + agent fleet that's already deployed. If you're setting it up for the first time, start with [install-server.md](install-server.md) and [mdm-deployment.md](mdm-deployment.md).
 
 ## Quick reference
 
@@ -19,14 +19,14 @@ The `curl` examples below verify the server's TLS certificate. If you deploy wit
 
 ## Upgrade the server
 
-Server releases are tagged images at `ghcr.io/getvictor/fleet-edr-server:<version>` and new pkg / profile bundles on the GitHub Releases page. Server + agent versions are independent; upgrade them on separate schedules.
+Server releases are tagged images at `ghcr.io/getvictor/rawtrail-server:<version>` and new pkg / profile bundles on the GitHub Releases page. Server + agent versions are independent; upgrade them on separate schedules.
 
 ```sh
 # 1. Decide on the version. Use the exact tag from the releases page;
 #    do not use :latest in production.
-# 2. Edit /srv/fleet-edr/.env and bump EDR_VERSION.
+# 2. Edit /srv/rawtrail/.env and bump EDR_VERSION.
 # 3. Pull the new image and restart.
-cd /srv/fleet-edr
+cd /srv/rawtrail
 docker compose -f docker-compose.prod.yml --env-file .env pull server
 docker compose -f docker-compose.prod.yml --env-file .env up -d
 
@@ -54,7 +54,7 @@ Procedure:
 
 ```sh
 # 1. Bump EDR_VERSION in .env to the exact release tag, then pull.
-cd /srv/fleet-edr   # the directory holding docker-compose-multi-replica.yml
+cd /srv/rawtrail   # the directory holding docker-compose-multi-replica.yml
 docker compose -f docker-compose-multi-replica.yml --env-file .env pull
 
 # 2. Recreate one replica at a time. Compose sends SIGTERM, waits out the drain
@@ -120,7 +120,7 @@ Validate a handful of Macs before rolling fleet-wide:
 The enroll secret is shared between the server and the install script your MDM runs. Rotate it when you suspect it's leaked (committed to a public repo, shared over an insecure channel). Existing agents are unaffected: they authenticate with their per-host token.
 
 ```sh
-cd /srv/fleet-edr
+cd /srv/rawtrail
 NEW_ENROLL_SECRET=$(openssl rand -hex 32)
 printf '%s' "$NEW_ENROLL_SECRET" > secrets/enroll_secret
 docker compose -f docker-compose.prod.yml --env-file .env restart server
@@ -134,10 +134,10 @@ Important: `docker compose kill -s HUP server` does NOT rotate the enroll secret
 
 ```sh
 # Drop the new cert and key alongside the old ones.
-sudo cp /etc/letsencrypt/live/edr.example.com/fullchain.pem /srv/fleet-edr/tls/
-sudo cp /etc/letsencrypt/live/edr.example.com/privkey.pem /srv/fleet-edr/tls/
-sudo chmod 0644 /srv/fleet-edr/tls/fullchain.pem
-sudo chmod 0600 /srv/fleet-edr/tls/privkey.pem
+sudo cp /etc/letsencrypt/live/edr.example.com/fullchain.pem /srv/rawtrail/tls/
+sudo cp /etc/letsencrypt/live/edr.example.com/privkey.pem /srv/rawtrail/tls/
+sudo chmod 0644 /srv/rawtrail/tls/fullchain.pem
+sudo chmod 0600 /srv/rawtrail/tls/privkey.pem
 
 # Tell the running server to re-read them.
 docker compose -f docker-compose.prod.yml --env-file .env kill -s HUP server
@@ -157,7 +157,7 @@ Wire this into your Let's Encrypt renewal hook so it happens automatically on re
 Less common (MySQL isn't exposed outside the Compose network), but:
 
 ```sh
-cd /srv/fleet-edr
+cd /srv/rawtrail
 NEW_MYSQL_PASS=$(openssl rand -hex 24)
 printf '%s' "$NEW_MYSQL_PASS" > secrets/mysql_root
 printf 'root:%s@tcp(mysql:3306)/edr?parseTime=true&tls=false' "$NEW_MYSQL_PASS" > secrets/edr_dsn
@@ -178,7 +178,7 @@ It is required on every boot, OIDC or not, because the host-token pepper is alwa
 In production deliver it via the docker-secret-style `EDR_SECRET_KEY_FILE` mount (same pattern as `EDR_DSN_FILE` and `EDR_ENROLL_SECRET_FILE`). Never paste plaintext into a compose env block. `docker inspect` reads env, but not bind-mounted secret files.
 
 ```sh
-cd /srv/fleet-edr
+cd /srv/rawtrail
 NEW_SECRET_KEY=$(openssl rand -hex 32)
 printf '%s' "$NEW_SECRET_KEY" > secrets/secret_key
 chmod 0600 secrets/secret_key
@@ -337,9 +337,9 @@ The script matches rules by name, so re-running it updates rules instead of dupl
 | EDR maintenance sweep failed | warning | A periodic sweep (`detection.periodic.*` span) failed more than twice in 30 minutes |
 | EDR retention not running | warning | No retention pass in 3 hours. Disable it if every retention window is 0 |
 
-The rules route through SigNoz notification policies rather than naming a channel, so they work in any SigNoz. Add a notification channel, then a routing policy that matches `service = fleet-edr-server` (add `severity` to split paging from email). Until a policy matches, a firing rule shows on the SigNoz alerts page but notifies nobody.
+The rules route through SigNoz notification policies rather than naming a channel, so they work in any SigNoz. Add a notification channel, then a routing policy that matches `service = rawtrail-server` (add `severity` to split paging from email). Until a policy matches, a firing rule shows on the SigNoz alerts page but notifies nobody.
 
-Server logs go through the same OTLP pipeline (via `otelslog`) with `service.name=fleet-edr-server`. Use them for audit-style queries like "who resolved alert X" (look for `edr.admin.action=alert_update` log events with `user.id`).
+Server logs go through the same OTLP pipeline (via `otelslog`) with `service.name=rawtrail-server`. Use them for audit-style queries like "who resolved alert X" (look for `edr.admin.action=alert_update` log events with `user.id`).
 
 ### Trace sampling
 

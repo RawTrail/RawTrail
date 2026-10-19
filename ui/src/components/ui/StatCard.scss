@@ -16,13 +16,13 @@
   gap: $pad-xxsmall;
   padding: 14px 20px;
   min-width: 160px;
-  background: $core-fleet-white;
-  border: 1px solid $ui-fleet-black-10;
-  border-left: 4px solid $ui-fleet-black-25;
+  background: $core-white;
+  border: 1px solid $ui-black-10;
+  border-left: 4px solid $ui-black-25;
   border-radius: $border-radius-large;
 
   &--green {
-    border-left-color: $core-fleet-green;
+    border-left-color: $core-green;
   }
 
   &--red {
@@ -30,13 +30,13 @@
   }
 
   &--neutral {
-    border-left-color: $ui-fleet-black-25;
+    border-left-color: $ui-black-25;
   }
 
   &__value {
     font-size: 28px;
     font-weight: $bold;
-    color: $core-fleet-black;
+    color: $core-black;
     line-height: 1;
     font-variant-numeric: tabular-nums;
   }
@@ -45,6 +45,6 @@
     font-size: $xx-small;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
   }
 }

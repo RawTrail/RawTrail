@@ -11,7 +11,7 @@
   font-size: $xx-small;
   font-weight: $bold;
   text-transform: capitalize;
-  color: $core-fleet-white;
+  color: $core-white;
   line-height: 1;
 
   &--critical {
@@ -20,12 +20,12 @@
 
   &--high {
     background-color: $rainbow-orange;
-    color: $core-fleet-black;
+    color: $core-black;
   }
 
   &--medium {
     background-color: $ui-warning;
-    color: $core-fleet-black;
+    color: $core-black;
   }
 
   &--low {
@@ -41,7 +41,7 @@
   }
 
   &--neutral {
-    background-color: $ui-fleet-black-10;
-    color: $core-fleet-black;
+    background-color: $ui-black-10;
+    color: $core-black;
   }
 }

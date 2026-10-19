@@ -3,7 +3,7 @@ schema: spec-driven
 # Project context injected into every artifact prompt so agents know the
 # stack and conventions before drafting proposals or specs.
 context: |
-  Fleet EDR is a standalone, macOS-first endpoint detection and response
+  RawTrail is a standalone, macOS-first endpoint detection and response
   product. It ships its own server, agent, UI, and installer; Fleet
   (the MDM product) is one supported deployment channel, not an
   owner of the data plane.

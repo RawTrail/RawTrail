@@ -140,7 +140,7 @@ func newFakeService(t *testing.T) (
 
 	usersStore := users.New(db)
 	user, err := usersStore.CreateBreakglass(t.Context(), users.CreateBreakglassRequest{
-		Email: "admin@fleet-edr.local",
+		Email: "admin@rawtrail.local",
 	})
 	require.NoError(t, err)
 
@@ -237,7 +237,7 @@ func TestService_FinishSetup_PreexistingIdentityResolves(t *testing.T) {
 	// Pre-seed the local_password identity the redemption would otherwise insert, mirroring a row left by an earlier seed.
 	res, err := db.ExecContext(t.Context(),
 		`INSERT INTO identities (user_id, provider, subject) VALUES (?, ?, ?)`,
-		uid, identities.ProviderLocalPassword, "admin@fleet-edr.local")
+		uid, identities.ProviderLocalPassword, "admin@rawtrail.local")
 	require.NoError(t, err)
 	seededID, err := res.LastInsertId()
 	require.NoError(t, err)
@@ -604,7 +604,7 @@ func TestHandle_FullLogin_Success(t *testing.T) {
 	// 1. POST /challenge → assertion options + cookie.
 	resp1, err := srv.Client().Post(srv.URL+"/admin/break-glass/challenge",
 		"application/json",
-		strings.NewReader(`{"email":"admin@fleet-edr.local"}`))
+		strings.NewReader(`{"email":"admin@rawtrail.local"}`))
 	require.NoError(t, err)
 	defer func() { _ = resp1.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp1.StatusCode)
@@ -618,7 +618,7 @@ func TestHandle_FullLogin_Success(t *testing.T) {
 
 	// 2. POST /admin/break-glass with email + password + assertion.
 	body, err := json.Marshal(map[string]any{
-		"email":    "admin@fleet-edr.local",
+		"email":    "admin@rawtrail.local",
 		"password": "long-enough-password",
 		"assertion": map[string]any{
 			"id":       "AAA",
@@ -694,7 +694,7 @@ func TestHandle_FullLogin_GenericError_LogsAtWarn(t *testing.T) {
 
 	resp1, err := srv.Client().Post(srv.URL+"/admin/break-glass/challenge",
 		"application/json",
-		strings.NewReader(`{"email":"admin@fleet-edr.local"}`))
+		strings.NewReader(`{"email":"admin@rawtrail.local"}`))
 	require.NoError(t, err)
 	defer func() { _ = resp1.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp1.StatusCode)
@@ -717,7 +717,7 @@ func TestHandle_FullLogin_GenericError_LogsAtWarn(t *testing.T) {
 	require.NoError(t, err)
 	authData := make([]byte, 37)
 	body, err := json.Marshal(map[string]any{
-		"email":    "admin@fleet-edr.local",
+		"email":    "admin@rawtrail.local",
 		"password": "long-enough-password",
 		"assertion": map[string]any{
 			"id":    base64.RawURLEncoding.EncodeToString([]byte("cred-id-1")),
@@ -768,7 +768,7 @@ func TestHandle_PerIPRateLimit(t *testing.T) {
 	require.NoError(t, testkit.ApplySchema(t.Context(), db))
 	usersStore := users.New(db)
 	_, err := usersStore.CreateBreakglass(t.Context(), users.CreateBreakglassRequest{
-		Email: "admin@fleet-edr.local",
+		Email: "admin@rawtrail.local",
 	})
 	require.NoError(t, err)
 

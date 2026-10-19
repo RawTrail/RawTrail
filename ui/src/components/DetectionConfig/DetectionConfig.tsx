@@ -164,7 +164,7 @@ const SEVERITIES = ["", "low", "medium", "high", "critical"] as const;
 // as a JSX attribute it was a single 248-character source line.
 const MODE_COLUMN_TOOLTIP =
   "Alert raises alerts; monitor evaluates and records a signal instead; disabled emits nothing. " +
-  "A rule with no setting here runs in its own default, which is alert for the rules Fleet wrote and monitor for imported ones.";
+  "A rule with no setting here runs in its own default, which is alert for the built-in rules and monitor for imported ones.";
 
 // Shown in place of the column's normal caption when the counts read failed, so the missing evidence is stated rather than left
 // for the reader to infer from a column that says nothing was recorded.

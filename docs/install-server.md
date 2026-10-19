@@ -1,4 +1,4 @@
-# Install the Fleet EDR server
+# Install the RawTrail server
 
 The reference deployment is Docker Compose: MySQL + the server image, with a TLS-terminating ingress in front. The stack is sized for a single customer with 10 to 500 endpoints. Pick a topology below, then follow the setup steps.
 
@@ -46,12 +46,12 @@ Three caveats on the SLA:
 
 ### 1. Choose a directory
 
-Anywhere; the examples assume `/srv/fleet-edr/`.
+Anywhere; the examples assume `/srv/rawtrail/`.
 
 ```sh
-sudo mkdir -p /srv/fleet-edr
-sudo chown "$USER" /srv/fleet-edr
-cd /srv/fleet-edr
+sudo mkdir -p /srv/rawtrail
+sudo chown "$USER" /srv/rawtrail
+cd /srv/rawtrail
 ```
 
 ### 2. Get the compose file
@@ -186,7 +186,7 @@ Expected output:
 ```text
 ================================================================
 BREAK-GLASS ADMIN SETUP (one-shot redemption URL - open in a browser)
-  Email: admin@fleet-edr.local
+  Email: admin@rawtrail.local
   URL:   https://edr.example.com/admin/break-glass/setup?token=<random>
   TTL:   1h0m0s
 ================================================================
@@ -242,7 +242,7 @@ Detection-rule tuning (false-positive exclusions and per-rule mode) is not confi
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel, etc.). The server exports:
 
 - **Traces** for every HTTP request + DB query.
-- **Logs** via `otelslog` with `service.name=fleet-edr-server`.
+- **Logs** via `otelslog` with `service.name=rawtrail-server`.
 - **Metrics**. Counters appear in the backend only after their first non-zero sample, so a fresh deploy won't show, for example, the retention or alert series until those events first occur.
 
   - `edr.events.ingested` (counter, by `host_id` and `event_type`): events accepted by `POST /api/events`. `event_type` is one of the types in `schema/events.json`, or `other` for anything else. Group by it to see which event types a host sends.
@@ -250,7 +250,7 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel
   - `edr.enrolled.hosts` (gauge): current non-revoked enrollments.
   - `edr.offline.hosts` (gauge): hosts unseen longer than the offline threshold (5 min).
   - `edr.detection.lag` (histogram, seconds): time from the server receiving an event to detection finishing with it, per event. Its p95 is how late alerts arrive.
-  - `edr.events.pending` (gauge): events queued for detection, reading 1,000,000 at and above that. Reported by `fleet-edr-server` only.
+  - `edr.events.pending` (gauge): events queued for detection, reading 1,000,000 at and above that. Reported by `rawtrail-server` only.
   - `edr.retention.processes.rows_deleted` (counter): process-graph rows pruned per retention run. (Raw-event retention is the ClickHouse archive's native TTL, ADR-0015, not a server-emitted metric.)
   - `edr.processes.ttl_reconciled` (counter): processes whose exit was synthesized by the freshness-TTL reconciler (missed-exit fallback).
   - `edr.audit.write_failures` (counter): audit-row INSERT failures; any non-zero value means the append-only audit contract is broken, so alert on it.

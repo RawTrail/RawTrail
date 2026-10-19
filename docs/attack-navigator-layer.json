@@ -1,12 +1,12 @@
 {
-  "name": "Fleet EDR coverage",
+  "name": "RawTrail coverage",
   "versions": {
     "attack": "19",
     "layer": "4.5",
     "navigator": "5.2.0"
   },
   "domain": "enterprise-attack",
-  "description": "MITRE ATT&CK techniques covered by currently-registered Fleet EDR detection rules. Amber techniques are covered only by rules that raise no alert as built in, whether because they record without alerting or are off by default.",
+  "description": "MITRE ATT&CK techniques covered by currently-registered RawTrail detection rules. Amber techniques are covered only by rules that raise no alert as built in, whether because they record without alerting or are off by default.",
   "filters": {
     "platforms": [
       "macOS"

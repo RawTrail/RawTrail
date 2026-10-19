@@ -3,7 +3,7 @@
 services:
   mysql:
     image: mysql:8.4.9@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084
-    container_name: fleet-edr-mysql
+    container_name: rawtrail-mysql
     environment:
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
       MYSQL_DATABASE: edr
@@ -29,7 +29,7 @@ services:
 
   mysql_test:
     image: mysql:8.4.9@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084
-    container_name: fleet-edr-mysql_test
+    container_name: rawtrail-mysql_test
     environment:
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
       MYSQL_DATABASE: edr_test
@@ -55,7 +55,7 @@ services:
   # clickhouse-client / curl. DEFAULT_ACCESS_MANAGEMENT lets the default user CREATE DATABASE (the test helper makes a DB per test).
   clickhouse:
     image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
-    container_name: fleet-edr-clickhouse
+    container_name: rawtrail-clickhouse
     environment:
       CLICKHOUSE_DB: edr
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
@@ -76,7 +76,7 @@ services:
 
   clickhouse_test:
     image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
-    container_name: fleet-edr-clickhouse_test
+    container_name: rawtrail-clickhouse_test
     environment:
       CLICKHOUSE_DB: edr_test
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"

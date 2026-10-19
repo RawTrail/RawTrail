@@ -68,7 +68,7 @@ test.describe("ATT&CK coverage page", () => {
     // the filename and that the saved file parses as JSON catches both regressions: a missing/renamed file
     // (filename mismatch) and a malformed serialisation (parse failure).
     const [download] = await Promise.all([page.waitForEvent("download"), exportBtn.click()]);
-    expect(download.suggestedFilename()).toBe("fleet-edr-attack-coverage.json");
+    expect(download.suggestedFilename()).toBe("rawtrail-attack-coverage.json");
 
     const fs = await import("node:fs/promises");
     const path = await download.path();

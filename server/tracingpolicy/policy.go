@@ -1,7 +1,7 @@
 // Package tracingpolicy holds the EDR sampling-tier policy: the mapping from HTTP routes, and from the root spans of background work,
 // to the tiers defined in internal/observability/tracing. It is the "policy" half of the mechanism/policy split (the sampler +
 // registry are the mechanism). Keeping it in the server layer lets the shared tracing package stay free of EDR routes, and lets both
-// server binaries (fleet-edr-server and fleet-edr-ingest) share one classification.
+// server binaries (rawtrail-server and rawtrail-ingest) share one classification.
 //
 // Classification keys are "METHOD /path" matching the span name the HTTP span-name formatter emits. Because that span name is the raw
 // request path (otelhttp runs before net/http route matching), only routes whose template has NO path parameters can be classified

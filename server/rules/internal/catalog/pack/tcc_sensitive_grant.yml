@@ -12,7 +12,7 @@ description: |-
   Detects abuse of macOS privacy permissions (T1548.006). Full Disk Access, Accessibility, Screen Recording, Input Monitoring and the right to post input events let an app read every file, control other apps, watch the screen or log keystrokes. Infostealers and remote-access tools need one to work, and a user talked into granting it is the usual way they get it.
 
   Fires when one of these permissions is granted to an app that is not an Apple platform binary, whether through a prompt or System Settings. A grant made by an MDM configuration profile is the managed way to deploy these permissions and is not reported.
-author: Fleet EDR
+author: RawTrail
 level: medium
 tags:
   - attack.t1548.006

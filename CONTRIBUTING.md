@@ -1,4 +1,4 @@
-# Contributing to Fleet EDR
+# Contributing to RawTrail
 
 Thanks for your interest in contributing. This guide covers what an external contributor needs to get a change reviewed and merged.
 

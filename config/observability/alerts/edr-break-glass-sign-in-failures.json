@@ -20,7 +20,7 @@
             ],
             "disabled": false,
             "filter": {
-              "expression": "service.name = 'fleet-edr-server' AND deployment.environment = 'prod' AND edr.audit.action = 'auth.breakglass.failure'"
+              "expression": "service.name = 'rawtrail-server' AND deployment.environment = 'prod' AND edr.audit.action = 'auth.breakglass.failure'"
             },
             "order": [
               {
@@ -58,7 +58,7 @@
     }
   },
   "labels": {
-    "service": "fleet-edr-server",
+    "service": "rawtrail-server",
     "severity": "error",
     "team": "edr"
   },

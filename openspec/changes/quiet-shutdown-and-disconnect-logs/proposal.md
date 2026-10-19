@@ -1,6 +1,6 @@
 ## Why
 
-Two routine events were logged as faults. Both server binaries closed the MySQL pool before the final OTel flush on a graceful stop. In `fleet-edr-server`, which registers them, the three gauges that count rows in MySQL logged a WARN each and lost their last export (issue #1274). And an agent that disconnected mid-upload, as on an agent restart, upgrade or sleep, made the ingest handler log an ERROR for the cancelled write (issue #1291). Both bury real errors and would trip any alert on the log level.
+Two routine events were logged as faults. Both server binaries closed the MySQL pool before the final OTel flush on a graceful stop. In `rawtrail-server`, which registers them, the three gauges that count rows in MySQL logged a WARN each and lost their last export (issue #1274). And an agent that disconnected mid-upload, as on an agent restart, upgrade or sleep, made the ingest handler log an ERROR for the cancelled write (issue #1291). Both bury real errors and would trip any alert on the log level.
 
 ## What changes
 

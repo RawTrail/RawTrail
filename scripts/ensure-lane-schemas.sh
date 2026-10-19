@@ -2,7 +2,7 @@
 # Create the MySQL schema and the ClickHouse database one lane's dev server needs, if they are not there already.
 #
 # Nothing else creates them for a second worktree. docker-compose.yml seeds only `edr` (MYSQL_DATABASE) and the ClickHouse service
-# comes up with no application database at all; `task db:reset` recreates only `edr`. Neither the server nor fleet-edr-migrate
+# comes up with no application database at all; `task db:reset` recreates only `edr`. Neither the server nor rawtrail-migrate
 # creates what is missing: migrate stops at "Unknown database" and the server stops at "Database <name> does not exist". So a lane
 # whose schemas nobody made by hand could not start a server, which is what kept the Playwright suite from spawning one there
 # (issue #826).

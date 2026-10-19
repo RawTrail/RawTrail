@@ -8,13 +8,13 @@ $font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   &__hostname {
     font-family: $font-mono;
     font-weight: $bold;
-    color: $core-fleet-black;
+    color: $core-black;
   }
 
   &__uuid {
     font-family: $font-mono;
     font-size: $xx-small;
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     margin-top: 1px;
   }
 

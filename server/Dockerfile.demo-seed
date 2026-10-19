@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-# Build for the fleet-edr-demo-seed one-shot seeder used by docker-compose.demo.yml.
+# Build for the rawtrail-demo-seed one-shot seeder used by docker-compose.demo.yml.
 #
 # Stage 1 (build): Go compiles the seeder. It is pure Go (go-sql-driver/mysql is
 # CGo-free) so the final image lands on distroless/static. The seeder imports
@@ -36,16 +36,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
         -trimpath \
         -ldflags "-s -w" \
-        -o /out/fleet-edr-demo-seed \
-        ./server/cmd/fleet-edr-demo-seed
+        -o /out/rawtrail-demo-seed \
+        ./server/cmd/rawtrail-demo-seed
 
 # ---------------------------------------------------------------
 # Stage 2: runtime
 # ---------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:aef9602f8710ec12bde19d593fed1f76c708531bb7aba205110f1029786ead7b
 
-COPY --from=build /out/fleet-edr-demo-seed /usr/local/bin/fleet-edr-demo-seed
+COPY --from=build /out/rawtrail-demo-seed /usr/local/bin/rawtrail-demo-seed
 
 USER nonroot:nonroot
 
-ENTRYPOINT ["/usr/local/bin/fleet-edr-demo-seed"]
+ENTRYPOINT ["/usr/local/bin/rawtrail-demo-seed"]

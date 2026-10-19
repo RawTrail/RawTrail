@@ -8,25 +8,25 @@
   &__nav {
     display: flex;
     gap: 4px;
-    border-bottom: 1px solid $ui-fleet-black-10;
+    border-bottom: 1px solid $ui-black-10;
   }
 
   &__link {
     padding: 8px 14px;
     font-size: 14px;
     font-weight: 600;
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     text-decoration: none;
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
 
     &:hover {
-      color: $ui-fleet-black-75;
+      color: $ui-black-75;
     }
 
     &--active {
-      color: $core-fleet-green;
-      border-bottom-color: $core-fleet-green;
+      color: $core-green;
+      border-bottom-color: $core-green;
     }
   }
 

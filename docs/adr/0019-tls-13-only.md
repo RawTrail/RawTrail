@@ -28,7 +28,7 @@ The single sanctioned way to terminate anything older is `EDR_TLS_TERMINATED_BY_
 
 **Harder, and this is the real cost.** Any future client that cannot do TLS 1.3 cannot talk to us at all, and the failure is an opaque handshake error rather than a negotiated downgrade. Concretely, that would bite a customer fronting us with an old load balancer, a corporate TLS-inspection middlebox pinned to 1.2 (common in exactly the enterprises this product targets), or a partner integration written in an old runtime. The escape hatch for all three is `EDR_TLS_TERMINATED_BY_PROXY`, which is a real answer but a worse one: it moves the trust boundary to a component we do not ship and cannot verify.
 
-**Known inconsistency, deliberate.** `server/cmd/fleet-edr-demo-seed/seed.go` sets a `tls.VersionTLS12` floor on its own outbound client. That is a client-side floor in a demo-seeding tool, not a server listener, and it is moot against our own server, which will only ever offer 1.3. It is left alone rather than churned.
+**Known inconsistency, deliberate.** `server/cmd/rawtrail-demo-seed/seed.go` sets a `tls.VersionTLS12` floor on its own outbound client. That is a client-side floor in a demo-seeding tool, not a server listener, and it is moot against our own server, which will only ever offer 1.3. It is left alone rather than churned.
 
 ## Alternatives considered
 

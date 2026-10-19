@@ -22,7 +22,7 @@ func (s *recorderSink) SetMetrics(m detectionapi.MetricsRecorder) { s.got = m }
 // spec:observability-instrumentation/the-ingest-service-counts-the-events-it-accepts/the-ingest-service-reports-no-host-fleet-gauges
 //
 // The ingest binary must hand detection a recorder, or its intake handler counts nothing (issue #1263), and must not register the
-// host-fleet gauges, which fleet-edr-server already reports for the whole deployment.
+// host-fleet gauges, which rawtrail-server already reports for the whole deployment.
 func TestWireIngestMetrics(t *testing.T) { //nolint:paralleltest // installs the process-global OTel meter provider
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))

@@ -1,6 +1,6 @@
 # Lessons and gotchas
 
-Hard-won knowledge from building the Fleet EDR macOS agent. Each item cost debugging time; this document exists so the next person doesn't pay the same price.
+Hard-won knowledge from building the RawTrail macOS agent. Each item cost debugging time; this document exists so the next person doesn't pay the same price.
 
 ## macOS system extensions
 

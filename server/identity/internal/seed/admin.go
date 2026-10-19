@@ -26,7 +26,7 @@ import (
 
 // DefaultAdminEmail is the well-known first-admin email. Operators can create further
 // accounts post-v1.1; for MVP this is the only one.
-const DefaultAdminEmail = "admin@fleet-edr.local"
+const DefaultAdminEmail = "admin@rawtrail.local"
 
 // DefaultAdminRole is the role bound to the seeded break-glass admin at first boot. `docs/authz.md` documents the contract: the
 // break-glass account lands in `super_admin` so an operator who completes the redemption flow can do every operator action without a

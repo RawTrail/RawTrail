@@ -18,7 +18,7 @@
   text-transform: uppercase;
   font-weight: $bold;
   letter-spacing: 0.5px;
-  color: $core-fleet-black;
+  color: $core-black;
   white-space: nowrap;
 }
 
@@ -28,7 +28,7 @@
   padding: 0;
   font-size: inherit;
   font-family: inherit;
-  color: $core-fleet-green;
+  color: $core-green;
   text-align: left;
   cursor: pointer;
 
@@ -62,7 +62,7 @@
   // displayed, and hover-only text is not visible to a reader scanning the list, printing it, or using a screen reader that
   // does not announce title attributes.
   &__origin {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-size: $xx-small;
     margin-top: 2px;
   }

@@ -79,7 +79,7 @@ func Build(handler http.Handler, opts Options) http.Handler {
 		opts.SlowThreshold = defaultSlowThreshold
 	}
 	if opts.ServiceName == "" {
-		opts.ServiceName = "fleet-edr"
+		opts.ServiceName = "rawtrail"
 	}
 
 	h := handler

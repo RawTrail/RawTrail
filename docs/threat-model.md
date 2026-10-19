@@ -1,6 +1,6 @@
 # Threat model
 
-This document is Fleet EDR's threat model. It exists for three audiences:
+This document is RawTrail's threat model. It exists for three audiences:
 
 1. **Engineers reviewing security-sensitive PRs**: "does this widen one of the listed threats? does it close a gap?"
 2. **Pilot-customer security reviewers** asking what attack surface the vendor considered before installing the agent on managed endpoints.
@@ -8,7 +8,7 @@ This document is Fleet EDR's threat model. It exists for three audiences:
 
 Format is STRIDE per component, with each cell either citing the existing mitigation or flagging a `GAP` with severity (high / medium / low) reflecting pilot-deployment impact, not theoretical worst-case.
 
-Scope is the system as it ships: Go agent + Swift system extension + Swift network extension on macOS endpoints; a Go server that can run as one combined `fleet-edr-server` binary or split into a standalone `fleet-edr-ingest` tier; a MySQL control plane plus a ClickHouse event archive (ADR-0015); an embedded React UI; a persistent agent control channel (a bidirectional gRPC stream multiplexed onto the same HTTPS listener, ADR-0016); operator and non-human service-account API auth (ADR-0013) resolving to one unified principal model (ADR-0017); outbound webhooks to operator-configured receivers; and MDM-driven deployment. Out of scope is everything in the closing section.
+Scope is the system as it ships: Go agent + Swift system extension + Swift network extension on macOS endpoints; a Go server that can run as one combined `rawtrail-server` binary or split into a standalone `rawtrail-ingest` tier; a MySQL control plane plus a ClickHouse event archive (ADR-0015); an embedded React UI; a persistent agent control channel (a bidirectional gRPC stream multiplexed onto the same HTTPS listener, ADR-0016); operator and non-human service-account API auth (ADR-0013) resolving to one unified principal model (ADR-0017); outbound webhooks to operator-configured receivers; and MDM-driven deployment. Out of scope is everything in the closing section.
 
 ## Trust boundaries
 
@@ -132,12 +132,12 @@ Trust assumptions:
 
 ### 7. ClickHouse event archive (visibility context)
 
-The raw event firehose lives only in ClickHouse (ADR-0015), owned by the `visibility` bounded context and reached over a `clickhouse-go` DSN by both the combined server and the standalone `fleet-edr-ingest` tier.
+The raw event firehose lives only in ClickHouse (ADR-0015), owned by the `visibility` bounded context and reached over a `clickhouse-go` DSN by both the combined server and the standalone `rawtrail-ingest` tier.
 
 | Category | Threat | Mitigation |
 | --- | --- | --- |
 | Spoofing | A captured ClickHouse DSN is reused to read or write the archive. | The DSN is loaded via `EDR_CLICKHOUSE_DSN_FILE` (Docker-secret style, never in env-listing output); ClickHouse is not exposed outside the private/Compose network, so a stolen DSN still needs network reach the operator controls. **GAP, medium**: as with MySQL, the tier connects as a broadly-privileged ClickHouse user; a least-privilege grant scoped to the `events` table is a deployment-hardening item. |
-| Tampering | Direct writes alter or delete archived events. | Only the server and the `fleet-edr-ingest` tier hold the DSN. Archived events are immutable and idempotent by `event_id`: `ReplacingMergeTree(ingested_at_ns)` collapses a re-delivered event and reads use `FINAL`, so an at-least-once re-send cannot forge a divergent record. Alert evidence is copied into MySQL (`alert_event_payloads`) at alert-creation time, so tampering with or expiring the archive cannot erase the events behind a finding. |
+| Tampering | Direct writes alter or delete archived events. | Only the server and the `rawtrail-ingest` tier hold the DSN. Archived events are immutable and idempotent by `event_id`: `ReplacingMergeTree(ingested_at_ns)` collapses a re-delivered event and reads use `FINAL`, so an at-least-once re-send cannot forge a divergent record. Alert evidence is copied into MySQL (`alert_event_payloads`) at alert-creation time, so tampering with or expiring the archive cannot erase the events behind a finding. |
 | Repudiation | Archived events vanish without trace. | Retention is native ClickHouse TTL (30 days by default, `PARTITION BY toYYYYMM(ingested_date)`): an expected lifecycle, not a tamper. The evidence behind every alert is self-contained in MySQL and outlives the archive TTL; operator-action audit is a separate identity-context trail dual-emitted to OTLP. |
 | Information disclosure | An archive leak exposes the raw firehose (paths, argv, connection 5-tuples, signing identity, hashes). | ClickHouse is private-network-only and DSN-gated. The network extension deliberately captures flow metadata only (no payload bytes, component 3), which bounds what lands here. **GAP, medium**: no application-level encryption at rest for the archive; it relies on storage-layer encryption (ClickHouse volume encryption, or an S3 cold-tier's server-side encryption), a deployment-time choice, the same posture the MySQL `events` table carried before the cutover. |
 | Denial of service | An ingest spike or unbounded growth overruns the archive. | Each `POST /api/events` does one batched archive INSERT (the native batch protocol: one prepared INSERT per request-batch, not per event) plus one `event_queue` append, returning 200 only after both succeed, so the per-request write cost stays bounded; the MySQL `event_queue` then decouples ingest from detection (ADR-0016) so an ingest burst drains rather than stalls detection or loses data; native TTL (a 30-day age-based expiry in `server/visibility/migrations-clickhouse/00001_events.sql`) caps the retention window so the archive cannot accumulate indefinitely, though a sustained ingest spike within that window is bounded by storage sizing, not by the TTL; a hot-to-S3 tiered-storage policy is designed in but disabled by default at pilot scale (ADR-0015). Cold-partition read spikes on UI-synchronous correlation reads are a named watch item (ADR-0015). |

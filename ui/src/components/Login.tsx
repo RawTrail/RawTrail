@@ -71,9 +71,9 @@ export function Login({ next }: LoginProps) {
     <div className="login-page">
       <Card padding="large" className="login-card">
         <div className="login-card__header">
-          <span className="login-card__logo" aria-hidden="true">F</span>
+          <span className="login-card__logo" aria-hidden="true">R</span>
           <h1 className="login-card__title">
-            Fleet <span className="login-card__accent">EDR</span>
+            Raw<span className="login-card__accent">Trail</span>
           </h1>
           <p className="login-card__subtitle">Sign in with your identity provider.</p>
         </div>

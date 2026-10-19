@@ -7,7 +7,7 @@ Use this when an RC is cut and you need to exercise ESF, XPC, the event wire for
 ## Topology
 
 - `edr-qa`: the release-validation VM (SIP on, Gatekeeper on, no MDM). Reaches the workstation over the bridge at `192.168.64.1`. SSH via the keyed login; `sudo` needs a password over the keyed session, so pipe it with `sudo -S`.
-- Dev server: run the RC server code locally so the box under test talks to a known build. Either check out the RC tag and `go run`, or run the published `ghcr.io/getvictor/fleet-edr-server:<tag>` image. It binds `0.0.0.0:8088` so the VM can reach it at `192.168.64.1:8088`.
+- Dev server: run the RC server code locally so the box under test talks to a known build. Either check out the RC tag and `go run`, or run the published `ghcr.io/getvictor/rawtrail-server:<tag>` image. It binds `0.0.0.0:8088` so the VM can reach it at `192.168.64.1:8088`.
 - Observability: the agent and server export OTel; route both to the MCP-visible SigNoz tagged `deployment.environment=dev-local` and filter on that so dev signals do not mix with prod.
 
 ## 1. Bring up the dev server on the RC code
@@ -29,9 +29,9 @@ export EDR_TLS_CERT_FILE=tmp/dev.crt EDR_TLS_KEY_FILE=tmp/dev.key
 export EDR_LISTEN_ADDR=0.0.0.0:8088 EDR_UI_LIVE_DIR=server/ui/dist
 export EDR_SECRET_KEY=dev-only-secret-key-do-not-use-in-production-xyz
 export EDR_BREAKGLASS_RP_ID=localhost EDR_BREAKGLASS_RP_ORIGINS=https://localhost:8088
-export OTEL_SERVICE_NAME=fleet-edr-server
+export OTEL_SERVICE_NAME=rawtrail-server
 unset OTEL_EXPORTER_OTLP_INSECURE
-go run ./server/cmd/fleet-edr-server
+go run ./server/cmd/rawtrail-server
 ```
 
 If a stale dev server already holds `:8088`, the new one fails with `bind: address already in use` and the old build keeps serving. Kill the stale `go run` and its compiled child first (`lsof -nP -iTCP:8088 -sTCP:LISTEN`).
@@ -56,7 +56,7 @@ echo "$PW" | sudo -S rm -f /var/db/fleet-edr/enrolled.plist
 echo "$PW" | sudo -S launchctl kickstart -k system/com.fleetdm.edr.agent
 ```
 
-Confirm `agent enrolled` plus `receiver connected` for both the Endpoint Security and Network Extension services in `/var/log/fleet-edr-agent.log`, then confirm exec/fork/network/dns rows land in the dev DB (`docker exec fleet-edr-mysql mysql -uroot -e "SELECT event_type, COUNT(*) FROM edr.events WHERE host_id LIKE '<uuid-prefix>%' AND created_at > (NOW() - INTERVAL 2 MINUTE) GROUP BY event_type;"`).
+Confirm `agent enrolled` plus `receiver connected` for both the Endpoint Security and Network Extension services in `/var/log/fleet-edr-agent.log`, then confirm exec/fork/network/dns rows land in the dev DB (`docker exec rawtrail-mysql mysql -uroot -e "SELECT event_type, COUNT(*) FROM edr.events WHERE host_id LIKE '<uuid-prefix>%' AND created_at > (NOW() - INTERVAL 2 MINUTE) GROUP BY event_type;"`).
 
 ## 3. Forge an admin session for the API and UI
 
@@ -71,10 +71,10 @@ print("csrf_hex:", csrf.hex())
 ```
 
 ```sh
-UID=$(docker exec fleet-edr-mysql mysql -uroot -N -e "SELECT id FROM edr.users WHERE email='admin@fleet-edr.local';")
+UID=$(docker exec rawtrail-mysql mysql -uroot -N -e "SELECT id FROM edr.users WHERE email='admin@rawtrail.local';")
 # auth_method='oidc' lands the session in the normal 8h/24h timeout class. 'local_password' is the
 # break-glass class (15-minute idle / 1-hour absolute) and would expire the session mid-spot-check.
-docker exec fleet-edr-mysql mysql -uroot -e "INSERT INTO edr.sessions (id,user_id,identity_id,auth_method,csrf_token,created_at,last_seen_at,last_auth_at,expires_at) VALUES (UNHEX('<id_hex>'),$UID,NULL,'oidc',UNHEX('<csrf_hex>'),NOW(6),NOW(6),NOW(6),NOW(6)+INTERVAL 1 DAY);"
+docker exec rawtrail-mysql mysql -uroot -e "INSERT INTO edr.sessions (id,user_id,identity_id,auth_method,csrf_token,created_at,last_seen_at,last_auth_at,expires_at) VALUES (UNHEX('<id_hex>'),$UID,NULL,'oidc',UNHEX('<csrf_hex>'),NOW(6),NOW(6),NOW(6),NOW(6)+INTERVAL 1 DAY);"
 ```
 
 Send `Cookie: edr_session=<cookie>` on every call, and `X-Csrf-Token` (read the live value from `GET /api/session`) on every unsafe method. The session is good for the dashboard too, but the cookie is `HttpOnly`, so a browser cannot be seeded by JavaScript; verify feature backends over the API instead and rely on vitest/Playwright for component rendering.
@@ -128,7 +128,7 @@ Exec the notarized binary a few times so the decided ALLOW is pinned into the ke
 Simulate a server DB restore: force the version down, then add a rule so the next mutation stamps a newer `updated_at` epoch.
 
 ```sh
-docker exec fleet-edr-mysql mysql -uroot -e "UPDATE edr.app_control_policies SET version=50 WHERE id=1;"
+docker exec rawtrail-mysql mysql -uroot -e "UPDATE edr.app_control_policies SET version=50 WHERE id=1;"
 # then POST a block rule -> version becomes 51 (below the extension's active version) with a new epoch
 ```
 

@@ -233,17 +233,17 @@ describe("AlertList rule attribution", () => {
   });
 
   it("credits this project on an alert from a rule we wrote", async () => {
-    vi.spyOn(api, "listAlerts").mockResolvedValue([makeAlert({ id: 1, title: "Keychain dump", origin: "Fleet EDR" })]);
+    vi.spyOn(api, "listAlerts").mockResolvedValue([makeAlert({ id: 1, title: "Keychain dump", origin: "RawTrail" })]);
     render(
       <MemoryRouter>
         <AlertList />
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Fleet EDR")).toBeVisible();
+    expect(await screen.findByText("RawTrail")).toBeVisible();
   });
 
-  // An alert raised before migration 00012 has no origin. Rendering a placeholder or defaulting to "Fleet EDR" would state
+  // An alert raised before migration 00012 has no origin. Rendering a placeholder or defaulting to "RawTrail" would state
   // something the row does not record, so the correct output is nothing at all.
   // spec:server-detection-rules-engine/an-alert-credits-the-author-of-the-rule-that-raised-it/an-alert-recording-no-attribution-displays-no-credit
   it("shows no attribution line for an alert that records no origin", async () => {

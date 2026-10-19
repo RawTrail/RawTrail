@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-# Multi-stage build for the fleet-edr-server.
+# Multi-stage build for the rawtrail-server.
 #
 # Stage 1 (ui-build): Node builds the React UI. Vite's `outDir` is
 # `../server/ui/dist` (see ui/vite.config.ts), so vite writes directly into
@@ -73,8 +73,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build \
         -trimpath \
         -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildTime=${BUILDTIME}" \
-        -o /out/fleet-edr-server \
-        ./server/cmd/fleet-edr-server
+        -o /out/rawtrail-server \
+        ./server/cmd/rawtrail-server
 
 # ---------------------------------------------------------------
 # Stage 3: runtime
@@ -86,7 +86,7 @@ ENV EDR_LISTEN_ADDR=":8088" \
     EDR_LOG_FORMAT="json" \
     EDR_LOG_LEVEL="info"
 
-COPY --from=build /out/fleet-edr-server /usr/local/bin/fleet-edr-server
+COPY --from=build /out/rawtrail-server /usr/local/bin/rawtrail-server
 
 USER nonroot:nonroot
 EXPOSE 8088
@@ -94,4 +94,4 @@ EXPOSE 8088
 # No HEALTHCHECK here - compose-level healthcheck hitting /readyz owns that so
 # the whole stack can key on it. Keeping the image shell-less means a curl-
 # based HEALTHCHECK would need a static binary copy anyway.
-ENTRYPOINT ["/usr/local/bin/fleet-edr-server"]
+ENTRYPOINT ["/usr/local/bin/rawtrail-server"]

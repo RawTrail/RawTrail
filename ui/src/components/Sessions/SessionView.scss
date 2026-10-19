@@ -2,14 +2,14 @@
 
 .session-view {
   &__back {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     display: inline-block;
     font-size: 0.85rem;
     margin-bottom: 0.5rem;
     text-decoration: none;
 
     &:hover {
-      color: $core-fleet-blue;
+      color: $core-blue;
     }
   }
 
@@ -32,7 +32,7 @@
   }
 
   &__notice {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: 0.85rem;
     margin: 0 0 0.75rem;
   }
@@ -49,7 +49,7 @@
   // The toggle's help, kept off the resting view and shown on hover or keyboard focus; a screen reader reads it as the switch's
   // description either way.
   &__own-help {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-size: 0.8rem;
     visibility: hidden;
   }
@@ -61,14 +61,14 @@
 
   // The Processes view (issue #1335): one tree in one card, the way a command's processes sit in theirs.
   &__processes {
-    background: $core-fleet-white;
-    border: 1px solid $ui-fleet-black-10;
+    background: $core-white;
+    border: 1px solid $ui-black-10;
     border-radius: 6px;
     padding: 0.5rem 0.75rem;
   }
 
   &__processes-summary {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: 0.85rem;
     margin: 0 0 0.25rem;
   }
@@ -83,15 +83,15 @@
   }
 
   &__call {
-    background: $core-fleet-white;
-    border: 1px solid $ui-fleet-black-10;
+    background: $core-white;
+    border: 1px solid $ui-black-10;
     border-radius: 6px;
     overflow: hidden;
   }
 
   &__call-header {
     align-items: baseline;
-    background: $ui-fleet-black-5;
+    background: $ui-black-5;
     border: 0;
     cursor: pointer;
     display: flex;
@@ -102,12 +102,12 @@
     width: 100%;
 
     &[aria-expanded="true"] {
-      border-bottom: 1px solid $ui-fleet-black-10;
+      border-bottom: 1px solid $ui-black-10;
     }
   }
 
   &__command {
-    color: $core-fleet-black;
+    color: $core-black;
     font-size: 0.9rem;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
@@ -115,7 +115,7 @@
 
   // The tool call that started the group (issue #1288): a full-width line of the header, under its command.
   &__agent-call {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     display: flex;
     flex-basis: 100%;
     flex-wrap: wrap;
@@ -125,22 +125,22 @@
 
   // What the agent reported, set apart from what the sensor observed (issue #1333).
   &__reported {
-    border: 1px solid $ui-fleet-black-25;
+    border: 1px solid $ui-black-25;
     border-radius: 3px;
     // 75 rather than the id's 50: at this size, 50 on the header's grey is 2.92:1, under the 4.5:1 a label needs.
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: 0.7rem;
     padding: 0 0.3rem;
   }
 
   &__tool-use-id {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-size: 0.75rem;
     overflow-wrap: anywhere;
   }
 
   &__meta {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-size: 0.8rem;
     white-space: nowrap;
   }
@@ -151,7 +151,7 @@
     padding: 0.25rem 0 0.25rem 1.25rem;
 
     .session-view__rows {
-      border-left: 1px solid $ui-fleet-black-10;
+      border-left: 1px solid $ui-black-10;
       margin-left: 0.4rem;
       padding-top: 0;
     }
@@ -169,7 +169,7 @@
     background: none;
     border: 0;
     border-radius: 4px;
-    color: $core-fleet-green;
+    color: $core-green;
     cursor: pointer;
     font: inherit;
     font-weight: 600;
@@ -180,8 +180,8 @@
     }
 
     &[aria-pressed="true"] {
-      background: $ui-fleet-black-10;
-      color: $core-fleet-black;
+      background: $ui-black-10;
+      color: $core-black;
     }
   }
 
@@ -208,7 +208,7 @@
   }
 
   &__views {
-    border: 1px solid $ui-fleet-black-10;
+    border: 1px solid $ui-black-10;
     border-radius: 4px;
     display: inline-flex;
     margin-bottom: 0.75rem;
@@ -216,17 +216,17 @@
   }
 
   &__view {
-    background: $core-fleet-white;
+    background: $core-white;
     border: 0;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     cursor: pointer;
     font: inherit;
     font-size: 0.85rem;
     padding: 0.3rem 0.8rem;
 
     &[aria-pressed="true"] {
-      background: $ui-fleet-black-10;
-      color: $core-fleet-black;
+      background: $ui-black-10;
+      color: $core-black;
       font-weight: 600;
     }
   }
@@ -256,7 +256,7 @@
   }
 
   &__cmdline {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: 0.85rem;
     overflow-wrap: anywhere;
   }

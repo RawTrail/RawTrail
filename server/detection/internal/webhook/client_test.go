@@ -23,18 +23,20 @@ func allowLoopback(_, _ string, _ syscall.RawConn) error { return nil }
 
 func testClient() *Client { return newClient(5*time.Second, 64*1024, allowLoopback) }
 
+// spec:product-identity/the-product-identifies-itself-as-rawtrail/a-webhook-delivery-names-rawtrail-as-its-sender
 func TestClient_DeliverSignsAndPosts(t *testing.T) {
 	t.Parallel()
 	secret := []byte("shared-secret")
 	// The handler runs on the server goroutine; guard the captured request fields so the test's reads don't race the writes.
 	var mu sync.Mutex
-	var gotID, gotTS, gotSig, gotBody string
+	var gotID, gotTS, gotSig, gotBody, gotUA string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		gotID = r.Header.Get(HeaderID)
 		gotTS = r.Header.Get(HeaderTimestamp)
 		gotSig = r.Header.Get(HeaderSignature)
+		gotUA = r.UserAgent()
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.WriteHeader(http.StatusOK)
@@ -51,6 +53,7 @@ func TestClient_DeliverSignsAndPosts(t *testing.T) {
 	assert.Equal(t, "whd_1", gotID)
 	assert.Equal(t, "1767225600", gotTS)
 	assert.Equal(t, string(body), gotBody)
+	assert.Equal(t, "rawtrail-webhook/1", gotUA)
 
 	// The receiver recomputes the signature over id.timestamp.body and it matches what the client sent.
 	mac := hmac.New(sha256.New, secret)

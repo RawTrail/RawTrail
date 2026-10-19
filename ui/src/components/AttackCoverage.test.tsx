@@ -11,12 +11,12 @@ import type { AttackNavigatorLayer } from "../api";
 // refactor stays covered: three metric cards with the covered-technique,
 // distinct-rule and tactic counts derived from the layer.
 const layer: AttackNavigatorLayer = {
-  name: "Fleet EDR coverage",
+  name: "RawTrail coverage",
   // Mirror what the server's BuildNavigatorLayer emits (attack v19, navigator 5.2.0) so the fixture stays representative of
   // the real wire shape, even though this component only reads `techniques`.
   versions: { attack: "19", navigator: "5.2.0", layer: "4.5" },
   domain: "enterprise-attack",
-  description: "MITRE ATT&CK techniques covered by currently-registered Fleet EDR detection rules.",
+  description: "MITRE ATT&CK techniques covered by currently-registered RawTrail detection rules.",
   filters: { platforms: ["macOS"] },
   techniques: [
     // score separates coverage that alerts (1) from coverage that only records (below 1). The component reads it: most of the

@@ -59,7 +59,7 @@ type config struct {
 // resolveConfig builds the config from env-var defaults overridden by command-line flags. getenv is injected so tests exercise the
 // env-default path without mutating the process environment.
 func resolveConfig(getenv func(string) string, args []string) (config, error) {
-	fs := flag.NewFlagSet("fleet-edr-demo-seed", flag.ContinueOnError)
+	fs := flag.NewFlagSet("rawtrail-demo-seed", flag.ContinueOnError)
 	var c config
 	fs.StringVar(&c.serverURL, "server-url", envOr(getenv, "EDR_DEMO_SERVER_URL", "https://localhost:8088"),
 		"base URL of the EDR server")
@@ -73,7 +73,7 @@ func resolveConfig(getenv func(string) string, args []string) (config, error) {
 		"PEM CA/cert file to trust for the server's TLS (the demo stack's self-signed localhost cert); empty uses system roots")
 	fs.BoolVar(&c.force, "force", envBool(getenv, "EDR_DEMO_FORCE", false),
 		"replay scenarios even if demo data is already present")
-	fs.StringVar(&c.demoEmail, "demo-email", envOr(getenv, "EDR_DEMO_EMAIL", "demo@fleet-edr.local"),
+	fs.StringVar(&c.demoEmail, "demo-email", envOr(getenv, "EDR_DEMO_EMAIL", "demo@rawtrail.local"),
 		"email of the SSO demo user")
 	fs.StringVar(&c.demoOIDCSubject, "demo-oidc-subject", envOr(getenv, "EDR_DEMO_OIDC_SUBJECT", ""),
 		"dex-issued OIDC subject for the demo user; empty disables the demo-user seed")

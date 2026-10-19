@@ -12,7 +12,7 @@ description: |-
   Detects a root certificate being installed on macOS (T1553.004). A certificate the host trusts as a root lets whoever holds its key intercept the host's TLS connections, or sign code the host will accept.
 
   Fires on an invocation of `/usr/bin/security` whose subcommand is `add-trusted-cert` or `trust-settings-import`, both of which write trust settings. `add-certificates`, which adds a certificate without trusting it, is left out, as are a `-h`, which prints help, a result type of `deny` or `unspecified`, which records a certificate as not trusted, and `-o`, which writes the trust settings to a file instead of the host.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1553.004

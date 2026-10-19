@@ -593,14 +593,14 @@ describe("DetectionConfig", () => {
   it("renders created_by_label (user email or service-account name) when resolved, else the raw identifier", async () => {
     stubReads({
       exclusions: [
-        makeExclusion({ id: 1, created_by: "usr_8", created_by_label: "ops@fleetdm.com" }),
+        makeExclusion({ id: 1, created_by: "usr_8", created_by_label: "ops@example.com" }),
         makeExclusion({ id: 2, created_by: "svc_5", created_by_label: "ci-bot" }),
         makeExclusion({ id: 3, created_by: "usr_9" }),
       ],
     });
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("ops@fleetdm.com")).toBeInTheDocument();
+      expect(screen.getByText("ops@example.com")).toBeInTheDocument();
     });
     expect(screen.getByText("ci-bot")).toBeInTheDocument();
     expect(screen.getByText("usr_9")).toBeInTheDocument();

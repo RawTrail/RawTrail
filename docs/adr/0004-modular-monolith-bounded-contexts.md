@@ -42,7 +42,7 @@ server/<context>/
     tests/              # per-context integration tests
 ```
 
-The top-level `server/<context>/` directory contains zero Go files, so `import "server/<context>"` fails. Internal modules are protected by Go's language-level `internal/` rule from day one (consistent with ADR-0001's choice to put shared code at the repo-root `internal/`). Cross-context calls go through `<other>/api`. Cross-context HTTP composition happens at the binary entrypoints under `server/cmd/*` (today `server/cmd/fleet-edr-server/main.go` and `server/cmd/fleet-edr-ingest/main.go`), not inside any context. No cross-context transactions, and no cross-context foreign keys; the one such FK that existed in the pre-migration schema (`fk_alerts_updated_by` linking `alerts.updated_by` to `users.id`) was dropped and replaced by code-level validation in the alert-update handler.
+The top-level `server/<context>/` directory contains zero Go files, so `import "server/<context>"` fails. Internal modules are protected by Go's language-level `internal/` rule from day one (consistent with ADR-0001's choice to put shared code at the repo-root `internal/`). Cross-context calls go through `<other>/api`. Cross-context HTTP composition happens at the binary entrypoints under `server/cmd/*` (today `server/cmd/rawtrail-server/main.go` and `server/cmd/rawtrail-ingest/main.go`), not inside any context. No cross-context transactions, and no cross-context foreign keys; the one such FK that existed in the pre-migration schema (`fk_alerts_updated_by` linking `alerts.updated_by` to `users.id`) was dropped and replaced by code-level validation in the alert-update handler.
 
 Three test layers, each with a clear scope and import boundary:
 

@@ -12,7 +12,7 @@ description: |-
   Detects login-item persistence on macOS (T1547.015): an app that Background Task Management launches at every login. That is either a helper an app registers from inside its own bundle, or an app added to the user's login items, by itself or through the legacy login-items list.
 
   The decision keys on the code signature of the app that will launch, not on the process that registered it. One that is an Apple platform binary or that MDM manages is skipped; an ad-hoc, unsigned or unknown-vendor app fires. Paired with `persistence_launchagent` and `privilege_launchd_plist_write` for launchd items.
-author: Fleet EDR
+author: RawTrail
 level: medium
 tags:
   - attack.t1547.015

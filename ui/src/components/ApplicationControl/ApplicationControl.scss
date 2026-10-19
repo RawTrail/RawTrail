@@ -4,13 +4,13 @@
 
 .app-control__row-secondary {
   font-size: $xx-small;
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
   margin-top: $pad-xsmall;
 }
 
 .app-control__description {
   margin: 0 0 $pad-medium 0;
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
   max-width: 800px;
 }
 
@@ -19,15 +19,15 @@
   text-transform: uppercase;
   font-weight: $bold;
   letter-spacing: 0.5px;
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
 }
 
 .app-control__divider {
-  color: $ui-fleet-black-25;
+  color: $ui-black-25;
 }
 
 .app-control__muted {
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
 }
 
 // The identifier and its copy control on one line. max-width is what makes the text clip: a table cell sizes to its content, so
@@ -78,7 +78,7 @@
 
 .app-control__filter-summary {
   flex-basis: 100%;
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
   font-size: $xx-small;
 }
 
@@ -107,8 +107,8 @@
   border-radius: 8px;
   padding: $pad-large;
   width: min(560px, 90vw);
-  background: $core-fleet-white;
-  color: $core-fleet-black;
+  background: $core-white;
+  color: $core-black;
 
   &::backdrop {
     background: rgba(0, 0, 0, 0.45);
@@ -126,7 +126,7 @@
 
 .app-control-dialog__subtitle {
   margin: 0;
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
   font-size: $xx-small;
 }
 
@@ -171,7 +171,7 @@
   font-size: $xx-small;
   min-height: 220px;
   padding: $pad-xsmall;
-  border: 1px solid $ui-fleet-black-25;
+  border: 1px solid $ui-black-25;
   border-radius: 4px;
   resize: vertical;
 }
@@ -179,7 +179,7 @@
 .app-control-dialog__paste-preview {
   max-height: 320px;
   overflow-y: auto;
-  border: 1px solid $ui-fleet-black-25;
+  border: 1px solid $ui-black-25;
   border-radius: 4px;
 }
 
@@ -193,7 +193,7 @@
     padding: $pad-xsmall;
     text-align: left;
     vertical-align: top;
-    border-bottom: 1px solid $ui-fleet-black-25;
+    border-bottom: 1px solid $ui-black-25;
   }
 
   th {
@@ -215,7 +215,7 @@
 .app-control-dialog__paste-remove {
   background: transparent;
   border: none;
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
   cursor: pointer;
   font-size: $large;
   line-height: 1;
@@ -281,5 +281,5 @@
 .app-control-enforcement__help {
   display: block;
   font-size: $xx-small;
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
 }

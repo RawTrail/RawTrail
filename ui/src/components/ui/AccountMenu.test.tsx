@@ -14,7 +14,7 @@ function renderMenu(permissions: string[] | undefined, onLogout = vi.fn(), roles
       </MemoryRouter>
     );
   }
-  render(<AccountMenu user={{ id: 1, email: "mike@fleetdm.com" }} roles={roles} onLogout={onLogout} />, { wrapper: Wrapper });
+  render(<AccountMenu user={{ id: 1, email: "mike@example.com" }} roles={roles} onLogout={onLogout} />, { wrapper: Wrapper });
   return { onLogout };
 }
 
@@ -23,7 +23,7 @@ describe("AccountMenu", () => {
   it("keeps the email out of the always-visible bar and is collapsed by default", () => {
     renderMenu([PermissionAction.SSOManage]);
     // The signed-in email must not be shown passively (shoulder-surfing): it is absent until the menu is opened.
-    expect(screen.queryByText("mike@fleetdm.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("mike@example.com")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Log out" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Account menu" })).toHaveAttribute("aria-expanded", "false");
   });
@@ -31,7 +31,7 @@ describe("AccountMenu", () => {
   it("reveals the signed-in email inside the dropdown when opened", () => {
     renderMenu([PermissionAction.SSOManage]);
     fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
-    expect(screen.getByText("mike@fleetdm.com")).toBeInTheDocument();
+    expect(screen.getByText("mike@example.com")).toBeInTheDocument();
   });
 
   it("opens the dropdown and shows Admin settings when sso.manage is granted", () => {
@@ -138,7 +138,7 @@ describe("AccountMenu", () => {
       );
     }
     render(
-      <AccountMenu user={{ id: 1, email: "sa@fleetdm.com" }} authMethod="oidc" roles={["senior_analyst", "auditor"]} onLogout={vi.fn()} />,
+      <AccountMenu user={{ id: 1, email: "sa@example.com" }} authMethod="oidc" roles={["senior_analyst", "auditor"]} onLogout={vi.fn()} />,
       { wrapper: Wrapper },
     );
     expect(screen.queryByText(/Role:/)).not.toBeInTheDocument();
@@ -159,7 +159,7 @@ describe("AccountMenu", () => {
       );
     }
     render(
-      <AccountMenu user={{ id: 1, email: "bg@fleetdm.com" }} authMethod="local_password" roles={["super_admin"]} onLogout={vi.fn()} />,
+      <AccountMenu user={{ id: 1, email: "bg@example.com" }} authMethod="local_password" roles={["super_admin"]} onLogout={vi.fn()} />,
       { wrapper: Wrapper },
     );
     fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
@@ -178,7 +178,7 @@ describe("AccountMenu", () => {
   it("names no role when the server did not send the session's roles", () => {
     renderMenu([]);
     fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
-    expect(screen.getByText("mike@fleetdm.com")).toBeVisible();
+    expect(screen.getByText("mike@example.com")).toBeVisible();
     expect(screen.queryByText(/Role:/)).not.toBeInTheDocument();
   });
 
@@ -190,7 +190,7 @@ describe("AccountMenu", () => {
         </MemoryRouter>
       );
     }
-    render(<AccountMenu user={{ id: 1, email: "bg@fleetdm.com" }} authMethod="local_password" onLogout={vi.fn()} />, { wrapper: Wrapper });
+    render(<AccountMenu user={{ id: 1, email: "bg@example.com" }} authMethod="local_password" onLogout={vi.fn()} />, { wrapper: Wrapper });
     expect(screen.getByText("Break-glass")).toBeInTheDocument();
   });
 });

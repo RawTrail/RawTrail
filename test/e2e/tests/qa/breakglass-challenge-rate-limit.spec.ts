@@ -23,7 +23,7 @@ test.describe("break-glass challenge rate limit", () => {
     for (let i = 0; i < 25 && !observed429; i++) {
       const resp = await request.post("/admin/break-glass/challenge", {
         headers: { "Content-Type": "application/json" },
-        data: { email: "admin@fleet-edr.local" },
+        data: { email: "admin@rawtrail.local" },
       });
       if (resp.status() === 429) {
         observed429 = true;

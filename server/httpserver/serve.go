@@ -14,7 +14,7 @@ import (
 // to wait for in-flight requests before we give up and let the process exit.
 const ShutdownTimeout = 15 * time.Second
 
-// HTTP server timeouts shared by fleet-edr-server and fleet-edr-ingest. Read 10s covers an agent's worst-case slow upload of a full
+// HTTP server timeouts shared by rawtrail-server and rawtrail-ingest. Read 10s covers an agent's worst-case slow upload of a full
 // batch; write 30s and idle 60s keep long-poll-style commands from getting cut off, but bound how long a stuck client can hold a
 // connection.
 const (

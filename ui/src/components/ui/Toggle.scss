@@ -29,7 +29,7 @@
     position: absolute;
     inset: 0;
     border-radius: 16px;
-    background-color: $ui-fleet-black-25;
+    background-color: $ui-black-25;
     transition: background-color 0.15s ease;
   }
 
@@ -40,12 +40,12 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background-color: $core-fleet-white;
+    background-color: $core-white;
     transition: transform 0.15s ease;
   }
 
   &__input:checked + &__track {
-    background-color: $core-fleet-green;
+    background-color: $core-green;
   }
 
   &__input:checked + &__track .toggle__knob {
@@ -61,7 +61,7 @@
   }
 
   &__label {
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font-size: 14px;
   }
 }

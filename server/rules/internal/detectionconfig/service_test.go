@@ -88,7 +88,7 @@ func TestService_CreateExclusion_PersistsResolvesAndAudits(t *testing.T) {
 	audit := &fakeAudit{}
 	svc := newService(t, audit)
 	ctx := context.Background()
-	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(42, "ops@fleetdm.com")}
+	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(42, "ops@example.com")}
 
 	excl, err := svc.CreateExclusion(ctx, actor, "Claude Code CLI", detectionconfig.CreateExclusionInput{
 		RuleID:    "suspicious_exec",
@@ -126,7 +126,7 @@ func TestService_CreateExclusion_PersistsResolvesAndAudits(t *testing.T) {
 // spec:server-detection-rules-engine/durable-detection-configuration-surface/creating-an-exclusion-for-an-unknown-rule-is-rejected
 func TestService_CreateExclusion_ValidatesSupport(t *testing.T) {
 	t.Parallel()
-	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@fleetdm.com")}
+	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@example.com")}
 	support := map[string][]api.ExclusionMatchType{
 		"suspicious_exec": {api.ExclusionMatchParentPathGlob, api.ExclusionMatchTeamID},
 		"dns_c2_beacon":   {},
@@ -202,7 +202,7 @@ func TestService_UpsertRuleSetting_ResolvesAndAudits(t *testing.T) {
 	audit := &fakeAudit{}
 	svc := newService(t, audit)
 	ctx := context.Background()
-	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(7, "ops@fleetdm.com")}
+	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(7, "ops@example.com")}
 
 	_, err := svc.UpsertRuleSetting(ctx, actor, "too noisy", detectionconfig.UpsertSettingInput{
 		RuleID: "suspicious_exec", Mode: api.DetectionRuleModeDisabled,
@@ -228,7 +228,7 @@ func TestService_UpsertRuleSetting_ReEnablePreviouslyDisabledRule(t *testing.T) 
 	t.Parallel()
 	svc := newService(t, &fakeAudit{})
 	ctx := context.Background()
-	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(7, "ops@fleetdm.com")}
+	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(7, "ops@example.com")}
 
 	_, err := svc.UpsertRuleSetting(ctx, actor, "too noisy", detectionconfig.UpsertSettingInput{
 		RuleID: "suspicious_exec", Mode: api.DetectionRuleModeDisabled,
@@ -251,7 +251,7 @@ func TestService_DeleteExclusion(t *testing.T) {
 	audit := &fakeAudit{}
 	svc := newService(t, audit)
 	ctx := context.Background()
-	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@fleetdm.com")}
+	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@example.com")}
 
 	excl, err := svc.CreateExclusion(ctx, actor, "r", detectionconfig.CreateExclusionInput{
 		RuleID: "sudoers_tamper", MatchType: api.ExclusionMatchPathGlob, Value: "/usr/local/bin/munki",
@@ -273,7 +273,7 @@ func TestService_NilAuditDropsRowWithoutPanic(t *testing.T) {
 	t.Parallel()
 	svc := newService(t, nil) // nil recorder
 	ctx := context.Background()
-	_, err := svc.CreateExclusion(ctx, &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@fleetdm.com")}, "r", detectionconfig.CreateExclusionInput{
+	_, err := svc.CreateExclusion(ctx, &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@example.com")}, "r", detectionconfig.CreateExclusionInput{
 		RuleID: "dyld_insert", MatchType: api.ExclusionMatchSHA256, Value: "abc",
 	})
 	require.NoError(t, err, "a nil audit recorder must not fail the mutation")
@@ -306,7 +306,7 @@ func TestService_RefreshLoop_ConvergesAcrossReplicas(t *testing.T) {
 
 	// Replica A creates the exclusion. This bumps detection_config_meta.version; B never sees the mutation directly.
 	_, err := svcA.CreateExclusion(
-		t.Context(), &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@fleetdm.com")}, "munki staged installer writes sudoers",
+		t.Context(), &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@example.com")}, "munki staged installer writes sudoers",
 		detectionconfig.CreateExclusionInput{
 			RuleID: "sudoers_tamper", MatchType: api.ExclusionMatchPathGlob, Value: "/var/db/munki/installer",
 		})
@@ -344,7 +344,7 @@ func TestService_AChangeCommitsItsAuditEntryAndAnOutageOnlyDelaysTheRow(t *testi
 	require.NoError(t, err)
 	svc := detectionconfig.NewService(store, nil, drain, nil)
 	require.NoError(t, svc.Reload(t.Context()))
-	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(7, "ops@fleetdm.com")}
+	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(7, "ops@example.com")}
 	traceID, err := trace.TraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736")
 	require.NoError(t, err)
 	spanID, err := trace.SpanIDFromHex("00f067aa0ba902b7")
@@ -393,7 +393,7 @@ func TestService_ARefusedChangeLeavesNoAuditEntry(t *testing.T) {
 	outbox := auditoutbox.NewStore(db, detectionconfig.AuditOutboxTable)
 	svc := detectionconfig.NewService(store, nil, nil, nil)
 	svc.SetRuleExclusionSupport(map[string][]api.ExclusionMatchType{"sudoers_tamper": {api.ExclusionMatchPathGlob}})
-	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(7, "ops@fleetdm.com")}
+	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(7, "ops@example.com")}
 
 	_, err := svc.CreateExclusion(t.Context(), actor, "r", detectionconfig.CreateExclusionInput{
 		RuleID: "sudoers_tamper", MatchType: api.ExclusionMatchSHA256, Value: "abc",
@@ -415,7 +415,7 @@ func TestService_ARefusedChangeLeavesNoAuditEntry(t *testing.T) {
 // spec:server-detection-rules-engine/signature-based-parent-exclusions/a-bare-signing-id-exclusion-is-refused
 func TestService_CreateExclusion_RefusesABareSigningID(t *testing.T) {
 	t.Parallel()
-	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@fleetdm.com")}
+	actor := &identityapi.Actor{Principal: identityapi.UserPrincipal(1, "ops@example.com")}
 	support := map[string][]api.ExclusionMatchType{
 		"suspicious_exec": {api.ExclusionMatchSigningID},
 	}

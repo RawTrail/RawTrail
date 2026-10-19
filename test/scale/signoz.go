@@ -22,12 +22,12 @@ const (
 	//
 	// It must NOT be the older `http.server.duration` (milliseconds). Both names exist in our SigNoz because other services on the
 	// shared instance still emit the old one, so querying it succeeds and returns somebody else's numbers rather than failing
-	// (issue #734). Verified against the live instance: `http.server.request.duration` is emitted by `fleet-edr-server`, and
+	// (issue #734). Verified against the live instance: `http.server.request.duration` is emitted by `rawtrail-server`, and
 	// `http.server.duration` is not.
 	signozMetricHTTPServerDuration = "http.server.request.duration"
 
 	// signozServiceName is the service.name the EDR server emits under BY DEFAULT: `serviceName` in
-	// server/cmd/fleet-edr-server/main.go.
+	// server/cmd/rawtrail-server/main.go.
 	//
 	// It is a default, not a fixed identity. `observability.OptionsFromEnv` clears the binary's value when `OTEL_SERVICE_NAME` is
 	// set, deferring to the SDK's `resource.WithFromEnv()`, so an operator who sets that variable publishes under their own name and
@@ -39,7 +39,7 @@ const (
 	// It must NOT be "fleet". That is the MDM Fleet server, a DIFFERENT PRODUCT that shares this SigNoz instance, and it does emit
 	// `http.server.duration`. The pre-#734 pairing of "fleet" + `http.server.duration` was therefore a perfectly valid query that
 	// silently returned the other product's HTTP latency and recorded it as this run's server-side p99.
-	signozServiceName = "fleet-edr-server"
+	signozServiceName = "rawtrail-server"
 
 	// signozHTTPTimeout caps the cross-check HTTP call. A SigNoz query against the run's 30-min window typically returns in
 	// well under 1s; the 10s ceiling here is generous so a stop-the-world GC pause inside SigNoz doesn't propagate as a soft

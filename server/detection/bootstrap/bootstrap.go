@@ -34,8 +34,8 @@ import (
 // detection/internal/intake so cmd/* don't have to reach into an internal package for the type.
 type BuildInfo = intake.BuildInfo
 
-// Mode controls which background goroutines + routes the bootstrap wires up. Two binaries consume this: fleet-edr-server (full mode)
-// and fleet-edr-ingest (intake-only mode).
+// Mode controls which background goroutines + routes the bootstrap wires up. Two binaries consume this: rawtrail-server (full mode)
+// and rawtrail-ingest (intake-only mode).
 type Mode int
 
 const (

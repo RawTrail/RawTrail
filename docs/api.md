@@ -1,6 +1,6 @@
 # HTTP API
 
-Fleet EDR exposes a single HTTP API surface split across four audiences:
+RawTrail exposes a single HTTP API surface split across four audiences:
 
 - **Agents** on macOS endpoints post telemetry and poll for commands. They authenticate with a per-host bearer token.
 - **Browsers** (the admin UI) authenticate with a session cookie + CSRF token. Everything the UI does is reachable as a JSON API from the same endpoints.

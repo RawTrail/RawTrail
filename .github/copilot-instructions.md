@@ -1,6 +1,6 @@
-# Copilot review instructions: Fleet EDR
+# Copilot review instructions: RawTrail
 
-Fleet EDR is a standalone, macOS-first EDR (Swift Endpoint Security extension + Go agent with a Windows ETW sensor under `agent/wintel/` + Go server + React UI + JSON event schema). When reviewing a pull request, apply these repo-specific checks in addition to the usual ones.
+RawTrail is a standalone, macOS-first EDR (Swift Endpoint Security extension + Go agent with a Windows ETW sensor under `agent/wintel/` + Go server + React UI + JSON event schema). When reviewing a pull request, apply these repo-specific checks in addition to the usual ones.
 
 ## Always flag: behavior changes that do not update the spec
 

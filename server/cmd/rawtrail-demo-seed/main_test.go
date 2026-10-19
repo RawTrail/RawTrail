@@ -77,7 +77,7 @@ func TestDBErrorsPropagate(t *testing.T) {
 
 func TestSeedDemoUserError(t *testing.T) {
 	t.Parallel()
-	err := seedDemoUser(context.Background(), badDB(t), "demo@fleet-edr.local", "subject", "senior_analyst")
+	err := seedDemoUser(context.Background(), badDB(t), "demo@rawtrail.local", "subject", "senior_analyst")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "seed demo user row")
 }

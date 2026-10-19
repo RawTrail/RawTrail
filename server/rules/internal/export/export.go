@@ -51,7 +51,7 @@ const (
 
 // author is the attribution written into every exported rule. Imported community rules carry their own author, which the
 // Detection Rule License obliges us to preserve wherever their matches are shown.
-const author = "Fleet EDR"
+const author = "RawTrail"
 
 // file is the exported document. Field order IS the emitted key order, so the Sigma half reads first and our extension last,
 // matching how the format reference presents a rule and how every Sigma rule in the wild opens.
@@ -353,7 +353,7 @@ func marshal(doc file) ([]byte, error) {
 // order. Empty when every event type maps to the same category, which is the ordinary case.
 //
 // An event type with no Sigma equivalent maps to itself (see sigmaCategory), and those are counted too: a rule mixing `open` with
-// a Fleet-only event type is no more routable by a standard engine than one mixing two real categories.
+// a RawTrail-only event type is no more routable by a standard engine than one mixing two real categories.
 func extraCategories(eventTypes []string, declared string) []string {
 	var extra []string
 	for _, et := range eventTypes {

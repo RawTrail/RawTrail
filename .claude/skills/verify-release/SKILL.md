@@ -1,6 +1,6 @@
 ---
 name: verify-release
-description: Verify a published Fleet EDR GitHub Release carries every expected artifact and that each one's signatures check out. Use after the release workflow finishes (or when the user asks to "verify the release", "check the release artifacts", "verify the signatures for vX.Y.Z").
+description: Verify a published RawTrail GitHub Release carries every expected artifact and that each one's signatures check out. Use after the release workflow finishes (or when the user asks to "verify the release", "check the release artifacts", "verify the signatures for vX.Y.Z").
 metadata:
   author: fleet-edr
   version: "1.0"
@@ -24,7 +24,7 @@ Set the constants used throughout. `TAG` must already be set (see Inputs); the s
 
 ```sh
 REPO=getvictor/fleet-edr
-IMAGE=ghcr.io/getvictor/fleet-edr-server
+IMAGE=ghcr.io/getvictor/rawtrail-server
 ISSUER='https://token.actions.githubusercontent.com'
 # Escape regex metacharacters in the tag (the dots), then pin the identity to exactly this tag.
 TAG_RE=$(printf '%s' "$TAG" | sed 's/[.[\*^$()+?{|]/\\&/g')

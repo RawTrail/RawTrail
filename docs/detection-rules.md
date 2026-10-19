@@ -1,10 +1,10 @@
 # Detection rules
 
-Every rule names a **Source**. `Fleet EDR` marks a rule this project wrote, and `Locally authored` one written on this deployment; any other value credits an upstream project and that rule's own author, and those rules are reproduced unmodified. The upstream macOS corpus comes from [SigmaHQ](https://github.com/SigmaHQ/sigma) under the [Detection Rule License 1.1](https://github.com/SigmaHQ/Detection-Rule-License).
+Every rule names a **Source**. `RawTrail` marks a rule this project wrote, and `Locally authored` one written on this deployment; any other value credits an upstream project and that rule's own author, and those rules are reproduced unmodified. The upstream macOS corpus comes from [SigmaHQ](https://github.com/SigmaHQ/sigma) under the [Detection Rule License 1.1](https://github.com/SigmaHQ/Detection-Rule-License).
 
 This page is generated from `tools/gen-rule-docs` by reading the
 `rulesapi.RuleMetadata.Doc` field on every rule registered in
-`server/cmd/fleet-edr-server/main.go`. To refresh after changing a
+`server/cmd/rawtrail-server/main.go`. To refresh after changing a
 rule's documentation, run:
 
 ```sh
@@ -124,7 +124,7 @@ Flags a non-shell process that spawns a shell which, within 30 seconds, execs a 
 | Rule ID | `suspicious_exec` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1059.004`](https://attack.mitre.org/techniques/T1059/004/) |
 | Event types | `exec` |
 
@@ -161,7 +161,7 @@ Flags a non-shell process that spawns a shell which, within 30 seconds, makes an
 | Rule ID | `shell_network_connect` |
 | Severity | `high` |
 | Default mode | `monitor` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | | This rule records what it would have fired on and raises **no alert** until an operator promotes it. |
 | ATT&CK | [`T1059.004`](https://attack.mitre.org/techniques/T1059/004/) |
 | Event types | `network_connect` |
@@ -198,7 +198,7 @@ Flags a LaunchAgent whose registered executable is not an Apple platform binary,
 | Rule ID | `persistence_launchagent` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1543.001`](https://attack.mitre.org/techniques/T1543/001/) |
 | Event types | `btm_launch_item_add` |
 
@@ -230,7 +230,7 @@ Flags a login item whose app is not an Apple platform binary, not MDM-managed, a
 | Rule ID | `persistence_login_item` |
 | Severity | `medium` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1547.015`](https://attack.mitre.org/techniques/T1547/015/) |
 | Event types | `btm_launch_item_add` |
 
@@ -260,7 +260,7 @@ Flags an env(1) invocation that sets DYLD_INSERT_LIBRARIES or DYLD_LIBRARY_PATH 
 | Rule ID | `dyld_insert` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1574.006`](https://attack.mitre.org/techniques/T1574/006/) |
 | Event types | `exec` |
 
@@ -290,7 +290,7 @@ Flags any /bin/sh, /bin/bash, /bin/zsh (etc.) whose parent is Word, Excel, Power
 | Rule ID | `shell_from_office` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1059.004`](https://attack.mitre.org/techniques/T1059/004/) |
 | Event types | `exec` |
 
@@ -320,7 +320,7 @@ Critical-severity catch on the canonical macOS commodity-dropper chain: osascrip
 | Rule ID | `osascript_network_exec` |
 | Severity | `critical` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1059.002`](https://attack.mitre.org/techniques/T1059/002/) |
 | Event types | `exec` |
 
@@ -351,7 +351,7 @@ Flags exec of /usr/bin/security dump-keychain: the canonical macOS Keychain expo
 | Rule ID | `credential_keychain_dump` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1555.001`](https://attack.mitre.org/techniques/T1555/001/) |
 | Event types | `exec` |
 
@@ -380,7 +380,7 @@ Flags a program other than the browser opening a browser's saved passwords, cook
 | Rule ID | `credential_browser_store_read` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1555.003`](https://attack.mitre.org/techniques/T1555/003/) |
 | Event types | `open` |
 
@@ -412,7 +412,7 @@ Flags an app that is not Apple's being granted Full Disk Access, Accessibility, 
 | Rule ID | `tcc_sensitive_grant` |
 | Severity | `medium` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1548.006`](https://attack.mitre.org/techniques/T1548/006/) |
 | Event types | `tcc_modify` |
 
@@ -441,7 +441,7 @@ Flags `security add-trusted-cert` or `security trust-settings-import`, which mak
 | Rule ID | `trusted_root_certificate` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1553.004`](https://attack.mitre.org/techniques/T1553/004/) |
 | Event types | `exec` |
 
@@ -470,7 +470,7 @@ Flags a system-domain LaunchDaemon whose registered executable is not an Apple p
 | Rule ID | `privilege_launchd_plist_write` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1543.004`](https://attack.mitre.org/techniques/T1543/004/) |
 | Event types | `btm_launch_item_add` |
 
@@ -504,7 +504,7 @@ Flags an installer script run from a package that is unsigned or whose signature
 | Rule ID | `installer_unsigned_package` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1546.016`](https://attack.mitre.org/techniques/T1546/016/) |
 | Event types | `exec` |
 
@@ -536,7 +536,7 @@ Flags any non-allowlisted writer that changes a sudoers file sudo will load.
 | Rule ID | `sudoers_tamper` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1548.003`](https://attack.mitre.org/techniques/T1548/003/) |
 | Event types | `open`, `file_rename` |
 
@@ -567,7 +567,7 @@ Flags a program that empties or deletes a sudoers file that sudo would have load
 | Rule ID | `sudoers_destroyed` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1070.004`](https://attack.mitre.org/techniques/T1070/004/), [`T1531`](https://attack.mitre.org/techniques/T1531/) |
 | Event types | `file_delete`, `file_truncate` |
 
@@ -599,7 +599,7 @@ Flags a write to, or a rename onto, a user's SSH authorized_keys file.
 | Rule ID | `persistence_ssh_authorized_keys` |
 | Severity | `medium` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1098.004`](https://attack.mitre.org/techniques/T1098/004/) |
 | Event types | `open`, `file_rename` |
 
@@ -629,7 +629,7 @@ Flags a program that looks up a domain name and then connects to the address tha
 | Rule ID | `dns_c2_beacon` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | ATT&CK | [`T1071.004`](https://attack.mitre.org/techniques/T1071/004/), [`T1568.002`](https://attack.mitre.org/techniques/T1568/002/) |
 | Event types | `network_connect`, `dns_query`, `exec` |
 
@@ -662,7 +662,7 @@ Flags one of the EDR's own capture providers stopping without coming back within
 | Rule ID | `sensor_tamper` |
 | Severity | `high` |
 | Default mode | `alert` |
-| Source | Fleet EDR |
+| Source | RawTrail |
 | Event types | `sensor_provider_transition` |
 
 ### Description

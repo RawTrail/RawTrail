@@ -22,7 +22,7 @@
 # replica services stay byte-identical apart from their name. Add a third
 # replica by copying the server-b block and renaming.
 x-server: &server
-  image: ghcr.io/getvictor/fleet-edr-server:${EDR_VERSION:-latest}
+  image: ghcr.io/getvictor/rawtrail-server:${EDR_VERSION:-latest}
   restart: unless-stopped
   # Longer than every stage of a graceful stop put together: drain (30s), in-flight
   # deadline (15s), the two loop joins (10s + 5s) and the telemetry flush (5s): 65s. This
@@ -67,7 +67,7 @@ x-server: &server
     EDR_LOG_LEVEL: ${EDR_LOG_LEVEL:-info}
     EDR_LOG_FORMAT: "json"
     OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-    OTEL_SERVICE_NAME: fleet-edr-server
+    OTEL_SERVICE_NAME: rawtrail-server
   volumes:
     - ${EDR_TLS_DIR:-./tls}:/tls:ro
   secrets:

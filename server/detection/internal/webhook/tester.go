@@ -43,7 +43,7 @@ func (t *Tester) SendTest(ctx context.Context, url string, sealed []byte) (int, 
 		OccurredAt: t.now(),
 		Attempt:    1,
 		Alert: detapi.Alert{
-			Title:       "Fleet EDR webhook test",
+			Title:       "RawTrail webhook test",
 			Description: "This is a test delivery triggered from the console; no alert was created.",
 			Severity:    detapi.SeverityLow,
 			Source:      detapi.AlertSourceDetection,

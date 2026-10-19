@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Trigger the dns_c2_beacon detection on a live Fleet EDR agent.
+# Trigger the dns_c2_beacon detection on a live RawTrail agent.
 #
 # Run this ON the enrolled Mac (the host whose agent + system/network extensions are active). It simulates the classic
 # "malware phones home" chain so the EDR can correlate three separate telemetry streams into ONE alert:
@@ -38,7 +38,7 @@ trap cleanup EXIT
 
 say "Suspicious process phoning home demo  (mode: ${MODE})"
 sub "Simulating the classic 'malware phones home' chain on this host."
-sub "Fleet EDR should correlate three separate signals into ONE alert:"
+sub "RawTrail should correlate three separate signals into ONE alert:"
 sub "  exec (Endpoint Security) + dns_query (DNS proxy) + network_connect (network filter)."
 
 # --- Step 1: stage the payload in a suspicious location -----------------------------
@@ -117,7 +117,7 @@ say "Step 4/4  Clean up"
 rm -f "$BEACON"
 sub "Removed ${BEACON} (typical of malware covering its tracks)."
 
-say "Done. Now watch Fleet EDR."
+say "Done. Now watch RawTrail."
 sub "Within a few seconds an alert should appear in the EDR UI:"
 sub "  Title:    Suspicious process phoning home"
 if [[ "$MODE" = "critical" ]]; then

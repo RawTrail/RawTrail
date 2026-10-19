@@ -6,14 +6,14 @@
   &__id {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.95rem;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
   }
 
   &__summary {
     font-size: 1.05rem;
     line-height: 1.5;
     margin: $pad-medium 0 $pad-large;
-    color: $core-fleet-black;
+    color: $core-black;
   }
 
   // Section headings (Description, Configuration). Global h2 carries no top
@@ -37,7 +37,7 @@
     th[scope="row"] {
       text-align: left;
       font-weight: $bold;
-      color: $ui-fleet-black-75;
+      color: $ui-black-75;
       padding-right: $pad-large;
       width: 1%;
       white-space: nowrap;
@@ -52,7 +52,7 @@
   // second severity.
   &__mode {
     font-weight: $bold;
-    color: $core-fleet-black;
+    color: $core-black;
   }
 
   &__config th {
@@ -71,7 +71,7 @@
   &__para {
     line-height: 1.5;
     margin: 0 0 $pad-medium;
-    color: $core-fleet-black;
+    color: $core-black;
     // Preserve single newlines inside a paragraph so list-style content
     // (e.g. "1. ...\n2. ..." in suspicious_exec's description) survives
     // rendering. Blank-line splitting still happens at the React level
@@ -81,14 +81,14 @@
   }
 
   &__muted {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
   }
 
   &__back {
     margin-top: $pad-large;
 
     a {
-      color: $core-fleet-green;
+      color: $core-green;
       text-decoration: none;
 
       &:hover { text-decoration: underline; }
@@ -104,8 +104,8 @@
     font-size: 0.85rem;
     font-weight: $bold;
     text-transform: capitalize;
-    background: $ui-fleet-black-10;
-    color: $core-fleet-black;
+    background: $ui-black-10;
+    color: $core-black;
 
     // Severity colours pair a tinted pill background with a fully-opaque
     // dark foreground that hits WCAG AA contrast (4.5:1+) against the
@@ -133,8 +133,8 @@
     }
 
     &--unknown {
-      background: $ui-fleet-black-10;
-      color: $core-fleet-black;
+      background: $ui-black-10;
+      color: $core-black;
     }
   }
 }
@@ -144,7 +144,7 @@
   font-size: $x-small;
   padding: $pad-small;
   margin-bottom: $pad-medium;
-  border: 1px solid $ui-fleet-black-10;
+  border: 1px solid $ui-black-10;
   border-radius: 4px;
   background: $ui-off-white;
 }

@@ -257,3 +257,11 @@ func TestMountAuthed_registeredRouteIsProtectedNotSPA(t *testing.T) {
 	outer.ServeHTTP(mw, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/never-registered", nil))
 	assert.Equal(t, "text/html", mw.Header().Get("Content-Type"))
 }
+
+// TestServiceName_IsRawTrail pins the literal the server reports as its OpenTelemetry service.name. The shipped dashboards and
+// alert rules filter on it, so a rename that misses them would leave every one of them watching a service that no longer reports.
+// spec:product-identity/the-product-identifies-itself-as-rawtrail/the-server-reports-telemetry-as-rawtrail-server
+func TestServiceName_IsRawTrail(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "rawtrail-server", serviceName)
+}

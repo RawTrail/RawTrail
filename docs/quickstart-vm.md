@@ -1,6 +1,6 @@
 # Quickstart: single VM with your own domain
 
-This is the recommended way to stand up a Fleet EDR server for a pilot. You run one Linux VM with Docker, point a domain at it, and run one script. Caddy gets a Let's Encrypt certificate automatically and reverse-proxies to the server, so you manage no certificates, and because Caddy is a plain reverse proxy there is no content-inspecting WAF to flag your agents' telemetry as attacks (the failure mode you hit on a managed PaaS edge). The stack is sized for a single customer with 10 to 500 endpoints. For high availability, see the multi-replica topology in [install-server.md](install-server.md).
+This is the recommended way to stand up a RawTrail server for a pilot. You run one Linux VM with Docker, point a domain at it, and run one script. Caddy gets a Let's Encrypt certificate automatically and reverse-proxies to the server, so you manage no certificates, and because Caddy is a plain reverse proxy there is no content-inspecting WAF to flag your agents' telemetry as attacks (the failure mode you hit on a managed PaaS edge). The stack is sized for a single customer with 10 to 500 endpoints. For high availability, see the multi-replica topology in [install-server.md](install-server.md).
 
 ## What you get
 
@@ -112,7 +112,7 @@ The URL scheme picks the transport: `http://host:4317` is plaintext (a collector
 - `OTEL_EXPORTER_OTLP_HEADERS`: comma-separated headers, used for an ingestion or auth token, for example `signoz-ingestion-key=<key>` for SigNoz Cloud or `authorization=Bearer <token>` for an OTLP gateway.
 - `OTEL_EXPORTER_OTLP_COMPRESSION`: set `gzip` to compress the export, which cuts its bandwidth several-fold.
 - `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`: set `delta` for SigNoz or Datadog. Leave it unset (cumulative) for Prometheus-style backends such as Grafana Mimir. See [install-server.md](install-server.md#otel-metrics-and-logs).
-- `OTEL_RESOURCE_ATTRIBUTES`: comma-separated resource tags. Set `deployment.environment.name=production` (or `staging`, etc.) so the backend can separate this deployment's signals from others. `service.name` is already pinned to `fleet-edr-server`.
+- `OTEL_RESOURCE_ATTRIBUTES`: comma-separated resource tags. Set `deployment.environment.name=production` (or `staging`, etc.) so the backend can separate this deployment's signals from others. `service.name` is already pinned to `rawtrail-server`.
 
 The full list of exported metrics and what to alert on is in [install-server.md](install-server.md#otel-metrics-and-logs) and [operations.md](operations.md#metrics-and-monitoring). There is no Prometheus scrape endpoint; export is OTel-only.
 

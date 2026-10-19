@@ -61,18 +61,19 @@ func TestBuildNavigatorLayer(t *testing.T) {
 // no-rules layer: two-space indentation, a trailing newline, the description's ampersand left unescaped (encoding/json's default
 // HTML escaping is disabled for the file), and an empty `techniques` array. This is the example-based wire-shape pin; the
 // catalog-driven full-document pin lives in the bootstrap drift test against docs/attack-navigator-layer.json.
+// spec:product-identity/the-product-identifies-itself-as-rawtrail/the-navigator-layer-is-named-for-rawtrail
 func TestMarshalNavigatorLayerIndented(t *testing.T) {
 	t.Parallel()
 
 	const wantEmptyLayer = `{
-  "name": "Fleet EDR coverage",
+  "name": "RawTrail coverage",
   "versions": {
     "attack": "19",
     "layer": "4.5",
     "navigator": "5.2.0"
   },
   "domain": "enterprise-attack",
-  "description": "MITRE ATT&CK techniques covered by currently-registered Fleet EDR detection rules. Amber techniques are covered only by rules that raise no alert as built in, whether because they record without alerting or are off by default.",
+  "description": "MITRE ATT&CK techniques covered by currently-registered RawTrail detection rules. Amber techniques are covered only by rules that raise no alert as built in, whether because they record without alerting or are off by default.",
   "filters": {
     "platforms": [
       "macOS"

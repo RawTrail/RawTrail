@@ -14,6 +14,6 @@
 // launches them with a single goroutine. Each loop honours ctx
 // cancellation; the runner returns when all three return.
 //
-// fleet-edr-ingest binary uses Mode: ModeIntake which skips the
+// rawtrail-ingest binary uses Mode: ModeIntake which skips the
 // pipeline entirely.
 package pipeline

@@ -1,10 +1,10 @@
 # Architecture
 
-This document describes the Fleet EDR system architecture for developers getting familiar with the codebase.
+This document describes the RawTrail system architecture for developers getting familiar with the codebase.
 
 ## Overview
 
-Fleet EDR is a macOS Endpoint Detection and Response system. It captures process lifecycle events and network connections in real time, builds a per-host process graph, runs behavioral detection rules against the graph, and presents findings through a web UI with response capabilities.
+RawTrail is a macOS Endpoint Detection and Response system. It captures process lifecycle events and network connections in real time, builds a per-host process graph, runs behavioral detection rules against the graph, and presents findings through a web UI with response capabilities.
 
 ```text
 ┌─────────────────── macOS endpoint ───────────────────┐
@@ -142,7 +142,7 @@ The server is a modular monolith split into eight bounded contexts under `server
 
 Stateless agent-facing handler. `POST /api/events` validates required fields (`event_id`, `host_id`, `event_type`, `timestamp_ns`), enforces a 10 MB body limit (`MaxIngestBodyBytes`), and durably persists each accepted event to the ClickHouse archive while enqueuing it on the MySQL `event_queue` (both owned by the `visibility` context, ADR-0015), returning success only after both writes; the write is idempotent by `event_id`. The same package serves the unauthenticated `/livez` and `/readyz` probes.
 
-A standalone `fleet-edr-ingest` binary (`server/cmd/fleet-edr-ingest/`) runs this handler independently for horizontal scaling.
+A standalone `rawtrail-ingest` binary (`server/cmd/rawtrail-ingest/`) runs this handler independently for horizontal scaling.
 
 ### Pipeline (`server/detection/internal/pipeline/`)
 
@@ -274,7 +274,7 @@ docker compose up mysql -d
 
 # Build and run the server (port 33306 for MySQL)
 cd ui && npm run build && cd ..
-go run ./server/cmd/fleet-edr-server/ -dsn "root@tcp(127.0.0.1:33306)/edr?parseTime=true"
+go run ./server/cmd/rawtrail-server/ -dsn "root@tcp(127.0.0.1:33306)/edr?parseTime=true"
 
 # Open http://localhost:8088/ui/
 

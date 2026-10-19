@@ -1,4 +1,4 @@
-// Command fleet-edr-migrate applies every bounded context's database migrations against EDR_DSN and exits, without booting the
+// Command rawtrail-migrate applies every bounded context's database migrations against EDR_DSN and exits, without booting the
 // server. It is the ops entry point for "apply the schema, then sanity-check before letting the server start" (issue #115,
 // ADR-0009).
 //
@@ -61,7 +61,7 @@ func main() {
 	// PR #309). Reading here rather than inside run keeps the env lookup off the context-carrying call path.
 	getenv := config.FileBackedGetenv(os.Getenv, nil) //nolint:forbidigo // env read at the cmd wiring boundary (migrate entrypoint); see issue #172
 	if err := run(context.Background(), getenv("EDR_DSN")); err != nil {
-		fmt.Fprintf(os.Stderr, "fleet-edr-migrate: %v\n", err)
+		fmt.Fprintf(os.Stderr, "rawtrail-migrate: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -85,8 +85,8 @@ func applyAll(ctx context.Context, db *sqlx.DB, out io.Writer) error {
 		if err := m.apply(ctx, db); err != nil {
 			return fmt.Errorf("apply %s migrations: %w", m.context, err)
 		}
-		fmt.Fprintf(out, "fleet-edr-migrate: %s migrations applied\n", m.context)
+		fmt.Fprintf(out, "rawtrail-migrate: %s migrations applied\n", m.context)
 	}
-	fmt.Fprintln(out, "fleet-edr-migrate: all migrations applied")
+	fmt.Fprintln(out, "rawtrail-migrate: all migrations applied")
 	return nil
 }

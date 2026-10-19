@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: Fleet EDR API
+  title: RawTrail API
   version: "0.2.0"
   description: |
-    HTTP API for Fleet EDR. Four audiences:
+    HTTP API for RawTrail. Four audiences:
 
     - **Agents** (macOS endpoints) authenticate with a per-host bearer
       token obtained at enrollment. They call `POST /api/enroll`,
@@ -24,7 +24,7 @@ info:
     For a human-readable host/agent install guide see
     [docs/install-agent-manual.md](https://github.com/getvictor/fleet-edr/blob/main/docs/install-agent-manual.md).
   license:
-    name: Fleet EDR License
+    name: RawTrail License
     url: https://github.com/getvictor/fleet-edr/blob/main/LICENSE
 servers:
   - url: https://edr.example.com
@@ -3055,7 +3055,7 @@ components:
         origin:
           type: string
           description: >-
-            Who wrote the rule that fired, captured when the alert was raised. `Fleet EDR` for a rule this project authored,
+            Who wrote the rule that fired, captured when the alert was raised. `RawTrail` for a rule this project authored,
             `Locally authored` for one written on this deployment, and `SigmaHQ, by <author>` for one from the imported corpus. Distinct from `source`, which names the subsystem that
             raised the alert rather than the rule's author. Empty in two cases: an alert raised before the field existed, and an
             application-control block, whose rule id is the operator's own policy rather than a detection with an author.
@@ -3202,7 +3202,7 @@ components:
       properties:
         name:
           type: string
-          example: "Fleet EDR coverage"
+          example: "RawTrail coverage"
         versions:
           type: object
           additionalProperties: {type: string}
@@ -3217,8 +3217,8 @@ components:
         filters:
           type: object
           description: >-
-            Navigator layer filters. Scopes the rendered matrix to the platforms Fleet EDR supports;
-            Fleet EDR is macOS-only, so the layer always carries `platforms: ["macOS"]`.
+            Navigator layer filters. Scopes the rendered matrix to the platforms RawTrail supports;
+            RawTrail is macOS-only, so the layer always carries `platforms: ["macOS"]`.
           required: [platforms]
           properties:
             platforms:
@@ -3310,7 +3310,7 @@ components:
         origin:
           type: string
           description: |
-            Where the rule came from. `Fleet EDR` for a rule written for this engine, `Locally authored` for one
+            Where the rule came from. `RawTrail` for a rule written for this engine, `Locally authored` for one
             written on this deployment; for a rule vendored from an upstream corpus, that project and the rule's own
             author, which is the attribution the corpus licence carries (those rules are shipped and exported
             unmodified). Always present on this endpoint, so a

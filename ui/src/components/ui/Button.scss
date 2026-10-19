@@ -14,7 +14,7 @@
   font-size: $x-small;
   font-weight: $bold;
   font-family: inherit;
-  color: $core-fleet-white;
+  color: $core-white;
   cursor: pointer;
   text-decoration: none;
   transition: background-color 150ms ease-in-out, color 150ms ease-in-out;
@@ -52,16 +52,16 @@
     opacity: 0.5;
   }
 
-  // Primary: Fleet green solid.
+  // Primary: solid green.
   &--primary {
-    background-color: $core-fleet-green;
+    background-color: $core-green;
 
     &:hover:not(.button--disabled) {
-      background-color: $core-fleet-green-over;
+      background-color: $core-green-over;
     }
 
     &:active:not(.button--disabled) {
-      background-color: $core-fleet-green-down;
+      background-color: $core-green-down;
     }
   }
 
@@ -80,23 +80,23 @@
 
   // Inverse: white with dark border.
   &--inverse {
-    background-color: $core-fleet-white;
-    color: $core-fleet-black;
-    border: 1px solid $ui-fleet-black-10;
+    background-color: $core-white;
+    color: $core-black;
+    border: 1px solid $ui-black-10;
 
     &:hover:not(.button--disabled) {
-      background-color: $ui-fleet-black-5;
+      background-color: $ui-black-5;
     }
 
     &:active:not(.button--disabled) {
-      background-color: $ui-fleet-black-5-down;
+      background-color: $ui-black-5-down;
     }
   }
 
   // Text-link: no background, looks like a link.
   &--text-link {
     background: transparent;
-    color: $core-fleet-green;
+    color: $core-green;
     padding: 0;
     height: auto;
     font-weight: $regular;

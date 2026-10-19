@@ -266,7 +266,7 @@ test.describe.serial("reauth modal retry after stale-session denial", () => {
         await ageDB.query(
           `UPDATE sessions
               SET last_auth_at = NOW(6) - INTERVAL 1 HOUR
-            WHERE user_id = (SELECT id FROM users WHERE email = 'admin@fleet-edr.local')`,
+            WHERE user_id = (SELECT id FROM users WHERE email = 'admin@rawtrail.local')`,
         );
       } finally {
         await ageDB.end();

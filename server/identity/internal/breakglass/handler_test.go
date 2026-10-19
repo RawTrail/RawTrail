@@ -137,7 +137,7 @@ func TestHandleSetupChallenge_ValidTokenIssuesChallenge(t *testing.T) {
 	// Seed admin row + token via the service helpers.
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO users (email, is_breakglass) VALUES (?, 1)`,
-		"admin@fleet-edr.local")
+		"admin@rawtrail.local")
 	require.NoError(t, err)
 	uid, err := res.LastInsertId()
 	require.NoError(t, err)
@@ -345,7 +345,7 @@ func TestHandleFinishLogin_AssertionParseFailed(t *testing.T) {
 	// Seed an admin user + credential so we get past GetByEmail.
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO users (email, is_breakglass) VALUES (?, 1)`,
-		"admin@fleet-edr.local")
+		"admin@rawtrail.local")
 	require.NoError(t, err)
 	uid, err := res.LastInsertId()
 	require.NoError(t, err)
@@ -360,7 +360,7 @@ func TestHandleFinishLogin_AssertionParseFailed(t *testing.T) {
 
 	// Need a valid challenge cookie. Issue one via BeginLogin.
 	respChal, err := srv.Client().Post(srv.URL+"/admin/break-glass/challenge",
-		"application/json", strings.NewReader(`{"email":"admin@fleet-edr.local"}`))
+		"application/json", strings.NewReader(`{"email":"admin@rawtrail.local"}`))
 	require.NoError(t, err)
 	defer func() { _ = respChal.Body.Close() }()
 	require.Equal(t, http.StatusOK, respChal.StatusCode)
@@ -377,7 +377,7 @@ func TestHandleFinishLogin_AssertionParseFailed(t *testing.T) {
 	// assertion_parse_failed BEFORE reaching the FinishLogin path.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		srv.URL+"/admin/break-glass",
-		strings.NewReader(`{"email":"admin@fleet-edr.local","password":"x","assertion":{"not":"valid"}}`))
+		strings.NewReader(`{"email":"admin@rawtrail.local","password":"x","assertion":{"not":"valid"}}`))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(challengeCookie)

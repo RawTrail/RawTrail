@@ -1,6 +1,6 @@
 // Package testkit is rulecontent's coordinated test-fixture surface.
 //
-// Tests reach for testkit; production wiring (cmd/main, cmd/fleet-edr-migrate, server/testdb/full, test/integration) reaches for
+// Tests reach for testkit; production wiring (cmd/main, cmd/rawtrail-migrate, server/testdb/full, test/integration) reaches for
 // bootstrap. Same split every other context uses.
 //
 // Constraint: this package must NOT import another bounded context. arch-go pins the rule, and cross-context fixture composition

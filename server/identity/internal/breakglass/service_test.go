@@ -30,7 +30,7 @@ func newService(t *testing.T, allowJIT ...bool) (*breakglass.Service, *sqlx.DB, 
 
 	usersStore := users.New(db)
 	user, err := usersStore.CreateBreakglass(t.Context(), users.CreateBreakglassRequest{
-		Email: "admin@fleet-edr.local",
+		Email: "admin@rawtrail.local",
 	})
 	require.NoError(t, err)
 
@@ -150,7 +150,7 @@ func TestService_BeginSetup_TokenConsumed(t *testing.T) {
 func TestService_BeginLogin_NoCredentials(t *testing.T) {
 	t.Parallel()
 	svc, _, _, _ := newService(t)
-	_, _, err := svc.BeginLogin(t.Context(), "admin@fleet-edr.local")
+	_, _, err := svc.BeginLogin(t.Context(), "admin@rawtrail.local")
 	assert.ErrorIs(t, err, breakglass.ErrNoCredentials)
 }
 
@@ -172,7 +172,7 @@ func TestService_BeginLogin_HappyPath(t *testing.T) {
 		fakeCredential("login-cred", "pk", 1), "YubiKey")
 	require.NoError(t, err)
 
-	challenge, user, err := svc.BeginLogin(t.Context(), "admin@fleet-edr.local")
+	challenge, user, err := svc.BeginLogin(t.Context(), "admin@rawtrail.local")
 	require.NoError(t, err)
 	require.NotNil(t, challenge)
 	require.NotNil(t, user)
@@ -200,7 +200,7 @@ func TestService_BeginLogin_NonBreakglass(t *testing.T) {
 func TestService_AuditHelpers(t *testing.T) {
 	t.Parallel()
 	svc, _, rec, uid := newService(t)
-	user := &users.User{ID: uid, Email: "admin@fleet-edr.local"}
+	user := &users.User{ID: uid, Email: "admin@rawtrail.local"}
 
 	svc.AuditSuccess(t.Context(), user, "203.0.113.5", "test/1.0")
 	svc.AuditFailure(t.Context(), user.Email, "password.mismatch", "203.0.113.5", "test/1.0")

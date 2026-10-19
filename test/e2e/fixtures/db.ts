@@ -138,10 +138,10 @@ export async function resetDB(db: Connection): Promise<void> {
     DELETE FROM sessions;
     DELETE FROM bootstrap_tokens;
     DELETE FROM role_bindings
-     WHERE user_id NOT IN (SELECT id FROM (SELECT id FROM users WHERE email = 'admin@fleet-edr.local') t);
+     WHERE user_id NOT IN (SELECT id FROM (SELECT id FROM users WHERE email = 'admin@rawtrail.local') t);
     DELETE FROM identities;
     DELETE FROM audit_events;
-    DELETE FROM users WHERE email != 'admin@fleet-edr.local';
+    DELETE FROM users WHERE email != 'admin@rawtrail.local';
   `);
 }
 
@@ -155,9 +155,9 @@ export async function mintBootstrapToken(db: Connection): Promise<string> {
   const plaintext = raw.toString("base64url");
   const hash = crypto.createHash("sha256").update(plaintext).digest();
   // Find the seeded admin's id.
-  const [rows] = await db.query<mysql.RowDataPacket[]>("SELECT id FROM users WHERE email = 'admin@fleet-edr.local' LIMIT 1");
+  const [rows] = await db.query<mysql.RowDataPacket[]>("SELECT id FROM users WHERE email = 'admin@rawtrail.local' LIMIT 1");
   if (rows.length === 0) {
-    throw new Error("mintBootstrapToken: admin@fleet-edr.local not seeded yet");
+    throw new Error("mintBootstrapToken: admin@rawtrail.local not seeded yet");
   }
   const userID = rows[0].id;
   await db.query(
@@ -257,9 +257,9 @@ export async function forgeAdminSession(db: Connection): Promise<string> {
   const id = crypto.createHash("sha256").update(raw).digest();
   const csrf = crypto.randomBytes(32);
 
-  const [rows] = await db.query<mysql.RowDataPacket[]>("SELECT id FROM users WHERE email = 'admin@fleet-edr.local' LIMIT 1");
+  const [rows] = await db.query<mysql.RowDataPacket[]>("SELECT id FROM users WHERE email = 'admin@rawtrail.local' LIMIT 1");
   if (rows.length === 0) {
-    throw new Error("forgeAdminSession: admin@fleet-edr.local not seeded yet");
+    throw new Error("forgeAdminSession: admin@rawtrail.local not seeded yet");
   }
 
   await db.query(

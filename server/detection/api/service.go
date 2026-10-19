@@ -63,7 +63,7 @@ type Service interface {
 	CountUnprocessed(ctx context.Context) (int64, error)
 
 	// IngestHandler returns the POST /api/events handler. Returned as an http.Handler rather than registered via a separate route method
-	// so the cmd/main split between fleet-edr-server and fleet-edr-ingest can mount the same handler under different middleware chains.
+	// so the cmd/main split between rawtrail-server and rawtrail-ingest can mount the same handler under different middleware chains.
 	IngestHandler() http.Handler
 }
 

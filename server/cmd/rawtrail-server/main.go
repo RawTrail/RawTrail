@@ -1,5 +1,5 @@
-// fleet-edr-server is the main EDR server that handles event processing, serves the API and UI. Event ingestion can be handled by this
-// server or by a separate fleet-edr-ingest instance.
+// rawtrail-server is the main EDR server that handles event processing, serves the API and UI. Event ingestion can be handled by this
+// server or by a separate rawtrail-ingest instance.
 package main
 
 import (
@@ -69,7 +69,7 @@ var (
 )
 
 const (
-	serviceName = "fleet-edr-server"
+	serviceName = "rawtrail-server"
 
 	// migrationLockName is the MySQL advisory lock that serializes the boot-time schema apply across replicas. Under a rolling
 	// upgrade several replicas boot concurrently against one database; holding this lock while applying each context's goose corpus

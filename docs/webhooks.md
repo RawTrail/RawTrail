@@ -1,6 +1,6 @@
 # Outbound webhooks
 
-Fleet EDR can POST every alert, and every sensor health fault, to an HTTP endpoint you control, so they reach your team (Slack, PagerDuty, a SIEM, a SOAR runbook, or your own glue) in seconds instead of waiting for someone to open the console. This page covers configuring destinations, the payload shape, and how a receiver verifies a delivery. Operators manage destinations under Admin, Settings, Webhooks in the console, backed by the API described here.
+RawTrail can POST every alert, and every sensor health fault, to an HTTP endpoint you control, so they reach your team (Slack, PagerDuty, a SIEM, a SOAR runbook, or your own glue) in seconds instead of waiting for someone to open the console. This page covers configuring destinations, the payload shape, and how a receiver verifies a delivery. Operators manage destinations under Admin, Settings, Webhooks in the console, backed by the API described here.
 
 Planned hardening and vendor-specific formatters are tracked in [issue #565](https://github.com/getvictor/fleet-edr/issues/565).
 
@@ -9,7 +9,7 @@ Planned hardening and vendor-specific formatters are tracked in [issue #565](htt
 A delivery fires when an alert is created, and, for destinations subscribed to them, when an alert's status changes and when a host's sensor develops a fault that needs a person. Delivery is at-least-once, so a receiver must deduplicate on the delivery id (see below).
 
 - **Alert deliveries** are queued in the same database transaction that persists the alert, so a delivery survives a server restart and is never queued for an alert that did not persist.
-- **Sensor health fault deliveries** (`host.health_episode_opened`) report a fault in Fleet EDR's own sensor rather than an attack: for example, a capture provider that stopped and that the agent's automatic repair could not restore, leaving the host not reporting that telemetry until someone acts. The fault is recorded first and its delivery queued second, since the two are written by different parts of the server. A failure between the two causes the triggering report to be processed again, which queues the delivery then; the result is still one delivery per fault per destination. Only the fault opening is delivered, not its resolution.
+- **Sensor health fault deliveries** (`host.health_episode_opened`) report a fault in RawTrail's own sensor rather than an attack: for example, a capture provider that stopped and that the agent's automatic repair could not restore, leaving the host not reporting that telemetry until someone acts. The fault is recorded first and its delivery queued second, since the two are written by different parts of the server. A failure between the two causes the triggering report to be processed again, which queues the delivery then; the result is still one delivery per fault per destination. Only the fault opening is delivered, not its resolution.
 
 ## Configuring destinations
 
@@ -103,7 +103,7 @@ A `host.health_episode_opened` delivery carries a `health_episode` body **in pla
 - `subject` is the part of `component` at fault, and is omitted for a fault that concerns the component as a whole.
 - The console link opens the host, since the fault is about its sensor rather than any one alert.
 
-`alert.origin` names the author of the rule that fired: `Fleet EDR` for a rule this project wrote, `Locally authored` for one written on your own deployment, and the upstream project plus that rule's own author for a rule vendored from an external corpus. The vendored rules ship under the [Detection Rule License](https://github.com/SigmaHQ/Detection-Rule-License), which requires the author be credited wherever a match is displayed, so a receiver that renders these alerts to people should carry the credit through. The field is omitted rather than empty in two cases: an alert raised before the field existed, and an application-control block, whose `rule_id` is the operator's own policy rather than a detection with an author. Its addition did not change `schema_version`, since a consumer that ignores it is unaffected.
+`alert.origin` names the author of the rule that fired: `RawTrail` for a rule this project wrote, `Locally authored` for one written on your own deployment, and the upstream project plus that rule's own author for a rule vendored from an external corpus. The vendored rules ship under the [Detection Rule License](https://github.com/SigmaHQ/Detection-Rule-License), which requires the author be credited wherever a match is displayed, so a receiver that renders these alerts to people should carry the credit through. The field is omitted rather than empty in two cases: an alert raised before the field existed, and an application-control block, whose `rule_id` is the operator's own policy rather than a detection with an author. Its addition did not change `schema_version`, since a consumer that ignores it is unaffected.
 
 ## Verifying a delivery
 

@@ -11,14 +11,14 @@
   }
 
   &__host-link {
-    color: $core-fleet-black;
+    color: $core-black;
     font-size: $x-small;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     text-decoration: none;
 
     &:hover {
       text-decoration: underline;
-      color: $core-fleet-green;
+      color: $core-green;
     }
   }
 
@@ -33,10 +33,10 @@
   // options, the active one filled. The industry-standard shape for a binary view toggle, replacing an ambiguous single button.
   &__scope {
     display: inline-flex;
-    border: 1px solid $ui-fleet-black-25;
+    border: 1px solid $ui-black-25;
     border-radius: $border-radius;
     overflow: hidden;
-    background-color: $core-fleet-white;
+    background-color: $core-white;
     line-height: 1;
   }
 
@@ -44,11 +44,11 @@
     appearance: none;
     background: transparent;
     border: 0;
-    border-right: 1px solid $ui-fleet-black-10;
+    border-right: 1px solid $ui-black-10;
     padding: 4px 10px;
     font-size: $x-small;
     font-family: inherit;
-    color: $core-fleet-black;
+    color: $core-black;
     cursor: pointer;
     transition: background-color 100ms ease, color 100ms ease;
 
@@ -61,13 +61,13 @@
     }
 
     &--active {
-      background-color: $core-fleet-green;
-      color: $core-fleet-white;
+      background-color: $core-green;
+      color: $core-white;
       font-weight: $bold;
     }
   }
 
-  // Toggle switch styled to match Fleet's form controls. Uses a hidden checkbox
+  // Toggle switch styled to match the design system's form controls. Uses a hidden checkbox
   // for accessibility/keyboard focus and a pure-CSS visual track/thumb.
   &__toggle {
     display: inline-flex;
@@ -75,7 +75,7 @@
     gap: $pad-small;
     cursor: pointer;
     font-size: $x-small;
-    color: $core-fleet-black;
+    color: $core-black;
     user-select: none;
   }
 
@@ -92,7 +92,7 @@
     display: inline-block;
     width: 32px;
     height: 18px;
-    background-color: $ui-fleet-black-25;
+    background-color: $ui-black-25;
     border-radius: 9px;
     transition: background-color 150ms ease;
     flex-shrink: 0;
@@ -104,7 +104,7 @@
       left: 2px;
       width: 14px;
       height: 14px;
-      background-color: $core-fleet-white;
+      background-color: $core-white;
       border-radius: 50%;
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
       transition: transform 150ms ease;
@@ -112,7 +112,7 @@
   }
 
   &__toggle-input:checked + &__toggle-switch {
-    background-color: $core-fleet-green;
+    background-color: $core-green;
   }
 
   &__toggle-input:checked + &__toggle-switch::after {
@@ -137,18 +137,18 @@
 
   &__viewtab {
     border-bottom: 2px solid transparent;
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-size: $x-small;
     padding: 4px 2px;
     text-decoration: none;
 
     &:hover {
-      color: $core-fleet-blue;
+      color: $core-blue;
     }
 
     &[aria-current="page"] {
       border-bottom-color: $core-vibrant-blue;
-      color: $core-fleet-blue;
+      color: $core-blue;
       font-weight: $bold;
     }
   }
@@ -158,9 +158,9 @@
     padding: 6px 12px;
     font-size: $x-small;
     font-family: inherit;
-    color: $core-fleet-black;
-    background-color: $core-fleet-white;
-    border: 1px solid $ui-fleet-black-25;
+    color: $core-black;
+    background-color: $core-white;
+    border: 1px solid $ui-black-25;
     border-radius: $border-radius;
     cursor: pointer;
     transition: background-color 100ms ease;
@@ -190,29 +190,29 @@
     padding: 6px 10px;
     font-size: $x-small;
     font-family: inherit;
-    color: $core-fleet-black;
-    background-color: $core-fleet-white;
-    border: 1px solid $ui-fleet-black-25;
+    color: $core-black;
+    background-color: $core-white;
+    border: 1px solid $ui-black-25;
     border-radius: $border-radius;
     width: 260px;
 
     &:focus {
       outline: none;
-      border-color: $core-fleet-green;
+      border-color: $core-green;
       box-shadow: 0 0 0 2px rgba(0, 154, 125, 0.2);
     }
   }
 
   &__search-count {
     font-size: $xx-small;
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-variant-numeric: tabular-nums;
     min-width: 60px;
   }
 
   &__status {
     margin: $pad-medium 0;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
 
     &--error {
       color: $core-vibrant-red;
@@ -225,8 +225,8 @@
       align-items: center;
       gap: $pad-medium;
       padding: $pad-medium;
-      background-color: $ui-fleet-black-5;
-      border: 1px solid $ui-fleet-black-10;
+      background-color: $ui-black-5;
+      border: 1px solid $ui-black-10;
       border-radius: $border-radius;
 
       p { margin: 0; }
@@ -243,8 +243,8 @@
     flex: 1;
     min-width: 0;
     overflow: auto;
-    background-color: $core-fleet-white;
-    border: 1px solid $ui-fleet-black-10;
+    background-color: $core-white;
+    border: 1px solid $ui-black-10;
     border-radius: $border-radius;
 
     svg {
@@ -270,14 +270,14 @@
   // Neutral grey container - the page already shows alert severity via the
   // badge inside this row. The previous pink fill + red border read as a
   // status indicator and confused operators ("is this an error?").
-  background-color: $ui-fleet-black-5;
-  border: 1px solid $ui-fleet-black-10;
+  background-color: $ui-black-5;
+  border: 1px solid $ui-black-10;
   border-radius: $border-radius;
   font-size: $x-small;
-  color: $core-fleet-black;
+  color: $core-black;
 
   &__back {
-    color: $core-fleet-green;
+    color: $core-green;
     font-weight: $bold;
     text-decoration: none;
 
@@ -285,12 +285,12 @@
   }
 
   &__sep {
-    color: $ui-fleet-black-25;
+    color: $ui-black-25;
   }
 
   &__id {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
   }
 
   &__title {
@@ -308,7 +308,7 @@
     text-decoration: none;
 
     &:hover {
-      color: $core-fleet-green;
+      color: $core-green;
       text-decoration: underline;
     }
 
@@ -316,16 +316,16 @@
     // indicator. Without :focus-visible the link is invisible to
     // anyone navigating without a mouse (Copilot review on PR #61).
     &:focus-visible {
-      color: $core-fleet-green;
+      color: $core-green;
       text-decoration: underline;
-      outline: 2px solid $core-fleet-green;
+      outline: 2px solid $core-green;
       outline-offset: 2px;
       border-radius: 2px;
     }
   }
 
   &__time {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: $xx-small;
   }
@@ -333,7 +333,7 @@
   // Rule attribution. Muted like the timestamp beside it, but proportional rather than monospace: it is a person's name, not a
   // machine value, and monospacing it would read as an identifier.
   &__origin {
-    color: $ui-fleet-black-50;
+    color: $ui-black-50;
     font-size: $xx-small;
   }
 
@@ -350,7 +350,7 @@
 
   &__description {
     margin: 0 0 $pad-small;
-    color: $core-fleet-black;
+    color: $core-black;
     font-size: $x-small;
     line-height: 1.5;
   }
@@ -371,7 +371,7 @@
   }
 
   svg .link {
-    stroke: $ui-fleet-black-25;
+    stroke: $ui-black-25;
     stroke-width: 1;
     transition: opacity 120ms ease, stroke 120ms ease;
   }
@@ -387,7 +387,7 @@
 
   svg .node--match .node__dot {
     r: 7px;
-    stroke: $core-fleet-green;
+    stroke: $core-green;
     stroke-width: 2;
   }
 
@@ -403,7 +403,7 @@
   }
 
   svg .link--path {
-    stroke: $core-fleet-green;
+    stroke: $core-green;
     stroke-width: 2;
   }
 
@@ -411,7 +411,7 @@
     user-select: none;
 
     &:hover {
-      fill: $core-fleet-green;
+      fill: $core-green;
     }
   }
 }
@@ -422,7 +422,7 @@
   z-index: 30;
   max-width: 34rem;
   padding: 0.5rem 0.75rem;
-  background: $core-fleet-black;
+  background: $core-black;
   color: #fff;
   border-radius: 6px;
   box-shadow: 0 4px 16px rgb(25 33 71 / 30%);
@@ -435,7 +435,7 @@
   }
 
   &-group {
-    color: $ui-fleet-black-33;
+    color: $ui-black-33;
     margin-bottom: 0.25rem;
   }
 
@@ -446,7 +446,7 @@
   }
 
   &-verdict {
-    color: $ui-fleet-black-33;
+    color: $ui-black-33;
 
     &--marked {
       color: $ui-warning; // matches the node's evidence ring

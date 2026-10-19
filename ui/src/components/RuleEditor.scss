@@ -13,7 +13,7 @@
 .rule-editor__hint {
   margin: 0;
   font-size: $x-small;
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
 }
 
 .rule-editor__label {
@@ -26,7 +26,7 @@
   font-family: monospace;
   font-size: $xx-small;
   padding: $pad-small;
-  border: 1px solid $ui-fleet-black-10;
+  border: 1px solid $ui-black-10;
   border-radius: 4px;
   resize: vertical;
 }
@@ -39,7 +39,7 @@
 
 .rule-editor__verdict--ok {
   background: $ui-off-white;
-  border: 1px solid $ui-fleet-black-10;
+  border: 1px solid $ui-black-10;
 }
 
 .rule-editor__verdict--refused {

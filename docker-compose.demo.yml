@@ -1,7 +1,7 @@
-# Mac-free, one-command demo stack for evaluating Fleet EDR.
+# Mac-free, one-command demo stack for evaluating RawTrail.
 #
 #   docker compose -f docker-compose.demo.yml up
-#   # then open https://localhost:8088/ui/ and sign in: demo@fleet-edr.local / demo
+#   # then open https://localhost:8088/ui/ and sign in: demo@rawtrail.local / demo
 #
 # It boots the real server + embedded UI against MySQL, generates a self-signed
 # localhost TLS cert, bundles a dex IdP for SSO, and runs a one-shot seeder that
@@ -18,7 +18,7 @@
 #
 # This stack is for evaluation only: empty MySQL password, self-signed cert,
 # checked-in dev secrets. Do not expose it or use it in production.
-name: fleet-edr-demo
+name: rawtrail-demo
 
 services:
   mysql:
@@ -102,7 +102,7 @@ services:
       - tls:/tls
 
   server:
-    image: ghcr.io/getvictor/fleet-edr-server:${EDR_VERSION:-latest}
+    image: ghcr.io/getvictor/rawtrail-server:${EDR_VERSION:-latest}
     restart: unless-stopped
     # Longer than every stage of a graceful stop put together: the drain (EDR_SHUTDOWN_DRAIN,
     # 30s), the in-flight deadline (15s), the two loop joins (10s + 5s) and the telemetry
@@ -140,7 +140,7 @@ services:
       - tls:/tls:ro
 
   seeder:
-    image: ghcr.io/getvictor/fleet-edr-demo-seed:${EDR_VERSION:-latest}
+    image: ghcr.io/getvictor/rawtrail-demo-seed:${EDR_VERSION:-latest}
     # One-shot: enrolls hosts, replays the corpus, verifies, seeds the dex SSO config, then exits 0.
     restart: "no"
     depends_on:
@@ -174,8 +174,8 @@ services:
       # dex-issued OIDC subject below to an `admin` user, and login matches that (provider, subject) identity and reuses it rather than
       # JIT-provisioning. This is the only sound way to seed a privileged demo user: the JIT default role is clamped to analyst/auditor
       # by design (identity/bootstrap clampJITRole), so an SSO claim can never auto-grant admin. EDR_DEMO_OIDC_SUBJECT is the dex
-      # local-connector subject for the demo@fleet-edr.local static user (userID de300000-...-0001, connID `local`), stable for the
-      # checked-in dex config. Break-glass (admin@fleet-edr.local) stays the super_admin path.
+      # local-connector subject for the demo@rawtrail.local static user (userID de300000-...-0001, connID `local`), stable for the
+      # checked-in dex config. Break-glass (admin@rawtrail.local) stays the super_admin path.
       EDR_DEMO_OIDC_SUBJECT: "CiRkZTMwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDESBWxvY2Fs"
       EDR_DEMO_ROLE: admin
     volumes:

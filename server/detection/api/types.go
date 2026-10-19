@@ -468,7 +468,7 @@ type Alert struct {
 	Description string `db:"description" json:"description"`
 	// Origin credits the rule's author, and is distinct from Source above: Source says which SUBSYSTEM raised the alert
 	// (detection vs application_control), Origin says who WROTE the rule that fired. "SigmaHQ, by <author>" for a rule from
-	// the imported corpus, "Fleet EDR" for one this project wrote, and "Locally authored" for one the operator wrote on their
+	// the imported corpus, "RawTrail" for one this project wrote, and "Locally authored" for one the operator wrote on their
 	// own deployment.
 	//
 	// Stamped by the engine from the rule (rules/api.AlertOriginOf), never read off the Finding, so a rule cannot forge its

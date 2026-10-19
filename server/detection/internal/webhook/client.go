@@ -65,7 +65,7 @@ func (c *Client) Deliver(ctx context.Context, url, id string, timestamp int64, b
 		return 0, fmt.Errorf("build webhook request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "fleet-edr-webhook/1")
+	req.Header.Set("User-Agent", "rawtrail-webhook/1")
 	req.Header.Set(HeaderID, id)
 	req.Header.Set(HeaderTimestamp, strconv.FormatInt(timestamp, 10))
 	req.Header.Set(HeaderSignature, Sign(id, timestamp, body, secret))

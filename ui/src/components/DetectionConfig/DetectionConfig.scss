@@ -9,7 +9,7 @@
 .detection-config__heading {
   font-size: $small;
   font-weight: $bold;
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
   margin: 0 0 $pad-medium 0;
 }
 
@@ -46,7 +46,7 @@
 
 .detection-config__rule-id {
   font-size: $xxx-small;
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
 }
 
 // An exclusion value is usually a path or glob with no spaces, so it offers no break opportunity and would set the Value column's
@@ -75,7 +75,7 @@
 // table's edge, which read as an unrelated block of text rather than as that table's key.
 .detection-config__note {
   font-size: $x-small;
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
   margin: 0 0 $pad-small;
 }
 
@@ -83,7 +83,7 @@
 .detection-config__observed-hosts,
 .detection-config__observed-last {
   font-size: $xxx-small;
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
 }
 
 // The way from a rule's count to the records behind it (issue #994), set apart from the figure so the two read as separate controls.
@@ -95,7 +95,7 @@
 
 // A rule with nothing recorded, muted so it does not read as a value.
 .detection-config__observed-none {
-  color: $ui-fleet-black-50;
+  color: $ui-black-50;
 }
 
 // A FAILED read, which must not look like the dash above: absence of evidence and absence of the read are different claims, and
@@ -126,7 +126,7 @@
 }
 
 .dc-reason-modal__desc {
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
   font-size: $xx-small;
   margin: 0 0 $pad-medium 0;
 }
@@ -141,13 +141,13 @@
   font-size: $xx-small;
   font-weight: $bold;
   text-transform: uppercase;
-  color: $ui-fleet-black-75;
+  color: $ui-black-75;
 }
 
 .dc-reason-modal__input {
   width: 100%;
   padding: $pad-small;
-  border: 1px solid $ui-fleet-black-25;
+  border: 1px solid $ui-black-25;
   border-radius: 4px;
   font: inherit;
   resize: vertical;

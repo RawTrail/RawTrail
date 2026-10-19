@@ -1,6 +1,6 @@
-// fleet-edr-ingest is a standalone event ingestion service. It accepts events
+// rawtrail-ingest is a standalone event ingestion service. It accepts events
 // from agents and writes them to the ClickHouse archive and the MySQL event
-// queue without any processing. A separate fleet-edr-server instance claims
+// queue without any processing. A separate rawtrail-server instance claims
 // queued events and builds process graphs.
 //
 // It reads the server's storage, TLS, auth, proxy and shutdown-drain env vars;
@@ -36,7 +36,7 @@ var (
 	buildTime = ""
 )
 
-const serviceName = "fleet-edr-ingest"
+const serviceName = "rawtrail-ingest"
 
 func main() { bootstrap.Main(run) }
 
@@ -59,8 +59,8 @@ func run() error {
 	}
 	defer func() { _ = chDB.Close() }()
 
-	// One root secret seeds every long-lived server-side key, same as fleet-edr-server. Deriving here (rather than skipping the keyring)
-	// is mandatory: identity + endpoint bootstrap require the derived keys, and the labels MUST match fleet-edr-server's so a host token
+	// One root secret seeds every long-lived server-side key, same as rawtrail-server. Deriving here (rather than skipping the keyring)
+	// is mandatory: identity + endpoint bootstrap require the derived keys, and the labels MUST match rawtrail-server's so a host token
 	// or session cookie minted by one binary validates under the other.
 	kr, err := keyring.New(cfg.SecretKey)
 	if err != nil {
@@ -105,7 +105,7 @@ func run() error {
 	// Prime the sampler from the DB before serving, then poll for later changes.
 	tracing.StartSettingsSync(ctx, traceSampler, observabilityCtx.TraceSamplerSettingsReader(), logger)
 
-	// drain is the graceful-shutdown signal, as in fleet-edr-server: SIGTERM flips it so /readyz reports 503 and a load balancer stops
+	// drain is the graceful-shutdown signal, as in rawtrail-server: SIGTERM flips it so /readyz reports 503 and a load balancer stops
 	// routing agent uploads here before RunAndShutdown closes the listener (ADR-0011).
 	drain := &httpserver.DrainState{}
 	detectionCtx, err := detectionbootstrap.New(detectionbootstrap.Deps{
@@ -210,7 +210,7 @@ type metricsSetter interface {
 // wireIngestMetrics builds the ingest tier's recorder and hands it to detection, whose intake handler records edr.events.ingested
 // and edr.ingest.heartbeats_dropped; the caller also passes it to the HTTP server for request duration. Without it a split
 // deployment never counts the events its ingest tier accepts (issue #1263). No gauge source: the host-fleet gauges describe the
-// whole deployment and fleet-edr-server already reports them, so registering them here too would double every fleet-wide sum.
+// whole deployment and rawtrail-server already reports them, so registering them here too would double every fleet-wide sum.
 func wireIngestMetrics(detection metricsSetter) *metrics.Recorder {
 	rec := metrics.New(nil, metrics.Options{})
 	detection.SetMetrics(rec)

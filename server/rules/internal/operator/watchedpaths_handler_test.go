@@ -142,7 +142,7 @@ func TestWatchedPathsHandler_ResolvesWhoLastChangedTheSet(t *testing.T) {
 			h.SetPrincipalLabelResolver(func(_ context.Context, id string) (string, error) {
 				switch id {
 				case "usr_7":
-					return "ops@fleetdm.com", nil
+					return "ops@example.com", nil
 				case "usr_9":
 					return "", identityapi.ErrUserNotFound
 				default:
@@ -162,11 +162,11 @@ func TestWatchedPathsHandler_ResolvesWhoLastChangedTheSet(t *testing.T) {
 		resolve   bool
 		wantLabel any
 	}{
-		{"read names the principal", http.MethodGet, changedBy("usr_7"), true, "ops@fleetdm.com"},
+		{"read names the principal", http.MethodGet, changedBy("usr_7"), true, "ops@example.com"},
 		{"read of a deleted principal has no label", http.MethodGet, changedBy("usr_9"), true, nil},
 		{"read of the set no one changed resolves nothing", http.MethodGet, api.WatchedPathSet{Paths: []api.WatchedPath{}}, true, nil},
 		{"read without a resolver has no label", http.MethodGet, changedBy("usr_7"), false, nil},
-		{"replace names the operator who made it", http.MethodPut, api.WatchedPathSet{}, true, "ops@fleetdm.com"},
+		{"replace names the operator who made it", http.MethodPut, api.WatchedPathSet{}, true, "ops@example.com"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

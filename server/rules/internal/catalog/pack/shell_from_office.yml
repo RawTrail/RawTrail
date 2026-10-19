@@ -12,7 +12,7 @@ description: |-
   Detects the textbook post-phishing execution step: a macro-laden Office document opens, the macro shells out, and the second stage takes off from there. The match is on the parent process being one of the four standard macOS Office binaries (full path, not substring) and the child being a known shell.
 
   Office apps almost never need to shell out in normal use; when they do, it's an admin-side automation that's worth surfacing anyway.
-author: Fleet EDR
+author: RawTrail
 level: high
 tags:
   - attack.t1059.004

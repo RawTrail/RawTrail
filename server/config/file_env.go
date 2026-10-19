@@ -16,7 +16,7 @@ import (
 // env block or a shell history.
 //
 // Exported so sibling entrypoints that read a single config var without running
-// the full Config.Load (e.g. cmd/fleet-edr-migrate reading EDR_DSN) honour the
+// the full Config.Load (e.g. cmd/rawtrail-migrate reading EDR_DSN) honour the
 // same `*_FILE` convention the server does.
 //
 // The wrapper is a plain decorator: every existing validator keeps calling

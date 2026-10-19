@@ -155,7 +155,7 @@ func TestDetectionConfigHandler_ResolvesCreatedByLabel(t *testing.T) {
 			calls++
 			switch principalID {
 			case "usr_8":
-				return "ops@fleetdm.com", nil
+				return "ops@example.com", nil
 			case "svc_5":
 				return "ci-bot", nil
 			default: // usr_9
@@ -172,8 +172,8 @@ func TestDetectionConfigHandler_ResolvesCreatedByLabel(t *testing.T) {
 		resp.Body.Close()
 
 		require.Len(t, out.Exclusions, 4)
-		assert.Equal(t, "ops@fleetdm.com", out.Exclusions[0].CreatedByLabel, "user resolves to email")
-		assert.Equal(t, "ops@fleetdm.com", out.Exclusions[1].CreatedByLabel)
+		assert.Equal(t, "ops@example.com", out.Exclusions[0].CreatedByLabel, "user resolves to email")
+		assert.Equal(t, "ops@example.com", out.Exclusions[1].CreatedByLabel)
 		assert.Empty(t, out.Exclusions[2].CreatedByLabel, "errored lookup leaves label blank")
 		assert.Equal(t, "ci-bot", out.Exclusions[3].CreatedByLabel, "service account resolves to its name")
 		assert.Equal(t, 3, calls, "usr_8 resolved once (memoized) + usr_9 once + svc_5 once")

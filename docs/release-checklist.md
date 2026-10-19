@@ -97,7 +97,7 @@ docker compose -f docker-compose.demo.yml down -v   # start clean (discards any 
 EDR_VERSION=vX.Y.Z-rc.N docker compose -f docker-compose.demo.yml up
 ```
 
-Open https://localhost:8088/ui/, sign in through the bundled dex IdP (`demo@fleet-edr.local` / `demo`), and confirm the seeded corpus renders end to end: the process graph, the fired ATT&CK alerts, and the application-control block. The `EDR_VERSION` pin selects the same tag for both the server and the one-shot seeder. Start clean with `down -v` when switching image versions: the seeder skips replay when demo data is already present, and v0.4.0+ reads events from ClickHouse, so stale MySQL-only demo data from a prior `latest` run would render an empty event view.
+Open https://localhost:8088/ui/, sign in through the bundled dex IdP (`demo@rawtrail.local` / `demo`), and confirm the seeded corpus renders end to end: the process graph, the fired ATT&CK alerts, and the application-control block. The `EDR_VERSION` pin selects the same tag for both the server and the one-shot seeder. Start clean with `down -v` when switching image versions: the seeder skips replay when demo data is already present, and v0.4.0+ reads events from ClickHouse, so stale MySQL-only demo data from a prior `latest` run would render an empty event view.
 
 ## 7. Deploy the RC to the dogfood server and enroll a real device
 

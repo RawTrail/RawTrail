@@ -14,17 +14,17 @@
     gap: $pad-xsmall;
     height: 28px;
     padding: 0 $pad-small;
-    background: $core-fleet-white;
-    border: 1px solid $ui-fleet-black-10;
+    background: $core-white;
+    border: 1px solid $ui-black-10;
     border-radius: 4px;
-    color: $core-fleet-black;
+    color: $core-black;
     font: inherit;
     font-size: $xx-small;
     font-weight: $bold;
     cursor: pointer;
 
     &:hover {
-      background: $ui-fleet-black-5;
+      background: $ui-black-5;
     }
 
     &:focus-visible {
@@ -37,7 +37,7 @@
   &__dropdown {
     position: fixed;
     min-width: 176px;
-    background: $core-fleet-white;
+    background: $core-white;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(25, 33, 71, 0.16);
     padding: $pad-small;
@@ -52,14 +52,14 @@
     border: none;
     background: transparent;
     border-radius: 4px;
-    color: $ui-fleet-black-75;
+    color: $ui-black-75;
     font: inherit;
     font-size: $x-small;
     white-space: nowrap;
     cursor: pointer;
 
     &:hover {
-      background: $ui-fleet-black-5;
+      background: $ui-black-5;
     }
 
     &:focus-visible {
@@ -73,7 +73,7 @@
     &--divided {
       margin-top: $pad-xsmall;
       padding-top: $pad-smedium;
-      border-top: 1px solid $ui-fleet-black-10;
+      border-top: 1px solid $ui-black-10;
       border-radius: 0 0 4px 4px;
     }
   }
