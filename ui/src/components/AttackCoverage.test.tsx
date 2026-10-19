@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { AttackCoverage } from "./AttackCoverage";
 import * as api from "../api";
+import * as download from "../download";
 import { PermissionsContext, PermissionAction } from "../permissions-core";
 import type { AttackNavigatorLayer } from "../api";
 
@@ -253,5 +254,19 @@ describe("AttackCoverage multi-tactic techniques", () => {
     expect(screen.getByText("Persistence")).toBeVisible();
     expect(screen.getByText("Privilege Escalation")).toBeVisible();
     expect(screen.getAllByText("T1543.004")).toHaveLength(2);
+  });
+});
+
+describe("AttackCoverage export", () => {
+  // spec:product-identity/the-product-identifies-itself-as-rawtrail/the-navigator-layer-is-named-for-rawtrail
+  it("downloads the layer under the product's name", async () => {
+    const save = vi.spyOn(download, "downloadText").mockImplementation(() => undefined);
+    render(
+      <PermissionsContext.Provider value={[PermissionAction.AlertRead]}>
+        <MemoryRouter><AttackCoverage /></MemoryRouter>
+      </PermissionsContext.Provider>,
+    );
+    (await screen.findByRole("button", { name: "Export JSON" })).click();
+    expect(save).toHaveBeenCalledWith(JSON.stringify(layer, null, 2), "rawtrail-attack-coverage.json", "application/json");
   });
 });

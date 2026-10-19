@@ -30,6 +30,10 @@ func TestAlertOriginRename_RecreditsOnlyThisProjectsAlerts(t *testing.T) {
 			 VALUES ('host-1366', 'suspicious_exec', 'detection', 'high', 'seeded', 'seeded', ?, ?, '[]')`, origin, subject)
 		require.NoError(t, err)
 	}
+	// A distinctive past value, so a re-credit that let ON UPDATE CURRENT_TIMESTAMP fire would visibly move it.
+	const seededUpdatedAt = "2026-01-02 03:04:05.000000"
+	_, err := db.ExecContext(t.Context(), `UPDATE alerts SET updated_at = ?`, seededUpdatedAt)
+	require.NoError(t, err)
 
 	require.NoError(t, runner.Up(t.Context(), db, detectionmigrations.FS, opts))
 
@@ -38,5 +42,10 @@ func TestAlertOriginRename_RecreditsOnlyThisProjectsAlerts(t *testing.T) {
 		var got string
 		require.NoError(t, db.GetContext(t.Context(), &got, `SELECT origin FROM alerts WHERE subject = ?`, subject))
 		assert.Equal(t, origin, got, subject)
+
+		var updatedAt string
+		require.NoError(t, db.GetContext(t.Context(), &updatedAt,
+			`SELECT DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s.%f') FROM alerts WHERE subject = ?`, subject))
+		assert.Equal(t, seededUpdatedAt, updatedAt, "re-crediting is not triage activity: %s", subject)
 	}
 }

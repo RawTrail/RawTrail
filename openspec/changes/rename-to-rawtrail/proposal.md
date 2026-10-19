@@ -5,10 +5,10 @@ The product is renamed from Fleet EDR to RawTrail (epic #1369). It is a standalo
 ## What changes
 
 - The web UI, the API reference, rule credits, the ATT&CK Navigator layer, webhook deliveries and the server's telemetry all name the product RawTrail.
-- Server binaries and container images are `rawtrail-server`, `rawtrail-ingest`, `rawtrail-migrate` and `rawtrail-demo-seed`, published as `ghcr.io/getvictor/rawtrail-*`.
+- Server binaries are `rawtrail-server`, `rawtrail-ingest`, `rawtrail-migrate` and `rawtrail-demo-seed`. The release publishes the server and demo-seed images as `ghcr.io/getvictor/rawtrail-server` and `ghcr.io/getvictor/rawtrail-demo-seed`.
 - The server's OpenTelemetry `service.name` is `rawtrail-server`; the shipped SigNoz dashboards and alert rules filter on it.
 - Webhook deliveries send `User-Agent: rawtrail-webhook/1`.
-- The break-glass admin is `admin@rawtrail.local`; a migration moves an existing break-glass account from `admin@fleet-edr.local`.
+- The break-glass admin is `admin@rawtrail.local`; a migration moves an existing break-glass account, with its sign-in identity, from `admin@fleet-edr.local`.
 - Existing alerts credited "Fleet EDR" are re-credited "RawTrail" by a migration.
 
 ## Not changed

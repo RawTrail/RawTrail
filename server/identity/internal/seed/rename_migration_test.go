@@ -36,6 +36,13 @@ func TestRenameMigration_UpgradedServerKeepsOneBreakglassAdmin(t *testing.T) {
 	_, err = db.ExecContext(t.Context(), `INSERT INTO principals (id, type, display_label) VALUES (CONCAT('usr_', ?), 'user', ?)`,
 		oldID, "admin@fleet-edr.local")
 	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `INSERT INTO identities (user_id, provider, subject) VALUES (?, 'local_password', ?)`,
+		oldID, "admin@fleet-edr.local")
+	require.NoError(t, err)
+	// A distinctive past value, so a migration that let ON UPDATE CURRENT_TIMESTAMP fire would visibly move it.
+	const seededUpdatedAt = "2026-01-02 03:04:05.000000"
+	_, err = db.ExecContext(t.Context(), `UPDATE users SET updated_at = ? WHERE id = ?`, seededUpdatedAt, oldID)
+	require.NoError(t, err)
 
 	require.NoError(t, runner.Up(t.Context(), db, identitymigrations.FS, opts))
 	require.NoError(t, seed.Roles(t.Context(), db), "boot seeds the built-in roles after migrating")
@@ -43,6 +50,16 @@ func TestRenameMigration_UpgradedServerKeepsOneBreakglassAdmin(t *testing.T) {
 	var label string
 	require.NoError(t, db.GetContext(t.Context(), &label, `SELECT display_label FROM principals WHERE id = CONCAT('usr_', ?)`, oldID))
 	assert.Equal(t, seed.DefaultAdminEmail, label, "the principal's label follows the email")
+
+	var subjects []string
+	require.NoError(t, db.SelectContext(t.Context(), &subjects,
+		`SELECT subject FROM identities WHERE user_id = ? AND provider = 'local_password'`, oldID))
+	assert.Equal(t, []string{seed.DefaultAdminEmail}, subjects, "sign-in re-resolves this identity by email, so it must move too")
+
+	var updatedAt string
+	require.NoError(t, db.GetContext(t.Context(), &updatedAt,
+		`SELECT DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s.%f') FROM users WHERE id = ?`, oldID))
+	assert.Equal(t, seededUpdatedAt, updatedAt, "a rename by the product is not an edit by the operator")
 
 	admin, _, err := seed.Admin(t.Context(), users.New(db), rbac.New(db), slog.Default(), nil)
 	require.NoError(t, err)
