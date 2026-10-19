@@ -179,24 +179,17 @@ final class ESFSubscriber: Sendable {
         let teamID = esTokenString(target.team_id)
         let signingID = esTokenString(target.signing_id)
 
-        // Platform-binary carve-out: anything the kernel classifies as part of the Apple-signed system image (launchd, xpcproxy,
-        // fseventsd, kextd, sysextd, systemextensionsd, WindowServer, loginwindow, mds, ...) is ALLOWed unconditionally and the
-        // result is pinned into the kernel's per-(dev,inode,mtime) AUTH cache. This is the floor against an admin who pastes the
-        // SHA-256 of /sbin/launchd into a BINARY block rule and bricks the host on next boot. The kernel's own is_platform_binary
-        // flag is more conservative than a hand-curated path or signing-id allowlist would be, and the answer is intrinsic to the
-        // binary's identity, so caching the ALLOW is safe (mtime mutation forces a fresh decision).
-        if target.is_platform_binary {
-            es_respond_auth_result(client, message, ES_AUTH_RESULT_ALLOW, true)
-            return
-        }
-
-        // Self-allow failsafe: exempt the agent + extensions + host app from app-control enforcement so a misconfigured rule cannot
-        // brick the EDR itself (isSelfAllowed in AuthExecDecider.swift).
-        if isSelfAllowed(teamID: teamID, signingID: signingID) {
-            // cache:true is safe here: the answer is a function of the binary's intrinsic identity (the release team + a RawTrail
-            // signing_id), which is stable for the lifetime of the binary on disk, and the kernel keys the AUTH cache on
-            // (dev,inode,mtime) so any binary swap forces a fresh decision. Caching elides the per-exec handler cost during a
-            // fork-exec storm of our own tools (#209).
+        // Two classes of exec are ALLOWed before the snapshot is consulted (authExecFastPath in AuthExecDecider.swift), and the
+        // result is pinned into the kernel's per-(dev,inode,mtime) AUTH cache:
+        //   - Platform binaries: anything the kernel classifies as part of the Apple-signed system image (launchd, xpcproxy,
+        //     fseventsd, sysextd, WindowServer, loginwindow, mds, ...). This is the floor against an admin who pastes the SHA-256
+        //     of /sbin/launchd into a BINARY block rule and bricks the host on next boot; the kernel's is_platform_binary flag is
+        //     more conservative than a hand-curated path or signing-id allowlist would be.
+        //   - RawTrail's own binaries (the self-allow failsafe), so a misconfigured rule cannot brick the EDR itself.
+        // cache:true is safe for both: the answer is a function of the binary's intrinsic identity, stable for the lifetime of the
+        // binary on disk, and the kernel keys the AUTH cache on (dev,inode,mtime) so any binary swap forces a fresh decision.
+        // Caching elides the per-exec handler cost during a fork-exec storm of our own tools (#209).
+        if authExecFastPath(isPlatformBinary: target.is_platform_binary, teamID: teamID, signingID: signingID) != .snapshot {
             es_respond_auth_result(client, message, ES_AUTH_RESULT_ALLOW, true)
             return
         }

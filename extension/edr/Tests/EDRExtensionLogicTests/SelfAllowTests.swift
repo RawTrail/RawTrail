@@ -18,7 +18,32 @@ final class SelfAllowTests: XCTestCase {
             .deny(rule: rule, matchedIdentifier: releaseTeamID),
             "the snapshot alone blocks the agent, so only the failsafe keeps it running"
         )
-        XCTAssertTrue(isSelfAllowed(teamID: releaseTeamID, signingID: "rawtrail-agent"))
+        XCTAssertEqual(
+            authExecFastPath(isPlatformBinary: false, teamID: releaseTeamID, signingID: "rawtrail-agent"), .selfAllowed,
+            "the agent is allowed before the snapshot is consulted"
+        )
+    }
+
+    private struct FastPathCase {
+        let name: String
+        let isPlatformBinary: Bool
+        let signingID: String
+        let want: AuthExecFastPath
+    }
+
+    func testOnlyExecsNeitherAllowCoversReachTheSnapshot() {
+        let cases = [
+            FastPathCase(name: "platform binary", isPlatformBinary: true, signingID: "com.apple.ls", want: .platformBinary),
+            FastPathCase(name: "own binary", isPlatformBinary: false, signingID: "io.rawtrail.securityextension", want: .selfAllowed),
+            FastPathCase(name: "the agent's launchd label", isPlatformBinary: false, signingID: "io.rawtrail.agent", want: .snapshot),
+            FastPathCase(name: "unrelated tool", isPlatformBinary: false, signingID: "io.rawtrail.unrelated-tool", want: .snapshot)
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                authExecFastPath(isPlatformBinary: testCase.isPlatformBinary, teamID: releaseTeamID, signingID: testCase.signingID),
+                testCase.want, testCase.name
+            )
+        }
     }
 
     // spec:extension-application-control/own-binaries-are-self-allowed/another-binary-from-the-release-team-is-not-self-allowed
