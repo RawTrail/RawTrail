@@ -475,10 +475,6 @@ func (d *Detection) LoadActive(rp interface{ ActiveRules() []rulesapi.Rule }) {
 // not see in the first place: alerts from a rule no longer in the corpus (#871), and, for the same reason, alerts under a stem an
 // operator has taken over with a rule of their own, which are excluded deliberately and would not be credited by a re-run either.
 //
-// The marker is checked TWICE and the difference between the two is worth stating. The first check is the point of the change: it
-// answers from a primary-key lookup and skips the lock and the scan entirely. The second is inside the lock, where it is the
-// authoritative one, and it closes the window where two replicas both read "not done" before either finished.
-//
 // Reports how many rows it credited, so an operator upgrading can see whether the obligation was outstanding at all.
 //
 // The returned bool is whether this replica took the LOCK, which this change is what makes distinct from whether the pass ran. It
@@ -493,32 +489,64 @@ func (d *Detection) BackfillAlertOrigins(ctx context.Context, coord leader.Coord
 	if len(origins) == 0 {
 		return false, nil
 	}
-	done, err := d.store.BackfillCompleted(ctx, backfillAlertOrigins)
-	if err != nil {
-		return false, err
-	}
-	if done {
-		return false, nil
-	}
-	return coord.DoOnceIfLeader(ctx, lockAlertOriginBackfill, func(ctx context.Context) error {
-		done, err := d.store.BackfillCompleted(ctx, backfillAlertOrigins)
-		if err != nil || done {
-			return err
-		}
+	return d.runBackfillOnce(ctx, coord, backfillAlertOrigins, lockAlertOriginBackfill, func(ctx context.Context) error {
 		updated, err := d.store.BackfillAlertOrigins(ctx, origins)
-		if err != nil {
-			return err
-		}
-		// Marked only after the pass returned, so a failed or cut-short walk leaves nothing recorded and the next boot retries.
-		// A marker written before the work would turn one transient error into a permanently unmet licence obligation, silently.
-		if err := d.store.MarkBackfillCompleted(ctx, backfillAlertOrigins); err != nil {
-			return err
-		}
-		if updated > 0 {
+		if err == nil && updated > 0 {
 			d.logger.InfoContext(ctx, "credited alerts raised before rule attribution was recorded",
 				"alerts", updated, "rules", len(origins))
 		}
-		return nil
+		return err
+	})
+}
+
+// RecreditFormerProjectOrigin moves alerts credited to the product's former name onto its current one (#1366), so an upgraded
+// deployment does not show the old name beside every new alert. Upstream credits and blank pre-attribution rows are not touched.
+//
+// A boot-time one-shot under the same marker-and-lock discipline as BackfillAlertOrigins, rather than a migration, because the
+// rewrite is an unindexed walk of alerts: a single migration statement would hold every scanned row's lock until it committed,
+// stalling alert writes from replicas still serving through a rolling upgrade. The walk commits per batch instead.
+//
+// Recording completion is sound once every replica runs a binary that credits the current name. A replica still on the previous
+// release can raise a few alerts under the old name after the pass ran; those keep it, which is the cost of not re-scanning on
+// every boot forever.
+func (d *Detection) RecreditFormerProjectOrigin(ctx context.Context, coord leader.Coordinator) (bool, error) {
+	if d.store == nil || coord == nil {
+		return false, nil
+	}
+	return d.runBackfillOnce(ctx, coord, backfillRawTrailOrigin, lockRawTrailOriginBackfill, func(ctx context.Context) error {
+		updated, err := d.store.RecreditAlertOrigin(ctx, formerProjectOrigin, rulesapi.ProjectOrigin)
+		if err == nil && updated > 0 {
+			d.logger.InfoContext(ctx, "re-credited alerts to the product's current name", "alerts", updated)
+		}
+		return err
+	})
+}
+
+// runBackfillOnce runs pass at most once per deployment: it skips when name is already recorded complete, takes lock so replicas
+// that overlap do not both walk, re-checks the record inside the lock, and records completion only after pass returns cleanly.
+// Returns whether this replica took the lock.
+//
+// The marker is checked TWICE and the difference between the two is worth stating. The first check answers from a primary-key
+// lookup and skips the lock and the scan entirely. The second is inside the lock, where it is the authoritative one, and it closes
+// the window where two replicas both read "not done" before either finished.
+func (d *Detection) runBackfillOnce(
+	ctx context.Context, coord leader.Coordinator, name, lock string, pass func(context.Context) error,
+) (bool, error) {
+	done, err := d.store.BackfillCompleted(ctx, name)
+	if err != nil || done {
+		return false, err
+	}
+	return coord.DoOnceIfLeader(ctx, lock, func(ctx context.Context) error {
+		done, err := d.store.BackfillCompleted(ctx, name)
+		if err != nil || done {
+			return err
+		}
+		if err := pass(ctx); err != nil {
+			return err
+		}
+		// Marked only after the pass returned, so a failed or cut-short walk leaves nothing recorded and the next boot retries.
+		// A marker written before the work would turn one transient error into a permanently skipped pass, silently.
+		return d.store.MarkBackfillCompleted(ctx, name)
 	})
 }
 
@@ -555,6 +583,15 @@ const backfillAlertOrigins = "alert_origins"
 // lockAlertOriginBackfill names the one-shot above. MySQL GET_LOCK names are server-global, so this identifies the task across
 // every replica of one deployment, like the periodic tasks' locks.
 const lockAlertOriginBackfill = "edr_alert_origin_backfill"
+
+// formerProjectOrigin is the credit this project's own rules carried before the product was renamed RawTrail (#1366).
+const formerProjectOrigin = "Fleet EDR"
+
+// backfillRawTrailOrigin names the re-credit pass in detection_backfills.
+const backfillRawTrailOrigin = "alert_origins_rawtrail"
+
+// lockRawTrailOriginBackfill names the re-credit one-shot across every replica of one deployment.
+const lockRawTrailOriginBackfill = "edr_alert_origin_rawtrail"
 
 // Run launches the processor + processttl + retention goroutines.
 // Returns when ctx is cancelled. ModeIntake is a no-op.

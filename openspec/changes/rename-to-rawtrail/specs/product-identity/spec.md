@@ -52,6 +52,6 @@ Upgrading a server SHALL re-credit every stored alert whose credit names the pre
 #### Scenario: An upgrade re-credits only this project's alerts
 
 - **GIVEN** stored alerts credited "Fleet EDR", credited to an upstream author, and carrying no credit
-- **WHEN** the upgraded server applies its migrations
+- **WHEN** the upgraded server starts
 - **THEN** the first is credited "RawTrail"
 - **AND** the other two are unchanged

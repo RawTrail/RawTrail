@@ -5,7 +5,7 @@
 - [x] 1.3 Point the SigNoz dashboards and alert rules at `rawtrail-server`
 - [x] 1.4 Send `rawtrail-webhook/1` as the webhook User-Agent
 - [x] 1.5 Move the break-glass admin to `admin@rawtrail.local` with an identity migration
-- [x] 1.6 Re-credit existing alerts from "Fleet EDR" to "RawTrail" with a detection migration
+- [x] 1.6 Re-credit existing alerts from "Fleet EDR" to "RawTrail" with a batched boot-time pass
 
 ## 2. Release archive
 

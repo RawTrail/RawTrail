@@ -3,49 +3,51 @@
 package tests
 
 import (
+	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionmigrations "github.com/rawtrail/rawtrail/server/detection/migrations"
-	"github.com/rawtrail/rawtrail/server/migrations/runner"
-	"github.com/rawtrail/rawtrail/server/migrations/runner/runnertest"
-	"github.com/rawtrail/rawtrail/server/testdb"
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
+	"github.com/rawtrail/rawtrail/server/detection/bootstrap"
 )
 
-// TestAlertOriginRename_RecreditsOnlyThisProjectsAlerts upgrades a database holding alerts credited under the old product name
-// beside an upstream credit and a blank pre-attribution row. Only the first moves: the others name someone else, or nobody.
+// TestRecreditFormerProjectOrigin_RecreditsOnlyThisProjectsAlerts drives the boot-time re-credit through the leader lock, as the
+// server runs it, over alerts credited under the old product name beside an upstream credit and a blank pre-attribution row. Only
+// the first moves, its triage clock does not, and the pass records itself done so a second start does not walk the table again.
 // spec:product-identity/existing-alerts-are-credited-to-rawtrail-on-upgrade/an-upgrade-re-credits-only-this-project-s-alerts
-func TestAlertOriginRename_RecreditsOnlyThisProjectsAlerts(t *testing.T) {
+func TestRecreditFormerProjectOrigin_RecreditsOnlyThisProjectsAlerts(t *testing.T) {
 	t.Parallel()
-	db := testdb.Open(t)
-	opts := runner.Options{Context: "detection", TableName: "detection_goose_db_version"}
-	require.NoError(t, runner.Up(t.Context(), db, runnertest.Before(t, detectionmigrations.FS, "00023_alerts_origin_rawtrail.sql"), opts))
+	ctx := t.Context()
+	d := newDetection(t, detectionOpts{mode: bootstrap.ModeFull})
+	db := d.Store().DB()
 
-	seeded := map[string]string{"ours": "Fleet EDR", "upstream": "SigmaHQ, by remotephone", "blank": ""}
-	for subject, origin := range seeded {
-		_, err := db.ExecContext(t.Context(),
-			`INSERT INTO alerts (host_id, rule_id, source, severity, title, description, origin, subject, techniques)
-			 VALUES ('host-1366', 'suspicious_exec', 'detection', 'high', 'seeded', 'seeded', ?, ?, '[]')`, origin, subject)
-		require.NoError(t, err)
-	}
-	// A distinctive past value, so a re-credit that let ON UPDATE CURRENT_TIMESTAMP fire would visibly move it.
-	const seededUpdatedAt = "2026-01-02 03:04:05.000000"
-	_, err := db.ExecContext(t.Context(), `UPDATE alerts SET updated_at = ?`, seededUpdatedAt)
+	ours := insertAlertWithOrigin(t, ctx, d, "suspicious_exec", "Fleet EDR", `{"pid":1}`)
+	upstream := insertAlertWithOrigin(t, ctx, d, "proc_creation_macos_applescript", "SigmaHQ, by remotephone", `{"pid":2}`)
+	blank := insertAlertWithOrigin(t, ctx, d, "suspicious_exec", "", `{"pid":3}`)
+	lastTriage := time.Date(2025, 1, 2, 3, 4, 5, 600000000, time.UTC)
+	_, err := db.ExecContext(ctx, `UPDATE alerts SET updated_at = ?`, lastTriage)
 	require.NoError(t, err)
 
-	require.NoError(t, runner.Up(t.Context(), db, detectionmigrations.FS, opts))
+	coord := leader.NewMySQL(db, slog.New(slog.DiscardHandler))
+	ran, err := d.RecreditFormerProjectOrigin(ctx, coord)
+	require.NoError(t, err)
+	require.True(t, ran, "the only replica takes the lock")
 
-	want := map[string]string{"ours": "RawTrail", "upstream": "SigmaHQ, by remotephone", "blank": ""}
-	for subject, origin := range want {
-		var got string
-		require.NoError(t, db.GetContext(t.Context(), &got, `SELECT origin FROM alerts WHERE subject = ?`, subject))
-		assert.Equal(t, origin, got, subject)
+	assert.Equal(t, "RawTrail", originOfAlert(t, ctx, d, ours))
+	assert.Equal(t, "SigmaHQ, by remotephone", originOfAlert(t, ctx, d, upstream), "an upstream credit names someone else")
+	assert.Empty(t, originOfAlert(t, ctx, d, blank), "a pre-attribution row stays blank")
 
-		var updatedAt string
-		require.NoError(t, db.GetContext(t.Context(), &updatedAt,
-			`SELECT DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s.%f') FROM alerts WHERE subject = ?`, subject))
-		assert.Equal(t, seededUpdatedAt, updatedAt, "re-crediting is not triage activity: %s", subject)
-	}
+	var after time.Time
+	require.NoError(t, db.GetContext(ctx, &after, `SELECT updated_at FROM alerts WHERE id = ?`, ours))
+	assert.True(t, lastTriage.Equal(after), "re-crediting is not triage activity: want %s, got %s", lastTriage, after)
+
+	// A row credited the old way after the pass finished stays as it is: the recorded completion skips the walk entirely.
+	late := insertAlertWithOrigin(t, ctx, d, "suspicious_exec", "Fleet EDR", `{"pid":4}`)
+	ranAgain, err := d.RecreditFormerProjectOrigin(ctx, coord)
+	require.NoError(t, err)
+	assert.False(t, ranAgain, "a recorded pass is not taken again")
+	assert.Equal(t, "Fleet EDR", originOfAlert(t, ctx, d, late))
 }

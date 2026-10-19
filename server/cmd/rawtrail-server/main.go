@@ -160,6 +160,9 @@ func run() error {
 		if _, err := detectionCtx.BackfillAlertOrigins(backfillCtx, coord, backfillRules); err != nil && backfillCtx.Err() == nil {
 			logger.WarnContext(ctx, "could not credit alerts raised before rule attribution was recorded", "err", err)
 		}
+		if _, err := detectionCtx.RecreditFormerProjectOrigin(backfillCtx, coord); err != nil && backfillCtx.Err() == nil {
+			logger.WarnContext(ctx, "could not re-credit alerts to the product's current name", "err", err)
+		}
 	}()
 
 	// The revocation snapshot is the ONLY revocation enforcement on the no-DB verify hot path, so an empty snapshot is "revocation
