@@ -30,7 +30,6 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	otellog "go.opentelemetry.io/otel/log"
-	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -162,7 +161,7 @@ func Init(ctx context.Context, opts Options) (ShutdownFunc, error) {
 
 	// Atomic publish: the code below is infallible.
 	otel.SetTracerProvider(tp)
-	global.SetLoggerProvider(lp)
+	otel.SetLoggerProvider(lp)
 	otel.SetMeterProvider(mp)
 
 	bundle := &providerBundle{tracer: tp, logger: lp, meter: mp}
