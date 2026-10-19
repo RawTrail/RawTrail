@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/test/integration"
-	"github.com/fleetdm/edr/test/scale"
+	"github.com/rawtrail/rawtrail/test/integration"
+	"github.com/rawtrail/rawtrail/test/scale"
 )
 
 // TestM12_Smoke_Headless pins the v2 contract: a ModeHeadless run produces queue_depth samples, events_injected counters,

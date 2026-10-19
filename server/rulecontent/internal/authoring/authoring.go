@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/fleetdm/edr/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rulecontent/api"
 )
 
 // Compile-time proof that the service satisfies the published lifecycle. Without it the two drift apart until the wiring in

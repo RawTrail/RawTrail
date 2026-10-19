@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/httpserver"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // MaxIngestBodyBytes is the per-request body cap on POST /api/events. The contract is documented in openspec/specs/

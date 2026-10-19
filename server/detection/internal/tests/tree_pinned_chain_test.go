@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/bootstrap"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/bootstrap"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

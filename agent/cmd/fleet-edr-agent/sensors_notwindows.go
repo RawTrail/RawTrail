@@ -6,11 +6,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/fleetdm/edr/agent/agenttranscript"
-	"github.com/fleetdm/edr/agent/health"
-	"github.com/fleetdm/edr/agent/receiver"
-	"github.com/fleetdm/edr/agent/selfheal"
-	"github.com/fleetdm/edr/agent/sensorevent"
+	"github.com/rawtrail/rawtrail/agent/agenttranscript"
+	"github.com/rawtrail/rawtrail/agent/health"
+	"github.com/rawtrail/rawtrail/agent/receiver"
+	"github.com/rawtrail/rawtrail/agent/selfheal"
+	"github.com/rawtrail/rawtrail/agent/sensorevent"
 )
 
 // startTelemetrySensors starts the macOS telemetry sensors: the Endpoint Security extension loop and, when enabled, the network

@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
 )
 
 // The overlay's exit binding must close the row the store's UPDATE closes (issue #1280); TestStore_UpdateProcessExit_ByGeneration

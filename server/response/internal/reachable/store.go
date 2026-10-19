@@ -7,9 +7,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/internal/versionedset"
-	"github.com/fleetdm/edr/server/auditoutbox"
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/internal/versionedset"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // Store reads and replaces the single containment_reachable_set row.

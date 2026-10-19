@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // pushedEnforcement decodes every snapshot the rig's fan-out enqueued after skip commands and returns the enforcement each carries

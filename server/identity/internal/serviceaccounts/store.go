@@ -22,7 +22,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // clientIDPrefix and secretPrefix are self-describing so a leaked secret is greppable by secret-scanners and a client id is

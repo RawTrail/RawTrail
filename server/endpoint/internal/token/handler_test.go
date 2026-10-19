@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
 )
 
 // fakeRefreshService implements api.Service; only RefreshToken is exercised by the handler. The rest panic so an unexpected call

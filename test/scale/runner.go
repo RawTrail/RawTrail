@@ -26,7 +26,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/fleetdm/edr/test/fakeagent"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 
 // Named constants for what would otherwise be magic numbers in defaults + tuning knobs. Grouped here so the lint-rule

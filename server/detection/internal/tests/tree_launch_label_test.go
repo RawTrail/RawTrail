@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 )
 
 const labelSession = "f4b1b99e-0000-4000-8000-000000001341"

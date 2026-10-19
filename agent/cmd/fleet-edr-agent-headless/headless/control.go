@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fleetdm/edr/agent/queue"
-	"github.com/fleetdm/edr/agent/receiver"
+	"github.com/rawtrail/rawtrail/agent/queue"
+	"github.com/rawtrail/rawtrail/agent/receiver"
 )
 
 const (

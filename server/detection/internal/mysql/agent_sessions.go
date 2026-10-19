@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // sessionCursor is the keyset position of the sessions list: the last row of the previous page by its sort key. Session ids are the

@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 // spec:server-detection-rules-engine/a-rule-this-sensor-cannot-run-is-refused-by-name/a-rule-reading-an-unavailable-field-is-refused-and-the-others-still-import

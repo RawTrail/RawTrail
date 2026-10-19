@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/rules/api"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // SensorRecoveryFailed fires when the agent's automatic repair of a stopped capture provider gives up, leaving the host

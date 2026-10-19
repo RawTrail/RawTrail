@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // BearerAuthenticator resolves a service-account access token into an actor. Implemented by serviceaccounts.Authenticator.

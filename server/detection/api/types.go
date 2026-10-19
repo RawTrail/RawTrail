@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/sqlhelpers"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/sqlhelpers"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // NullRawJSON is the canonical nullable JSON column scanner. The authoritative type lives in server/sqlhelpers; detection/api keeps

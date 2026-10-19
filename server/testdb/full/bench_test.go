@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // BenchmarkOpen measures the fixture every database-backed integration test pays before its first line runs.

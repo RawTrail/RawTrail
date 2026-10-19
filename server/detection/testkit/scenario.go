@@ -7,9 +7,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/internal/graph"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	visibilitytestkit "github.com/fleetdm/edr/server/visibility/testkit"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	visibilitytestkit "github.com/rawtrail/rawtrail/server/visibility/testkit"
 )
 
 // MemArchive is the in-memory EventArchive for detection tests, aliased from visibility/testkit so detection-internal test packages

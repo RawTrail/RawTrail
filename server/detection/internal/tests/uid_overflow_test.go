@@ -21,11 +21,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/graph"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 func discardLogger() *slog.Logger {

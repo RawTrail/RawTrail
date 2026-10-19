@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/catchup"
+	"github.com/rawtrail/rawtrail/server/catchup"
 )
 
 // CommandTypeSetWatchedPaths is the command that carries the watched-path set to a host (issue #998). The agent forwards its payload

@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/catalog"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/catalog"
 )
 
 // ruleDoc renders a minimal but real Sigma document, so these tests exercise the actual loader rather than a shape invented here.

@@ -16,12 +16,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fleetdm/edr/agent/codesign"
-	"github.com/fleetdm/edr/agent/enrich"
-	"github.com/fleetdm/edr/agent/enrollment"
-	"github.com/fleetdm/edr/agent/queue"
-	"github.com/fleetdm/edr/agent/receiver"
-	"github.com/fleetdm/edr/agent/uploader"
+	"github.com/rawtrail/rawtrail/agent/codesign"
+	"github.com/rawtrail/rawtrail/agent/enrich"
+	"github.com/rawtrail/rawtrail/agent/enrollment"
+	"github.com/rawtrail/rawtrail/agent/queue"
+	"github.com/rawtrail/rawtrail/agent/receiver"
+	"github.com/rawtrail/rawtrail/agent/uploader"
 )
 
 const (

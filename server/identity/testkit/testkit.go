@@ -25,9 +25,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/bootstrap"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/bootstrap"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
 )
 
 // ApplySchema runs identity's DDL + idempotent ALTERs against db. Thin wrapper over bootstrap.ApplySchema so the test surface is

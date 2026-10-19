@@ -24,8 +24,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fleetdm/edr/server/rules/internal/export"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/internal/export"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 // fieldExtractor returns the values an event carries for one Sigma field, and whether it carries the field at all. The values are

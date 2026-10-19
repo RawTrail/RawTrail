@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 // Event implements sigma.Event. Asserted at compile time so a change to either side is a build failure rather than a rule that

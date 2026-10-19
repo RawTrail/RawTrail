@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	detapi "github.com/fleetdm/edr/server/detection/api"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // updateGolden rewrites the golden files from the current code instead of comparing against them. Run it only when an alert

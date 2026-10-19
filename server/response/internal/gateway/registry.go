@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/fleetdm/edr/internal/control"
+	"github.com/rawtrail/rawtrail/internal/control"
 )
 
 // sendBuffer bounds the per-connection outbound queue. A control connection carries low-rate async commands (kill, snapshot push), so

@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/endpoint/bootstrap"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/bootstrap"
 )
 
 // statusFixture enrolls a host over the real service and stands up the check-in endpoint behind the host-token middleware, exactly as

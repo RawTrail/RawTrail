@@ -3,8 +3,8 @@ package serviceaccounts
 import (
 	"time"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/satoken"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/satoken"
 )
 
 // AuthMethodServiceAccount marks an actor authenticated by a service-account bearer token (as opposed to "oidc" / "local_password"

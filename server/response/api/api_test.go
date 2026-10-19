@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // TestErrorSentinelsAreDistinct guards against two errors collapsing to the same value (which would make IsValidationError uselessly

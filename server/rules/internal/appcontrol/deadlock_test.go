@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/sqlhelpers"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/sqlhelpers"
 )
 
 // deadlockConcurrency and deadlockRounds size the reproduction. Two writers are enough for the shapes below; more of them, over

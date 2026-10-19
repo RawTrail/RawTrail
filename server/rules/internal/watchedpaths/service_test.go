@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // TestReplaceResult_JSONRoundTrip pins the PUT response shape, including the skip reason, which is omitted when empty.

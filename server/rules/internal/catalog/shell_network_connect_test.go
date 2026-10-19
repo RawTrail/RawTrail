@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // Tests for shell_network_connect, the outbound-connection arm split out of suspicious_exec by issue #776.

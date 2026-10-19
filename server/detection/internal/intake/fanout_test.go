@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/httpserver"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // fakeEventArchive records the events handed to Insert and can be made to fail, so the fan-out's archive-first ordering and its

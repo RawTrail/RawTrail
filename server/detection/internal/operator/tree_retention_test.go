@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 func treeWithRetention(t *testing.T, days int) map[string]json.RawMessage {

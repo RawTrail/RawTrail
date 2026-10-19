@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/internal/breakglass"
+	"github.com/rawtrail/rawtrail/server/identity/internal/breakglass"
 )
 
 // EncodeChallengeState → DecodeChallengeState round-trips the SessionData. The HMAC-signed cookie is the integrity gate; a regression

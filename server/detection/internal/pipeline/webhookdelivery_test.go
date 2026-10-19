@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/secretseal"
-	detapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/webhook"
+	"github.com/rawtrail/rawtrail/internal/secretseal"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/webhook"
 )
 
 type fakeDeliveryStore struct {

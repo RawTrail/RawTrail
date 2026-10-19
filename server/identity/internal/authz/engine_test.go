@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/authz"
-	"github.com/fleetdm/edr/server/identity/internal/seed"
-	"github.com/fleetdm/edr/server/identity/internal/serviceaccounts"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/authz"
+	"github.com/rawtrail/rawtrail/server/identity/internal/seed"
+	"github.com/rawtrail/rawtrail/server/identity/internal/serviceaccounts"
 )
 
 // recordingAudit collects every AuditEvent the engine writes so tests can assert "the chokepoint emitted exactly the audit row a Phase

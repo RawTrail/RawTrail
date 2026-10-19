@@ -18,9 +18,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // Open dials the ClickHouse event archive through the same otelsql wrapper and span policy MySQL uses (server/bootstrap.OpenDB), so

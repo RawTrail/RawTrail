@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // processTTLReconciler is the narrow store-surface needed by the

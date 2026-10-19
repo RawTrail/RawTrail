@@ -7,8 +7,8 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
 )
 
 // processStore is the read/write surface the builder's per-event handlers issue against while folding a batch. *batchSession

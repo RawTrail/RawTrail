@@ -1,6 +1,6 @@
 package catalog
 
-import "github.com/fleetdm/edr/server/rules/api"
+import "github.com/rawtrail/rawtrail/server/rules/api"
 
 // NewWithCorpus returns every detection rule the server registers with the engine, in the canonical registration order: the
 // compiled-in detections followed by the supplied corpus. Taking the corpus as a parameter is how content loaded from storage

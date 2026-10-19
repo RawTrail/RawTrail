@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/detectionconfig"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
 )
 
 // countingRecorder stands in for the durable store, and records what it was asked to write rather than writing it.

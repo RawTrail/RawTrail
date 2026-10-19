@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // TestAppControlBlock_EventBecomesAlert is the cross-context smoke

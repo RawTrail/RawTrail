@@ -236,8 +236,8 @@ tasks:
       - GOBIN="$(go env GOPATH)/bin" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
       - >-
         PATH="$(go env GOPATH)/bin:$PATH" protoc
-        --go_out=. --go_opt=module=github.com/fleetdm/edr
-        --go-grpc_out=. --go-grpc_opt=module=github.com/fleetdm/edr
+        --go_out=. --go_opt=module=github.com/rawtrail/rawtrail
+        --go-grpc_out=. --go-grpc_opt=module=github.com/rawtrail/rawtrail
         internal/control/control.proto
 
   # -------- test --------
@@ -759,7 +759,7 @@ tasks:
       from golangci-lint). Scoped to project dirs rather than ./... so the
       gitignored tmp/ scratch area never gates lint runs.
     cmds:
-      - go tool nilaway -include-pkgs="github.com/fleetdm/edr" ./server/... ./agent/... ./internal/... ./test/...
+      - go tool nilaway -include-pkgs="github.com/rawtrail/rawtrail" ./server/... ./agent/... ./internal/... ./test/...
 
   lint:md:
     desc: markdownlint-cli2 across all committed markdown (config in .markdownlint-cli2.yaml).

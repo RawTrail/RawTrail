@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // TestCloseStaleProcess_LeavesLaterGenerationOpen is the named repro for the process-graph half of issue #661.

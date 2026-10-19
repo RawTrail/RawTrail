@@ -17,10 +17,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/agent/config"
-	"github.com/fleetdm/edr/agent/containment"
-	"github.com/fleetdm/edr/agent/health"
-	"github.com/fleetdm/edr/agent/receiver"
+	"github.com/rawtrail/rawtrail/agent/config"
+	"github.com/rawtrail/rawtrail/agent/containment"
+	"github.com/rawtrail/rawtrail/agent/health"
+	"github.com/rawtrail/rawtrail/agent/receiver"
 )
 
 func TestNewContainment(t *testing.T) {

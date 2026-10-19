@@ -7,9 +7,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // Service reads and replaces the reachable-address set.

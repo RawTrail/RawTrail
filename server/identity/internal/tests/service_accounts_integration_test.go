@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/bootstrap"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 func newServiceAccountIdentity(t *testing.T) (*bootstrap.Identity, *sqlx.DB) {

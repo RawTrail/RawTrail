@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 // CredentialKeychainDump fires when a process invokes `/usr/bin/security

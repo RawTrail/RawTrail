@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	meterName = "github.com/fleetdm/edr/server/metrics"
+	meterName = "github.com/rawtrail/rawtrail/server/metrics"
 
 	// defaultOfflineThreshold is the gauge cutoff used when Options.OfflineThreshold is zero. Mirrored as the UI offline cutoff so SigNoz
 	// numbers match what operators see on the host page.

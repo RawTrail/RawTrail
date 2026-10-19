@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/fleetdm/edr/test/fakeagent"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 
 // pidVersionStamper reproduces the kernel's pidversion counter over replayed demo events.

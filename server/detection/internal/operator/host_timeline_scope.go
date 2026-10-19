@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // timelineScope is what a scoped host-timeline read reports about its scope (issue #1282), so the client can say how much of it the

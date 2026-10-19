@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fleetdm/edr/internal/hmactoken"
+	"github.com/rawtrail/rawtrail/internal/hmactoken"
 )
 
 // Claims is the authenticated payload of a host token. JSON tags are short because the token rides on every agent request; HPACK

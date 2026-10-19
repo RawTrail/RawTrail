@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // recordingMonitorRecords captures the monitor records the engine writes, and the number of writes, and can fail on demand.

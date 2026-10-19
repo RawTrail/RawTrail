@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/internal/keyring"
+	"github.com/rawtrail/rawtrail/internal/keyring"
 )
 
 // Default timing knobs. The ready window covers MySQL warmup + migrations on first boot; the verify window covers the processor

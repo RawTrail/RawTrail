@@ -3,7 +3,7 @@ package ssoconfig_test
 import (
 	"testing"
 
-	"github.com/fleetdm/edr/server/identity/internal/ssoconfig"
+	"github.com/rawtrail/rawtrail/server/identity/internal/ssoconfig"
 	"github.com/stretchr/testify/assert"
 )
 

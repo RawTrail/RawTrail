@@ -16,11 +16,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/detectionconfig"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
 
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // denyAllAuthZ forces the HTTPGate deny branch so the per-handler 403 path is covered.

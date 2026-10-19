@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/fleetdm/edr/internal/installerscript"
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/internal/installerscript"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // InstallerUnsignedPackage fires when an installer script runs from a package that is unsigned, or whose signature macOS does not

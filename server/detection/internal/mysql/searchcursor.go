@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // searchCursor is the keyset position for the fleet-wide process search (issue #582): the (fork_time_ns, id) of the last row of the

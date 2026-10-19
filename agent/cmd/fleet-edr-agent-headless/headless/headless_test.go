@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/agent/receiver"
+	"github.com/rawtrail/rawtrail/agent/receiver"
 )
 
 // stubTokenProvider implements enrollment.TokenProvider with fixed values. Tests construct one directly so they bypass the network

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
 )
 
 // TrustedRootCertificate fires when `security` is asked to trust a certificate: `add-trusted-cert` or `trust-settings-import`,

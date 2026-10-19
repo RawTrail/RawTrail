@@ -6,9 +6,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/coordination/leader"
-	"github.com/fleetdm/edr/server/detection/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // Lock names for the leader-gated periodic tasks. MySQL GET_LOCK names are server-global, so these identify each task across every

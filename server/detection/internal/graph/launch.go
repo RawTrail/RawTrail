@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // Inferred launches (issue #1286). A process launchd starts on a caller's behalf keeps no lineage to the caller: `open -a App` and

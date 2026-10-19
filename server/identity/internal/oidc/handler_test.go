@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
 )
 
 // captureAudit collects audit events without writing to MySQL.

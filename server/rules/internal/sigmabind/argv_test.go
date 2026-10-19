@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // execEvent builds an exec event from a path and argv, so these tests go through the real adapter rather than calling the

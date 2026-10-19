@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/catchup"
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/catchup"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // spec:server-admin-surface/hosts-that-miss-the-watched-path-push-get-the-set/a-failure-with-no-completion-time-is-not-retried-at-once

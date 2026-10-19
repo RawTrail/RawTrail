@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/installerscript"
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/internal/installerscript"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // TestExclusionMatchTypes_Reconciled is the anti-drift guard for issue #520. It pins, for every registered rule, the exact set of

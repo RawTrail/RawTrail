@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // scopePredicate is the indexed equality a scoped tree read filters by, after host_id: the agent session served by

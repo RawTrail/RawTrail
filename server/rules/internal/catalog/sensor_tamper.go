@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // SensorTamper fires when one of the EDR's own capture providers stops and does not come back within a few seconds.

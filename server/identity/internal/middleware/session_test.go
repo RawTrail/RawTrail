@@ -12,14 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/middleware"
-	"github.com/fleetdm/edr/server/identity/internal/rbac"
-	"github.com/fleetdm/edr/server/identity/internal/service"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
-	"github.com/fleetdm/edr/server/identity/internal/users"
-	"github.com/fleetdm/edr/server/identity/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/middleware"
+	"github.com/rawtrail/rawtrail/server/identity/internal/rbac"
+	"github.com/rawtrail/rawtrail/server/identity/internal/service"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/identity/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // newService returns a ready-to-use api.Service backed by a fresh test DB. A stub users row (id=1, 7, 42, or anything tests reference)

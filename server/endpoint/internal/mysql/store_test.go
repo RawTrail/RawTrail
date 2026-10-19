@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/endpoint/internal/mysql"
-	"github.com/fleetdm/edr/server/endpoint/internal/revocation"
-	"github.com/fleetdm/edr/server/endpoint/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/revocation"
+	"github.com/rawtrail/rawtrail/server/endpoint/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 const testUUID = "93DFC6F5-763D-5075-B305-8AC145D12F96"

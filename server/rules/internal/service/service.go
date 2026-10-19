@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // Service is the rules orchestrator. It wraps the in-memory rule catalog and exposes it as the api.Lister + api.RuleProvider

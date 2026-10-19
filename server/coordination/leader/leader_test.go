@@ -20,7 +20,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/fleetdm/edr/server/coordination/leader"
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
 )
 
 // lockSalt makes lock names unique per test process so parallel packages sharing one MySQL server (GET_LOCK names are

@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/catchup"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
-	"github.com/fleetdm/edr/server/rules/internal/watchedpaths"
+	"github.com/rawtrail/rawtrail/server/catchup"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
+	"github.com/rawtrail/rawtrail/server/rules/internal/watchedpaths"
 )
 
 // fakeCommandHistory stands in for the response context: it records what the catch-up queues and answers LatestOfType from it.

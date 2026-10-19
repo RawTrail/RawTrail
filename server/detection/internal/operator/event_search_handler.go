@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // EventSearchReader is the fleet-wide connection/DNS artifact search surface (issue #582). The detection mysql.Store satisfies it by

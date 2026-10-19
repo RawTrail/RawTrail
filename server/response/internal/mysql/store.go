@@ -11,8 +11,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/sqlhelpers"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/sqlhelpers"
 )
 
 // insertBatchChunkSize caps the number of command rows per multi-row INSERT. The fan-out repeats the SAME payload across every

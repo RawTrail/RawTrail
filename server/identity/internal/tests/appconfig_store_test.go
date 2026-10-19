@@ -3,8 +3,8 @@ package tests
 import (
 	"testing"
 
-	"github.com/fleetdm/edr/server/identity/internal/appconfig"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/identity/internal/appconfig"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

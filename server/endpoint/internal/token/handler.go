@@ -14,9 +14,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // Handler serves POST /api/token/refresh. It implements http.Handler so cmd/main can mount it inside the host-token-protected mux,

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/internal/seed"
+	"github.com/rawtrail/rawtrail/server/identity/internal/seed"
 )
 
 // TestRoles_NilDBRejected pins the precondition contract on the roles seed: a nil sqlx.DB must produce a typed error rather than a

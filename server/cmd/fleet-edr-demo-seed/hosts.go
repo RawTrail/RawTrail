@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/test/fakeagent"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 
 // hostCorpusFS holds the rich, real-captured host streams replayed into the demo. Each file is a scrubbed JSONL export of an

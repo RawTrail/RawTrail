@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/agent/queue"
+	"github.com/rawtrail/rawtrail/agent/queue"
 )
 
 // spec:agent-event-uploader/upload-uses-the-host-bearer-token/upload-with-a-valid-token

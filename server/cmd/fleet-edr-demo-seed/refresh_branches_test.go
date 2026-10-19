@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // TestMaybeRefreshExisting covers the idempotent re-run dispatcher's branches: the --force short-circuit, the not-yet-seeded

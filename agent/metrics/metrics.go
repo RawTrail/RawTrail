@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-const meterName = "github.com/fleetdm/edr/agent/metrics"
+const meterName = "github.com/rawtrail/rawtrail/agent/metrics"
 
 // unitEvent is the OTel unit suffix shared by every per-event metric the agent emits. Centralising it lets the three
 // counters/gauges below stay in lock-step on the wire shape SigNoz uses to group dashboards (Sonar go:S1192 flagged the

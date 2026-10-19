@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // TestLaunchDaemonSubject pins the dedup-subject bound: a short item path stays human-readable, while a path that would

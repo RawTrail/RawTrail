@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // DefaultEvalStatsFlushInterval is how often a replica writes its accumulated per-rule evaluation statistics.

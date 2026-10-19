@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // outboxColumn is one row of SHOW COLUMNS, which carries the name, the type, whether the column is nullable, its default and its

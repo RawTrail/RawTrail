@@ -10,7 +10,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // processBatchSelectColumns is the full process-row projection, shared by the bulk preload here and the single-row reads in

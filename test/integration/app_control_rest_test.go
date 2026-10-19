@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/testkit"
-	responseapi "github.com/fleetdm/edr/server/response/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/testkit"
+	responseapi "github.com/rawtrail/rawtrail/server/response/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // TestAppControlREST_CreateRule_FansOutAndAudits is the cross-context

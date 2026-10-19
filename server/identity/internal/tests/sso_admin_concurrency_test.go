@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fleetdm/edr/server/identity/bootstrap"
-	"github.com/fleetdm/edr/server/identity/internal/appconfig"
-	"github.com/fleetdm/edr/server/identity/internal/ssoconfig"
-	"github.com/fleetdm/edr/server/testdb/full"
 	"github.com/jmoiron/sqlx"
+	"github.com/rawtrail/rawtrail/server/identity/bootstrap"
+	"github.com/rawtrail/rawtrail/server/identity/internal/appconfig"
+	"github.com/rawtrail/rawtrail/server/identity/internal/ssoconfig"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

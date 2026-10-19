@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/sigma"
-	"github.com/fleetdm/edr/server/rules/internal/sigmabind"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigma"
+	"github.com/rawtrail/rawtrail/server/rules/internal/sigmabind"
 )
 
 // The equivalence gate for issue #761.

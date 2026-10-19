@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/identity/internal/breakglass"
+	"github.com/rawtrail/rawtrail/server/identity/internal/breakglass"
 )
 
 // AllowIP refuses to bucket an empty IP. A regression that bucketed "" would let an attacker who somehow got past the upstream IP

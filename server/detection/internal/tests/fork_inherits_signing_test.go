@@ -25,9 +25,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/graph"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
 )
 
 // The two signed images these scenarios distinguish. Real shapes: a Developer ID binary carries a team, an Apple binary carries the

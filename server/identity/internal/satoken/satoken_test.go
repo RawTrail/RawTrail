@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/identity/internal/satoken"
+	"github.com/rawtrail/rawtrail/server/identity/internal/satoken"
 )
 
 func newSigner(t *testing.T) *satoken.Signer {

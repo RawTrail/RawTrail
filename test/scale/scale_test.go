@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/test/integration"
-	"github.com/fleetdm/edr/test/scale"
+	"github.com/rawtrail/rawtrail/test/integration"
+	"github.com/rawtrail/rawtrail/test/scale"
 )
 
 // Table-driven shape per CLAUDE.md's repo testing convention; even with one case today it gives an obvious extension point for

@@ -9,7 +9,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // Store owns the host_containment table.

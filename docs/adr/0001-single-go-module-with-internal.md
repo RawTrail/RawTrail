@@ -28,7 +28,7 @@ Observation: every mature Go monorepo of comparable scope uses layout (2). Kuber
 
 ## Decision
 
-Single Go module rooted at `github.com/fleetdm/edr`. Binaries live at `server/cmd/*` and `agent/cmd/*`. Shared code lives under `internal/` (language-level encapsulation, prevents external consumption). Enforce the agent <-> server non-dependency rule at the lint layer via `depguard` file-scoped rules, so misplaced imports fail CI.
+Single Go module rooted at `github.com/rawtrail/rawtrail`. Binaries live at `server/cmd/*` and `agent/cmd/*`. Shared code lives under `internal/` (language-level encapsulation, prevents external consumption). Enforce the agent <-> server non-dependency rule at the lint layer via `depguard` file-scoped rules, so misplaced imports fail CI.
 
 ## Consequences
 

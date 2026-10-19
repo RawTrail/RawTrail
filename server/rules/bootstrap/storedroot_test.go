@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // authoredDoc is a rule the operator wrote, marked the way the store records it. The fixture carries `author: test`, so a load

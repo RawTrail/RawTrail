@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/XSAM/otelsql"
-	"github.com/fleetdm/edr/internal/observability/tracing"
 	_ "github.com/go-sql-driver/mysql" // register driver
 	"github.com/jmoiron/sqlx"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 )
 

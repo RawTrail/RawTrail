@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/fleetdm/edr/internal/revocationset"
+	"github.com/rawtrail/rawtrail/internal/revocationset"
 )
 
 // DefaultRevocationRefreshInterval is how often each replica reloads the revocation snapshot from the database. It bounds the

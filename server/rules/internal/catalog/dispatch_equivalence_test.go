@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
 )
 
 // loadFixtureEvents decodes one replay fixture's event batch.

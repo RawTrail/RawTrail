@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/graph"
-	"github.com/fleetdm/edr/server/detection/internal/intake"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/internal/intake"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // UserExists is the closure cmd/main wires from identity.api.Service.UserExists. PUT /api/alerts/{id} calls it before persisting

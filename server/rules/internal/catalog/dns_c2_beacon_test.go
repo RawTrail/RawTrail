@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/rules/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // TestDNSC2Beacon_TechniquesMapping pins the MITRE ATT&CK union the rule advertises. A given finding narrows this (every

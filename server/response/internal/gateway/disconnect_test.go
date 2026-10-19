@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/fleetdm/edr/internal/control"
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/internal/control"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
 )
 
 // These tests call the Connect handler directly rather than over a transport, because what they pin is the verdict it reaches: how

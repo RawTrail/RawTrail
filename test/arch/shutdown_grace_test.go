@@ -23,9 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	"github.com/fleetdm/edr/server/bootstrap"
-	serverconfig "github.com/fleetdm/edr/server/config"
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/bootstrap"
+	serverconfig "github.com/rawtrail/rawtrail/server/config"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // serverImage is how a compose service that runs the EDR server is recognised. A service running something else has no shutdown

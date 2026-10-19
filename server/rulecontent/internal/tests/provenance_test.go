@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rulecontent/api"
-	rulecontentmysql "github.com/fleetdm/edr/server/rulecontent/internal/mysql"
-	rulecontentmigrations "github.com/fleetdm/edr/server/rulecontent/migrations"
-	rulecontenttestkit "github.com/fleetdm/edr/server/rulecontent/testkit"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/rulecontent/api"
+	rulecontentmysql "github.com/rawtrail/rawtrail/server/rulecontent/internal/mysql"
+	rulecontentmigrations "github.com/rawtrail/rawtrail/server/rulecontent/migrations"
+	rulecontenttestkit "github.com/rawtrail/rawtrail/server/rulecontent/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // spec:rule-content/a-rule-document-records-where-it-came-from/a-seeded-document-is-recorded-as-shipped-with-the-product

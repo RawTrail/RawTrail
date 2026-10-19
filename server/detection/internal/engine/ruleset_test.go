@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // recordingRule records that it ran, and optionally blocks so a test can hold an Evaluate open mid-batch.

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/agent/procgen"
+	"github.com/rawtrail/rawtrail/agent/procgen"
 )
 
 // TestRunKill_GenerationGate covers the kill_process generation pin (issue #627): a known mismatch is refused with no signal, while a

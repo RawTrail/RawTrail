@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/fleetdm/edr/server/sqlhelpers"
+	"github.com/rawtrail/rawtrail/server/sqlhelpers"
 )
 
 // NullRawJSON is the shared JSON-or-NULL column type, aliased here so this context's callers do not import sqlhelpers directly.

@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
-	rulecontentbootstrap "github.com/fleetdm/edr/server/rulecontent/bootstrap"
-	"github.com/fleetdm/edr/server/testdb/full"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
+	rulecontentbootstrap "github.com/rawtrail/rawtrail/server/rulecontent/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // TestOpenRuleContent_InstallsThisBuildsPack pins the startup WIRING rather than the upgrade itself, which is tested where it

@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/testkit"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/testkit"
 )
 
 // authoredRule renders a minimal but real Sigma document, so this exercises the actual loader rather than a shape invented here.

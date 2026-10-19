@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/fleetdm/edr/server/catchup"
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/server/catchup"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // DefaultConvergeInterval is how often the catch-up runs. A host whose command expired, that re-enrolled, or whose command could not be

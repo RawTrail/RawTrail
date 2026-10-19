@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // defaultActivityLimit is how many rows each class lists when the caller names no limit.

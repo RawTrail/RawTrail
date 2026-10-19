@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // TestOpen_ReturnsUsableEmptyDB pins that testdb.Open hands back a connected DB that the caller can run DDL + DML against. The fixture

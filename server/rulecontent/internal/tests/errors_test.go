@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rulecontent/api"
-	rulecontentbootstrap "github.com/fleetdm/edr/server/rulecontent/bootstrap"
-	rulecontentmysql "github.com/fleetdm/edr/server/rulecontent/internal/mysql"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/rulecontent/api"
+	rulecontentbootstrap "github.com/rawtrail/rawtrail/server/rulecontent/bootstrap"
+	rulecontentmysql "github.com/rawtrail/rawtrail/server/rulecontent/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // spec:rule-content/an-unavailable-or-unusable-store-leaves-detections-running/content-that-fails-to-load-does-not-stop-detection

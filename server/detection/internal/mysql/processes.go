@@ -11,9 +11,9 @@ import (
 
 	driver "github.com/go-sql-driver/mysql"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/sqlhelpers"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/sqlhelpers"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // snapshotBumpChunkPIDs caps the distinct PIDs folded into one set-based heartbeat UPDATE. Keeps the placeholder count well under

@@ -19,9 +19,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/fleetdm/edr/agent/commandledger"
-	"github.com/fleetdm/edr/agent/controlclient"
-	"github.com/fleetdm/edr/internal/control"
+	"github.com/rawtrail/rawtrail/agent/commandledger"
+	"github.com/rawtrail/rawtrail/agent/controlclient"
+	"github.com/rawtrail/rawtrail/internal/control"
 )
 
 // fakeGateway is an in-memory control gateway: it pushes a fixed set of commands on connect and records every outcome the agent

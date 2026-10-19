@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/test/fakeagent"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 
 func env(eventType string, ts int64, payload string) fakeagent.Envelope {

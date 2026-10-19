@@ -33,7 +33,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/detection/bootstrap"
+	"github.com/rawtrail/rawtrail/server/detection/bootstrap"
 )
 
 // ApplySchema runs detection's CREATE TABLE statements against db. Thin wrapper over bootstrap.ApplySchema so the test surface is

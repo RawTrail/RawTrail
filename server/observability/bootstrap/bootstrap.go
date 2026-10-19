@@ -7,13 +7,13 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/migrations/runner"
-	"github.com/fleetdm/edr/server/observability/internal/tracingadmin"
-	"github.com/fleetdm/edr/server/observability/internal/tracingconfig"
-	observabilitymigrations "github.com/fleetdm/edr/server/observability/migrations"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/migrations/runner"
+	"github.com/rawtrail/rawtrail/server/observability/internal/tracingadmin"
+	"github.com/rawtrail/rawtrail/server/observability/internal/tracingconfig"
+	observabilitymigrations "github.com/rawtrail/rawtrail/server/observability/migrations"
 )
 
 // Deps bundles what New needs. cmd/main owns the *sqlx.DB handle and shares it across every context's bootstrap.

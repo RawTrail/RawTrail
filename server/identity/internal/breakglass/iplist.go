@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // Allowlist is the optional IP gate that wraps the break-glass

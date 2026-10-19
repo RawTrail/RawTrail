@@ -19,7 +19,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // Entry is an encoded audit event, ready to be written into an outbox inside the transaction that makes the change.

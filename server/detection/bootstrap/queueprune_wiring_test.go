@@ -9,12 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/bootstrap"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	identitytestkit "github.com/fleetdm/edr/server/identity/testkit"
-	"github.com/fleetdm/edr/server/testdb/full"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
-	visibilitybootstrap "github.com/fleetdm/edr/server/visibility/bootstrap"
+	"github.com/rawtrail/rawtrail/server/detection/bootstrap"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	identitytestkit "github.com/rawtrail/rawtrail/server/identity/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
+	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
 )
 
 // retentionRecordingEventLog forwards everything to a real EventLog and records only what PruneSetAside was asked to keep.

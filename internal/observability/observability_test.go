@@ -15,7 +15,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
-	"github.com/fleetdm/edr/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
 )
 
 // TestBuildResource_ServiceInstanceID pins that a replica's telemetry resource carries service.instance.id when one is set. The

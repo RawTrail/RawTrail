@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rulecontent/api"
-	rulecontentbootstrap "github.com/fleetdm/edr/server/rulecontent/bootstrap"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/rulecontent/api"
+	rulecontentbootstrap "github.com/rawtrail/rawtrail/server/rulecontent/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // packFS renders a build's pack as the loader would read it off disk.

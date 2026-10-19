@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	"github.com/fleetdm/edr/server/detection/internal/webhook"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/internal/webhook"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // fakeWebhookAdmin is a closure-driven operator.WebhookAdmin stub. An unset closure returns zero values + nil error, so each test pins

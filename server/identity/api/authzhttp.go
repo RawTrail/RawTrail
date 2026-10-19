@@ -20,7 +20,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // AuthzReasonHeader is the response header an HTTP handler writes when the chokepoint denies a privileged action. The operator UI

@@ -16,9 +16,9 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // installSpanRecorder points the global tracer provider at an in-memory recorder for the rest of the test. The callers are top-level

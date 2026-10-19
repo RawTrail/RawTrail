@@ -15,19 +15,19 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/internal/keyring"
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	"github.com/fleetdm/edr/server/bootstrap"
-	"github.com/fleetdm/edr/server/config"
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	detectionbootstrap "github.com/fleetdm/edr/server/detection/bootstrap"
-	endpointbootstrap "github.com/fleetdm/edr/server/endpoint/bootstrap"
-	"github.com/fleetdm/edr/server/httpserver"
-	identitybootstrap "github.com/fleetdm/edr/server/identity/bootstrap"
-	"github.com/fleetdm/edr/server/metrics"
-	observabilitybootstrap "github.com/fleetdm/edr/server/observability/bootstrap"
-	"github.com/fleetdm/edr/server/tracingpolicy"
-	visibilitybootstrap "github.com/fleetdm/edr/server/visibility/bootstrap"
+	"github.com/rawtrail/rawtrail/internal/keyring"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/server/bootstrap"
+	"github.com/rawtrail/rawtrail/server/config"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	detectionbootstrap "github.com/rawtrail/rawtrail/server/detection/bootstrap"
+	endpointbootstrap "github.com/rawtrail/rawtrail/server/endpoint/bootstrap"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identitybootstrap "github.com/rawtrail/rawtrail/server/identity/bootstrap"
+	"github.com/rawtrail/rawtrail/server/metrics"
+	observabilitybootstrap "github.com/rawtrail/rawtrail/server/observability/bootstrap"
+	"github.com/rawtrail/rawtrail/server/tracingpolicy"
+	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
 )
 
 var (

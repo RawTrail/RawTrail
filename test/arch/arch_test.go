@@ -20,7 +20,7 @@ const (
 	configPath = "../../arch-go.yml"
 	// modulePath is the Go module path declared in go.mod. arch-go discovers
 	// packages by walking everything under it.
-	modulePath = "github.com/fleetdm/edr"
+	modulePath = "github.com/rawtrail/rawtrail"
 )
 
 func TestArchitecture(t *testing.T) {

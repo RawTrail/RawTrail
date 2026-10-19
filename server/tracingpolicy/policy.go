@@ -10,8 +10,8 @@
 package tracingpolicy
 
 import (
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 type route struct {

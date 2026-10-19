@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // maxTimelineChain caps the alert-chain scope. The process tree is itself capped at processTreeMaxLimit nodes, so a chain cannot exceed

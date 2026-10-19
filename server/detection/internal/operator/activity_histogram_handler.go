@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // ActivityHistogramReader is the bucketed process-start count surface the operator handler serves at

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // retryableGraphReader is the GraphReader the engine hands to rules. It forwards every read and marks any FAILURE retryable, so a

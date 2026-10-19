@@ -5,8 +5,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/fleetdm/edr/server/identity/internal/rbac"
-	"github.com/fleetdm/edr/server/identity/internal/ssoconfig"
+	"github.com/rawtrail/rawtrail/server/identity/internal/rbac"
+	"github.com/rawtrail/rawtrail/server/identity/internal/ssoconfig"
 )
 
 // FuzzValidGroupMapping feeds the group mapping validation the claim and two mappings exactly as decoded from a request body. It must

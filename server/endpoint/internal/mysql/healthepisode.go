@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
 )
 
 // Store is the recorder the detection engine depends on. Asserted here so a signature drift on either side is a compile error in

@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
 )
 
 // TestRuleIdentityForPath_IsTheKeyTheLoaderCompares pins the PRODUCTION identity function on the property the pack upgrade relies

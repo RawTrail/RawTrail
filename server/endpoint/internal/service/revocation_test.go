@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	"github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/endpoint/internal/mysql"
-	"github.com/fleetdm/edr/server/endpoint/internal/revocation"
-	"github.com/fleetdm/edr/server/endpoint/internal/service"
-	"github.com/fleetdm/edr/server/endpoint/internal/signedtoken"
-	"github.com/fleetdm/edr/server/endpoint/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/revocation"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/service"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/signedtoken"
+	"github.com/rawtrail/rawtrail/server/endpoint/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // noRevocations is a do-nothing revocation.Source for constructing a snapshot in the New-guard test without a database.

@@ -28,9 +28,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/agent/cmd/fleet-edr-agent-headless/headless"
-	"github.com/fleetdm/edr/test/fakeagent"
-	"github.com/fleetdm/edr/test/integration"
+	"github.com/rawtrail/rawtrail/agent/cmd/fleet-edr-agent-headless/headless"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
+	"github.com/rawtrail/rawtrail/test/integration"
 )
 
 // scenarioCorpus is the M4 list. Paths are relative to this file so `go test` resolves them correctly under both `go test ./test/...`

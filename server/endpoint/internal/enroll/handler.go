@@ -16,9 +16,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 const (

@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/migrations/runner"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/migrations/runner"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // testMigrations is a minimal one-file corpus used to exercise the runner independently of any bounded context's real schema. It

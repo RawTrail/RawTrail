@@ -17,9 +17,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/testdb/full"
-	"github.com/fleetdm/edr/test/fakeagent"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 
 // insertRole ensures a role row exists so role_bindings' FK is satisfied. INSERT IGNORE because the identity testkit already seeds

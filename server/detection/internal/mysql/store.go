@@ -8,9 +8,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/internal/secretseal"
-	"github.com/fleetdm/edr/server/detection/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/internal/secretseal"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // UndeliverableByHost reports, per host, the commands that aged out undelivered inside the response context's window. Hosts with

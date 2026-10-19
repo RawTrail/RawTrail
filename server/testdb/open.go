@@ -14,7 +14,7 @@ import (
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/bootstrap"
+	"github.com/rawtrail/rawtrail/server/bootstrap"
 )
 
 // maxOpenConnsPerTest caps each per-test DB's connection pool. See SetMaxOpenConns call below for rationale.

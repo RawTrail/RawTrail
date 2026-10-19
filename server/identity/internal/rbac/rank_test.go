@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/identity/internal/rbac"
+	"github.com/rawtrail/rawtrail/server/identity/internal/rbac"
 )
 
 // MostPrivileged ranks the seeded roles super_admin, admin, senior_analyst, analyst, auditor, and any other role below all of them.

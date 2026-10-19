@@ -398,7 +398,7 @@ func TestWorkflow_ARuleThatBreaksTheCorpusIsStillReported(t *testing.T) {
 	// A go that fails the docs generator after truncating its output, as a panic while loading the catalog does, and fails the tests.
 	writeExecutable(t, filepath.Join(r.temp, "bin", "go"), `#!/usr/bin/env bash
 if [ "$1 $2" = "run ./tools/gen-rule-docs" ]; then : > docs/detection-rules.md; echo "panic: catalog: load imported"; exit 2; fi
-if [ "$1" = "test" ]; then echo "FAIL	github.com/fleetdm/edr/server/rules/internal/catalog	0.1s"; exit 1; fi
+if [ "$1" = "test" ]; then echo "FAIL	github.com/rawtrail/rawtrail/server/rules/internal/catalog	0.1s"; exit 1; fi
 exit 0
 `)
 	out, err := r.run("tests")

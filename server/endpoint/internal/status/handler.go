@@ -9,9 +9,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // maxStatusBodyBytes caps the check-in body. The request is authenticated, but the cap still bounds a buggy or hostile agent: the real

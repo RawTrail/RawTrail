@@ -43,12 +43,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/graph"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/testdb"
-	visibilitytestkit "github.com/fleetdm/edr/server/visibility/testkit"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/testdb"
+	visibilitytestkit "github.com/rawtrail/rawtrail/server/visibility/testkit"
 )
 
 // FixtureCase is one named scenario loaded from a fixture JSON file.

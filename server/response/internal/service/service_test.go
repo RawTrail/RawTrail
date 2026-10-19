@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // TestCanTransitionMatrix locks the 4x4 lifecycle table. Adding a

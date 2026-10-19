@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/internal/breakglass"
+	"github.com/rawtrail/rawtrail/server/identity/internal/breakglass"
 )
 
 // ValidatePassword enforces a rune-counted ≥ 12 floor. A regression that bytes-counted instead of rune-counted would let an operator

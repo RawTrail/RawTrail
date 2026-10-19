@@ -20,7 +20,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fleetdm/edr/test/scale"
+	"github.com/rawtrail/rawtrail/test/scale"
 )
 
 // Defaults pulled out as named constants so the mnd linter's blanket objection lands once and the CLI flag block stays

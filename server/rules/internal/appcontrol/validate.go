@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // wrapFmt is the standard `error_sentinel: hint` format used by every validator below. Extracted to a constant per Sonar go:S1192 so a

@@ -3,7 +3,7 @@ package graph
 import (
 	"context"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // maxChainDescendants bounds how many processes a chain-scoped read will return below the pinned process. A chain is read to answer

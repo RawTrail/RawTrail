@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // scopeRule is the smallest thing vendoredOrigins reads: an id, and optionally an origin and a non-detection kind.

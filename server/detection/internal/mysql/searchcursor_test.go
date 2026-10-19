@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // TestCursor_RoundTripProperty: decode(encode(c)) == c for any (fork_time_ns, id). The pagination contract must not lose or mangle

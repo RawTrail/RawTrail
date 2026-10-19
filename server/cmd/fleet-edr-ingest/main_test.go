@@ -10,7 +10,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // recorderSink stands in for the detection context: it keeps the recorder SetMetrics hands it.

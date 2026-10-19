@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/internal/breakglass"
+	"github.com/rawtrail/rawtrail/server/identity/internal/breakglass"
 )
 
 // NewAllowlist accepts CIDRs, bare IPs, IPv6, and a mixed list. The "bare IP normalised to /32 (or /128)" carve-out lets operators

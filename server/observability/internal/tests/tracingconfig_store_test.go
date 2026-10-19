@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	"github.com/fleetdm/edr/server/observability/internal/tracingconfig"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/server/observability/internal/tracingconfig"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 func TestTraceSamplerStore_getReturnsSeededDefaults(t *testing.T) {

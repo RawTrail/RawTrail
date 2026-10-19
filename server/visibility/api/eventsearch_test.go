@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // encodeRaw wraps a raw cursor body so a test can craft a well-formed base64url token carrying malformed contents.

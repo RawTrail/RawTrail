@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
 )
 
 func newDrain(t *testing.T, outbox *fakeOutbox, audit *recordingAudit) *auditoutbox.Drain {

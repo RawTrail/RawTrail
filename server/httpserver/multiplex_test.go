@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // grpcControlMux adapts a *grpc.Server to httpserver.ControlMux for the multiplex test: ServeHTTP is the gRPC-over-HTTP/2 handler and

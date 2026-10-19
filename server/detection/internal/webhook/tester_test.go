@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/secretseal"
+	"github.com/rawtrail/rawtrail/internal/secretseal"
 )
 
 func testTesterSealer(t *testing.T) (*secretseal.Sealer, []byte) {

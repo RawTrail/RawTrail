@@ -8,12 +8,12 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/migrations/runner"
-	"github.com/fleetdm/edr/server/visibility/api"
-	"github.com/fleetdm/edr/server/visibility/internal/clickhouse"
-	"github.com/fleetdm/edr/server/visibility/internal/eventlog"
-	visibilitymigrations "github.com/fleetdm/edr/server/visibility/migrations"
-	migrationsclickhouse "github.com/fleetdm/edr/server/visibility/migrations-clickhouse"
+	"github.com/rawtrail/rawtrail/server/migrations/runner"
+	"github.com/rawtrail/rawtrail/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/visibility/internal/clickhouse"
+	"github.com/rawtrail/rawtrail/server/visibility/internal/eventlog"
+	visibilitymigrations "github.com/rawtrail/rawtrail/server/visibility/migrations"
+	migrationsclickhouse "github.com/rawtrail/rawtrail/server/visibility/migrations-clickhouse"
 )
 
 // Deps bundles what New needs to wire the visibility context.

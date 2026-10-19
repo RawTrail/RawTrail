@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/fleetdm/edr/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/httpserver"
 )
 
 // EventArchive is the durable, append-mostly event lake: the source of truth for per-process correlation and, in v0.5.0, hunting and

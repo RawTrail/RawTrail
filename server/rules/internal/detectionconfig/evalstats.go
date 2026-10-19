@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/sqlhelpers"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/sqlhelpers"
 )
 
 // RecordRuleEvalStats adds a batch's per-rule evaluation work to the per-(rule, day) counters.

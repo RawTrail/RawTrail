@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
-	"github.com/fleetdm/edr/server/rules/internal/detectionconfig"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
+	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
 )
 
 // Detection-config changes made over the REST surface reach the audit store through the outbox the rules context wires, and leave

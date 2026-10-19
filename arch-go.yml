@@ -366,40 +366,40 @@ dependenciesRules:
   # testdb/full (the cross-context fixture composer that legitimately
   # imports each testkit).
 
-  - package: "github.com/fleetdm/edr/server/config"
+  - package: "github.com/rawtrail/rawtrail/server/config"
     shouldOnlyDependsOn:
       internal: &platform_allow
-        - "github.com/fleetdm/edr/server/config"
-        - "github.com/fleetdm/edr/server/bootstrap"
-        - "github.com/fleetdm/edr/server/httpserver"
-        - "github.com/fleetdm/edr/server/metrics"
-        - "github.com/fleetdm/edr/server/attrkeys"
-        - "github.com/fleetdm/edr/server/apidocs"
-        - "github.com/fleetdm/edr/server/sqlhelpers"
-        - "github.com/fleetdm/edr/server/ui"
+        - "github.com/rawtrail/rawtrail/server/config"
+        - "github.com/rawtrail/rawtrail/server/bootstrap"
+        - "github.com/rawtrail/rawtrail/server/httpserver"
+        - "github.com/rawtrail/rawtrail/server/metrics"
+        - "github.com/rawtrail/rawtrail/server/attrkeys"
+        - "github.com/rawtrail/rawtrail/server/apidocs"
+        - "github.com/rawtrail/rawtrail/server/sqlhelpers"
+        - "github.com/rawtrail/rawtrail/server/ui"
         - "**.internal.**"
 
-  - package: "github.com/fleetdm/edr/server/bootstrap"
+  - package: "github.com/rawtrail/rawtrail/server/bootstrap"
     shouldOnlyDependsOn:
       internal: *platform_allow
 
-  - package: "github.com/fleetdm/edr/server/httpserver"
+  - package: "github.com/rawtrail/rawtrail/server/httpserver"
     shouldOnlyDependsOn:
       internal: *platform_allow
 
-  - package: "github.com/fleetdm/edr/server/metrics"
+  - package: "github.com/rawtrail/rawtrail/server/metrics"
     shouldOnlyDependsOn:
       internal: *platform_allow
 
-  - package: "github.com/fleetdm/edr/server/attrkeys"
+  - package: "github.com/rawtrail/rawtrail/server/attrkeys"
     shouldOnlyDependsOn:
       internal: *platform_allow
 
-  - package: "github.com/fleetdm/edr/server/apidocs"
+  - package: "github.com/rawtrail/rawtrail/server/apidocs"
     shouldOnlyDependsOn:
       internal: *platform_allow
 
-  - package: "github.com/fleetdm/edr/server/sqlhelpers"
+  - package: "github.com/rawtrail/rawtrail/server/sqlhelpers"
     shouldOnlyDependsOn:
       internal: *platform_allow
 
@@ -410,26 +410,26 @@ dependenciesRules:
   # catchup is the shared catch-up policy: when a host should be sent a state its latest command did not deliver, and the sweep that
   # asks (issue #1071). Pure platform code with no context dependency at all, since a context maps its own command onto catchup.Latest
   # rather than the package naming any context's types.
-  - package: "github.com/fleetdm/edr/server/catchup"
+  - package: "github.com/rawtrail/rawtrail/server/catchup"
     shouldOnlyDependsOn:
       internal: *platform_allow
 
-  - package: "github.com/fleetdm/edr/server/auditoutbox"
+  - package: "github.com/rawtrail/rawtrail/server/auditoutbox"
     shouldOnlyDependsOn:
       internal:
-        - "github.com/fleetdm/edr/server/identity/api"
-        - "github.com/fleetdm/edr/server/sqlhelpers"
-        - "github.com/fleetdm/edr/server/testdb"
+        - "github.com/rawtrail/rawtrail/server/identity/api"
+        - "github.com/rawtrail/rawtrail/server/sqlhelpers"
+        - "github.com/rawtrail/rawtrail/server/testdb"
 
   # NOTE: server/testdb itself is a Go-leaf and imports no context, but its
   # sub-package server/testdb/full is the cross-context fixture composer and
   # imports each context's testkit. arch-go's package patterns are prefix-
-  # matched (github.com/fleetdm/edr/server/testdb matches both leaf + full),
+  # matched (github.com/rawtrail/rawtrail/server/testdb matches both leaf + full),
   # so a single rule can't distinguish them. The leaf invariant is verified
   # by inspection (server/testdb/open.go imports nothing in server/<X>/) and
   # by the per-testkit rules below preventing transitive sneak-ins.
 
-  - package: "github.com/fleetdm/edr/server/ui"
+  - package: "github.com/rawtrail/rawtrail/server/ui"
     shouldOnlyDependsOn:
       internal: *platform_allow
 

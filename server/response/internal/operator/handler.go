@@ -17,12 +17,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/auditoutbox"
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/response/internal/service"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/internal/service"
 )
 
 // createBodyCap caps POST /api/commands. Payload is operator-supplied JSON; 64 KiB is generous enough for a kill_process or any

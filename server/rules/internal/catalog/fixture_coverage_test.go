@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	"github.com/fleetdm/edr/server/rules/api"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // Regression fixtures for the whole catalog (issue #773).

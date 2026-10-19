@@ -11,11 +11,11 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/migrations/runner"
-	"github.com/fleetdm/edr/server/rulecontent/api"
-	"github.com/fleetdm/edr/server/rulecontent/internal/authoring"
-	rulecontentmysql "github.com/fleetdm/edr/server/rulecontent/internal/mysql"
-	rulecontentmigrations "github.com/fleetdm/edr/server/rulecontent/migrations"
+	"github.com/rawtrail/rawtrail/server/migrations/runner"
+	"github.com/rawtrail/rawtrail/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rulecontent/internal/authoring"
+	rulecontentmysql "github.com/rawtrail/rawtrail/server/rulecontent/internal/mysql"
+	rulecontentmigrations "github.com/rawtrail/rawtrail/server/rulecontent/migrations"
 )
 
 // Deps is what the context needs to start.

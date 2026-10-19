@@ -20,12 +20,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
-	"github.com/fleetdm/edr/server/rules/internal/detectionconfig"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
+	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // capturedCommand records what the appcontrol fan-out enqueued. The integration test uses it to assert that every host received

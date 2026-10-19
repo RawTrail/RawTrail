@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/internal/secretseal"
+	"github.com/rawtrail/rawtrail/internal/secretseal"
 )
 
 func newKey(t *testing.T) []byte {

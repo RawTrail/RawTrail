@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // spec:observability-instrumentation/per-rule-evaluation-cost-is-recorded-durably/statistics-outlive-the-process-that-produced-them

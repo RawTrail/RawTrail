@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
-	"github.com/fleetdm/edr/server/rules/internal/catalog"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/catalog"
 )
 
 // fakeCorpus is a scripted rulecontent supplier.

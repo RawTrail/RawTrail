@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // snapshotMarker is the field-name fast-path used to short-circuit the snapshot-exec filter. The vast majority of exec events don't

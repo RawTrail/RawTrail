@@ -10,12 +10,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	"github.com/fleetdm/edr/server/detection/internal/pipeline"
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/internal/pipeline"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 const (

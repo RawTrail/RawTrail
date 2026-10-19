@@ -23,7 +23,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/fleetdm/edr/agent/proctable"
+	"github.com/rawtrail/rawtrail/agent/proctable"
 )
 
 const (

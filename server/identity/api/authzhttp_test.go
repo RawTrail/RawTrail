@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // stubAuthZ is the configurable AuthZ for the helpers' direct tests. Each case pins the (decision, error) the engine returns;

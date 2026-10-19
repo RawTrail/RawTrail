@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
 )
 
 func selfHealEpisode(hostID, component string, openedAtNs int64) api.HealthEpisode {

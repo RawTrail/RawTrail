@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/appconfig"
-	"github.com/fleetdm/edr/server/identity/internal/ssoconfig"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/appconfig"
+	"github.com/rawtrail/rawtrail/server/identity/internal/ssoconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

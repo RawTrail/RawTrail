@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/fleetdm/edr/server/identity/internal/oidc"
+	"github.com/rawtrail/rawtrail/server/identity/internal/oidc"
 	"github.com/stretchr/testify/require"
 )
 

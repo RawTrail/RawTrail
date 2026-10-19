@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detectionapi "github.com/fleetdm/edr/server/detection/api"
-	responseapi "github.com/fleetdm/edr/server/response/api"
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
+	responseapi "github.com/rawtrail/rawtrail/server/response/api"
 )
 
 // TestFullPath_EnrollIngestCommandAck is the canonical layer-3 smoke

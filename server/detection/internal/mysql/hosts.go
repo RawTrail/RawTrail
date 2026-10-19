@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/telemetryhealth"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/telemetryhealth"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // ListHosts returns a summary of all hosts that have sent events. The LEFT JOINs reach into the endpoint context's `enrollments` and

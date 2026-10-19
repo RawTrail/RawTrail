@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/appcontrol"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/appcontrol"
 )
 
 // applicationControlReadBodyLimit caps the size of an incoming create-rule request body. The expected payload is a small JSON object

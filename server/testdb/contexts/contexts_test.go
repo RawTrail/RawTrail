@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/testdb/contexts"
+	"github.com/rawtrail/rawtrail/server/testdb/contexts"
 )
 
 // TestMySQLMigrations_FindsOnlyDirectoriesHoldingMigrations pins what "a context that ships migrations" means, which is the rule

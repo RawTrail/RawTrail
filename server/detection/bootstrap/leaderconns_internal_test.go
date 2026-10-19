@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/coordination/leader"
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
 )
 
 // nopCoordinator is a non-nil coordinator whose methods are never called: reservedLeaderConns only asks whether one is wired.

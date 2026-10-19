@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fleetdm/edr/server/coordination/leader"
-	"github.com/fleetdm/edr/server/detection/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )

@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 
-	"github.com/fleetdm/edr/internal/control"
+	"github.com/rawtrail/rawtrail/internal/control"
 )
 
 // What an operator actually sees about a control connection is its span, and these tests read the recorded span rather than the

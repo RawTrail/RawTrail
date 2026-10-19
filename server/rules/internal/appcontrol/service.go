@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/rules/api"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // Error-message format strings shared by the state-changing service methods. Extracted to constants so Sonar's duplicate-literal

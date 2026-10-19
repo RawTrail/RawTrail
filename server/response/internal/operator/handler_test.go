@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/response/internal/service"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/internal/service"
 )
 
 // allowAllAuthZ stubs identityapi.AuthZ as an unconditional grant. Tests in this package focus on response semantics; the per-action

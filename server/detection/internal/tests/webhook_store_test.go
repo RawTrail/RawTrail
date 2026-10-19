@@ -17,12 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/secretseal"
-	detapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	"github.com/fleetdm/edr/server/detection/internal/webhook"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/internal/secretseal"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/internal/webhook"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 func newWebhookStore(t *testing.T) (*mysql.Store, *sqlx.DB, *secretseal.Sealer) {

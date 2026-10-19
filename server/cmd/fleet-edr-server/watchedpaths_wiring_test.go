@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	responseapi "github.com/fleetdm/edr/server/response/api"
-	rulesapi "github.com/fleetdm/edr/server/rules/api"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	responseapi "github.com/rawtrail/rawtrail/server/response/api"
+	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // activeEnrollmentsStub answers only ActiveEnrollments; every other endpoint method is outside the adapter under test.

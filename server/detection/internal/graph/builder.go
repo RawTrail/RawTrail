@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
 )
 
 // pendingExitTTL caps how long an exit event hangs in the pending-exit buffer waiting for its companion snapshot exec (issue #176).

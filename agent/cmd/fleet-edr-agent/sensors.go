@@ -4,11 +4,11 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/fleetdm/edr/agent/config"
-	"github.com/fleetdm/edr/agent/containment"
-	"github.com/fleetdm/edr/agent/health"
-	"github.com/fleetdm/edr/agent/proctable"
-	"github.com/fleetdm/edr/agent/receiver"
+	"github.com/rawtrail/rawtrail/agent/config"
+	"github.com/rawtrail/rawtrail/agent/containment"
+	"github.com/rawtrail/rawtrail/agent/health"
+	"github.com/rawtrail/rawtrail/agent/proctable"
+	"github.com/rawtrail/rawtrail/agent/receiver"
 )
 
 // telemetryDeps bundles what a platform's telemetry sensor(s) need to start. It is shared by the platform-specific

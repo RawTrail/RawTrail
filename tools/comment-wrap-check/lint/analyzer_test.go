@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/tools/go/analysis/analysistest"
 
-	"github.com/fleetdm/edr/tools/comment-wrap-check/lint"
+	"github.com/rawtrail/rawtrail/tools/comment-wrap-check/lint"
 )
 
 // TestNarrow drives the analyzer against testdata/src/narrow which carries

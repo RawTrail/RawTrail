@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"syscall"
 
-	"github.com/fleetdm/edr/agent/procgen"
+	"github.com/rawtrail/rawtrail/agent/procgen"
 )
 
 // Command is the agent-side view of a server command to execute. The json tags decode the poll-path response body; the control-channel

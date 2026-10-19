@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // slowRecorder is an auditRecorder whose Record blocks for a fixed duration, simulating a degraded DB. Used to make the shutdown drain

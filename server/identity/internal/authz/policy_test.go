@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // TestPolicy_ActionsParity locks the action enumeration in three

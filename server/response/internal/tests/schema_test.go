@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/response/bootstrap"
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/response/bootstrap"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // TestSchema_NoTenantIDOnCommands pins the removal of the legacy tenant_id scaffolding column on response's `commands` table.

@@ -1,6 +1,6 @@
 package catalog
 
-import "github.com/fleetdm/edr/server/rules/api"
+import "github.com/rawtrail/rawtrail/server/rules/api"
 
 // Platforms attestations for the catalog. Every rule in the current catalog targets macOS: they key on launchd, dyld, osascript,
 // Keychain, and sudoers tradecraft (ADR-0018). The api.Rule interface requires Platforms(), so this attestation is compile-enforced;

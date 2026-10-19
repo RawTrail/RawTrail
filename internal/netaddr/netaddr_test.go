@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/netaddr"
+	"github.com/rawtrail/rawtrail/internal/netaddr"
 )
 
 func TestParsePrefix(t *testing.T) {

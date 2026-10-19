@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // TccSensitiveGrant fires when an app that is not Apple's is granted a TCC permission that lets it read or control the whole Mac:

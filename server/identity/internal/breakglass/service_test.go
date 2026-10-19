@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/breakglass"
-	"github.com/fleetdm/edr/server/identity/internal/identities"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
-	"github.com/fleetdm/edr/server/identity/internal/users"
-	"github.com/fleetdm/edr/server/identity/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/breakglass"
+	"github.com/rawtrail/rawtrail/server/identity/internal/identities"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/identity/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // newService builds a Service against a fresh DB + a localhost WebAuthn engine. No real authenticator is needed for the Begin*

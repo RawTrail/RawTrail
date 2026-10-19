@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/rulecontent/api"
 )
 
 // entry is the opaque payload a caller commits with its change. The bytes are the rules context's business; what matters here is

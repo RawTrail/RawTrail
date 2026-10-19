@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/endpoint/internal/middleware"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/internal/middleware"
 )
 
 // fakeService is a minimal api.Service stub that lets us drive HostToken middleware tests without a DB. Only VerifyToken is

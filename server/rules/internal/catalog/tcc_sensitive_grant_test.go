@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // tccGrant is a tcc_modify event in the shape a grant takes, with the agent's identity signing. Each event its own ID.

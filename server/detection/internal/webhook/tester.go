@@ -7,8 +7,8 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/fleetdm/edr/internal/secretseal"
-	detapi "github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/internal/secretseal"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // Tester sends an operator-initiated test delivery to a destination: it signs and POSTs a synthetic `webhook.test` payload through the

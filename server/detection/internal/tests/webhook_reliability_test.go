@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	detectiontestkit "github.com/fleetdm/edr/server/detection/testkit"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
 )
 
 // spec:alert-webhook-delivery/alert-lifecycle-events-durably-enqueue-a-delivery-per-matching-destination/no-delivery-is-queued-when-the-alert-does-not-persist

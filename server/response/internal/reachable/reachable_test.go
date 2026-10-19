@@ -12,13 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/response/internal/mysql"
-	"github.com/fleetdm/edr/server/response/internal/reachable"
-	"github.com/fleetdm/edr/server/response/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/response/internal/reachable"
+	"github.com/rawtrail/rawtrail/server/response/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 var operator = identityapi.PrincipalRef{ID: "user:7", Type: "user", Label: "ir@example.com"}

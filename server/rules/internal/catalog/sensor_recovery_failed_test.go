@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	endpointapi "github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/rules/api"
+	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // recoveryFailedEvent builds the event the agent emits when its repair budget for a provider is spent.

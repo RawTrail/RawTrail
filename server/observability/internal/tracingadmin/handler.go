@@ -12,10 +12,10 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/fleetdm/edr/internal/observability/tracing"
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/observability/internal/tracingconfig"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/observability/internal/tracingconfig"
 )
 
 // updateBodyLimit caps the PATCH body. The payload is three short fields; 64 KiB is generous.

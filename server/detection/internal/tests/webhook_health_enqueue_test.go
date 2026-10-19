@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	detapi "github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	"github.com/fleetdm/edr/server/detection/internal/webhook"
+	detapi "github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/internal/webhook"
 )
 
 func criticalEpisode(episodeID int64) mysql.HealthEpisodeDelivery {

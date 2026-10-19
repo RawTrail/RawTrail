@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/internal/seed"
+	"github.com/rawtrail/rawtrail/server/identity/internal/seed"
 )
 
 // TestAdmin_ConcurrentBoot pins that the break-glass admin seed is safe when several replicas boot at once against a fresh

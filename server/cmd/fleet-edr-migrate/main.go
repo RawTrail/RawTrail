@@ -16,16 +16,16 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/bootstrap"
-	"github.com/fleetdm/edr/server/config"
-	detectionbootstrap "github.com/fleetdm/edr/server/detection/bootstrap"
-	endpointbootstrap "github.com/fleetdm/edr/server/endpoint/bootstrap"
-	identitybootstrap "github.com/fleetdm/edr/server/identity/bootstrap"
-	observabilitybootstrap "github.com/fleetdm/edr/server/observability/bootstrap"
-	responsebootstrap "github.com/fleetdm/edr/server/response/bootstrap"
-	rulecontentbootstrap "github.com/fleetdm/edr/server/rulecontent/bootstrap"
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
-	visibilitybootstrap "github.com/fleetdm/edr/server/visibility/bootstrap"
+	"github.com/rawtrail/rawtrail/server/bootstrap"
+	"github.com/rawtrail/rawtrail/server/config"
+	detectionbootstrap "github.com/rawtrail/rawtrail/server/detection/bootstrap"
+	endpointbootstrap "github.com/rawtrail/rawtrail/server/endpoint/bootstrap"
+	identitybootstrap "github.com/rawtrail/rawtrail/server/identity/bootstrap"
+	observabilitybootstrap "github.com/rawtrail/rawtrail/server/observability/bootstrap"
+	responsebootstrap "github.com/rawtrail/rawtrail/server/response/bootstrap"
+	rulecontentbootstrap "github.com/rawtrail/rawtrail/server/rulecontent/bootstrap"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
+	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
 )
 
 // migration pairs a context name with its package-level schema applier. Ordering is not load-bearing (there are no cross-context

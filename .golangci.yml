@@ -123,14 +123,14 @@ linters:
           files:
             - "**/agent/**/*.go"
           deny:
-            - pkg: github.com/fleetdm/edr/server
+            - pkg: github.com/rawtrail/rawtrail/server
               desc: "agent packages must not import server packages (move shared code to internal/)"
         # Symmetric: server packages must not depend on agent packages.
         server-boundary:
           files:
             - "**/server/**/*.go"
           deny:
-            - pkg: github.com/fleetdm/edr/agent
+            - pkg: github.com/rawtrail/rawtrail/agent
               desc: "server packages must not import agent packages (move shared code to internal/)"
 
     # embedlit rewrites `Outer{Embedded: Embedded{...}}` to hoist the embedded fields, which is only legal from Go 1.27. The

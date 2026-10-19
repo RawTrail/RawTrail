@@ -40,8 +40,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fleetdm/edr/agent/hostid"
-	"github.com/fleetdm/edr/agent/hostinfo"
+	"github.com/rawtrail/rawtrail/agent/hostid"
+	"github.com/rawtrail/rawtrail/agent/hostinfo"
 )
 
 const (

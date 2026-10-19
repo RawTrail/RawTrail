@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // spec:server-detection-rules-engine/alert-evidence-is-self-contained/triggering-event-payloads-are-captured-at-alert-creation

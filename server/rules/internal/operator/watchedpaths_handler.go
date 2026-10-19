@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/watchedpaths"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/watchedpaths"
 )
 
 // watchedPathsService is the watched-path surface the detection-config handler consumes; *watchedpaths.Service satisfies it.

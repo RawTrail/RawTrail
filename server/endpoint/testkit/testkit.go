@@ -19,7 +19,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/endpoint/bootstrap"
+	"github.com/rawtrail/rawtrail/server/endpoint/bootstrap"
 )
 
 // ApplySchema runs endpoint's DDL against db. Thin wrapper over bootstrap.ApplySchema so the test surface is importable separately

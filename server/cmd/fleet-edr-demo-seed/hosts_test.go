@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/test/fakeagent"
+	"github.com/rawtrail/rawtrail/test/fakeagent"
 )
 
 // TestLoadHostEnvelopes_EachManifestHost confirms every embedded host corpus parses, carries a single host_id, and is scrubbed:

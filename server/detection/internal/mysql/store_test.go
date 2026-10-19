@@ -7,12 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
-	"github.com/fleetdm/edr/server/detection/testkit"
-	"github.com/fleetdm/edr/server/testdb"
-	"github.com/fleetdm/edr/server/testdb/full"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // newTestStore wraps testdb.Open with detection's ApplySchema and

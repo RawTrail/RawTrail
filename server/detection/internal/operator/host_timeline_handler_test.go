@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	visibilityapi "github.com/fleetdm/edr/server/visibility/api"
-	visibilitytestkit "github.com/fleetdm/edr/server/visibility/testkit"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
+	visibilitytestkit "github.com/rawtrail/rawtrail/server/visibility/testkit"
 )
 
 // The timeline handler tests drive the real in-memory EventArchive through the endpoint, so interleaving, type/text filtering, and

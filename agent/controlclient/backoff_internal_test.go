@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/control"
+	"github.com/rawtrail/rawtrail/internal/control"
 )
 
 // stubChannelClient is the minimal control.ControlChannelClient needed to construct a Client without a real connection. New only

@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
 )
 
 // NewHandlerForTest builds a Handler with a custom IDPClient and the already-constructed Provisioner / sessions store. EXPORTED FOR

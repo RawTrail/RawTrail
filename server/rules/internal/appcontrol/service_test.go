@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/rules/api"
-	"github.com/fleetdm/edr/server/rules/internal/appcontrol"
-	rulestestkit "github.com/fleetdm/edr/server/rules/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/appcontrol"
+	rulestestkit "github.com/rawtrail/rawtrail/server/rules/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // Unit tests for appcontrol.Service paths the rules-context REST tests don't reach: the snapshot-compose failure branch, the

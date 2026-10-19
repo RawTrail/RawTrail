@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fleetdm/edr/server/httpserver"
-	"github.com/fleetdm/edr/server/visibility/api"
-	"github.com/fleetdm/edr/server/visibility/internal/clickhouse"
+	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/visibility/api"
+	"github.com/rawtrail/rawtrail/server/visibility/internal/clickhouse"
 )
 
 // MemArchive is an in-memory EventArchive for tests: it satisfies the visibility EventArchive contract without a ClickHouse container,

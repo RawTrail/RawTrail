@@ -1,4 +1,4 @@
-module github.com/fleetdm/edr
+module github.com/rawtrail/rawtrail
 
 go 1.27.2
 
@@ -7,7 +7,7 @@ require (
 	github.com/XSAM/otelsql v0.44.0
 	github.com/arch-go/arch-go v1.7.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/fleetdm/edr/tools/comment-wrap-check/lint v0.0.0-00010101000000-000000000000
+	github.com/rawtrail/rawtrail/tools/comment-wrap-check/lint v0.0.0-00010101000000-000000000000
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/jmoiron/sqlx v1.4.0
@@ -127,4 +127,4 @@ tool (
 // The replace keeps the parent's standalone CLI at tools/comment-wrap-
 // check/main.go importing the sub-module's analyzer without going
 // through a remote module fetch.
-replace github.com/fleetdm/edr/tools/comment-wrap-check/lint => ./tools/comment-wrap-check/lint
+replace github.com/rawtrail/rawtrail/tools/comment-wrap-check/lint => ./tools/comment-wrap-check/lint

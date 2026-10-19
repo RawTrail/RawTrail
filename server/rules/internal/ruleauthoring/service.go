@@ -11,9 +11,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/fleetdm/edr/server/auditoutbox"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
-	rulecontentapi "github.com/fleetdm/edr/server/rulecontent/api"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
+	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
 )
 
 // Service applies attributed changes to rule content.

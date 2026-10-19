@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/appconfig"
-	"github.com/fleetdm/edr/server/identity/internal/oidc"
-	"github.com/fleetdm/edr/server/identity/internal/ssoconfig"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/appconfig"
+	"github.com/rawtrail/rawtrail/server/identity/internal/oidc"
+	"github.com/rawtrail/rawtrail/server/identity/internal/ssoconfig"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // sealerKeyA and sealerKeyB are two distinct 32-byte AES-256 sealer keys. Built with bytes.Repeat rather than as string literals so

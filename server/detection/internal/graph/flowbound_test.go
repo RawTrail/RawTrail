@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/api"
 )
 
 // spec:server-rest-api/per-process-detail-with-re-exec-chain/a-flow-that-ingests-after-its-process-exited-is-still-attributed-to-it

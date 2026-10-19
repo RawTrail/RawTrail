@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/internal/installerscript"
-	"github.com/fleetdm/edr/server/rules/api"
+	"github.com/rawtrail/rawtrail/internal/installerscript"
+	"github.com/rawtrail/rawtrail/server/rules/api"
 )
 
 // installerChain is the shape of the dogfood alerts in issue #1161: PackageKit's script service runs bash on a postinstall out of

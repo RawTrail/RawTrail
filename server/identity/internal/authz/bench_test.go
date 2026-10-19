@@ -3,8 +3,8 @@ package authz_test
 import (
 	"testing"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/authz"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/authz"
 )
 
 // BenchmarkAllow_GlobalScopeAllow is the bench harness the spec names. Reports ns/op for the warm allow path against a deployment-wide

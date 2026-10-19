@@ -10,10 +10,10 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/server/attrkeys"
-	"github.com/fleetdm/edr/server/auditoutbox"
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/response/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/attrkeys"
+	"github.com/rawtrail/rawtrail/server/auditoutbox"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/internal/mysql"
 )
 
 // PendingCommandTTL is how long a command may wait for delivery before it is aged out instead of being handed to an agent.

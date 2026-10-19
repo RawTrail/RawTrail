@@ -12,7 +12,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
-	"github.com/fleetdm/edr/internal/observability/tracing"
+	"github.com/rawtrail/rawtrail/internal/observability/tracing"
 )
 
 // ErrVersionConflict is returned by Update when the row's version no longer matches the expected version (a concurrent write landed

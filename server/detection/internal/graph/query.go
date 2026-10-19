@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/server/detection/api"
-	"github.com/fleetdm/edr/server/detection/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
 )
 
 // aggregateMinGroup is the smallest identical-path sibling group that collapses into a single `×N` node (issue #416). At 2, any pair

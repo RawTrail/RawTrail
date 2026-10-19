@@ -5,7 +5,7 @@
 // first boot; the stored row governs thereafter.
 package ssoconfig
 
-import "github.com/fleetdm/edr/internal/secretseal"
+import "github.com/rawtrail/rawtrail/internal/secretseal"
 
 // Sealer and NewSealer re-export the shared AES-256-GCM sealer from internal/secretseal. The implementation was factored out of this
 // package (issue #496) so the detection outbound-webhook config can seal its per-destination signing secrets with the same audited

@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/response/api"
-	"github.com/fleetdm/edr/server/response/internal/mysql"
-	"github.com/fleetdm/edr/server/response/internal/service"
-	"github.com/fleetdm/edr/server/response/testkit"
-	"github.com/fleetdm/edr/server/testdb"
+	"github.com/rawtrail/rawtrail/server/response/api"
+	"github.com/rawtrail/rawtrail/server/response/internal/mysql"
+	"github.com/rawtrail/rawtrail/server/response/internal/service"
+	"github.com/rawtrail/rawtrail/server/response/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
 // newBatchService wires a Service over an isolated test DB. External test package so the testdb -> bootstrap -> mysql cycle

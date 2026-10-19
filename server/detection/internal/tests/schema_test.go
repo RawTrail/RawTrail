@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fleetdm/edr/server/testdb/full"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 // TestSchema_NoTenantIDOnHostsAndAlerts pins the removal of the legacy tenant_id scaffolding column on detection's `hosts` and

@@ -8,11 +8,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/fleetdm/edr/server/identity/api"
-	"github.com/fleetdm/edr/server/identity/internal/rbac"
-	"github.com/fleetdm/edr/server/identity/internal/seed"
-	"github.com/fleetdm/edr/server/identity/internal/sessions"
-	"github.com/fleetdm/edr/server/identity/internal/users"
+	"github.com/rawtrail/rawtrail/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/identity/internal/rbac"
+	"github.com/rawtrail/rawtrail/server/identity/internal/seed"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
 )
 
 // service implements api.Service by composing the users + sessions stores and delegating to the seed package for first-boot setup.

@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/fleetdm/edr/agent/codesign"
+	"github.com/rawtrail/rawtrail/agent/codesign"
 )
 
 // HostAppPath is the host application binary that owns the NetworkExtension configuration. Only this binary can change it:

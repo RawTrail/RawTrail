@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	rulesbootstrap "github.com/fleetdm/edr/server/rules/bootstrap"
+	rulesbootstrap "github.com/rawtrail/rawtrail/server/rules/bootstrap"
 )
 
 // manifestName is the checksum manifest the vendored tree carries, which TestImportedCorpus_MatchesTheVendoredManifest reads.

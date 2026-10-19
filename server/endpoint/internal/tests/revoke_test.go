@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fleetdm/edr/server/endpoint/api"
-	"github.com/fleetdm/edr/server/endpoint/bootstrap"
-	identityapi "github.com/fleetdm/edr/server/identity/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/api"
+	"github.com/rawtrail/rawtrail/server/endpoint/bootstrap"
+	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 )
 
 // recordedAudit is an identityapi.AuditRecorder that keeps what it is handed. Safe for the sweep goroutine to write while the test

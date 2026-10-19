@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fleetdm/edr/internal/envparse"
+	"github.com/rawtrail/rawtrail/internal/envparse"
 )
 
 const (
