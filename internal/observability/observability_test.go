@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	otellog "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -105,12 +104,12 @@ func restoreGlobals(t *testing.T) {
 	t.Helper()
 	prevTP := otel.GetTracerProvider()
 	prevMP := otel.GetMeterProvider()
-	prevLP := otellog.GetLoggerProvider()
+	prevLP := otel.GetLoggerProvider()
 	prevProp := otel.GetTextMapPropagator()
 	t.Cleanup(func() {
 		otel.SetTracerProvider(prevTP)
 		otel.SetMeterProvider(prevMP)
-		otellog.SetLoggerProvider(prevLP)
+		otel.SetLoggerProvider(prevLP)
 		otel.SetTextMapPropagator(prevProp)
 	})
 }
