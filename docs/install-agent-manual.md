@@ -67,7 +67,7 @@ curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/rawtrail
 
 cosign verify-blob \
     --bundle rawtrail-v0.7.0.pkg.sigstore.json \
-    --certificate-identity-regexp '^https://github\.com/rawtrail/rawtrail/\.github/workflows/release\.yml@refs/tags/v0.7.0$' \
+    --certificate-identity-regexp '^https://github\.com/RawTrail/RawTrail/\.github/workflows/release\.yml@refs/tags/v0.7.0$' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     rawtrail-v0.7.0.pkg
 # Expect: "Verified OK"
@@ -77,7 +77,7 @@ The same `<file>.sigstore.json` bundle covers `SHA256SUMS` and all three `.mobil
 
 ```sh
 cosign verify ghcr.io/rawtrail/rawtrail-server:v0.7.0 \
-    --certificate-identity-regexp '^https://github\.com/rawtrail/rawtrail/\.github/workflows/release\.yml@refs/tags/v0.7.0$' \
+    --certificate-identity-regexp '^https://github\.com/RawTrail/RawTrail/\.github/workflows/release\.yml@refs/tags/v0.7.0$' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
