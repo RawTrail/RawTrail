@@ -64,7 +64,7 @@ linters:
       commentwrap:
         type: module
         description: Detect narrowly-wrapped Go `//` comment blocks (issue #149).
-        original-url: github.com/getvictor/fleet-edr/tree/main/tools/comment-wrap-check
+        original-url: github.com/rawtrail/rawtrail/tree/main/tools/comment-wrap-check
         settings:
           min-line-len: 120
           min-block: 3

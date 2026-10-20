@@ -2,19 +2,19 @@
 
 <!-- License & release -->
 
-[![License: MIT](https://img.shields.io/github/license/getvictor/fleet-edr?style=flat-square)](LICENSE) [![Release](https://img.shields.io/github/v/release/getvictor/fleet-edr?include_prereleases&style=flat-square)](https://github.com/getvictor/fleet-edr/releases)
+[![License: MIT](https://img.shields.io/github/license/rawtrail/rawtrail?style=flat-square)](LICENSE) [![Release](https://img.shields.io/github/v/release/rawtrail/rawtrail?include_prereleases&style=flat-square)](https://github.com/rawtrail/rawtrail/releases)
 
 <!-- Build & quality -->
 
-![Go version](https://img.shields.io/github/go-mod/go-version/getvictor/fleet-edr?filename=go.mod&style=flat-square) [![Tests](https://github.com/getvictor/fleet-edr/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/getvictor/fleet-edr/actions/workflows/test.yml) [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=getvictor_fleet-edr&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=getvictor_fleet-edr) [![Coverage](https://img.shields.io/codecov/c/github/getvictor/fleet-edr?style=flat-square&logo=codecov)](https://codecov.io/gh/getvictor/fleet-edr)
+![Go version](https://img.shields.io/github/go-mod/go-version/rawtrail/rawtrail?filename=go.mod&style=flat-square) [![Tests](https://github.com/rawtrail/rawtrail/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/rawtrail/rawtrail/actions/workflows/test.yml) [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=rawtrail_rawtrail&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=rawtrail_rawtrail) [![Coverage](https://img.shields.io/codecov/c/github/rawtrail/rawtrail?style=flat-square&logo=codecov)](https://codecov.io/gh/rawtrail/rawtrail)
 
 <!-- Security scanners -->
 
-[![CodeQL](https://github.com/getvictor/fleet-edr/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/getvictor/fleet-edr/actions/workflows/codeql.yml) [![govulncheck](https://github.com/getvictor/fleet-edr/actions/workflows/go-vulncheck.yml/badge.svg?branch=main)](https://github.com/getvictor/fleet-edr/actions/workflows/go-vulncheck.yml) [![OSV-Scanner](https://github.com/getvictor/fleet-edr/actions/workflows/osv-scanner.yml/badge.svg?branch=main)](https://github.com/getvictor/fleet-edr/actions/workflows/osv-scanner.yml)
+[![CodeQL](https://github.com/rawtrail/rawtrail/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/rawtrail/rawtrail/actions/workflows/codeql.yml) [![govulncheck](https://github.com/rawtrail/rawtrail/actions/workflows/go-vulncheck.yml/badge.svg?branch=main)](https://github.com/rawtrail/rawtrail/actions/workflows/go-vulncheck.yml) [![OSV-Scanner](https://github.com/rawtrail/rawtrail/actions/workflows/osv-scanner.yml/badge.svg?branch=main)](https://github.com/rawtrail/rawtrail/actions/workflows/osv-scanner.yml)
 
 <!-- Supply chain -->
 
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12994/badge)](https://www.bestpractices.dev/projects/12994) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/getvictor/fleet-edr/badge)](https://scorecard.dev/viewer/?uri=github.com/getvictor/fleet-edr) [![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev/spec/v1.0/levels#build-l2) [![cosign keyless](https://img.shields.io/badge/cosign-keyless-9cf?style=flat-square&logo=sigstore)](docs/best-practices.md#4-supply-chain-security)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12994/badge)](https://www.bestpractices.dev/projects/12994) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/rawtrail/rawtrail/badge)](https://scorecard.dev/viewer/?uri=github.com/rawtrail/rawtrail) [![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev/spec/v1.0/levels#build-l2) [![cosign keyless](https://img.shields.io/badge/cosign-keyless-9cf?style=flat-square&logo=sigstore)](docs/best-practices.md#4-supply-chain-security)
 
 RawTrail is an open-source endpoint detection and response (EDR) system for macOS fleets. It gives security teams real-time visibility into process, network, and DNS activity on Apple Silicon Macs, runs behavioral detection rules against a materialized process graph, and can block execution or kill a process on the endpoint. It is fully self-hosted: your own server, your own data, no SaaS dependency.
 
@@ -114,7 +114,7 @@ Operator and reference docs live in [`docs/`](docs/):
 | HTTP API reference                                       | [`api.md`](docs/api.md) + [`api/openapi.yaml`](docs/api/openapi.yaml) |
 | Architecture decisions (the "why")                       | [`adr/`](docs/adr/)                                                   |
 
-The docs in this tree track the development build. For documentation matching a specific release, browse the repository at that release's tag (the [releases page](https://github.com/getvictor/fleet-edr/releases) lists them). How docs are versioned with the code: [`doc-versioning.md`](docs/doc-versioning.md).
+The docs in this tree track the development build. For documentation matching a specific release, browse the repository at that release's tag (the [releases page](https://github.com/rawtrail/rawtrail/releases) lists them). How docs are versioned with the code: [`doc-versioning.md`](docs/doc-versioning.md).
 
 Repository layout:
 

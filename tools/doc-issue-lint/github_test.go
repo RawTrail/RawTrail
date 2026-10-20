@@ -137,8 +137,8 @@ func TestGitHubLookupFailures(t *testing.T) {
 
 func TestBuildQueryQuotesRepo(t *testing.T) {
 	t.Parallel()
-	q := buildQuery("getvictor", "fleet-edr", []int{7, 12})
-	for _, want := range []string{`repository(owner:"getvictor",name:"fleet-edr")`, "n7:issueOrPullRequest(number:7)", "n12:issueOrPullRequest(number:12)"} {
+	q := buildQuery("rawtrail", "rawtrail", []int{7, 12})
+	for _, want := range []string{`repository(owner:"rawtrail",name:"rawtrail")`, "n7:issueOrPullRequest(number:7)", "n12:issueOrPullRequest(number:12)"} {
 		if !strings.Contains(q, want) {
 			t.Errorf("query %q missing %q", q, want)
 		}

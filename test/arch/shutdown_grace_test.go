@@ -30,7 +30,7 @@ import (
 
 // serverImage is how a compose service that runs the EDR server is recognised. A service running something else has no shutdown
 // of ours to wait for.
-const serverImage = "ghcr.io/getvictor/rawtrail-server"
+const serverImage = "ghcr.io/rawtrail/rawtrail-server"
 
 // composeGlobs are where this project keeps compose files. Every one of them is read and any service running the server image is
 // checked, rather than working from a list of known files: a new stack must not be able to arrive with no allowance and no

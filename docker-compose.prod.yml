@@ -5,7 +5,7 @@
 #
 #   docker compose -f docker-compose.prod.yml up -d
 #
-# The server image is pulled from ghcr.io/getvictor/rawtrail-server; a local
+# The server image is pulled from ghcr.io/rawtrail/rawtrail-server; a local
 # build uses the docker-compose.prod.build.yml override for smoke tests and
 # air-gapped sites.
 
@@ -62,7 +62,7 @@ services:
     # fine for dev but unsafe for production because image digests can drift.
     # For a local source build instead of a pull, layer the build override:
     #   docker compose -f docker-compose.prod.yml -f docker-compose.prod.build.yml up -d --build
-    image: ghcr.io/getvictor/rawtrail-server:${EDR_VERSION:-latest}
+    image: ghcr.io/rawtrail/rawtrail-server:${EDR_VERSION:-latest}
     restart: unless-stopped
     # Longer than every stage of a graceful stop put together: the drain (EDR_SHUTDOWN_DRAIN,
     # 30s), the in-flight deadline (15s), the two loop joins (10s + 5s) and the telemetry

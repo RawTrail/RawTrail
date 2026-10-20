@@ -119,7 +119,7 @@ func TestUserSetFlagNames(t *testing.T) {
 }
 
 // setupGitRepo creates a transient git repo and returns its absolute root path. Tests use this when they need
-// gitTopLevel to succeed in isolation from the surrounding fleet-edr worktree.
+// gitTopLevel to succeed in isolation from the surrounding repository worktree.
 func setupGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

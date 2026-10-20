@@ -20,8 +20,8 @@ Event telemetry dominates storage and a busy host can add many GB per day, so si
 1. Get the repository onto the VM and change into it:
 
    ```sh
-   git clone https://github.com/getvictor/fleet-edr.git
-   cd fleet-edr
+   git clone https://github.com/rawtrail/rawtrail.git
+   cd rawtrail
    ```
 
 2. Point your DNS record at the VM and wait for it to resolve (`dig +short edr.example.com` should return the VM IP).

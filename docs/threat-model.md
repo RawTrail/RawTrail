@@ -178,7 +178,7 @@ The persistent control channel (ADR-0016) is a bidirectional gRPC stream that pu
 | Malicious release tag pushed by a third party. | Branch-protection rule (env-gated `release-signing` allowed only for `v*` refs); release-secrets-check runs on every release. |
 | Notarization gating bypass. | Apple verifies the notary ticket at install time; pkg without one prompts the user. |
 | SBOM tampering. | SBOMs (CycloneDX + SPDX) are signed by cosign at the same time as the pkg; mismatched SBOM rejects verification. |
-| A pull request's text steers the AI review agent in CI (indirect prompt injection) into leaking its model key or writing to the repository. | `.github/workflows/pr-agent.yml` runs on `pull_request`, never `pull_request_target`, and only for pull requests the repository owner opened from this repository. A separate job holding no secrets re-resolves the pull request through the API before the review job is granted the `pr-agent-review` environment that holds the model key. The review job's token can only read contents and write pull-request comments, and the reviewer image is pinned by digest. |
+| A pull request's text steers the AI review agent in CI (indirect prompt injection) into leaking its model key or writing to the repository. | `.github/workflows/pr-agent.yml` runs on `pull_request`, never `pull_request_target`, and only for pull requests the maintainer opened from this repository. A separate job holding no secrets re-resolves the pull request through the API before the review job is granted the `pr-agent-review` environment that holds the model key. The review job's token can only read contents and write pull-request comments, and the reviewer image is pinned by digest. |
 
 ### Detection content
 

@@ -75,7 +75,7 @@ func NewAnalyzer(s *Settings) *analysis.Analyzer {
 	a := &analysis.Analyzer{
 		Name: "commentwrap",
 		Doc:  "Detect narrowly-wrapped Go `//` comment blocks (issue #149).",
-		URL:  "https://github.com/getvictor/fleet-edr/issues/149",
+		URL:  "https://github.com/rawtrail/rawtrail/issues/149",
 		Run: func(pass *analysis.Pass) (any, error) {
 			return runPass(pass, s)
 		},

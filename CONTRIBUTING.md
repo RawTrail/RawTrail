@@ -73,7 +73,7 @@ Maintainers run periodic codebase-hygiene sweeps (doc accuracy, stale implementa
 
 ## Reporting bugs
 
-For non-security bugs, open a [GitHub issue](https://github.com/getvictor/fleet-edr/issues/new) with:
+For non-security bugs, open a [GitHub issue](https://github.com/rawtrail/rawtrail/issues/new) with:
 
 - Affected component (server, agent, system extension, network extension, UI).
 - Version or commit SHA.

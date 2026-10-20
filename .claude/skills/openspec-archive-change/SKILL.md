@@ -10,7 +10,7 @@ metadata:
   generatedBy: "1.14.0"
 ---
 
-> **fleet-edr repo policy. It overrides the generated steps below wherever they disagree.**
+> **RawTrail repo policy. It overrides the generated steps below wherever they disagree.**
 >
 > - **Archive only at release.** A merged change stays in `openspec/changes/<name>/` until the release archive step (CLAUDE.md, `docs/release-checklist.md`). Outside that step, stop and say so rather than archiving one change.
 > - **The CLI merges the deltas, never you, and only in the computed order.** Run `task release:archive -- --dry-run`, then `task release:archive`, which applies `openspec archive <name> -y` in the order `spectrace archive-order` computes. Never archive a spec-bearing change on its own: a MODIFIED requirement replaces the canonical one whole, so the wrong order silently discards text (`docs/release-checklist.md`, step 2).

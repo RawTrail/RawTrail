@@ -14,7 +14,7 @@ We patch the most recent released minor only. Pilot releases (`v0.x.y-rc.*`) are
 
 ## Reporting a vulnerability
 
-**Please do not open a public GitHub issue for security bugs.** Use GitHub's private vulnerability reporting instead: visit <https://github.com/getvictor/fleet-edr/security/advisories/new>. This creates an embargoed draft advisory that only the maintainers and you can see, and is the only channel we accept reports through.
+**Please do not open a public GitHub issue for security bugs.** Use GitHub's private vulnerability reporting instead: visit <https://github.com/rawtrail/rawtrail/security/advisories/new>. This creates an embargoed draft advisory that only the maintainers and you can see, and is the only channel we accept reports through.
 
 When you report, please include:
 

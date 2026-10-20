@@ -28,18 +28,18 @@ Repo-wide: duplicated lines 1.3%, 33 duplicated blocks across 21 files; aggregat
 
 ## Steps
 
-1. Pull the duplication report from SonarCloud. If the SonarQube MCP is configured locally (optional), `search_duplicated_files` and `get_duplications` for project `getvictor_fleet-edr` are the quickest path; otherwise use the SonarCloud web API, which always works:
+1. Pull the duplication report from SonarCloud. If the SonarQube MCP is configured locally (optional), `search_duplicated_files` and `get_duplications` for project `rawtrail_rawtrail` are the quickest path; otherwise use the SonarCloud web API, which always works:
 
    ```bash
    curl -s -u "$SONAR_TOKEN:" \
-     "https://sonarcloud.io/api/measures/component_tree?component=getvictor_fleet-edr&metricKeys=duplicated_blocks,duplicated_lines_density&qualifiers=FIL&s=metric&metricSort=duplicated_blocks&asc=false&ps=25" | jq .
+     "https://sonarcloud.io/api/measures/component_tree?component=rawtrail_rawtrail&metricKeys=duplicated_blocks,duplicated_lines_density&qualifiers=FIL&s=metric&metricSort=duplicated_blocks&asc=false&ps=25" | jq .
    ```
 
 2. Pull the cognitive-complexity hotspots:
 
    ```bash
    curl -s -u "$SONAR_TOKEN:" \
-     "https://sonarcloud.io/api/measures/component_tree?component=getvictor_fleet-edr&metricKeys=cognitive_complexity&qualifiers=FIL&s=metric&metricSort=cognitive_complexity&asc=false&ps=25" | jq .
+     "https://sonarcloud.io/api/measures/component_tree?component=rawtrail_rawtrail&metricKeys=cognitive_complexity&qualifiers=FIL&s=metric&metricSort=cognitive_complexity&asc=false&ps=25" | jq .
    ```
 
 3. Cluster the top findings into at most a handful of consolidation candidates. For each, confirm the copies are live (grep the call sites, the way `find-prior-art` does) and decide the target shape: which implementation wins, where it lives (owning context, or `internal/` and `api/` if shared), and what the call sites become.
@@ -57,7 +57,7 @@ One focused PR per consolidation candidate (do not bundle unrelated clusters). T
 ```text
 Run the consolidation pass defined in docs/maintenance/tasks/consolidation-pass.md.
 
-Step 1: pull the SonarCloud duplication and cognitive-complexity reports for getvictor_fleet-edr
+Step 1: pull the SonarCloud duplication and cognitive-complexity reports for rawtrail_rawtrail
 (the SonarQube MCP search_duplicated_files / get_duplications if it is configured, otherwise the
 component_tree measures API shown in the task file). List the top duplicated files and the top
 cognitive-complexity files.

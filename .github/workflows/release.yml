@@ -3,7 +3,7 @@
 #   - Signed + notarized macOS .pkg (darwin/arm64) attached to the GitHub Release
 #   - Three unsigned .mobileconfig profiles (System Extensions, TCC FDA, managed login items); MDM channels sign them at delivery
 #   - SHA256SUMS for all uploaded artifacts
-#   - ghcr.io/getvictor/rawtrail-server:{tag,latest} for linux/amd64 + arm64
+#   - ghcr.io/rawtrail/rawtrail-server:{tag,latest} for linux/amd64 + arm64
 #
 # The macos-pkg job is gated on the `release-signing` environment so the
 # Developer ID certs + notarytool credentials only decrypt when this workflow
@@ -338,7 +338,7 @@ jobs:
       # produces an in-toto v1.0 statement signed by Sigstore (keyless via
       # OIDC, same identity model as the cosign step above) and stores it
       # as a GitHub Attestation that anyone can resolve via
-      # `gh attestation verify <file> --owner getvictor`. We claim build
+      # `gh attestation verify <file> --owner rawtrail`. We claim build
       # level 2 in practice: the macOS runner is GitHub-hosted but the
       # Apple notary submission is a network call that violates SLSA L3's
       # hermeticity requirement. Documenting the gap rather than over-
@@ -369,7 +369,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read      # checkout source for the build context
-      packages: write     # push multi-arch image to ghcr.io/getvictor/rawtrail-server
+      packages: write     # push multi-arch image to ghcr.io/rawtrail/rawtrail-server
       id-token: write     # Sigstore keyless signing of the pushed image
       attestations: write # actions/attest-build-provenance for the image
     env:
@@ -402,8 +402,8 @@ jobs:
           # advancing `:latest`. Pilot operators pulling `:latest` get the
           # most recent GA, not whatever RC shipped last.
           tags: |
-            ghcr.io/getvictor/rawtrail-server:${{ env.RELEASE_TAG }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && !contains(env.RELEASE_TAG, '-') && 'ghcr.io/getvictor/rawtrail-server:latest' || '' }}
+            ghcr.io/rawtrail/rawtrail-server:${{ env.RELEASE_TAG }}
+            ${{ startsWith(github.ref, 'refs/tags/v') && !contains(env.RELEASE_TAG, '-') && 'ghcr.io/rawtrail/rawtrail-server:latest' || '' }}
           build-args: |
             VERSION=${{ env.RELEASE_TAG }}
             COMMIT=${{ github.sha }}
@@ -428,7 +428,7 @@ jobs:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           cosign sign \
-            "ghcr.io/getvictor/rawtrail-server@${IMAGE_DIGEST}"
+            "ghcr.io/rawtrail/rawtrail-server@${IMAGE_DIGEST}"
 
       # SBOM of the pushed image (manifest digest pinning means the SBOM
       # describes the exact bits a customer pulls, not whatever happens
@@ -447,7 +447,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          image: ghcr.io/getvictor/rawtrail-server@${{ steps.build.outputs.digest }}
+          image: ghcr.io/rawtrail/rawtrail-server@${{ steps.build.outputs.digest }}
           format: spdx-json
           artifact-name: rawtrail-server-${{ env.RELEASE_TAG }}-sbom.spdx.json
           output-file: /tmp/rawtrail-server-sbom.spdx.json
@@ -471,13 +471,13 @@ jobs:
           cosign attest \
             --predicate /tmp/rawtrail-server-sbom.spdx.json \
             --type spdxjson \
-            "ghcr.io/getvictor/rawtrail-server@${IMAGE_DIGEST}"
+            "ghcr.io/rawtrail/rawtrail-server@${IMAGE_DIGEST}"
 
       - name: Attest image build provenance
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ghcr.io/getvictor/rawtrail-server
+          subject-name: ghcr.io/rawtrail/rawtrail-server
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
@@ -491,7 +491,7 @@ jobs:
     # image so the demo can pin both to the same released tag.
     permissions:
       contents: read      # checkout source for the build context
-      packages: write     # push multi-arch image to ghcr.io/getvictor/rawtrail-demo-seed
+      packages: write     # push multi-arch image to ghcr.io/rawtrail/rawtrail-demo-seed
       id-token: write     # Sigstore keyless signing of the pushed image
       attestations: write # actions/attest-build-provenance for the image
     env:
@@ -521,8 +521,8 @@ jobs:
           # `:latest` only advances on stable releases, matching the server image
           # (pre-release tags contain a `-`).
           tags: |
-            ghcr.io/getvictor/rawtrail-demo-seed:${{ env.RELEASE_TAG }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && !contains(env.RELEASE_TAG, '-') && 'ghcr.io/getvictor/rawtrail-demo-seed:latest' || '' }}
+            ghcr.io/rawtrail/rawtrail-demo-seed:${{ env.RELEASE_TAG }}
+            ${{ startsWith(github.ref, 'refs/tags/v') && !contains(env.RELEASE_TAG, '-') && 'ghcr.io/rawtrail/rawtrail-demo-seed:latest' || '' }}
 
       - name: Install cosign
         if: startsWith(github.ref, 'refs/tags/v')
@@ -537,7 +537,7 @@ jobs:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           cosign sign \
-            "ghcr.io/getvictor/rawtrail-demo-seed@${IMAGE_DIGEST}"
+            "ghcr.io/rawtrail/rawtrail-demo-seed@${IMAGE_DIGEST}"
 
       # Full supply-chain parity with the server image: the seeder is published to the
       # same public registry, so it gets a cosign-attested SBOM + SLSA provenance too.
@@ -545,7 +545,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          image: ghcr.io/getvictor/rawtrail-demo-seed@${{ steps.build.outputs.digest }}
+          image: ghcr.io/rawtrail/rawtrail-demo-seed@${{ steps.build.outputs.digest }}
           format: spdx-json
           artifact-name: rawtrail-demo-seed-${{ env.RELEASE_TAG }}-sbom.spdx.json
           output-file: /tmp/rawtrail-demo-seed-sbom.spdx.json
@@ -560,12 +560,12 @@ jobs:
           cosign attest \
             --predicate /tmp/rawtrail-demo-seed-sbom.spdx.json \
             --type spdxjson \
-            "ghcr.io/getvictor/rawtrail-demo-seed@${IMAGE_DIGEST}"
+            "ghcr.io/rawtrail/rawtrail-demo-seed@${IMAGE_DIGEST}"
 
       - name: Attest image build provenance
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ghcr.io/getvictor/rawtrail-demo-seed
+          subject-name: ghcr.io/rawtrail/rawtrail-demo-seed
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true

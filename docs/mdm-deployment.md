@@ -22,7 +22,7 @@ The install script is the clean hand-off for the enroll secret. Your MDM knows t
 
 ## Artifacts
 
-These files live on the [GitHub Release page](https://github.com/getvictor/fleet-edr/releases) for each version:
+These files live on the [GitHub Release page](https://github.com/rawtrail/rawtrail/releases) for each version:
 
 | Artifact                 | Filename on Release                 | Notes                                                  |
 | ------------------------ | ----------------------------------- | ------------------------------------------------------ |
@@ -36,11 +36,11 @@ Download all five, verify checksums, then upload the four artifacts into your MD
 
 ```sh
 cd ~/Downloads
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/edr-system-extension.mobileconfig
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/edr-tcc-fda.mobileconfig
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/edr-login-items.mobileconfig
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/SHA256SUMS
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/edr-system-extension.mobileconfig
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/edr-tcc-fda.mobileconfig
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/edr-login-items.mobileconfig
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing
 # All four artifacts should print "OK".
 ```

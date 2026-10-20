@@ -44,7 +44,7 @@ const maxLineBytes = 4 * 1024 * 1024
 // lookupTimeout bounds the whole GitHub lookup, so a hung connection fails the gate instead of stalling CI.
 const lookupTimeout = 2 * time.Minute
 
-const defaultRepo = "getvictor/fleet-edr"
+const defaultRepo = "rawtrail/rawtrail"
 
 // Exit codes: findings and operational errors are distinguishable to a caller.
 const (
