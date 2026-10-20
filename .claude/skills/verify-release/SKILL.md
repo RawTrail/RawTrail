@@ -31,6 +31,8 @@ TAG_RE=$(printf '%s' "$TAG" | sed 's/[.[\*^$()+?{|]/\\&/g')
 IDENTITY="^https://github\.com/rawtrail/rawtrail/\.github/workflows/release\.yml@refs/tags/${TAG_RE}\$"
 ```
 
+Releases up to and including `v0.7.0` were published from `getvictor/fleet-edr`. For one of those, set `REPO=getvictor/fleet-edr` and `IMAGE=ghcr.io/getvictor/fleet-edr-server`, use `github\.com/getvictor/fleet-edr` in `IDENTITY`, and pass `--owner getvictor` to `gh attestation verify`.
+
 ## Step 1: confirm every expected asset is present
 
 Pull the asset list for the tag and check it against what the workflow uploads. For a tag `vX.Y.Z` the release must carry these 14 assets (seven artifacts, each with its `.sigstore.json` bundle):

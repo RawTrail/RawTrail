@@ -59,7 +59,7 @@ If any of these fail, STOP. Don't install. File an issue at https://github.com/r
 
 Releases publish a single Sigstore bundle (`<file>.sigstore.json`) next to every artifact. The bundle carries the signature, the ephemeral signing certificate, and the transparency-log proof in one file, and ties the artifact to the exact GitHub Actions workflow run that produced it, which catches the rare attack where a Developer ID cert is stolen but the attacker can't push to our GitHub repo. Skip this step if you don't have `cosign` installed; the Apple-signature checks above are sufficient for most pilots.
 
-Use the same release tag you downloaded in Step 1 in place of the `v0.7.0` placeholder below; the bundle and the `.pkg` must come from the same release.
+Use the same release tag you downloaded in Step 1 in place of the `v0.7.0` placeholder below; the bundle and the `.pkg` must come from the same release. Releases up to and including v0.7.0 were published from `getvictor/fleet-edr`, so they carry that signing identity and their image is `ghcr.io/getvictor/fleet-edr-server`; verify one of those with the instructions in the docs at its release tag.
 
 ```sh
 # Install cosign (v3+) if you don't have it: brew install cosign
