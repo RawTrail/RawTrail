@@ -212,7 +212,7 @@ final class CorpusReplayTests: XCTestCase {
     /// path of THIS source file at compile time. Two .deletingLastPathComponent() calls walk up
     /// from `.../Tests/EDRExtensionLogicTests/CorpusReplayTests.swift` to `.../Tests/`, then we
     /// append `corpus/`. Works in both local dev (`$REPO/extension/edr/...`) and CI
-    /// (`/Users/runner/work/fleet-edr/fleet-edr/extension/edr/...`) because #filePath is baked at
+    /// (`/Users/runner/work/rawtrail/rawtrail/extension/edr/...`) because #filePath is baked at
     /// compile time and CI compiles from a checkout of the same source tree. The SwiftPM
     /// resources/bundle path would not work here because Tests/corpus/ sits OUTSIDE the test
     /// target's source root.

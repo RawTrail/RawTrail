@@ -33,7 +33,7 @@ on:
   # editing an old comment becomes a replay button.
   #
   # The command is matched exactly, either `/review` alone or `/review <args>`. A bare `startsWith` would also fire on
-  # `/reviewer` or `/reviewing`, which is sloppy rather than dangerous (only the owner can trigger at all) but costs a review.
+  # `/reviewer` or `/reviewing`, which is sloppy rather than dangerous (only the maintainer can trigger at all) but costs a review.
   issue_comment:
     types: [created]
 
@@ -52,12 +52,16 @@ jobs:
       ok: ${{ steps.check.outputs.ok }}
     # Cheap event-shape filter. It rejects the obvious cases without an API call, but it is NOT the security boundary: the
     # payload of an issue_comment describes the comment, not the pull request, so everything that matters is re-resolved below.
+    #
+    # The maintainer is named literally, here and in MAINTAINER below. The repository is owned by an organization, so
+    # `github.repository_owner` is the org and matches no author. A literal also means the set of people who can spend the model
+    # key changes only through a commit.
     if: >-
       (github.event_name == 'pull_request'
-        && github.event.pull_request.user.login == github.repository_owner)
+        && github.event.pull_request.user.login == 'getvictor')
       || (github.event_name == 'issue_comment'
         && github.event.issue.pull_request != null
-        && github.event.comment.user.login == github.repository_owner
+        && github.event.comment.user.login == 'getvictor'
         && (github.event.comment.body == '/review'
             || startsWith(github.event.comment.body, '/review ')))
     steps:
@@ -70,7 +74,7 @@ jobs:
           # made to execute anything.
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
           REPO: ${{ github.repository }}
-          OWNER: ${{ github.repository_owner }}
+          MAINTAINER: getvictor
         run: |
           set -euo pipefail
           # Read the three facts from the API rather than the event payload. For the pull_request path this is belt and braces;
@@ -80,7 +84,7 @@ jobs:
             gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '"\(.user.login) \(.head.repo.full_name // "deleted") \(.draft)"'
           )
           deny() { echo "::notice::Review skipped: $1"; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          [ "$author" = "$OWNER" ]      || deny "pull request #$PR_NUMBER is authored by $author, not $OWNER."
+          [ "$author" = "$MAINTAINER" ] || deny "pull request #$PR_NUMBER is authored by $author, not $MAINTAINER."
           [ "$head_repo" = "$REPO" ]    || deny "pull request #$PR_NUMBER comes from $head_repo, which is not this repository."
           [ "$is_draft" = "false" ]     || deny "pull request #$PR_NUMBER is still a draft."
           echo "ok=true" >> "$GITHUB_OUTPUT"

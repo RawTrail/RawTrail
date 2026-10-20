@@ -19,7 +19,7 @@ The `curl` examples below verify the server's TLS certificate. If you deploy wit
 
 ## Upgrade the server
 
-Server releases are tagged images at `ghcr.io/getvictor/rawtrail-server:<version>` and new pkg / profile bundles on the GitHub Releases page. Server + agent versions are independent; upgrade them on separate schedules.
+Server releases are tagged images at `ghcr.io/rawtrail/rawtrail-server:<version>` and new pkg / profile bundles on the GitHub Releases page. Server + agent versions are independent; upgrade them on separate schedules.
 
 ```sh
 # 1. Decide on the version. Use the exact tag from the releases page;

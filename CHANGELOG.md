@@ -6,7 +6,8 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ### Upgrade notes (action required)
 
-- **Fleet EDR is now RawTrail.** The images are `ghcr.io/getvictor/rawtrail-server` and `ghcr.io/getvictor/rawtrail-demo-seed`; point your compose file or manifests at them before upgrading, since the old image names receive no further releases. The `ingest` and `migrate` binaries are now `rawtrail-ingest` and `rawtrail-migrate`. Existing alerts credited to Fleet EDR are re-credited to RawTrail.
+- **Fleet EDR is now RawTrail, at github.com/rawtrail/rawtrail.** The images are `ghcr.io/rawtrail/rawtrail-server` and `ghcr.io/rawtrail/rawtrail-demo-seed`; point your compose file or manifests at them before upgrading, since the old image names receive no further releases. The `ingest` and `migrate` binaries are now `rawtrail-ingest` and `rawtrail-migrate`. Existing alerts credited to Fleet EDR are re-credited to RawTrail.
+- **Verify release signatures against the new identity.** cosign checks need `--certificate-identity-regexp '^https://github\.com/rawtrail/rawtrail/\.github/workflows/release\.yml@refs/tags/v'` (see `docs/install-agent-manual.md`), and `gh attestation verify` needs `--owner rawtrail`.
 - **Telemetry reports as `rawtrail-server`.** Update any dashboard, alert or saved query that filters on `service.name = 'fleet-edr-server'`; the shipped SigNoz dashboards and alert rules already use the new name, so re-import them.
 - **Webhook deliveries send `User-Agent: rawtrail-webhook/1`.** Update any receiver or firewall rule that matches the old `fleet-edr-webhook/1`.
 - **The break-glass account is now `admin@rawtrail.local`.** The upgrade moves the existing account, with its passkey and role, so sign in with the new address.

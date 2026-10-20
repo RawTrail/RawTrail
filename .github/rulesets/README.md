@@ -17,11 +17,11 @@ The workflow [`rulesets-drift.yml`](../workflows/rulesets-drift.yml) ships in th
 
    ```sh
    gh api -X PUT \
-     /repos/getvictor/fleet-edr/rulesets/<id> \
+     /repos/rawtrail/rawtrail/rulesets/<id> \
      --input .github/rulesets/main.json
    ```
 
-   Look up the ruleset id with `gh api /repos/getvictor/fleet-edr/rulesets`.
+   Look up the ruleset id with `gh api /repos/rawtrail/rawtrail/rulesets`.
 
 3. Open a PR with the JSON change. If `RULESETS_READ_PAT` is configured, the drift-detect workflow runs automatically and confirms the live state now matches. Otherwise it exits early with a setup notice.
 

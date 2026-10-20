@@ -2,7 +2,7 @@
 name: verify-release
 description: Verify a published RawTrail GitHub Release carries every expected artifact and that each one's signatures check out. Use after the release workflow finishes (or when the user asks to "verify the release", "check the release artifacts", "verify the signatures for vX.Y.Z").
 metadata:
-  author: fleet-edr
+  author: rawtrail
   version: "1.0"
 ---
 
@@ -16,19 +16,19 @@ The final step of the release checklist: confirm a published GitHub Release (`vX
 
 ## Prerequisites
 
-- `gh` authenticated against `getvictor/fleet-edr`.
+- `gh` authenticated against `rawtrail/rawtrail`.
 - `cosign` v3+ (`brew install cosign`).
 - `shasum` and `pkgutil` / `xcrun` / `spctl` (stock macOS) for the pkg checks.
 
 Set the constants used throughout. `TAG` must already be set (see Inputs); the signing identity is pinned to THIS tag's `release.yml` run, not any `v*` tag, so an artifact signed for a different release cannot pass even if assets were swapped between releases:
 
 ```sh
-REPO=getvictor/fleet-edr
-IMAGE=ghcr.io/getvictor/rawtrail-server
+REPO=rawtrail/rawtrail
+IMAGE=ghcr.io/rawtrail/rawtrail-server
 ISSUER='https://token.actions.githubusercontent.com'
 # Escape regex metacharacters in the tag (the dots), then pin the identity to exactly this tag.
 TAG_RE=$(printf '%s' "$TAG" | sed 's/[.[\*^$()+?{|]/\\&/g')
-IDENTITY="^https://github\.com/getvictor/fleet-edr/\.github/workflows/release\.yml@refs/tags/${TAG_RE}\$"
+IDENTITY="^https://github\.com/rawtrail/rawtrail/\.github/workflows/release\.yml@refs/tags/${TAG_RE}\$"
 ```
 
 ## Step 1: confirm every expected asset is present
@@ -129,8 +129,8 @@ Skip this comparison for an `-rc` tag: `:latest` legitimately points at the prev
 The workflow attests the pkg, the three profiles, both SBOMs, `SHA256SUMS`, and the image via `actions/attest-build-provenance`. Spot-check with the GitHub attestation verifier:
 
 ```sh
-gh attestation verify rawtrail-"$TAG".pkg --owner getvictor
-gh attestation verify "oci://${IMAGE}:${TAG}" --owner getvictor
+gh attestation verify rawtrail-"$TAG".pkg --owner rawtrail
+gh attestation verify "oci://${IMAGE}:${TAG}" --owner rawtrail
 ```
 
 Expect a verified provenance summary tying each artifact to the workflow run.

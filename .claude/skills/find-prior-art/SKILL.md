@@ -2,7 +2,7 @@
 name: find-prior-art
 description: Search the codebase for an existing helper, type, validator, constant, SQL query, or HTTP route before writing a new one, so AI-generated code extends what already exists instead of cloning it. Use BEFORE generating any non-trivial new code, and when the user asks to "check for prior art", "is there an existing X", or "avoid duplication".
 metadata:
-  author: fleet-edr
+  author: rawtrail
   version: "1.0"
 ---
 

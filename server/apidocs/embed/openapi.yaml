@@ -20,12 +20,12 @@ info:
       with no auth.
 
     For prose context see
-    [docs/api.md](https://github.com/getvictor/fleet-edr/blob/main/docs/api.md).
+    [docs/api.md](https://github.com/rawtrail/rawtrail/blob/main/docs/api.md).
     For a human-readable host/agent install guide see
-    [docs/install-agent-manual.md](https://github.com/getvictor/fleet-edr/blob/main/docs/install-agent-manual.md).
+    [docs/install-agent-manual.md](https://github.com/rawtrail/rawtrail/blob/main/docs/install-agent-manual.md).
   license:
     name: RawTrail License
-    url: https://github.com/getvictor/fleet-edr/blob/main/LICENSE
+    url: https://github.com/rawtrail/rawtrail/blob/main/LICENSE
 servers:
   - url: https://edr.example.com
     description: Your EDR server

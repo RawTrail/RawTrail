@@ -17,17 +17,17 @@ For production deployments of more than a handful of Macs, use [mdm-deployment.m
 
 ## Step 1: download the pkg
 
-Pick a release from https://github.com/getvictor/fleet-edr/releases and download the `.pkg` to the target Mac. Example for v0.7.0:
+Pick a release from https://github.com/rawtrail/rawtrail/releases and download the `.pkg` to the target Mac. Example for v0.7.0:
 
 ```sh
 cd ~/Downloads
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
 ```
 
 Verify the download against the published SHA256SUMS:
 
 ```sh
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/SHA256SUMS
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
@@ -53,7 +53,7 @@ spctl -a -v --type install rawtrail-v0.7.0.pkg
 # Expect: "accepted / source=Notarized Developer ID"
 ```
 
-If any of these fail, STOP. Don't install. File an issue at https://github.com/getvictor/fleet-edr/issues.
+If any of these fail, STOP. Don't install. File an issue at https://github.com/rawtrail/rawtrail/issues.
 
 ### Optional: verify the Sigstore signature
 
@@ -63,11 +63,11 @@ Use the same release tag you downloaded in Step 1 in place of the `v0.7.0` place
 
 ```sh
 # Install cosign (v3+) if you don't have it: brew install cosign
-curl -fLO https://github.com/getvictor/fleet-edr/releases/download/v0.7.0/rawtrail-v0.7.0.pkg.sigstore.json
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/rawtrail-v0.7.0.pkg.sigstore.json
 
 cosign verify-blob \
     --bundle rawtrail-v0.7.0.pkg.sigstore.json \
-    --certificate-identity-regexp '^https://github\.com/getvictor/fleet-edr/\.github/workflows/release\.yml@refs/tags/v' \
+    --certificate-identity-regexp '^https://github\.com/rawtrail/rawtrail/\.github/workflows/release\.yml@refs/tags/v' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     rawtrail-v0.7.0.pkg
 # Expect: "Verified OK"
@@ -76,8 +76,8 @@ cosign verify-blob \
 The same `<file>.sigstore.json` bundle covers `SHA256SUMS` and all three `.mobileconfig` profiles. To verify the server image instead, pass the same keyless identity and issuer constraints:
 
 ```sh
-cosign verify ghcr.io/getvictor/rawtrail-server:v0.7.0 \
-    --certificate-identity-regexp '^https://github\.com/getvictor/fleet-edr/\.github/workflows/release\.yml@refs/tags/v' \
+cosign verify ghcr.io/rawtrail/rawtrail-server:v0.7.0 \
+    --certificate-identity-regexp '^https://github\.com/rawtrail/rawtrail/\.github/workflows/release\.yml@refs/tags/v' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 

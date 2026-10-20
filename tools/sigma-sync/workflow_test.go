@@ -112,7 +112,7 @@ func TestWorkflow_CIRunsTheCatalogTestsOnTheSyncPullRequest(t *testing.T) {
 			t.Parallel()
 			r := newRunner(t, t.TempDir())
 			writeExecutable(t, filepath.Join(r.temp, "bin", "gh"), "#!/usr/bin/env bash\nprintf '"+files+"\\n'\n")
-			maps.Copy(r.env, map[string]string{"EVENT_NAME": "pull_request", "PR_NUMBER": "1", "REPO": "getvictor/fleet-edr"})
+			maps.Copy(r.env, map[string]string{"EVENT_NAME": "pull_request", "PR_NUMBER": "1", "REPO": "rawtrail/rawtrail"})
 			//nolint:gosec // runs this repository's own workflow script, which is what is under test
 			cmd := exec.CommandContext(t.Context(), "bash", "-c", script)
 			for k, v := range r.env {
@@ -165,7 +165,7 @@ esac
 `
 
 // createdPR is the pull request URL the gh stub reports creating.
-const createdPR = "https://github.com/getvictor/fleet-edr/pull/1000"
+const createdPR = "https://github.com/rawtrail/rawtrail/pull/1000"
 
 func newRunner(t *testing.T, dir string) *runner {
 	t.Helper()
@@ -177,7 +177,7 @@ func newRunner(t *testing.T, dir string) *runner {
 	return &runner{t: t, temp: temp, dir: dir, env: map[string]string{
 		"RUNNER_TEMP":       temp,
 		"GITHUB_OUTPUT":     filepath.Join(temp, "out"),
-		"GITHUB_REPOSITORY": "getvictor/fleet-edr",
+		"GITHUB_REPOSITORY": "rawtrail/rawtrail",
 		"GITHUB_SERVER_URL": "https://github.com",
 		"GITHUB_RUN_ID":     "7",
 		"SYNC_BRANCH":       "sigma-sync/upstream",
@@ -270,7 +270,7 @@ func TestWorkflow_ChangesOpenAPullRequest(t *testing.T) {
 	require.NoError(t, err, out)
 	assert.Equal(t, "title: new\n", gitOut(t, remote, "show", "sigma-sync/upstream:server/rules/internal/catalog/imported/rule.yml"))
 	calls := r.read("gh.log")
-	assert.Contains(t, calls, "gh pr create --repo getvictor/fleet-edr --base main --head sigma-sync/upstream "+
+	assert.Contains(t, calls, "gh pr create --repo rawtrail/rawtrail --base main --head sigma-sync/upstream "+
 		"--title Sync vendored Sigma rules with upstream --body-file")
 	assert.Contains(t, r.read("out"), "pr_url="+createdPR)
 	body := r.read("pr.md")
@@ -285,7 +285,7 @@ func TestWorkflow_ChangesOpenAPullRequest(t *testing.T) {
 		out, err := issue.run(issueStep)
 		require.NoError(t, err, out)
 		calls := issue.read("gh.log")
-		assert.Contains(t, calls, "gh issue close 34 --repo getvictor/fleet-edr --comment Opened "+createdPR+" with these changes.")
+		assert.Contains(t, calls, "gh issue close 34 --repo rawtrail/rawtrail --comment Opened "+createdPR+" with these changes.")
 		assert.NotContains(t, calls, "issue create")
 		assert.NotContains(t, calls, "issue edit")
 	})
@@ -314,7 +314,7 @@ func TestWorkflow_AWithdrawalAloneIsReportedWithoutABranch(t *testing.T) {
 // spec:server-detection-rules-engine/upstream-drift-is-checked-weekly/a-pull-request-under-review-is-left-alone
 func TestWorkflow_APullRequestUnderReviewIsLeftAlone(t *testing.T) {
 	t.Parallel()
-	const openPR = "https://github.com/getvictor/fleet-edr/pull/999"
+	const openPR = "https://github.com/rawtrail/rawtrail/pull/999"
 	remote, work := syncRepos(t)
 	r := newRunner(t, work)
 	r.env["FAKE_PR"] = openPR
@@ -468,7 +468,7 @@ func syncRepos(t *testing.T) (remote, work string) {
 	}
 	gitRun(t, work, "add", ".")
 	gitRun(t, work, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--no-verify", "-m", "main")
-	gitRun(t, work, "config", "url."+remote+".insteadOf", "https://github.com/getvictor/fleet-edr.git")
+	gitRun(t, work, "config", "url."+remote+".insteadOf", "https://github.com/rawtrail/rawtrail.git")
 	gitRun(t, work, "push", "-q", remote, "main")
 	return remote, work
 }

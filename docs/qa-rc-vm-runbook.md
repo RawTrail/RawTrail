@@ -7,7 +7,7 @@ Use this when an RC is cut and you need to exercise ESF, XPC, the event wire for
 ## Topology
 
 - `edr-qa`: the release-validation VM (SIP on, Gatekeeper on, no MDM). Reaches the workstation over the bridge at `192.168.64.1`. SSH via the keyed login; `sudo` needs a password over the keyed session, so pipe it with `sudo -S`.
-- Dev server: run the RC server code locally so the box under test talks to a known build. Either check out the RC tag and `go run`, or run the published `ghcr.io/getvictor/rawtrail-server:<tag>` image. It binds `0.0.0.0:8088` so the VM can reach it at `192.168.64.1:8088`.
+- Dev server: run the RC server code locally so the box under test talks to a known build. Either check out the RC tag and `go run`, or run the published `ghcr.io/rawtrail/rawtrail-server:<tag>` image. It binds `0.0.0.0:8088` so the VM can reach it at `192.168.64.1:8088`.
 - Observability: the agent and server export OTel; route both to the MCP-visible SigNoz tagged `deployment.environment=dev-local` and filter on that so dev signals do not mix with prod.
 
 ## 1. Bring up the dev server on the RC code

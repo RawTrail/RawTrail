@@ -62,7 +62,7 @@ services:
   server:
     # Pin EDR_VERSION in .env to a release tag for production; bootstrap.sh warns
     # when it defaults to `latest`.
-    image: ghcr.io/getvictor/rawtrail-server:${EDR_VERSION:-latest}
+    image: ghcr.io/rawtrail/rawtrail-server:${EDR_VERSION:-latest}
     restart: unless-stopped
     # Longer than every stage of a graceful stop put together: the drain (EDR_SHUTDOWN_DRAIN,
     # 30s), the in-flight deadline (15s), the two loop joins (10s + 5s) and the telemetry

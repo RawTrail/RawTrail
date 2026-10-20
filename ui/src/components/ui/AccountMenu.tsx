@@ -100,7 +100,7 @@ export function AccountMenu({ user, authMethod, roles, onLogout }: AccountMenuPr
             </Link>
           )}
           <a
-            href="https://github.com/getvictor/fleet-edr/tree/main/docs"
+            href="https://github.com/rawtrail/rawtrail/tree/main/docs"
             target="_blank"
             rel="noopener noreferrer"
             className="account-menu__item"

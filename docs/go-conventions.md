@@ -189,7 +189,7 @@ import (
     "log/slog"
 
     "github.com/jmoiron/sqlx"
-    "github.com/getvictor/fleet-edr/server/store"
+    "github.com/rawtrail/rawtrail/server/store"
 )
 ```
 

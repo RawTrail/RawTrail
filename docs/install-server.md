@@ -58,14 +58,14 @@ cd /srv/rawtrail
 
 ```sh
 curl -fsSL -o docker-compose.prod.yml \
-    https://raw.githubusercontent.com/getvictor/fleet-edr/main/docker-compose.prod.yml
+    https://raw.githubusercontent.com/rawtrail/rawtrail/main/docker-compose.prod.yml
 ```
 
 **For the multi-replica HA topology**, use the packaging stack instead of the single-replica file above. It references sibling config files (the NGINX or HAProxy proxy config), so fetch the whole `packaging/` directory rather than a single file:
 
 ```sh
-git clone --depth 1 https://github.com/getvictor/fleet-edr.git
-cd fleet-edr/packaging   # docker-compose-multi-replica.yml + nginx/ + haproxy/ live here
+git clone --depth 1 https://github.com/rawtrail/rawtrail.git
+cd rawtrail/packaging   # docker-compose-multi-replica.yml + nginx/ + haproxy/ live here
 ```
 
 The remaining steps are identical; create `secrets/` and `tls/` inside `packaging/`.
@@ -127,7 +127,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=
 EOF
 ```
 
-Use the exact tag from the [Releases page](https://github.com/getvictor/fleet-edr/releases). `latest` is fine for a lab but unsafe for a pilot because the digest drifts silently on each release.
+Use the exact tag from the [Releases page](https://github.com/rawtrail/rawtrail/releases). `latest` is fine for a lab but unsafe for a pilot because the digest drifts silently on each release.
 
 ### 6. Boot the stack
 
