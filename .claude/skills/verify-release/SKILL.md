@@ -28,7 +28,7 @@ IMAGE=ghcr.io/rawtrail/rawtrail-server
 ISSUER='https://token.actions.githubusercontent.com'
 # Escape regex metacharacters in the tag (the dots), then pin the identity to exactly this tag.
 TAG_RE=$(printf '%s' "$TAG" | sed 's/[.[\*^$()+?{|]/\\&/g')
-IDENTITY="^https://github\.com/rawtrail/rawtrail/\.github/workflows/release\.yml@refs/tags/${TAG_RE}\$"
+IDENTITY="^https://github\.com/RawTrail/RawTrail/\.github/workflows/release\.yml@refs/tags/${TAG_RE}\$"
 ```
 
 Releases up to and including `v0.7.0` were published from `getvictor/fleet-edr`. For one of those, set `REPO=getvictor/fleet-edr` and `IMAGE=ghcr.io/getvictor/fleet-edr-server`, use `github\.com/getvictor/fleet-edr` in `IDENTITY`, and pass `--owner getvictor` to `gh attestation verify`.
