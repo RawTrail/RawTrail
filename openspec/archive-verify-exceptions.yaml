@@ -268,6 +268,14 @@
     Intact; the v0.8.0 archive reworded the closing aside from "since Fleet EDR is a macOS-only product" to "since the
     product runs on macOS only" (rename-to-rawtrail task 4.1), which is the only difference.
 
+- requirement: server-identity-authentication/reauthentication-is-required-for-destructive-actions
+  covered_by: server-identity-authentication/reauthentication-is-required-for-destructive-actions
+  reason: >-
+    Intact; the v0.8.0 archive shortened the requirement to the 500-character limit after
+    harden-xpc-peer-and-fleet-wide-writes restated it at 971, and moved the detection-tuning detail (exclusions, per-rule mode,
+    watched paths) into the fleet-wide scenario. Every action, the window, the typed error, the audit record and the
+    service-account exemption are still stated.
+
 - requirement: server-identity-authorization/role-bindings-carry-a-scope-so-future-scoping-is-non-breaking
   covered_by: server-identity-authorization/role-bindings-carry-a-scope-so-future-scoping-is-non-breaking
   reason: Intact; the same "wave 1" to "the current release" rename is the only difference.
