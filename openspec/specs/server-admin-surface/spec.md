@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The server admin surface is the operator's API into the Fleet EDR control plane. It exposes the endpoints the admin UI and any externally scripted tooling rely on: enumerating enrolled hosts, revoking a host's credentials, reading and mutating the application-control policies + rules that fan out to enrolled hosts, and rendering the detection content (per-rule documentation and ATT&CK technique coverage) that buyers and SOC analysts compare against. It is the only documented way for a human operator to change runtime state on the server.
+The server admin surface is the operator's API into the RawTrail control plane. It exposes the endpoints the admin UI and any externally scripted tooling rely on: enumerating enrolled hosts, revoking a host's credentials, reading and mutating the application-control policies + rules that fan out to enrolled hosts, and rendering the detection content (per-rule documentation and ATT&CK technique coverage) that buyers and SOC analysts compare against. It is the only documented way for a human operator to change runtime state on the server.
 
 This specification fixes the HTTP contract: paths, methods, request and response shapes, auth boundary, and the audit trail every state-changing call leaves behind, so the UI, integration scripts, and post-incident reviewers can reason about admin behaviour without reading the handler source.
 
@@ -139,7 +139,7 @@ The system SHALL maintain a structured, queryable audit trail for state-changing
 
 ### Requirement: ATT&CK coverage layer endpoint
 
-The system SHALL expose `GET /api/attack-coverage` returning a MITRE ATT&CK Navigator layer JSON document that enumerates the techniques covered by the registered detection rules. The document MUST be importable directly into the upstream MITRE ATT&CK Navigator. Each covered technique MUST identify the rule (or rules) that cover it. The document MUST scope the rendered matrix to the macOS platform via a `filters.platforms` array containing `macOS`, since Fleet EDR is a macOS-only product.
+The system SHALL expose `GET /api/attack-coverage` returning a MITRE ATT&CK Navigator layer JSON document that enumerates the techniques covered by the registered detection rules. The document MUST be importable directly into the upstream MITRE ATT&CK Navigator. Each covered technique MUST identify the rule (or rules) that cover it. The document MUST scope the rendered matrix to the macOS platform via a `filters.platforms` array containing `macOS`, since the product runs on macOS only.
 
 #### Scenario: Coverage when rules are registered
 

@@ -70,19 +70,19 @@ A real release build SHALL submit the final installer package to the Apple notar
 
 ### Requirement: Final artifact naming
 
-The release pipeline SHALL produce a final installer artifact at `dist/fleet-edr-<version>.pkg` where `<version>` is derived from the release tag. When the tag contains characters not safe in a filename, those characters MUST be replaced with `-` so the resulting path is a single regular file.
+The release pipeline SHALL produce a final installer artifact at `dist/rawtrail-<version>.pkg` where `<version>` is derived from the release tag. When the tag contains characters not safe in a filename, those characters MUST be replaced with `-` so the resulting path is a single regular file.
 
 #### Scenario: Versioned package name
 
 - **GIVEN** a release tag `v1.2.3`
 - **WHEN** the build completes
-- **THEN** the final artifact path is `dist/fleet-edr-v1.2.3.pkg`
+- **THEN** the final artifact path is `dist/rawtrail-v1.2.3.pkg`
 
 #### Scenario: Tag with a path-separator character
 
 - **GIVEN** a release tag `release/v1.2`
 - **WHEN** the build completes
-- **THEN** the final artifact path is `dist/fleet-edr-release-v1.2.pkg`
+- **THEN** the final artifact path is `dist/rawtrail-release-v1.2.pkg`
 
 ### Requirement: Mobile configuration profiles ship alongside the package
 
@@ -106,7 +106,7 @@ The background items profile SHALL identify the items by the team identifier rat
 
 ### Requirement: Installation activates the system extensions
 
-The released package SHALL ship a LaunchAgent at `/Library/LaunchAgents/com.fleetdm.edr.activate.plist` that runs the host app's `activate` subcommand in the logged-in user's GUI session, and the install scripts SHALL start it so that on an MDM-managed host (system-extension profile present) the extensions reach `activated enabled` without any operator interaction: immediately when a user is logged in at install time, otherwise at the next login. Activation requests must originate from the host app in a user session (Apple's model), so the package MUST NOT rely on the root postinstall or the agent daemon to submit them, and activation failures MUST NOT fail the install. Uninstall MUST remove the LaunchAgent.
+The released package SHALL ship a LaunchAgent at `/Library/LaunchAgents/io.rawtrail.activate.plist` that runs the host app's `activate` subcommand in the logged-in user's GUI session, and the install scripts SHALL start it, so an MDM-managed host's extensions reach `activated enabled` without operator interaction. Activation MUST NOT be submitted from the root postinstall or the agent daemon, MUST NOT fail the install, and uninstall MUST remove the LaunchAgent.
 
 #### Scenario: Install with a user logged in activates immediately
 
@@ -129,11 +129,7 @@ The released package SHALL ship a LaunchAgent at `/Library/LaunchAgents/com.flee
 
 ### Requirement: Uninstall path is deliverable
 
-The released package SHALL include an uninstall script that an operator (or the customer's MDM) can invoke to remove the agent, the host app, and the system extensions cleanly from a host without requiring the original package. The uninstall path is part of the product contract; an installer that cannot be cleanly uninstalled is not shippable.
-
-The script SHALL deactivate BOTH system extensions (Endpoint Security and Network) through the host app's `deactivate` subcommand, submitted in the logged-in user's GUI (Aqua) session via `launchctl asuser`, BEFORE it removes the app bundle. It MUST NOT use `systemextensionsctl` for deactivation: that tool has no `deactivate` subcommand and its developer commands are blocked while SIP is enabled, so the call cannot remove anything. Because the host app is the only thing that can submit an `OSSystemExtensionRequest`, the script MUST submit the deactivation while the app bundle still exists.
-
-The script SHALL determine the actual outcome from live system-extension state rather than a command exit code, and SHALL report it truthfully: a clean removal, a removal staged for the next reboot, or extensions still active. When extensions remain active the script MUST NOT claim success; it MUST keep the host app bundle (and its uninstall script) so the operator can retry, and MUST print cause-specific guidance. In particular, on an MDM-managed host the extensions were approved by a configuration profile (`AllowedSystemExtensions`, `AllowUserOverrides=false`) and macOS refuses a local deactivation (`authorizationRequired`); removal there is achieved by the MDM removing that profile, after which macOS removes the now-unauthorized extensions, not by the local script.
+The released package SHALL include an uninstall script that removes the agent, the host app and both system extensions without the original package. It SHALL deactivate the extensions through the host app's `deactivate` subcommand in the console user's GUI session before removing the app bundle, never through `systemextensionsctl`, and SHALL report the outcome from live system-extension state. While an extension stays active it MUST NOT claim success and MUST keep the host app bundle.
 
 #### Scenario: Operator runs the uninstall script
 
@@ -143,14 +139,14 @@ The script SHALL determine the actual outcome from live system-extension state r
 
 #### Scenario: Uninstall deactivates both extensions via the host app
 
-- **GIVEN** an unmanaged host with both Fleet EDR system extensions active and a user logged in at the console
+- **GIVEN** an unmanaged host with both RawTrail system extensions active and a user logged in at the console
 - **WHEN** the operator runs the uninstall script as root
 - **THEN** the script submits `edr deactivate` in the console user's GUI session before removing the app bundle, so both the Endpoint Security and Network extensions are removed (or staged for removal on reboot)
 - **AND** the script does not invoke `systemextensionsctl deactivate`
 
 #### Scenario: Uninstall on an MDM-managed host reports the profile must be removed
 
-- **GIVEN** an MDM-managed host whose system extensions were approved by the `com.fleetdm.edr.profile.system-extension` profile
+- **GIVEN** an MDM-managed host whose system extensions were approved by the `io.rawtrail.profile.system-extension` profile
 - **WHEN** the operator runs the uninstall script as root
 - **THEN** the host-app deactivation is refused by macOS (authorizationRequired) and the extensions stay active
 - **AND** the script keeps the host app bundle, does not claim a clean removal, and tells the operator to remove the system-extension profile via their MDM to complete removal
@@ -168,20 +164,20 @@ From the first release that ships the bundle format (v0.2.0) onward, the release
 
 ### Requirement: System extensions present recognizable display names
 
-The packaged Endpoint Security and Network system extensions SHALL each carry a `CFBundleDisplayName` that identifies it as a Fleet EDR component, so the macOS System Settings entries (Login Items & Extensions, Full Disk Access) an operator must act on during a manual install are unambiguously attributable to Fleet EDR rather than a generic "extension" / "networkextension" label. The packaging build MUST fail rather than produce a package whose staged extensions carry a non-Fleet-EDR display name.
+The packaged Endpoint Security and Network system extensions SHALL each carry a `CFBundleDisplayName` that identifies it as a RawTrail component, so the System Settings entries an operator acts on during a manual install are attributable to RawTrail rather than a generic label. The packaging build MUST fail rather than produce a package whose staged extensions carry any other display name.
 
 #### Scenario: Security extension shows a recognizable name
 
 - **GIVEN** a packaging build that stages the Endpoint Security extension into the host app
-- **WHEN** the build inspects the staged `com.fleetdm.edr.securityextension.systemextension` bundle
-- **THEN** its `CFBundleDisplayName` is "Fleet EDR Security Extension"
+- **WHEN** the build inspects the staged `io.rawtrail.securityextension.systemextension` bundle
+- **THEN** its `CFBundleDisplayName` is "RawTrail Security Extension"
 - **AND** the build fails if the display name is anything else
 
 #### Scenario: Network extension shows a recognizable name
 
 - **GIVEN** a packaging build that stages the Network Extension into the host app
-- **WHEN** the build inspects the staged `com.fleetdm.edr.networkextension.systemextension` bundle
-- **THEN** its `CFBundleDisplayName` is "Fleet EDR Network Extension"
+- **WHEN** the build inspects the staged `io.rawtrail.networkextension.systemextension` bundle
+- **THEN** its `CFBundleDisplayName` is "RawTrail Network Extension"
 - **AND** the build fails if the display name is anything else
 
 ### Requirement: Packaged bundles carry the entitlements they need to activate
@@ -236,3 +232,21 @@ This applies to the dry-run path as well as the release path. A package whose ag
 
 - **WHEN** the agent is signed by either the dry-run or the release path
 - **THEN** the resulting binary carries the same code-signing identifier
+
+### Requirement: The installer refuses a macOS the bundles cannot run on
+
+The installer SHALL refuse to install on a Mac whose macOS version is older than the deployment target the app and both system extensions are built for, and SHALL name the required macOS version in the refusal. The installer minimum and the deployment target MUST be the same version, so no Mac can install a package it cannot run. The supported floor is macOS 26.0 on Apple Silicon.
+
+#### Scenario: The installer minimum matches the deployment target
+
+- **GIVEN** the app and both extensions are built for one macOS deployment target
+- **WHEN** the release package is assembled
+- **THEN** the installer's minimum macOS version equals that deployment target
+- **AND** the installer's scripted version check refuses every macOS major version below it
+
+#### Scenario: An older Mac is refused with the requirement named
+
+- **GIVEN** a Mac running macOS 15
+- **WHEN** an operator opens the release package
+- **THEN** the installer refuses before installing anything
+- **AND** the message says RawTrail requires macOS 26 (Tahoe) or later

@@ -125,7 +125,7 @@ The system MUST rate-limit break-glass attempts with tighter caps than SSO login
 
 ### Requirement: Reauthentication is required for destructive actions
 
-The system SHALL require a fresh authentication event within the configured reauth window (default 30 minutes for normal sessions; the same window applies to break-glass sessions) before authorizing a destructive action. The set of destructive actions in the current release MUST include host isolation, host process kill, host script run, host enrollment revocation, and dismissing an alert whose severity is `critical`. A request whose session has not been re-authenticated within the window MUST be rejected with a typed error so the UI can prompt for re-authentication, and the rejection MUST be recorded in the audit log.
+The system SHALL require a fresh authentication event within the reauth window (default 30 minutes, break-glass sessions included) before authorizing a destructive action: host isolation, process kill, script run, enrollment revocation, dismissing a `critical` alert, and the deployment-wide writes to reachable addresses, rule content and detection tuning. A stale session MUST get a typed error and an audit record. A service-account token has no session and is exempt; its role alone decides.
 
 #### Scenario: Fresh session executes a destructive action
 
@@ -140,6 +140,13 @@ The system SHALL require a fresh authentication event within the configured reau
 - **THEN** the server returns a typed `reauth_required` error with the action and the reauth path
 - **AND** an audit row is recorded with decision `deny` and reason `reauth_required`
 - **AND** the action is not performed
+
+#### Scenario: Fleet-wide change needs a fresh session
+
+- **GIVEN** an admin session whose last fresh auth event is older than the reauth window
+- **WHEN** the operator changes rule content, detection tuning (exclusions, per-rule mode or watched paths) or the reachable-address set, or revokes a host's enrollment
+- **THEN** the server returns a typed `reauth_required` error and does not make the change
+- **AND** the console prompts the operator to confirm their identity and then retries the change
 
 ### Requirement: A user is the row, an identity is the way to authenticate
 

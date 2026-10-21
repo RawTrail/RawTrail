@@ -600,3 +600,392 @@ The process-tree endpoint SHALL report the moment before which completed process
 - **GIVEN** a deployment with process retention disabled
 - **WHEN** a client reads a host's process tree
 - **THEN** the response reports no boundary
+
+### Requirement: Agent activity bounded to its session
+
+A session's activity SHALL count the agent process's records, by their first occurrence, only from its first touch of a path named after the session, its transcript or one of its directories, to its first touch of a path of a later session; the first session it served SHALL also keep the process's start. An agent that touched no other session's paths, or none of this session's, SHALL be counted whole.
+
+#### Scenario: A reused agent counts in each session only while serving it
+
+- **GIVEN** one `claude` process that served session A, then after `/clear` session B, creating B's scratch directory a few milliseconds before its transcript and writing A's transcript once more as A closed
+- **WHEN** each session's activity is read
+- **THEN** A counts the agent's activity up to B's scratch directory, and B from it on
+- **AND** an agent that served one session only is counted whole
+
+### Requirement: Agent file activity reads
+
+The activity rollup SHALL list `file_activity` events with the watched-path file events, taking the operation from the payload, weighing each event by its `coalesced_count`, ending a row at its latest `last_timestamp_ns`, and marking a directory row `rolled_up`. A session's activity SHALL include the creator of a root whose pid is the session's agent pid. The host timeline SHALL include `file_activity` among its event classes.
+
+#### Scenario: Agent file activity is totalled by the operations it stands for
+
+- **GIVEN** a process generation with a `modify` of one file folded three times, the same `modify` once more, a single `rename`, and a rolled-up `create` of a directory standing for 1856 files
+- **WHEN** its activity is read
+- **THEN** the files total counts 1861 operations on 3 paths
+- **AND** the file's row counts 4 operations from its first to its last
+- **AND** the directory's row is marked `rolled_up`
+
+#### Scenario: The timeline lists agent file activity
+
+- **GIVEN** a host with an exec, a `file_activity` event and a watched-path `open` event
+- **WHEN** its timeline is read with no type filter, then with `type=file_activity`
+- **THEN** the first read returns the exec and the file activity but not the `open`
+- **AND** the second returns the file activity alone
+
+#### Scenario: A session's activity includes the agent's own edits
+
+- **GIVEN** a Claude Code session whose tool calls' shells were created by the `claude` process, whose pid the session's `CLAUDE_PID` marker names
+- **WHEN** the session's activity is read
+- **THEN** the `claude` process's generation is among those read, once however many calls it started
+- **AND** a root created by any other process does not bring its creator in
+
+### Requirement: Agent own processes
+
+A session's tree read SHALL return, as each agent node's `children`, the agent process's descendants that carry no session marker, forked while it served the session, without walking into a process stamped with a session, at most 2,000 per agent, and SHALL set `agent_own_truncated` when cut. `GET /api/alerts?agent_process=&served_session=` SHALL select the alerts on the same processes.
+
+#### Scenario: A session read lists the agent's own processes under it
+
+- **GIVEN** an agent that ran a plugin scan, a shell snapshot with a child and a fork daemon, a tool call with its child, a forked session's process under the daemon, and a scan after the span it served the session
+- **WHEN** the session's tree is read
+- **THEN** the agent's children are the scan, the snapshot with its child and the daemon, and not the tool call, the forked session's process or the later scan
+
+#### Scenario: An agent's own processes' alerts are read by the agent
+
+- **GIVEN** alerts on an agent's plugin scan, on its shell snapshot's child, on a scan after the session's span, and on the session's tool call
+- **WHEN** the alerts are listed with `agent_process`, `served_session` and `host_id`, or without the host or the session
+- **THEN** the first two are returned, not the later scan's or the tool call's, and without either the request is rejected with `agent_process_requires_host_id_and_served_session`
+
+### Requirement: Copied agent tool calls
+
+A tool call whose `origin_session_id` or `forked_from_session_id` names a session on the same host that holds a call with the same `tool_use_id` and owner SHALL be treated as a copy of that call. The session's tool calls SHALL NOT list a copy.
+
+#### Scenario: A copied call is listed under its origin only
+
+- **GIVEN** a fork holding a copy of its parent's call, and a session whose own call names a session that never held it, as after `/clear`
+- **WHEN** each session's tool calls are read
+- **THEN** the copy is listed under the parent only, and the other call under its own session, as is another user's line naming the parent
+
+### Requirement: Agent session lineage endpoint
+
+`GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage` SHALL return `forked_from_session_id`, the parent the session's fork job names, or else the origin of its latest copied call, and `forked_session_ids`, the sessions whose parent it is, sorted, counting only calls owned by the uid of the session's earliest process and linking only sessions that uid owns. It SHALL be gated on process read for the host and answer 404 for a session the host does not hold.
+
+#### Scenario: A session names its parent and its forks
+
+- **GIVEN** a parent, its fork, and a fork of the fork that copied calls from both
+- **WHEN** each session's lineage is read
+- **THEN** the parent names the fork only, the fork names the parent and the fork of the fork, and the fork of the fork names the fork
+
+#### Scenario: Another user's transcripts do not make a lineage
+
+- **GIVEN** another user's two transcripts, one named for this session and holding a copy of a call in the other
+- **WHEN** this session's lineage is read, and that user's own session's
+- **THEN** neither names the other, since a link stands only between sessions one user owns, and a session with no retained process names none
+
+#### Scenario: A fork's job names its immediate parent
+
+- **GIVEN** a fork of a session cleared with `/clear`, and a fork of a fork that made no calls, each carrying the parent its job names
+- **WHEN** their lineage is read
+- **THEN** each names that parent, and the cleared session's call it copied is listed under the cleared session only
+
+#### Scenario: A fork without its own evidence is read as the earlier session's
+
+- **GIVEN** a fork with no job, as before Claude Code 2.1.301: a fork of a fork that made no calls, and a fork made after `/clear` whose copies name the process's first session
+- **WHEN** their lineage is read
+- **THEN** the first reads as the earlier session's fork, and the second names no parent and lists its copies of the cleared session's calls as its own
+
+### Requirement: Alerts by agent session
+
+`GET /api/alerts` SHALL accept `agent_session` with `host_id` and return only the alerts raised on that AI agent session's processes on that host, with the list's other filters still applied. A request with `agent_session` and no `host_id` SHALL be rejected, since a session id names a session only on its host.
+
+#### Scenario: A session's alerts are listed
+
+- **GIVEN** alerts on a session's processes, a monitor record on one of them, an alert on another session's process, and an alert on a process of the same session id on another host
+- **WHEN** the alerts are listed with the host and the session
+- **THEN** only the session's alerts on that host are returned
+- **AND** asking for monitor records returns the monitor record instead
+
+#### Scenario: A session filter without its host is rejected
+
+- **GIVEN** a request for alerts with `agent_session` and no `host_id`
+- **WHEN** it is made
+- **THEN** it is rejected with `agent_session_requires_host_id` and the alerts are not read
+
+### Requirement: Agent sessions list
+
+`GET /api/agent-sessions` SHALL list AI agent sessions most recently active first, each with its agent, version, session id, host, project directory, first and last seen, and retained process and alert counts, filtered by host, session id, agent and the window it was active in, paged by an opaque keyset cursor with the filtered total. It SHALL require fleet-wide process read and reject a malformed cursor or an inverted window.
+
+#### Scenario: Sessions are listed with what they did
+
+- **GIVEN** agent sessions on two hosts, one with processes and alerts raised on them
+- **WHEN** the sessions list is read
+- **THEN** each session appears once, most recently active first, with its project directory, times, process count and alert count
+- **AND** monitor records are not counted as alerts
+
+#### Scenario: Filters narrow the list
+
+- **GIVEN** sessions of different agents on different hosts at different times
+- **WHEN** the list is read with a host, a host and session id, an agent, or a window
+- **THEN** only matching sessions are returned, with their total
+
+#### Scenario: The list pages by cursor
+
+- **GIVEN** more sessions than the page limit
+- **WHEN** the list is read page after page with each page's cursor
+- **THEN** every session is returned exactly once when none changes between pages
+- **AND** no session is returned twice when one becomes active between pages, since it moves ahead of the cursor
+- **AND** a malformed cursor, or one missing any of its members, is rejected
+
+### Requirement: Agent tool calls endpoint
+
+`GET /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls` SHALL list the tool calls the session recorded, oldest first, each `tool_use_id` once per transcript owner at its first recording, read over the session's span widened by an hour on each side, and SHALL say when the list was cut. An unknown session SHALL be answered with `404 not_found`.
+
+#### Scenario: A session's tool calls are listed once each
+
+- **GIVEN** a session whose agent reported one call twice, around a restart, beside another session's call and another host's
+- **WHEN** its tool calls are read
+- **THEN** each of its calls is listed once, at its first recording, oldest first
+- **AND** no other session's or host's call is listed
+
+### Requirement: Alert chain descendants by story
+
+When the pinned process carries a story root, the chain read SHALL fetch its candidate descendants in one indexed query, the story's processes and unstamped ones forked from the pinned process's fork to the window's end, and select descendants by the walk's own parent and lifetime rule, without the walk's descendant cap. A process without a story root, or a story past the candidate bound, SHALL be walked as before.
+
+#### Scenario: The story read matches the walk
+
+- **GIVEN** a pinned process whose descendants include a child forked before its creator's row was recorded, beside an unrelated process on the host
+- **WHEN** its chain is read with and without a story root
+- **THEN** both reads return the same descendants under the same parents
+- **AND** the unstamped child is included and the unrelated process is not
+
+#### Scenario: A chain past the walk's cap is read whole
+
+- **GIVEN** a pinned process with more descendants than the walk's cap, in its story
+- **WHEN** its chain is read
+- **THEN** every descendant is returned and the read is not truncated
+- **AND** the descendants cost one query whatever their depth
+
+### Requirement: Inferred launch links
+
+A window, session or story tree read SHALL link an `open -a <App>`, `open <path>.app` or `launchctl submit ... -- <program>` exec to the first process launchd started (not adopted) within 5 seconds of it that runs what it named, earliest ask first, each launched process once, for at most 50 launchers per read. A session or story read SHALL include a linked process with its descendants and report truncation when they are cut. A link SHALL NOT change parentage.
+
+#### Scenario: A session read links and includes what its launchers started
+
+- **GIVEN** an agent session whose tool calls ran `open -a TextEdit` and `launchctl submit -- /bin/sleep 61`, after which launchd started TextEdit, carrying the session's markers, and `/bin/sleep`, carrying none, each through an xpcproxy row
+- **WHEN** the session is read
+- **THEN** the response links the `open` to TextEdit and the `launchctl` to `/bin/sleep`
+- **AND** `/bin/sleep` and what it started are in the forest, without the xpcproxy row, and TextEdit is listed once
+
+#### Scenario: A launcher is matched to what it named
+
+- **GIVEN** a launchd child that runs something else within the window, a process of the agent's own running the same program, the same program started by launchd before the ask, a daemon launchd adopted rather than started, a second `open -a TextEdit` before the app started, a later `open -a TextEdit` whose own launch follows it, and launchers that name a bundle id or a plist
+- **WHEN** the tree is read
+- **THEN** each launcher is linked to its own launch, and none of the other processes, nor the launchers naming nothing a path matches, are linked
+
+#### Scenario: A window read links only what it holds
+
+- **GIVEN** a window that holds a `launchctl submit` but ends before launchd started its program
+- **WHEN** the window is read
+- **THEN** no link is made for it and no row outside the window is added
+
+### Requirement: Launches by label and bundle id
+
+A tree read SHALL link a `launchctl kickstart <domain>/<label>` or `launchctl start <label>` exec to the program launchd started from the xpcproxy row naming that label, and an `open -b <bundle id>` exec to the launchd child whose code-signing identifier is the bundle id, ignoring case, within 15 seconds. A match SHALL run as the uid a `gui/` or `user/` domain names, or as the caller for `start` and `open -b`. An empty label or bundle id SHALL name nothing.
+
+#### Scenario: A label or bundle id names its launch exactly
+
+- **GIVEN** `kickstart -k gui/501/<label>`, `start <label>` and `open -b com.apple.TextEdit` execs
+- **WHEN** each is matched against launchd children
+- **THEN** the xpcproxy row naming the label, or the app signed `com.apple.textedit`, matches, and another label, another identifier or an unsigned app does not
+
+#### Scenario: A session read links a kickstart, a start and an open by bundle id
+
+- **GIVEN** a session that ran `kickstart -k` on a job launchd restarted 8.3 s later, `start` on another job, and `open -b com.apple.TextEdit`, among another job's start, the same label started past the window, and an app signed with another identifier
+- **WHEN** the session's tree is read
+- **AND** the same label started first in another user's session, and a `start ""`
+- **THEN** each command is linked to its own program or app, the job's xpcproxy row is not listed, and no decoy is linked
+
+### Requirement: Launches by job definition
+
+A tree read SHALL link a `launchctl load` or `bootstrap` exec carrying `launchd_jobs` to the program launchd started from each xpcproxy row naming one of their labels within 15 seconds, one launch per job. A bootstrap SHALL be held to the uid its `gui/` or `user/` domain names, and a load to its caller's unless the caller is root.
+
+#### Scenario: A load links each job it defined
+
+- **GIVEN** a session's `launchctl load` of two plists defining two labels, and launchd starting an unrelated job between the two it loaded
+- **WHEN** the session's tree is read
+- **THEN** the load is linked to both jobs' programs, not to launchd's xpcproxy rows, and not to the unrelated job
+
+### Requirement: Process activity rollup
+
+`GET /api/hosts/{host_id}/activity` SHALL total and list the files, network destinations and DNS names that a process, its subtree, an AI agent session or a story touched, naming the process behind each entry. It SHALL match events to processes by exact generation, count a coalesced event as the occurrences it stands for, cap each list and report the cut, and report how far the scope reached. It SHALL require process read.
+
+#### Scenario: A scope's activity is totalled and listed by process
+
+- **GIVEN** two processes that opened, renamed, connected and resolved, including a coalesced connection standing for three, an event of a later process that reused one's pid, and an event with no generation
+- **WHEN** their activity is read
+- **THEN** each class's event total and distinct count match a count by hand, the coalesced connection counting three
+- **AND** each list names the process behind each entry, and leaves out the reused pid's event and the event with no generation
+- **AND** a list read with a smaller cap reports that it was cut, while the totals stay the scope's
+
+#### Scenario: A process or its subtree is totalled
+
+- **GIVEN** a process with an ancestor and two children, one of which carries no generation
+- **WHEN** the activity is read for the process alone, and then for its subtree
+- **THEN** the first reads only the process, and the second the process and its child with a generation, never the ancestor
+- **AND** the scope report counts the child without a generation as unmatched
+
+#### Scenario: A session or story is totalled
+
+- **GIVEN** an AI agent session, or a story, read by its index
+- **WHEN** its activity is read
+- **THEN** every process of it that carries a generation is matched, and the scope report says when the read was truncated
+
+#### Scenario: A malformed activity scope is rejected
+
+- **GIVEN** a request with no scope, a scope without its target, or the timeline's `chain` scope
+- **WHEN** it is made
+- **THEN** it is rejected with `invalid_scope`
+
+### Requirement: Process search by lineage
+
+`GET /api/search/processes` SHALL accept `agent`, `agent_session` (with `host_id`), `story_root`, `ancestor` and `args`, composing with the other filters. `ancestor` SHALL keep each descendant once, by creator and re-exec edges, up to 900 levels down, not the process itself. `args` SHALL match a substring of one argument, case-sensitively. A non-positive `story_root` or `ancestor` SHALL be rejected with `400 invalid_process`.
+
+#### Scenario: A search keeps a session, a story or a process's descendants
+
+- **GIVEN** a story holding a Claude Code tool call's shell, its curl and the curl's re-exec, beside other sessions' curls and one no agent ran
+- **WHEN** the search filters by `agent=claude-code` and a path of `curl`, by the session, by the story's root, or by `ancestor` of the shell
+- **THEN** it returns the curls of every Claude Code session, the session's processes, the story's processes, or the curl and its re-exec
+- **AND** a `story_root` of `0` is rejected with `invalid_process`
+
+#### Scenario: Arguments are matched one at a time
+
+- **GIVEN** a process whose arguments are `curl`, `-s` and `https://example.com`
+- **WHEN** the search filters by `args`
+- **THEN** `example.com` matches it, while `EXAMPLE.COM` and `curl -s`, which spans two arguments, do not
+
+#### Scenario: A process's descendants are each listed once
+
+- **GIVEN** a shell that re-execs three times, each generation forking a child, and an ancestor whose story was not seen above a child whose story was
+- **WHEN** the search filters by `ancestor` of either
+- **THEN** each generation and child is listed once, and the child with a story is listed under the ancestor without one
+
+#### Scenario: A deep chain is walked to its bound
+
+- **GIVEN** a fork chain 1,100 processes deep
+- **WHEN** the search filters by `ancestor` of its top
+- **THEN** it counts the 900 descendants within the bound rather than failing
+
+### Requirement: Process forest links by creator
+
+The process forest SHALL link a process to its creator row, and SHALL return it as a root when that row is not in the result. A process without one SHALL link to the row in the result with its exact `(ppid, parent_pidversion)` that was alive at its fork, else to the newest row holding its `ppid`. A pinned process's ancestor walk SHALL follow the same evidence, ending where a creator is not stored. A chain's descendants SHALL exclude a child whose creator row is another process.
+
+#### Scenario: The creator row beats a reused pid
+
+- **GIVEN** a result holding a process's creator and a later process that reused the creator's pid
+- **WHEN** the forest is built
+- **THEN** the process hangs under its creator
+
+#### Scenario: A creator outside the result leaves the process a root
+
+- **GIVEN** a process whose creator row is not in the result, and a later process holding the creator's pid that is
+- **WHEN** the forest is built
+- **THEN** the process is a root
+
+#### Scenario: An exact generation beats a reused pid
+
+- **GIVEN** a process with no creator row whose `(ppid, parent_pidversion)` names a row in the result, and a later process holding that pid
+- **WHEN** the forest is built
+- **THEN** the process hangs under the row of that generation
+- **AND** a row holding that identity that forked after the process, or had exited before it, is not its parent
+
+#### Scenario: The ancestor walk follows creators through a double fork
+
+- **GIVEN** a daemon whose creator exited before launchd adopted it, and a later process that reused the creator's pid
+- **WHEN** the forest or the chain is read pinning the daemon
+- **THEN** its ancestors are its creator and the creator's own creator
+- **AND** a creator that retention removed ends the chain
+
+#### Scenario: A chain excludes a child of another process
+
+- **GIVEN** a process and a child whose `ppid` matches it inside its lifetime but whose creator row is another process
+- **WHEN** the process's chain is read
+- **THEN** the child is not among its descendants
+
+### Requirement: Responsible process links
+
+A story or session tree read SHALL link each process it holds that is responsible for itself to every process launchd started that names it, by pid and generation, as responsible within its lifetime, and SHALL add each such process with its descendants as an extra root. A window read SHALL link only what it holds. A read SHALL report a cut when an app has more such processes than are read.
+
+#### Scenario: A session read links and includes the services of its apps
+
+- **GIVEN** a session holding TextEdit, launched by launchd and responsible for itself, and two XPC services launchd started that name TextEdit's pid and generation
+- **AND** decoys: a service naming TextEdit's pid under another generation, one naming another app, one started after TextEdit exited, and one naming the SSH login a shell command ran under
+- **WHEN** the session's tree is read
+- **THEN** the two services are linked to TextEdit as `responsible_process` and added with what they started, and no decoy is linked or added
+
+### Requirement: Session tree names its agent
+
+A session's tree read SHALL return the session's agent processes in `agents`: the creator of a root whose pid is the session's agent pid. Its `roots`, counts and truncation SHALL be those of the session's own processes. Other reads SHALL return no `agents`.
+
+#### Scenario: A session's tree names the agent that ran its commands
+
+- **GIVEN** a session whose agent created two of its roots, and a root another process created
+- **WHEN** the session's tree is read
+- **THEN** `agents` holds the agent's process, and the three roots stay roots
+- **AND** a story read returns no `agents`, and a failed session lookup fails the read
+
+### Requirement: Host timeline scopes
+
+The host timeline SHALL accept `scope=chain&pin=<process id>`, `scope=session&session=<id>` and `scope=story&root=<process id>`, read the scope's processes with the process tree's reads, filter events to their generations, and report whether it applied, its process count, how many carry no generation, and truncation. A scope with no generation SHALL return the whole host's stream, reported not applied. A scope without a target, or with `chain=`, SHALL be rejected.
+
+#### Scenario: The alert chain is resolved by the server
+
+- **GIVEN** an alerted process with ancestors and descendants, and another process that reused one of their pids
+- **WHEN** the timeline is read with `scope=chain` pinning the alerted process
+- **THEN** only events of the chain's generations are returned
+- **AND** the report counts the chain's processes and those without a generation
+
+#### Scenario: A session or story scopes the timeline
+
+- **GIVEN** an agent session's processes among the host's other activity
+- **WHEN** the timeline is read with `scope=session`, or `scope=story` naming the story's root
+- **THEN** only events of that scope's generations are returned
+
+#### Scenario: A scope with nothing to match shows the whole host
+
+- **GIVEN** a scope naming no stored process, or one whose processes carry no generation
+- **WHEN** the timeline is read with it
+- **THEN** the whole host's stream is returned with the scope reported not applied and its process count
+
+#### Scenario: A malformed timeline scope is rejected
+
+- **GIVEN** a scope without a usable pin, session or root, or one combined with `chain=`
+- **WHEN** the timeline is read
+- **THEN** the response is a client error with `invalid_scope`
+
+### Requirement: Story and session tree reads
+
+The process-forest endpoint SHALL accept `scope=story&root=<process id>` and `scope=session&session=<id>`, returning the host's processes of that story or AI agent session by an indexed read with no time window, oldest first, bounded by the row limit with the window read's truncation and count metadata. A story or session scope without a valid root or session SHALL be rejected as a client error.
+
+#### Scenario: A session is read whole
+
+- **GIVEN** an agent session whose processes outnumber the chain read's descendant cap
+- **WHEN** the forest is read with `scope=session` and a limit above the session's size
+- **THEN** every process of the session is returned, linked under its creator, and the read is not truncated
+- **AND** the read costs one query whatever the depth of the tree
+
+#### Scenario: A scope beyond the limit reports truncation
+
+- **GIVEN** a story with more processes than the row limit
+- **WHEN** the forest is read with `scope=story`
+- **THEN** the oldest processes up to the limit are returned
+- **AND** the read is reported as truncated with the story's count
+
+#### Scenario: A scope reads only its host
+
+- **GIVEN** the same session id or story root id on two hosts
+- **WHEN** one host's forest is read with that scope
+- **THEN** only that host's processes are returned
+
+#### Scenario: A scope without its target is rejected
+
+- **GIVEN** `scope=story` without a positive `root`, or `scope=session` without a `session` of at most 256 bytes
+- **WHEN** the forest is read
+- **THEN** the response is a client error with `invalid_scope`

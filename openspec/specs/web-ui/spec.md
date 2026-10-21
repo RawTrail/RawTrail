@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The web UI is the analyst- and operator-facing surface of the Fleet EDR product. It is where a SOC analyst triages alerts, investigates a process and its network/DNS activity, kills a running process on a host, and where an admin manages the server-driven blocklist policy and reviews the deployed detection content. It is the visible product to anyone who is not an agent or a backend integration: every operator task documented in the MVP plan happens here.
+The web UI is the analyst- and operator-facing surface of RawTrail. It is where a SOC analyst triages alerts, investigates a process and its network/DNS activity, kills a running process on a host, and where an admin manages the server-driven blocklist policy and reviews the deployed detection content. It is the visible product to anyone who is not an agent or a backend integration: every operator task documented in the MVP plan happens here.
 
 This specification fixes the user-observable behaviour of each page: what an analyst can see and do, how navigation flows between pages, and how authentication boundaries are presented. The product behaviour can then be validated against the spec without reading the React source.
 
@@ -558,15 +558,13 @@ The UI SHALL render the alert list as the home view of the authenticated applica
 
 ### Requirement: Alert-first navigation order
 
-The top navigation SHALL present its entries in the order Alerts, Hosts, Search, Application control, Rules, subject to the existing capability gating that hides entries the operator cannot read. The Hosts entry SHALL be highlighted as active on both the host list route and a host's process tree route.
-
-An entry whose section holds more than one surface SHALL be highlighted as active on any of them, so an operator moving between a section's surfaces is not told they have left it.
+The top navigation SHALL present its entries in the order Alerts, Hosts, Agent sessions, Search, Application control, Rules, subject to the capability gating that hides entries the operator cannot read. The Hosts entry SHALL be active on the host list and a host's page. An entry whose section holds more than one surface SHALL be active on any of them, so an operator moving between them is not told they have left it.
 
 #### Scenario: Navigation lists Alerts first
 
 - **GIVEN** an authenticated operator whose permission set confers every navigation entry
 - **WHEN** the authenticated application renders its navigation
-- **THEN** the entries appear in the order Alerts, Hosts, Search, Application control, Rules
+- **THEN** the entries appear in the order Alerts, Hosts, Agent sessions, Search, Application control, Rules
 
 #### Scenario: Hosts entry active on host detail
 
@@ -796,88 +794,6 @@ The host detail page SHALL open with an identity header leading with the enrollm
 - **WHEN** the operator opens the host's detail page
 - **THEN** the title falls back to the host identifier
 - **AND** the process tree still renders
-
-### Requirement: Host event timeline view
-
-The host page SHALL offer a timeline view alongside the process graph, selectable from the page with the active view reflected in the URL so a switch is bookmarkable and preserves the active time window and any alert anchor. The graph SHALL remain the default view. The timeline view SHALL render the host's exec, network-connection, and DNS-query events for the active time window as a flat table in descending event-time order, showing per event the time, the event type, the originating process, and the type-specific detail (for a connection the remote address and port; for a DNS query the query name and resolved addresses). The timeline SHALL be filterable by event type and by a text match, SHALL page additional results on demand rather than replacing the current rows, and SHALL show the total number of matching events. Switching between the graph and the timeline SHALL NOT change the active time window. When the page is entered for an alert with the alert-chain focus active, the timeline SHALL scope to the alert chain (only events from the alerted process and its ancestors and descendants), mirroring the graph's focus, and the shared "Alert chain / Full tree" control SHALL switch the scope for both views at once; when the focus is off, the timeline SHALL show the full host event stream.
-
-The scope is keyed on each process's generation, which not every process carries, so the timeline SHALL distinguish three outcomes rather than two:
-
-- **No process in the chain carries a generation, or the chain resolves to nothing.** The timeline SHALL show the full host event stream and SHALL state that it is doing so. It SHALL name a cause only where that cause is established: the absence of generations is provable from the resolved chain, while an unresolved chain has several possible causes, including a response truncated by the tree's row limit, so the timeline SHALL report only that the process is absent from the tree that was loaded and SHALL NOT attribute it to the time window.
-- **Some processes carry one.** The timeline SHALL scope to the processes it can reach and SHALL state that it reached only part of the chain, because a list that presents itself as the alert chain while silently dropping part of that chain is worse than one that shows too much. It SHALL NOT state how many processes were omitted: the tree it would count from aggregates identical leaf descendants into synthetic group nodes, so any such count would report groups as processes.
-- **Every process carries one.** The timeline SHALL scope without qualification.
-
-While a first read is in flight, so that no tree has resolved yet, the timeline SHALL NOT report an unresolved chain, because there is no loaded tree for anything to be absent from and a message that appears and then disappears is its own kind of wrong.
-
-A read that FAILED is a different outcome and SHALL be reported, in its own words rather than as an unresolved chain. The two were treated alike once and the page then contradicted itself: the graph rendered its error while the timeline listed the whole host with nothing to say it had stopped trying to narrow, so one surface reported failure and the other implied success. What the timeline SHALL NOT do is claim the chain is absent from a tree that never loaded, which is a claim about data nobody has seen. Saying the tree could not be loaded is both true and the thing the operator can act on. A failed read SHALL be reported whatever chain is still in hand. A refetch that fails leaves the chain resolved from the window before it, and reading that chain as evidence the scope still holds is how the same contradiction returns one window over: the graph reports the error while the timeline narrows the new window to the previous window's processes and calls itself scoped. Where the timeline reports that it cannot vouch for the scope, it SHALL also stop applying it, so the label and the events listed never disagree.
-
-#### Scenario: Timeline view lists window events filterable by type
-
-- **GIVEN** a host with exec, network, and DNS events in the active window
-- **WHEN** the operator switches to the timeline view
-- **THEN** the events are listed newest-first with their type and originating process
-- **AND** selecting an event-type filter narrows the list to that type
-
-#### Scenario: Timeline scopes to the alert chain
-
-- **GIVEN** the host page entered for an alert with the alert-chain focus active
-- **WHEN** the operator switches to the timeline view
-- **THEN** the timeline lists only events from the alert chain (the alerted process and its ancestors and descendants) and indicates it is scoped to the chain
-- **AND** turning the shared focus off widens the timeline to the full host event stream
-
-#### Scenario: Timeline says so when it cannot scope to the chain
-
-- **GIVEN** the host page entered for an alert whose chain processes carry no process generation
-- **WHEN** the operator switches to the timeline view
-- **THEN** the timeline lists the full host event stream
-- **AND** it states that it is showing the whole host because the chain cannot be narrowed
-- **AND** it does not simultaneously claim to be scoped to the alert chain
-
-#### Scenario: Timeline says nothing while a tree read is in flight
-
-- **GIVEN** the host page entered for an alert, with the process tree read still in flight
-- **WHEN** the operator switches to the timeline view
-- **THEN** the timeline makes no claim about why the chain is unresolved
-- **AND** it does not flash a message that a resolving tree would immediately replace
-
-#### Scenario: Timeline says the tree could not be loaded when its read failed
-
-- **GIVEN** the host page entered for an alert, with the process tree read having failed
-- **WHEN** the operator switches to the timeline view
-- **THEN** the timeline states that the process tree could not be loaded and that it is therefore showing the whole host
-- **AND** it does not claim the chain is absent from the tree, which never loaded
-- **AND** the graph and the timeline no longer disagree about whether the read succeeded
-- **AND** this holds for a refetch that fails after an earlier read succeeded, where a chain resolved from the previous window is still in hand
-- **AND** in that case the timeline stops scoping to that chain rather than narrowing the new window to the previous window's processes
-
-#### Scenario: Timeline distinguishes an absent chain from a chain without generations
-
-- **GIVEN** the host page entered for an alert whose alerted process is absent from the loaded process tree, including when that tree was truncated by its row limit
-- **WHEN** the operator switches to the timeline view
-- **THEN** the timeline lists the full host event stream
-- **AND** it states that the process is absent from the loaded tree
-- **AND** it does not attribute the fallback to the time window or to missing generation data
-
-#### Scenario: Timeline admits an alert chain it could only partly scope
-
-- **GIVEN** the host page entered for an alert whose chain carries a process generation on some of its processes but not all
-- **WHEN** the operator switches to the timeline view
-- **THEN** the timeline scopes to the processes it can reach
-- **AND** it states that only part of the chain was reached, without claiming a count the tree cannot support
-- **AND** it does not present itself as scoped to the whole alert chain
-
-#### Scenario: The graph and timeline share one time window
-
-- **GIVEN** the host page with a time window set on the graph view
-- **WHEN** the operator switches to the timeline view
-- **THEN** the timeline queries the same window
-- **AND** switching back to the graph leaves the window unchanged
-
-#### Scenario: A text filter narrows the timeline
-
-- **GIVEN** the timeline view is displayed
-- **WHEN** the operator enters a text filter
-- **THEN** only events whose payload matches the text are listed
 
 ### Requirement: Graph and timeline cross-navigation
 
@@ -1561,3 +1477,402 @@ The process graph SHALL tell the operator when the window it shows starts before
 - **WHEN** the graph loads
 - **THEN** a notice says process records from before the boundary have been deleted
 - **AND** no notice appears for a window inside retention or when no boundary is reported
+
+### Requirement: Activity table cells stay on one line
+
+Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line. When the table is wider than its frame, the frame SHALL scroll sideways rather than wrap the value.
+
+#### Scenario: A file path in the process detail panel reads whole
+
+- **GIVEN** a process whose file activity names a path longer than the panel's path column would otherwise allow
+- **WHEN** the operator opens its Files activity in the process detail panel at an 800 pixel wide viewport
+- **THEN** the path's cell is one line tall
+
+### Requirement: Activity tabs
+
+Process detail and the session view SHALL show what their scope touched in Files, Network and DNS tabs, each with its totals and a list naming the process behind each entry. Process detail SHALL switch between the process alone and its whole subtree. The tabs SHALL say when a list was cut and when the scope reached only part of its processes, or none.
+
+#### Scenario: A session's network tab lists every destination with its process
+
+- **GIVEN** an agent session whose processes connected to destinations
+- **WHEN** the operator opens the session's activity
+- **THEN** the Network tab states the connection and destination totals and lists every destination with the process that made each connection
+
+#### Scenario: A process's activity switches between it and its subtree
+
+- **GIVEN** a process's detail
+- **WHEN** the operator opens its activity, then switches to the whole subtree
+- **THEN** the activity is first read for the process alone, then for it and its descendants
+
+#### Scenario: The tabs say how much of the scope they reflect
+
+- **GIVEN** an activity read whose scope matched no stored process, matched processes none of which carry a generation, was truncated, or left some processes unmatched
+- **WHEN** the tabs render
+- **THEN** each case is stated in its own words, and a scope read in full carries no such statement
+
+### Requirement: Agent file activity views
+
+The activity view's Files tab SHALL list an AI agent's file operations with the process behind each, marking a rolled-up row as a directory and everything below it. The host timeline SHALL offer a Files class whose rows name the process by pid and spell out the operation, its path, a rename's source, and how many operations a row folds.
+
+#### Scenario: The Files tab lists an agent's edits
+
+- **GIVEN** a session whose activity holds a file modified four times and a rolled-up directory of created files
+- **WHEN** the Files tab is opened
+- **THEN** the file is listed as `modify` with a count of 4
+- **AND** the directory is listed as `create`, marked as covering everything below it
+
+#### Scenario: The timeline shows an agent's file activity
+
+- **GIVEN** a host timeline holding agent file activity
+- **WHEN** it is shown, or narrowed with the Files chip
+- **THEN** each row spells out its operation and path, a rename with its source and a folded row with its count
+- **AND** the process column names the pid rather than the file
+
+### Requirement: Agent own processes view
+
+The Processes view SHALL count the processes it lists below the agent, the internal ones only when shown, and offer a toggle with their count listing the processes the agent ran for itself under it, in fork order among the session's, each marked internal. They SHALL be hidden until asked for, and the toggle SHALL be absent when there are none.
+
+#### Scenario: The agent's own processes are counted and listed on request
+
+- **GIVEN** a session whose agent ran a plugin scan and a shell snapshot with a child
+- **WHEN** the operator opens the Processes view, then turns the toggle on
+- **THEN** the summary reads "1 process" and the toggle "Show internal processes (3)", none listed; then "4 processes", with all 3 under the agent marked "internal" and the command not
+
+### Requirement: Forked session lineage
+
+The agent session view SHALL link a forked session to the session it was forked from, and a session to the sessions forked from it, under the session header. It SHALL show neither when the session has no lineage or the lineage read fails.
+
+#### Scenario: A forked session links to its parent and its forks
+
+- **GIVEN** a session forked from another and itself forked twice
+- **WHEN** the operator opens it
+- **THEN** the view shows "Forked from" linking the parent's view and "Forked into" linking each fork's view
+
+### Requirement: AI agent session view
+
+The UI SHALL offer a view of one AI agent session listing its processes in the order its commands ran, one group per command the agent ran. Each group SHALL be labelled with that command and SHALL contain every process it started, including a daemon it backgrounded. The shells that run a command SHALL be hidden unless the operator asks to see them. Each process SHALL open in its host's process graph.
+
+#### Scenario: Tool calls are labelled with the command the agent ran
+
+- **GIVEN** a Claude Code session whose Bash tool calls ran `ls /private/tmp | head -3`, `(sleep 47 &)`, `nohup sleep 48 >/dev/null 2>&1 &`, `env -i /bin/echo qa1280` and `/bin/sh -c "sleep 1; echo qa1280-done"`, each in Claude Code's `zsh -c` wrapper script
+- **WHEN** the operator opens the session's view
+- **THEN** it lists five groups in that order, each labelled with that command as the agent wrote it, quotes included
+
+#### Scenario: A daemon the agent started stays in its tool call
+
+- **GIVEN** a tool call that backgrounded a process from a subshell, so the process outlived the call and was reparented to launchd
+- **WHEN** the operator opens the session's view
+- **THEN** the backgrounded process is listed inside that tool call's group, not as a separate group or outside the session
+
+#### Scenario: Shell plumbing is hidden unless verbose
+
+- **GIVEN** a tool call run in the agent's wrapper shell, whose subshell forked a copy of that shell
+- **WHEN** the operator opens the session's view
+- **THEN** the group lists the commands the call ran, without the wrapper shell or the shell copy
+- **AND** turning on "Show shell plumbing" lists them in their place
+
+### Requirement: AI agent session view badges
+
+The session view SHALL read its header from the session's record and SHALL say when the session began before the retention cutoff. It SHALL badge each alert on the process it was raised on and on its command, and SHALL never hide such a process as shell plumbing. It SHALL badge a process that runs as a different user from its creator, and SHALL credit each alert's rule author beside it. A session of more than 10 commands SHALL open with only its alerted commands expanded.
+
+#### Scenario: The header reads the session's record
+
+- **GIVEN** a session whose record names its agent pid and project
+- **WHEN** the operator opens the session's view
+- **THEN** the header shows the agent pid and the record's project
+
+#### Scenario: Retention is reported when the session began before it
+
+- **GIVEN** a session first seen before the retention cutoff the process read reports
+- **WHEN** the operator opens the session's view
+- **THEN** it says the session began before the cutoff and that processes finished before then have been removed
+- **AND** a session first seen after the cutoff carries no such notice
+
+#### Scenario: Alerts are badged where they were raised
+
+- **GIVEN** a critical alert raised on a process of a session's first tool call
+- **WHEN** the operator opens the session's view
+- **THEN** the process carries the alert's badge, linking to the alert
+- **AND** the command's header carries "1 alert" in the critical style
+
+#### Scenario: An alerted process is never hidden as plumbing
+
+- **GIVEN** an alert raised on a tool call's wrapper shell
+- **WHEN** the operator opens the session's view with shell plumbing hidden
+- **THEN** the wrapper shell is listed with its alert, and its commands under it
+
+#### Scenario: A long session opens on its alerts
+
+- **GIVEN** a session of 11 tool calls with an alert in the seventh
+- **WHEN** the operator opens the session's view
+- **THEN** only the seventh call is expanded
+
+#### Scenario: A privilege change is badged
+
+- **GIVEN** a tool call that ran `sudo id`, where setuid `sudo` runs as root under the agent's uid-501 shell and `id` runs as root under `sudo`
+- **WHEN** the operator opens the session's view
+- **THEN** `sudo` carries a "runs as root" badge and `id`, which runs as the same user as its creator, carries none
+
+### Requirement: AI agent session view navigation
+
+The session view SHALL fold identical processes under one creator that started nothing, changed no privilege and carry no alert into one row with their count and time span, and SHALL NOT fold when its read left processes or alerts out. It SHALL list at most 20 rows per list until asked for more, except rows holding a search hit or an alert. A search SHALL expand the calls it finds something in and count the matches per call. Selecting a process SHALL open its detail beside the session.
+
+#### Scenario: Identical processes are folded
+
+- **GIVEN** a tool call that ran `wc -l f` three times
+- **WHEN** the operator opens the session's view
+- **THEN** one row lists `wc -l f` with "×3" and the span from its first to its last fork
+
+#### Scenario: Runs that ended differently are not folded together
+
+- **GIVEN** a tool call that ran `wc -l f` four times, one of which exited 1
+- **WHEN** the operator opens the session's view
+- **THEN** the three runs that exited 0 fold into one row that says so, and the failed run is its own row
+
+#### Scenario: Nothing is folded when the read is incomplete
+
+- **GIVEN** a session whose process read was truncated, whose alerts could not all be read, or that began before the retention cutoff
+- **WHEN** the operator opens the session's view
+- **THEN** identical processes are listed one per row
+
+#### Scenario: A long list shows more on request
+
+- **GIVEN** a tool call that ran 25 different commands
+- **WHEN** the operator opens the session's view
+- **THEN** the call lists 20 of them and a control to show the other 5
+- **AND** a search that matches one of the other 5 lists it without the control
+
+#### Scenario: Search expands to what it finds
+
+- **GIVEN** a session of 11 tool calls, all collapsed, one of which ran `echo 7`
+- **WHEN** the operator searches for `echo 7`
+- **THEN** that call expands, says "1 match", and highlights the matching row, while the others stay collapsed
+
+#### Scenario: A process opens its detail beside the session
+
+- **GIVEN** the session's view
+- **WHEN** the operator selects a process
+- **THEN** its detail opens beside the session, with a link to it in its host's graph
+- **AND** its "Show in timeline" link opens the host's timeline on a window that includes its last observed activity
+
+### Requirement: AI agent sessions page
+
+The UI SHALL offer an Agent sessions page listing AI agent sessions most recently active first, showing per session the agent and its version, the project directory, the host, first and last seen, and its process and alert counts. Its host, agent and activity-window filters SHALL live in the URL and be applied by the server, which SHALL also page the list. A session SHALL open its session view.
+
+#### Scenario: Sessions are listed with their project and activity
+
+- **GIVEN** the server reports a Claude Code session on a host, working in `/private/tmp`, with 16 processes and 1 alert
+- **WHEN** the operator opens the Agent sessions page
+- **THEN** the row shows the agent and version, `/private/tmp`, the host's name, the first and last seen times, 16 and 1
+
+#### Scenario: Filters and paging are applied by the server
+
+- **GIVEN** the Agent sessions page with host, agent and "active in the last 7 days" filters in the URL
+- **WHEN** the page loads, and then the operator asks for more
+- **THEN** the server receives the host, the agent and a window start 7 days before now
+- **AND** the next page is requested with the server's cursor and appended to the rows already shown
+
+#### Scenario: A session opens its activity
+
+- **GIVEN** a listed session
+- **WHEN** the operator activates it
+- **THEN** that session's view opens
+
+### Requirement: Tool calls beside their processes
+
+The session view SHALL pair each group an agent's wrapper shell started with the Bash call that ran its command, taking the nearest unclaimed call of the group's user made before the group started, and SHALL show that call's description and `tool_use_id`. Groups whose candidate calls share one time SHALL be marked as one of several identical calls, naming them, and not paired.
+
+#### Scenario: Each Bash group shows its tool call
+
+- **GIVEN** a session whose transcript recorded a Bash call with a description
+- **WHEN** the session view lists the group its shell started
+- **THEN** the group shows the call's description and `tool_use_id`
+
+#### Scenario: Repeated identical commands pair in order
+
+- **GIVEN** a session that ran `ls`, then `pwd`, then `ls` as three Bash calls
+- **WHEN** the session view pairs its groups
+- **THEN** the first `ls` group shows the first `ls` call and the second shows the second
+
+#### Scenario: Calls that cannot be told apart are marked ambiguous
+
+- **GIVEN** two identical Bash calls the agent made in one turn, so with one time
+- **WHEN** the session view lists their groups
+- **THEN** each group says it is one of two identical calls made at once, naming both, and neither is paired
+
+#### Scenario: Another user's transcript cannot label a session
+
+- **GIVEN** another user wrote a line naming this session and the same command into a transcript of their own
+- **WHEN** the session view pairs the group the session's user ran
+- **THEN** the group shows its own user's call, and the forged call labels nothing
+
+### Requirement: Observed commands and reported tool calls are named apart
+
+The session view SHALL name its lens of observed process groups Commands, one group per command the agent ran. A tool call it shows from the agent's transcript, paired with a command or listed as one of several identical calls, SHALL be labelled as reported by the agent.
+
+#### Scenario: A reported tool call is labelled as the agent's
+
+- **GIVEN** a session with three commands, the first paired with a reported Bash call, the second matching two identical calls, and the third matching none
+- **WHEN** the session view lists them under Commands
+- **THEN** the first and second carry the "Reported by agent" label, and the third carries none
+
+### Requirement: Inferred launches in the UI
+
+The session view SHALL list a process launchd started for a call's `open -a` or `launchctl submit` under that launcher, marked as an inferred launch. The host graph SHALL offer a logical tree, when the read carries links, that hangs each launched process under its launcher with a distinct edge and label, the strict tree remaining the default. An inferred launch SHALL never be drawn as parentage.
+
+#### Scenario: A launched process hangs under its launcher
+
+- **GIVEN** a forest where launchd started a process, with a child of its own, for an `open` exec, and the read links the two
+- **WHEN** the links are applied
+- **THEN** the launched process and its child are under the `open` in fork order, the caller's forest is unchanged, and a link whose ends are absent or that would hang a process under its own descendant is not applied
+
+#### Scenario: A session lists a launch under the call that asked
+
+- **GIVEN** a Claude Code session whose call ran `open -a TextEdit`, and TextEdit, a root carrying the session's markers, linked to that `open`
+- **WHEN** the operator opens the session's view
+- **THEN** TextEdit is listed under the call's `open` with an "inferred launch" badge, and the session shows one call, not two
+
+#### Scenario: The host graph toggles a logical tree
+
+- **GIVEN** a host graph whose read links a launched process to its `open`
+- **WHEN** the operator turns on "Logical tree", then off
+- **THEN** the launched process is drawn under the `open` with a dashed edge and an "inferred launch" label, then back where its parentage puts it
+- **AND** a read without links offers no such toggle
+
+### Requirement: Loaded launchd jobs
+
+Process detail SHALL list each job a launchctl exec loaded: its label, what it runs, and on hover the plist it came from, and SHALL say when the agent cut a definition to its bounds.
+
+#### Scenario: Process detail names the jobs a launchctl loaded
+
+- **GIVEN** a `launchctl load` whose row carries three jobs: one with program arguments, one with a program and cut, one with only a label
+- **WHEN** its process detail opens
+- **THEN** each is listed as a loaded job by label, the first two with what they run and the cut one marked, and the third with no program
+
+### Requirement: Process search lineage filters
+
+The fleet search page SHALL offer Agent, Agent session, Story root, Descendant of, Argument and Since filters on processes, kept in the URL like the others. Since SHALL reach back an hour, a day, a week or 30 days from when the search first read a page, every page reading the same window.
+
+#### Scenario: Every curl any Claude Code session ran this week is one search
+
+- **GIVEN** the search page with Path `curl`, Agent Claude Code and Since Last week
+- **WHEN** it searches
+- **THEN** one request asks for `path=curl`, `agent=claude-code`, a `from` a week before the search ran and a `to` when it ran
+
+#### Scenario: A session, story or ancestor chip narrows the search
+
+- **GIVEN** the search page with Agent session, Story root, Descendant of and Argument set
+- **WHEN** it searches
+- **THEN** each is passed to the endpoint as it was entered
+
+### Requirement: Services under their app
+
+The session view and the host graph's logical tree SHALL list a process the read links to an app as a `responsible_process` under that app, marked as a service rather than as lineage or an inferred launch. Such a row SHALL never fold into an identical sibling.
+
+#### Scenario: A service hangs under the app responsible for it
+
+- **GIVEN** a session that opened TextEdit and an XPC service the read links to TextEdit as `responsible_process`
+- **WHEN** the session view lists the processes
+- **THEN** the service is listed under TextEdit, badged as a service, with a tooltip saying macOS records the app as responsible for it
+
+### Requirement: Stable session view switcher
+
+The agent session view SHALL lay out its header the same in the Commands, Processes and Activity views, so the view switcher keeps its place: a header control one view does not use SHALL be hidden there while keeping its space, not removed.
+
+#### Scenario: The plumbing toggle is hidden, not removed, outside Commands
+
+- **GIVEN** a session view showing Commands, with the "Show shell plumbing" toggle
+- **WHEN** the operator switches to Processes
+- **THEN** the toggle is hidden but keeps its place in the header, and cannot be focused
+
+### Requirement: Session processes view
+
+The session view SHALL offer a Processes lens listing every process the session ran as one tree under the agent process that ran it, with nothing hidden or folded, and the number of processes it lists. A process launchd adopted after its creator exited SHALL stay under its creator and be marked as reparented. When the agent was not seen, the commands SHALL be listed as roots.
+
+#### Scenario: Every process is listed under the agent that ran it
+
+- **GIVEN** a session whose agent process ran a command that forked a subshell copy of its shell, which backgrounded a sleep
+- **WHEN** the operator opens the session's Processes lens
+- **THEN** the agent leads, badged as the agent, with the command's shell, the subshell's copy and the sleep beneath it
+- **AND** the lens counts every process it lists, the agent included
+
+#### Scenario: A reparented process stays under its creator
+
+- **GIVEN** a backgrounded sleep that exec'd after its subshell exited, so launchd adopted it
+- **WHEN** the session's processes are listed
+- **THEN** the sleep is listed under the subshell that created it and badged as reparented, and its creators are not
+
+### Requirement: Socket daemon names
+
+The Activity view SHALL name the daemon beside a `connect` row whose socket path matches a well-known daemon's: Docker and its Mac runtimes, Podman, ssh-agent, 1Password's SSH agent, PostgreSQL, MySQL, Redis, and mDNSResponder. It SHALL name none for another path or another operation.
+
+#### Scenario: A connect to a well-known socket names its daemon
+
+- **GIVEN** a session's connect rows to launchd's ssh-agent socket and to an unknown socket, and a delete of `/var/run/docker.sock`
+- **WHEN** the operator opens the Files list
+- **THEN** the ssh-agent row names "ssh-agent", and neither the unknown socket nor the delete names a daemon
+
+### Requirement: Host timeline view
+
+The host page SHALL offer a timeline view beside the process graph, selected in the URL, listing the active window's exec, connection and DNS events newest first with their process and detail, filterable by type and text, paged on demand, with the total. With the alert-chain focus on, it SHALL scope to the chain the server resolves for the alerted process and state how far that scope reached, and with it off show the whole host.
+
+#### Scenario: Timeline view lists window events filterable by type
+
+- **GIVEN** a host with exec, network, and DNS events in the active window
+- **WHEN** the operator switches to the timeline view
+- **THEN** the events are listed newest-first with their type and originating process
+- **AND** selecting an event-type filter narrows the list to that type
+
+#### Scenario: Timeline scopes to the alert chain
+
+- **GIVEN** the host page entered for an alert with the alert-chain focus active
+- **WHEN** the operator switches to the timeline view
+- **THEN** the timeline asks the server for the alerted process's chain, lists only its events and indicates it is scoped to the chain
+- **AND** turning the shared focus off widens the timeline to the full host event stream
+
+#### Scenario: Timeline says so when it cannot scope to the chain
+
+- **GIVEN** the host page entered for an alert whose chain processes carry no process generation
+- **WHEN** the operator switches to the timeline view
+- **THEN** the timeline lists the full host event stream
+- **AND** it states that it is showing the whole host because the chain cannot be narrowed
+- **AND** it does not simultaneously claim to be scoped to the alert chain
+
+#### Scenario: Timeline distinguishes an absent chain from a chain without generations
+
+- **GIVEN** the host page entered for an alert whose alerted process is no longer stored
+- **WHEN** the operator switches to the timeline view
+- **THEN** the timeline lists the full host event stream
+- **AND** it states that the process is no longer stored
+- **AND** it does not attribute the fallback to missing generation data
+
+#### Scenario: Timeline admits an alert chain it could only partly scope
+
+- **GIVEN** the host page entered for an alert whose chain carries a process generation on some of its processes but not all, or has more processes than the timeline can scope to
+- **WHEN** the operator switches to the timeline view
+- **THEN** the timeline scopes to the processes it can reach
+- **AND** it states that only part of the chain was reached, and why
+- **AND** it does not present itself as scoped to the whole alert chain
+
+#### Scenario: The graph and timeline share one time window
+
+- **GIVEN** the host page with a time window set on the graph view
+- **WHEN** the operator switches to the timeline view
+- **THEN** the timeline queries the same window
+- **AND** switching back to the graph leaves the window unchanged
+
+#### Scenario: A text filter narrows the timeline
+
+- **GIVEN** the timeline view is displayed
+- **WHEN** the operator enters a text filter
+- **THEN** only events whose payload matches the text are listed
+
+### Requirement: Tool command quoting
+
+The session view SHALL read a tool call's command from its wrapper shell as the shell reads the eval's word: single-quoted runs, double-quoted runs with the escapes POSIX applies inside double quotes, and backslash escapes, joined, so that a command containing an escaped single quote is shown and paired with its reported tool call as the agent ran it.
+
+#### Scenario: A command with the double-quoted escape reads as the agent ran it
+
+- **GIVEN** a wrapper whose eval argument is `'open -b com.apple.TextEdit && sleep 5 && osascript -e '"'"'quit app "TextEdit"'"'"''`
+- **WHEN** the session view reads its command
+- **THEN** it reads `open -b com.apple.TextEdit && sleep 5 && osascript -e 'quit app "TextEdit"'`, and the escape at the start, middle or end of a command reads the same way

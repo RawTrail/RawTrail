@@ -38,12 +38,12 @@ const (
 	// navigatorATTACKVersion is the ATT&CK content version the layer is authored against. BUMP THIS on each ATT&CK release
 	// (https://attack.mitre.org/resources/versions/): a stale value makes the Navigator prompt the operator to upgrade the
 	// layer on import. The catalog's mapped technique IDs are verified to still exist (not deprecated/revoked) at this
-	// version. Currently ATT&CK v19 (v19.1, released 2026-04-28).
-	navigatorATTACKVersion = "19"
+	// version. Currently ATT&CK v20 (v20.0, released 2026-10-13).
+	navigatorATTACKVersion = "20"
 	// navigatorAppVersion is the Navigator application version the layer declares compatibility with. The v4.5 layer spec
-	// requires >= "4.9.0"; track the current Navigator release so a v19 layer doesn't advertise a pre-v19 tool version.
+	// requires >= "4.9.0"; track the current Navigator release so the layer doesn't advertise an outdated tool version.
 	navigatorAppVersion = "5.2.0"
-	// navigatorLayerFormatVersion is the Navigator layer file-format version. Still "4.5" as of Navigator 5.x / ATT&CK v19.
+	// navigatorLayerFormatVersion is the Navigator layer file-format version. Still "4.5" as of Navigator 5.x / ATT&CK v20.
 	navigatorLayerFormatVersion = "4.5"
 )
 

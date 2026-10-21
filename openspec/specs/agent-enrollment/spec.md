@@ -167,31 +167,6 @@ The agent SHALL proactively refresh its host token before the token's expiry by 
 - **THEN** the server returns 401
 - **AND** the agent engages its re-enrollment path
 
-### Requirement: Revocation is enforced by a per-replica snapshot
-
-The server SHALL enforce revocation of self-validating tokens via a per-replica in-memory snapshot of hosts that are revoked or have had their token epoch bumped, loaded before the replica serves traffic and refreshed on a short interval. A token SHALL be rejected when its host is revoked or when the token's epoch is below the host's current epoch. Operator-driven credential cycling SHALL bump the host's token epoch (rather than minting and pushing a replacement token); the affected agent recovers by re-enrolling. A re-enrollment SHALL preserve the host's existing token epoch (never reset it) and mint the new token at that epoch, so an operator credential cycle is monotonic and is not undone by the agent's automatic re-enroll. The snapshot is a per-replica performance cache holding no state a peer replica needs. The replica SHALL fail closed on the initial load: if the snapshot cannot be loaded before serving, the replica SHALL refuse to start rather than serve with an empty (allow-all) snapshot. On a later runtime refresh failure the previous snapshot SHALL be retained rather than dropped to empty. On a successful (re-)enrollment the replica SHALL record the host's post-enrollment state (not revoked, at the preserved epoch) in its local snapshot so the newly issued token is accepted immediately on that replica while any token below that epoch stays rejected; other replicas converge within their refresh interval.
-
-#### Scenario: Operator rotate invalidates after the snapshot refreshes
-
-- **GIVEN** an enrolled host with a valid token
-- **WHEN** an operator cycles the host's credentials (bumping its token epoch) and the snapshot refreshes
-- **THEN** the host's pre-rotate token is rejected with 401
-- **AND** a re-enrollment by that host mints a fresh token that verifies
-
-#### Scenario: Re-enrollment preserves the token epoch
-
-- **GIVEN** a host whose credentials an operator has cycled (token epoch bumped) and whose pre-rotate token is rejected
-- **WHEN** the host re-enrolls
-- **THEN** the freshly minted token verifies
-- **AND** the pre-rotate token remains rejected, because the bumped epoch is preserved across the re-enrollment rather than reset
-
-#### Scenario: Snapshot refresh failure retains the previous view
-
-- **GIVEN** a populated revocation snapshot on a replica
-- **WHEN** a subsequent refresh from the database fails
-- **THEN** the replica continues enforcing the previously loaded revocation state
-- **AND** does not fail open by dropping to an empty snapshot
-
 ### Requirement: Enrollment reports the agent platform
 
 The agent SHALL include its platform in the enrollment request, one of `darwin`, `windows`, or `linux`, matching the operating system the agent runs on. The enroll endpoint SHALL reject an enrollment whose platform is present but not one of those values. The endpoint SHALL normalize an absent platform to `darwin`, the default for an agent predating this contract, and SHALL persist the platform on the enrollment record so the host inventory can surface it.
@@ -213,3 +188,53 @@ The agent SHALL include its platform in the enrollment request, one of `darwin`,
 - **GIVEN** an enrollment request whose platform is a value other than darwin, windows, or linux
 - **WHEN** the enroll endpoint handles it
 - **THEN** the request is rejected with a bad-body error and no enrollment is recorded
+
+### Requirement: Revoke ends prior credentials
+
+Revoking a host's enrollment SHALL invalidate every host token issued to that host before the revoke, including after the host re-enrolls. The server SHALL achieve this by bumping the host's token epoch in the same write that marks it revoked. The revoke's audit entry SHALL commit in the same transaction as the revoke. A revoke SHALL NOT prevent an agent holding the enroll secret from re-enrolling.
+
+#### Scenario: Stolen token stays rejected after re-enrollment
+
+- **GIVEN** an enrolled host whose token has been copied
+- **WHEN** an operator revokes the host and its agent re-enrolls with the enroll secret
+- **THEN** the copied token is rejected by every authenticated route and by the refresh route
+- **AND** the token the re-enrolled agent received verifies and refreshes
+
+#### Scenario: Revoke audit entry commits with the revoke
+
+- **GIVEN** an authenticated operator revoking a host
+- **WHEN** the revoke commits
+- **THEN** an `enrollment.revoke` audit entry has committed with it and is delivered as an audit row naming the acting principal, the request's address, the host, and the operator-supplied actor and reason
+- **AND** a revoke whose audit entry cannot be written is rolled back, leaving the host's enrollment and token epoch unchanged
+
+### Requirement: Host-token revocation is enforced per replica
+
+The server SHALL enforce host-token revocation with a per-replica snapshot of revoked and epoch-bumped hosts, loaded before the replica serves and refreshed on a short interval. It SHALL reject a token whose host is revoked or whose epoch is below the host's current epoch. A replica SHALL refuse to start if the initial load fails, and SHALL keep its previous snapshot when a later refresh fails. Re-enrollment SHALL preserve the host's token epoch.
+
+#### Scenario: Revoke invalidates after the snapshot refreshes
+
+- **GIVEN** an enrolled host with a valid token
+- **WHEN** an operator revokes the host, bumping its token epoch, and the snapshot refreshes
+- **THEN** the host's pre-revoke token is rejected with 401
+- **AND** a re-enrollment by that host mints a fresh token that verifies
+
+#### Scenario: Re-enrollment preserves the token epoch
+
+- **GIVEN** a host an operator has revoked, whose pre-revoke token is rejected
+- **WHEN** the host re-enrolls
+- **THEN** the freshly minted token verifies
+- **AND** the pre-revoke token remains rejected, because the bumped epoch is preserved across the re-enrollment rather than reset
+
+#### Scenario: Re-enrolled token verifies at once on the enrolling replica
+
+- **GIVEN** a replica whose snapshot still shows a host as revoked
+- **WHEN** the host re-enrolls through that replica
+- **THEN** the new token verifies on that replica without waiting for a snapshot refresh
+- **AND** every token below the host's epoch stays rejected
+
+#### Scenario: Snapshot refresh failure retains the previous view
+
+- **GIVEN** a populated revocation snapshot on a replica
+- **WHEN** a subsequent refresh from the database fails
+- **THEN** the replica continues enforcing the previously loaded revocation state
+- **AND** does not fail open by dropping to an empty snapshot

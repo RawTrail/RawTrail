@@ -8,13 +8,7 @@ Defines the agent's intentionally minimal configuration surface: the small set o
 
 ### Requirement: The agent configuration surface is intentionally minimal
 
-The agent SHALL treat its upload batch size, upload interval, queue prune age, network/DNS coalescing window, and SQLite queue byte cap as fixed constants rather than environment-configurable knobs. The agent's operator-facing configuration SHALL remain limited to enrollment, connection, identity, and diagnostic settings (server URL, enroll secret, token file, server fingerprint, host id override, queue database path, XPC service names, allow-insecure, process-reconcile interval, log level, log format, and the outbound proxy), read from `/etc/fleet-edr.conf` with environment-variable overrides.
-
-The outbound proxy SHALL be read from that same layered configuration, under the conventional `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` names in either case, and SHALL apply to every connection the agent makes to the server: enrollment, event uploads, command polling, token refresh, the address the containment lifeline pins, and the control channel. Reading it from the process environment alone SHALL NOT be sufficient, because the conf file is where operators are told the agent's settings live, so a proxy configured there would otherwise be silently ignored.
-
-It SHALL apply to all of those or none. A proxy covering only part of the agent's traffic is worse than none: the covered part hides the uncovered part, and the containment lifeline would pin an address the rest of the agent was not dialing.
-
-The fixed queue byte cap SHALL still be enforced at its constant value: the cap is not configurable but remains active, dropping over-cap rows and counting them. An environment variable the agent no longer recognizes SHALL be inert: its presence MUST NOT fail startup and MUST NOT change behavior.
+The agent SHALL treat its upload batch size, upload interval, queue prune age, network/DNS coalescing window and SQLite queue byte cap as fixed constants, and SHALL limit operator configuration to enrollment, connection, identity, diagnostic and outbound-proxy settings, read from `/etc/rawtrail.conf` with environment-variable overrides. The proxy SHALL apply to every connection the agent makes to the server, or to none. An environment variable the agent no longer recognizes SHALL be inert.
 
 #### Scenario: A removed tuning variable is ignored at startup
 
@@ -32,14 +26,14 @@ The fixed queue byte cap SHALL still be enforced at its constant value: the cap 
 
 #### Scenario: A proxy set in the conf file is used
 
-- **GIVEN** a host whose `/etc/fleet-edr.conf` sets a proxy and whose process environment sets none
+- **GIVEN** a host whose `/etc/rawtrail.conf` sets a proxy (`HTTP_PROXY`, `HTTPS_PROXY` or `NO_PROXY`, in either case) and whose process environment sets none
 - **WHEN** the agent loads its configuration and connects to the server
 - **THEN** its enrollment, uploads, command polling, lifeline target and control channel all go through that proxy
 - **AND** a proxy set in the process environment instead overrides the file, as every other setting does
 
 ### Requirement: Default file locations are platform-specific
 
-The agent SHALL resolve its default configuration-file, event-queue, and enrollment-token locations from the platform it runs on: `%ProgramData%\FleetEDR\` on Windows, and `/etc/fleet-edr.conf` plus `/var/db/fleet-edr/` on macOS and Linux. An operator MAY still override any location through the existing environment variables; the platform default applies only when the override is unset.
+The agent SHALL resolve its default configuration-file, event-queue, and enrollment-token locations from the platform it runs on: `%ProgramData%\RawTrail\` on Windows, and `/etc/rawtrail.conf` plus `/var/db/rawtrail/` on macOS and Linux. An operator MAY still override any location through the existing environment variables; the platform default applies only when the override is unset.
 
 #### Scenario: The agent resolves platform-appropriate default paths
 
