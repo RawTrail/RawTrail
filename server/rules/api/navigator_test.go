@@ -68,7 +68,7 @@ func TestMarshalNavigatorLayerIndented(t *testing.T) {
 	const wantEmptyLayer = `{
   "name": "RawTrail coverage",
   "versions": {
-    "attack": "19",
+    "attack": "20",
     "layer": "4.5",
     "navigator": "5.2.0"
   },
