@@ -22,4 +22,4 @@
 
 ## 4. Release archive
 
-- [ ] 4.1 Reword the Purpose sections that still say "Fleet EDR" (`endpoint-event-collection`, `server-admin-surface`, `server-availability`, `web-ui`), and the `server-admin-surface` ATT&CK coverage requirement's "Fleet EDR is a macOS-only product" aside, in the release archive, since a delta cannot modify a Purpose
+- [x] 4.1 Reword the Purpose sections that still say "Fleet EDR" (`endpoint-event-collection`, `server-admin-surface`, `server-availability`, `web-ui`), and the `server-admin-surface` ATT&CK coverage requirement's "Fleet EDR is a macOS-only product" aside, in the release archive, since a delta cannot modify a Purpose

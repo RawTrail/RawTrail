@@ -575,3 +575,205 @@ The system SHALL NOT replace a signature a row already has, and SHALL NOT apply 
 - **GIVEN** an open process row with no signature that a batch has read
 - **WHEN** another writer records the row's exit before the batch writes the later snapshot's signature
 - **THEN** the row keeps its exit and stays without a signature
+
+### Requirement: Agent session stamping
+
+The graph builder SHALL stamp `agent_session_id`, `agent_name` and `agent_version` on the row an exec images when the exec carries a `CLAUDE_CODE_SESSION_ID` marker of at most 256 bytes, taking the name and version from `AI_AGENT`. Every other row SHALL take its creator's session on fork, keep it through an exec without the marker, and keep the prior generation's on a re-exec. A row with no creator and no marker SHALL have none.
+
+#### Scenario: A tool call stamps its session
+
+- **GIVEN** an agent process without the marker runs a tool call whose shell carries `CLAUDE_CODE_SESSION_ID` and `AI_AGENT`
+- **WHEN** the events are processed
+- **THEN** the shell's row carries the session, the agent name and the version
+- **AND** the agent process's own row carries none
+
+#### Scenario: A child stripped of its environment keeps the session
+
+- **GIVEN** a tool call's shell runs `env -i` or `sudo`, whose exec carries no markers
+- **WHEN** the events are processed
+- **THEN** the child's row carries the shell's session
+
+#### Scenario: A daemonized descendant keeps the session
+
+- **GIVEN** a tool call double-forks a process that launchd adopts before it execs
+- **WHEN** the events are processed, in one batch or one at a time
+- **THEN** the daemon's row carries the tool call's session
+
+#### Scenario: A new marker starts a new session
+
+- **GIVEN** a process in one session execs with a different `CLAUDE_CODE_SESSION_ID`, as after `/clear`
+- **WHEN** the events are processed
+- **THEN** its row and the rows it creates carry the new session
+
+#### Scenario: A process outside any agent has no session
+
+- **GIVEN** a process whose creator has no session, including an agent helper that carries `AI_AGENT` but no session marker
+- **WHEN** the events are processed
+- **THEN** its row carries no session
+- **AND** a session marker over 256 bytes is ignored
+
+### Requirement: Agent session table
+
+The graph builder SHALL keep one `agent_sessions` row per host and agent session, upserted from every exec carrying a session marker. Its first and last seen times SHALL span every such exec, and its agent pid, cwd, name and version SHALL come from the earliest, ties broken by event id. Reprocessing, or events arriving in any order, SHALL leave the same row. A `CLAUDE_PID` that is not a 32-bit integer SHALL leave the pid unset.
+
+#### Scenario: A session row spans its tool calls
+
+- **GIVEN** two tool calls of one session at different times and in different directories, and one of another session
+- **WHEN** the events are processed, in one batch, one at a time, out of order, or twice, including two tool calls stamped at the same nanosecond
+- **THEN** each session has one row whose first and last seen span its tool calls and whose cwd is the earliest tool call's
+- **AND** a helper without a session marker and an oversized marker add no session, and an oversized `CLAUDE_PID` leaves the session's pid unset
+
+### Requirement: Forked child inherits its resolved creator's image
+
+When a fork's creator is resolved by `(parent_pid, parent_pidversion)`, the forked child SHALL inherit that creator row's path and, if the creator's image was in force at the fork, its signing identity. A fork whose creator was not resolved SHALL inherit the image of the newest generation of the parent's pid to have forked by the child's fork.
+
+#### Scenario: A child runs the image of the creator it names
+
+- **GIVEN** zsh, generation 1001 of pid 500, and python3, which reused pid 500 and is already stored while zsh's exit is not
+- **WHEN** a child's fork names pid 500 and generation 1001, stamped after python3 forked
+- **THEN** the child's path and signing identity are zsh's, not python3's
+- **AND** a child stamped before zsh's image was applied gets zsh's path without its identity
+
+#### Scenario: A child that names no creator inherits as before
+
+- **GIVEN** the same host
+- **WHEN** a child's fork names pid 500 without a generation
+- **THEN** the child inherits python3's image, the newest generation of the pid to have forked by the child's fork
+
+### Requirement: Launchd job definitions on the row
+
+The graph builder SHALL store an exec's `launchd_jobs` on the process row it writes for the exec, as the JSON the exec sent, and SHALL leave it unset for any other exec.
+
+#### Scenario: An exec stores the jobs it loaded
+
+- **GIVEN** a `launchctl load` exec carrying two job definitions, and the shell that ran it carrying none
+- **WHEN** the graph builder processes the events
+- **THEN** the launchctl row holds both definitions with their labels and program arguments, and the shell's row holds none
+
+### Requirement: Process lineage persistence
+
+The graph builder SHALL store on a forked row the forking process's `parent_pidversion`, and on a row an exec images the exec's `original_ppid`, `responsible_pid`, `responsible_pidversion`, `session_id`, `group_id`, `tty`, `start_time_ns` and non-empty `cwd`. It SHALL mark the row `reparented` when the exec reports `ppid` 1 and an `original_ppid` above 1. An exec SHALL NOT change a row's `ppid` or `parent_pidversion`.
+
+#### Scenario: An exec stores its lineage on the row
+
+- **GIVEN** a fork carrying `parent_pidversion` created a row
+- **WHEN** the first exec for that process arrives with the lineage fields
+- **THEN** the row stores each lineage field the exec reported
+- **AND** a later re-exec on the same pid keeps the row's `ppid` and `parent_pidversion` and stores the new exec's lineage
+
+#### Scenario: A daemonized process is marked reparented
+
+- **GIVEN** a process was forked by an intermediate parent that exited before the process exec'd
+- **WHEN** its exec reports `ppid` 1 and the intermediate parent's pid in `original_ppid`
+- **THEN** the row is marked `reparented`
+- **AND** it keeps the `ppid` and `parent_pidversion` its fork recorded
+
+#### Scenario: A legacy event leaves the lineage unset
+
+- **GIVEN** an agent that sends no lineage fields
+- **WHEN** its fork and exec events are processed
+- **THEN** every lineage column on the row is unset and `reparented` is false
+- **AND** an empty `cwd` is stored as unset
+
+### Requirement: Process creator resolution
+
+The graph builder SHALL set `parent_process_id` from a fork's `(parent_pid, parent_pidversion)`: the row of that exact generation alive at the child's fork, else the parent's row in force then if alive and not a newer generation whose exec preceded the fork. A TTL-synthesized exit counts as alive. A process first seen at exec SHALL link the same way to the parent it names. A fork without `parent_pidversion`, or a reparented process first seen at exec, SHALL leave it unset.
+
+#### Scenario: A reused pid's earlier process keeps its child
+
+- **GIVEN** a process forked a child and exited, and a later process reused its pid
+- **WHEN** the child's fork is processed after the later process is recorded
+- **THEN** the child links to the earlier process's row
+
+#### Scenario: A generation from an earlier boot is not a creator
+
+- **GIVEN** a row from before a reboot holds the parent's pid and the generation the child names
+- **WHEN** the child's fork is processed
+- **THEN** the child links to the current boot's parent when it is recorded, and is unlinked otherwise
+- **AND** a parent the TTL reconciler closed before the child's fork is still linked
+
+#### Scenario: A child forked before its parent's first exec links to that row
+
+- **GIVEN** a parent's first exec rewrote its row's generation after the child forked
+- **WHEN** the child's fork names the generation the exec replaced
+- **THEN** the child links to the parent's row
+
+#### Scenario: A newer generation is not a creator
+
+- **GIVEN** the only row for the parent pid is a later process that had exec'd before the child forked
+- **WHEN** the child's fork names an older generation
+- **THEN** the child's link is unset
+
+#### Scenario: A daemon links to its creator after a double fork
+
+- **GIVEN** a shell forked a subshell, which forked a daemon and exited before the daemon exec'd with `ppid` 1
+- **WHEN** the events are processed, in one batch or one at a time
+- **THEN** the daemon links to the subshell's row and the subshell to the shell's
+- **AND** a re-exec of the daemon keeps its link
+
+#### Scenario: Events without a generation leave the link unset
+
+- **GIVEN** a fork without `parent_pidversion`, or a reparented process first seen at exec
+- **WHEN** it is processed
+- **THEN** its link is unset
+- **AND** a process first seen at exec that names its parent's generation links to that parent
+
+### Requirement: Exit binding by process generation
+
+An exit that carries `pidversion` SHALL close the open row of that generation for its pid, else the most recent open row whose generation is older or unknown, and SHALL NOT close a row of a newer generation. A buffered exit SHALL NOT be taken by a snapshot exec of a newer generation or of a process that started after the exit. An exit without `pidversion` SHALL keep the pid-only rule.
+
+#### Scenario: An exit never closes a newer generation
+
+- **GIVEN** a later process on a reused pid is the open row with a newer generation
+- **WHEN** a late exit for the earlier generation arrives
+- **THEN** the later process's row stays open
+- **AND** when two rows are open, the exit closes the one of its own generation
+
+#### Scenario: A buffered exit skips a newer snapshot
+
+- **GIVEN** an exit for a generation with no row was buffered
+- **WHEN** a snapshot exec of a newer generation, or of a process that started after the exit, arrives for the same pid
+- **THEN** the snapshot row stays open
+
+### Requirement: Heartbeat freshness bumps survive lock contention
+
+The system SHALL retry a heartbeat freshness update that the database aborts as a deadlock victim, up to a bounded number of attempts, so ordinary contention with concurrent writes to the process records neither loses the update nor reports it as an error. An update still aborted after the last attempt is reported as an error.
+
+#### Scenario: A bump that loses a deadlock is retried and applied
+
+- **GIVEN** live snapshot-originated process records for PIDs P1 and P2 on a host
+- **AND** a concurrent transaction that holds P2's record and then requests P1's while a heartbeat bump for both PIDs holds P1's and waits on P2's
+- **WHEN** the database aborts the bump as the deadlock victim
+- **THEN** the concurrent transaction commits
+- **AND** the bump is retried and both records' freshness timestamps carry the heartbeat's timestamp
+
+### Requirement: Story root and tool call stamping
+
+The graph builder SHALL set `story_root_id` to a row's own id when its fork-time parent is launchd, or when it is first seen at exec with launchd as its `original_ppid`; otherwise to its creator's, or on a re-exec the prior generation's. A row without a tool call whose exec's creator pid equals its `CLAUDE_PID` marker SHALL set `tool_call_group` to its process group; every other row SHALL inherit it as it inherits the agent session.
+
+#### Scenario: A story reaches the process launchd started
+
+- **GIVEN** launchd started a process whose descendants include an agent and its tool calls
+- **WHEN** the events are processed, in one batch or one at a time
+- **THEN** every descendant's story root is that process's row, including a daemon launchd later adopted
+
+#### Scenario: A process launchd started is its own story root
+
+- **GIVEN** a process forked by launchd, and a process first seen at exec whose `original_ppid` is launchd
+- **WHEN** the events are processed
+- **THEN** each is its own story root
+- **AND** a process first seen at exec under launchd that was reparented, or does not report `original_ppid`, as a startup snapshot does not, has none
+
+#### Scenario: A tool call is keyed by the agent child's process group
+
+- **GIVEN** the agent process starts a tool call whose exec carries `CLAUDE_PID` naming the agent
+- **WHEN** the events are processed
+- **THEN** the tool call's row carries its own process group as its tool call
+- **AND** the agent process and its helpers carry none
+
+#### Scenario: A tool call survives daemonizing and setsid
+
+- **GIVEN** a tool call double-forks a daemon, and starts a process that calls `setsid` into a new process group
+- **WHEN** the events are processed
+- **THEN** both carry the tool call's group
+- **AND** so does the tool call's own shell when it re-execs after changing groups

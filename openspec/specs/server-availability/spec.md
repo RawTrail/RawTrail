@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Server availability is the set of invariants that let the Fleet EDR control plane stay up across routine operations (schema upgrades, replica restarts, and rolling binary cutovers) without requiring a maintenance window that takes the EDR offline. It is the server-side half of the v0.1.0 availability commitment: the application tier is stateless and horizontally scalable, a load balancer can drain a replica cleanly, periodic work runs on exactly one replica, first boot is safe under concurrent replica start, and the schema is managed by versioned migrations that a rolling upgrade tolerates.
+Server availability is the set of invariants that let the RawTrail control plane stay up across routine operations (schema upgrades, replica restarts, and rolling binary cutovers) without requiring a maintenance window that takes the EDR offline. It is the server-side half of the v0.1.0 availability commitment: the application tier is stateless and horizontally scalable, a load balancer can drain a replica cleanly, periodic work runs on exactly one replica, first boot is safe under concurrent replica start, and the schema is managed by versioned migrations that a rolling upgrade tolerates.
 
 This spec defines the behavior the deployment topology and the operator runbook depend on. The migration discipline below is load-bearing for the rest: rolling upgrade means two binary versions read and write the same MySQL during a cutover, so the schema corpus and the way it is applied must admit both. The migration decision and its rationale are in [`0009-migrations-via-goose.md`](../../../docs/adr/0009-migrations-via-goose.md); the rolling-upgrade and multi-replica shape is in [`0011-ha-architecture.md`](../../../docs/adr/0011-ha-architecture.md).
 
@@ -419,3 +419,31 @@ Operator documentation SHALL state the requirement for deployments this project 
 - **WHEN** the project's tests run
 - **THEN** any shipped deployment that no longer allows enough time fails the build
 - **AND** the failure names the deployment and every duration it was measured against
+
+### Requirement: Ingest drains and resolves clients like the server
+
+The standalone ingest service SHALL believe a client's `X-Forwarded-For` address only when the peer is a configured trusted proxy, as the server does, and both SHALL record that resolved address as the request span's client address. On SIGTERM the ingest service SHALL report not-ready and keep serving for the configured drain window before closing its listener. It SHALL emit HSTS whenever the client-facing connection is HTTPS.
+
+#### Scenario: A forwarded address is believed only from a trusted proxy
+
+- **GIVEN** an HTTP service configured to trust one proxy network
+- **WHEN** requests carrying `X-Forwarded-For` arrive from a peer inside that network, from a peer outside it, and with no trusted proxies configured
+- **THEN** only the request from the trusted peer is attributed to the forwarded address, and the others to their peer address
+
+#### Scenario: Ingest readiness reports not-ready once draining begins
+
+- **GIVEN** a running ingest service whose readiness probe reports ready
+- **WHEN** it begins draining on SIGTERM
+- **THEN** its readiness probe reports not-ready with HTTP 503
+
+#### Scenario: A span records the resolved client address
+
+- **GIVEN** a request carrying `X-Forwarded-For`
+- **WHEN** its peer is a configured trusted proxy, is not, or no trusted proxies are configured
+- **THEN** the request span's client address is the forwarded address only for the trusted proxy, and the peer address otherwise
+
+#### Scenario: HSTS is emitted behind a TLS-terminating proxy
+
+- **GIVEN** an ingest service configured with a TLS-terminating proxy in front of it
+- **WHEN** it answers a request
+- **THEN** the response carries a `Strict-Transport-Security` header

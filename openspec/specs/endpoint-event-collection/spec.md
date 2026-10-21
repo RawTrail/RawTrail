@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Endpoint event collection is the on-device telemetry source for the Fleet EDR product. It captures the security-relevant operating-system activity that downstream detection rules, the process-tree UI, and incident-response workflows depend on: process lifecycle (exec / fork / exit / open), outbound and inbound network flows attributed to the originating process, and DNS queries with their resolved answers. Without this layer there is no signal: every other component in the system is consuming or relaying what this capability emits.
+Endpoint event collection is the on-device telemetry source for RawTrail. It captures the security-relevant operating-system activity that downstream detection rules, the process-tree UI, and incident-response workflows depend on: process lifecycle (exec / fork / exit / open), outbound and inbound network flows attributed to the originating process, and DNS queries with their resolved answers. Without this layer there is no signal: every other component in the system is consuming or relaying what this capability emits.
 
 The behavior described here is the contract agents and the server depend on. It defines what events appear, what fields each event carries, how events are uniquely identified, and how the host that produced them is identified, so that the ingest path, the storage schema, and the React UI can reason about the wire format without reading device source code.
 
@@ -485,3 +485,248 @@ Without the signature, every judgement made on it fails for any process that pre
 - **GIVEN** a process listed in the startup snapshot whose pid is taken by a different process before its signature is read
 - **WHEN** the extension reads the signature
 - **THEN** the `exec` event carries no `code_signing` rather than the new process's
+
+### Requirement: Agent-scoped file activity
+
+The extension SHALL report file creates, modified closes, renames and deletes by an AI agent's processes as `file_activity` events, and SHALL NOT report them for any other process. An agent subtree SHALL start at an exec of the Claude Code binary, matched by signing identifier, or of a process carrying `CLAUDE_CODE_SESSION_ID`, and SHALL extend to every process it forks, from the fork. Each flush SHALL send at most 64 events.
+
+#### Scenario: An agent process is observed from its exec
+
+- **GIVEN** the extension is running
+- **WHEN** the Claude Code binary execs, or a process carrying `CLAUDE_CODE_SESSION_ID` does
+- **THEN** its later file operations arrive as `file_activity` events naming its `pid` and `pidversion`
+
+#### Scenario: The observed set follows the subtree
+
+- **GIVEN** an observed process
+- **WHEN** it forks, and the child execs at once and writes a file
+- **THEN** the child's write is reported, under the generation its exec created
+- **AND** the child is released when it exits
+
+#### Scenario: A process outside an agent subtree is not observed
+
+- **GIVEN** a process that is neither an agent root nor forked from an observed process
+- **WHEN** it creates, changes, renames or deletes files
+- **THEN** no `file_activity` event names it
+
+#### Scenario: Repeats of one file fold into one row
+
+- **GIVEN** an observed process changes one file several times within a second
+- **WHEN** the window is flushed
+- **THEN** one event carries the file with `coalesced_count` and `last_timestamp_ns`, timestamped at the first change
+
+#### Scenario: A busy window rolls up into directories
+
+- **GIVEN** an observed build creates thousands of files within a second
+- **WHEN** the window is flushed
+- **THEN** at most 64 events are sent, the deepest paths folded into their directories with `rolled_up` set
+- **AND** every operation is counted in an event or, past the top level, logged as dropped
+
+#### Scenario: A terminal is not file activity
+
+- **GIVEN** an observed shell command writes to its terminal
+- **WHEN** it exits and closes the terminal device
+- **THEN** no `file_activity` event names a path under `/dev/`
+
+### Requirement: Agent tool call origin
+
+When a transcript line records a tool call under a `session_id` other than its session's, the agent SHALL send that id as the call's `origin_session_id`. A line whose `session_id` is its session's, or absent, SHALL carry none.
+
+#### Scenario: A copied call names the session it was written under
+
+- **GIVEN** a forked session's transcript, whose copy of its parent's tool call keeps the parent's `session_id`
+- **WHEN** the agent reads the line
+- **THEN** it reports the call under the fork's session with `origin_session_id` naming the parent, and reports the fork's own calls with none
+
+### Requirement: Fork parent from the job
+
+When a session's Claude Code job (`~/.claude/jobs/<first eight characters of the session id>/parent-transcript.jsonl`, written by `/fork` in 2.1.301 and later) names another session, the agent SHALL send it as `forked_from_session_id` on that session's tool calls, read within the user's home as a regular file, bounded, and never for a subagent's transcript.
+
+#### Scenario: A fork's calls name the session its job was forked from
+
+- **GIVEN** a session whose job's parent transcript carries another session's id, and sessions with no job, a job naming the session itself, or a FIFO or a link out of the home in its place
+- **WHEN** the agent reads their transcripts
+- **THEN** only the first session's calls carry `forked_from_session_id`, naming that other session
+
+### Requirement: Agent session markers capture
+
+The `exec` event SHALL carry, in an `env` object, the exec'd process's environment variables whose full name is on the agent session marker allowlist. Names SHALL be matched in full, never by prefix, and no other variable SHALL be sent. A value longer than 256 UTF-8 bytes SHALL be dropped. The `env` key SHALL be omitted when no marker is present.
+
+#### Scenario: An agent-spawned process carries its session
+
+- **GIVEN** the endpoint event capture is running
+- **WHEN** a Claude Code session runs a command
+- **THEN** the command's `exec` events carry `env.CLAUDE_CODE_SESSION_ID`
+- **AND** its value equals the name of the session's transcript file
+
+#### Scenario: A credential never leaves the host
+
+- **GIVEN** a process whose environment holds `CLAUDE_CODE_MESSAGING_TOKEN` beside the session markers
+- **WHEN** it execs
+- **THEN** the `exec` event carries the markers
+- **AND** neither the token's name nor its value appears in the event
+
+#### Scenario: An oversized marker is dropped
+
+- **GIVEN** a process whose environment holds an allowlisted marker longer than 256 UTF-8 bytes
+- **WHEN** it execs
+- **THEN** the `exec` event omits that marker rather than truncating it
+
+#### Scenario: A process without markers keeps its shape
+
+- **GIVEN** a process whose environment holds no allowlisted marker
+- **WHEN** it execs
+- **THEN** the `exec` event has no `env` key
+- **AND** a payload that carries `env` still decodes on a server that does not read it
+
+### Requirement: Agent socket connects
+
+The extension SHALL report each connect by a process in an AI agent's subtree to a Unix-domain socket as a `file_activity` row with operation `connect` and the socket file's path, folded and bounded as the subtree's file operations are. It SHALL NOT report connects by processes outside agent subtrees, and SHALL NOT attribute the daemon's own activity to the session.
+
+#### Scenario: A session's connect to a daemon's socket is reported
+
+- **GIVEN** a process an AI agent started connects to `/var/run/docker.sock` three times within one second
+- **WHEN** the extension folds the window
+- **THEN** it sends one `file_activity` row with operation `connect`, path `/var/run/docker.sock` and `coalesced_count` 3, apart from any other operation on that path
+
+### Requirement: Agent tool call capture
+
+The agent SHALL report each tool call an AI agent records in its session transcript as an `agent_tool_call` event, stamped at the transcript's time, carrying the session id, `tool_use_id`, tool name, a Bash call's command and description, and a file tool's path. It SHALL NOT send prompt text, model output or tool results. A line it cannot read, or naming a session not its transcript's, SHALL be skipped; each call SHALL carry its transcript owner's uid.
+
+#### Scenario: A Bash tool call is reported with its command
+
+- **GIVEN** a Claude Code session on the host
+- **WHEN** the agent runs a Bash command
+- **THEN** an `agent_tool_call` event carries the session id, the call's `tool_use_id`, `Bash`, and the command
+- **AND** a command longer than 8 KiB is cut on a character boundary and marked `truncated`
+
+#### Scenario: Prompts and results never leave the host
+
+- **GIVEN** a transcript holding the user's prompts, the model's text and the tools' results beside its tool calls
+- **WHEN** the agent reads it
+- **THEN** only the tool calls produce events, and none carries a prompt, model text or a tool result
+
+#### Scenario: An unreadable line is skipped, not guessed
+
+- **GIVEN** a transcript line that is not JSON, or a tool call missing its session, id, name or time
+- **WHEN** the agent reads it
+- **THEN** no event is sent for that line and the reading continues with the next
+
+#### Scenario: A forged line cannot stand in for another session's call
+
+- **GIVEN** a user writes into their own transcript a line carrying another session's id and one of its call ids
+- **WHEN** the agent reads it
+- **THEN** no event is sent for that line
+- **AND** a call is stamped with its transcript owner's uid, which its event id is derived from, so another user's line can never take its event id
+
+### Requirement: Exec strings read by token length
+
+The extension SHALL read an exec event's path and each argument by the length of its Endpoint Security string token and never past it. A token holding no bytes, or bytes that are not valid UTF-8, SHALL be reported as the empty string.
+
+#### Scenario: A token is read to its length and no further
+
+- **GIVEN** a string token whose bytes are not followed by a NUL
+- **WHEN** the extension reads it
+- **THEN** it reads exactly the token's length, keeping a NUL inside the token as part of it
+
+#### Scenario: A token that is not UTF-8 reads empty
+
+- **GIVEN** a string token whose bytes are not valid UTF-8
+- **WHEN** the extension reads it
+- **THEN** it reads as the empty string, not as text with replacement characters
+
+### Requirement: Exit and file event process generation
+
+The `exit` event SHALL carry the exiting process's `pidversion`. The `open`, `file_rename`, `file_truncate` and `file_delete` events SHALL carry the acting process's `pidversion`. Each value SHALL equal the `pidversion` of the exec event that started the running image, or of the fork event when the process never exec'd. The field is optional on the wire.
+
+#### Scenario: An exit names the generation that exited
+
+- **GIVEN** the endpoint event capture is running
+- **WHEN** a process execs and later exits
+- **THEN** the `exit` event's `pidversion` equals the `pidversion` on that process's exec event
+
+#### Scenario: A file event names the generation that acted
+
+- **GIVEN** the endpoint event capture is running
+- **WHEN** a process execs and then truncates, deletes, renames or writes a watched file
+- **THEN** the file event's `pidversion` equals the `pidversion` on that process's exec event
+
+#### Scenario: A payload without a generation keeps its shape
+
+- **GIVEN** an exit or file payload built without a `pidversion`
+- **WHEN** it is serialized
+- **THEN** it has no `pidversion` key
+
+### Requirement: Launchd job definitions
+
+On a `launchctl load` or `bootstrap` exec, the agent SHALL send the capped `Label`, `Program` and `ProgramArguments` of each plist it names, or of the `.plist` files directly in a directory it names, at most eight, as `launchd_jobs`. It SHALL read a plist as the user who ran launchctl, without supplementary groups, at most 64 KiB of it, and SHALL hold its event loop at most a bounded time for the read, sending the exec without what it could not read in time.
+
+#### Scenario: A launchctl load carries the jobs it names
+
+- **GIVEN** `launchctl load -w -S Aqua /tmp/a.plist b.plist unreadable.plist` run in `/Users/v/proj`
+- **WHEN** the agent handles the exec
+- **THEN** it carries the definitions of `/tmp/a.plist` and `/Users/v/proj/b.plist`, and none for the plist it could not read
+
+#### Scenario: A plist the user could not read is not read for them
+
+- **GIVEN** a plist mode 0600 owned by one user
+- **WHEN** another user runs `launchctl load` on it, directly or through a symlink
+- **THEN** the agent does not read it, though it reads a world-readable plist for anyone and a user's own plist for its owner
+
+#### Scenario: A blocked plist read does not hold back telemetry
+
+- **GIVEN** a plist read that does not finish, as on a stalled mount or a named pipe held open
+- **WHEN** the agent handles the exec, and another launchctl exec while that read still runs
+- **THEN** the first waits no longer than the bound and the second not at all, both go out without the definitions, and reads run again once the stuck one ends
+
+#### Scenario: What is no plist yields no job
+
+- **GIVEN** a `launchctl load` naming a file over 64 KiB, a missing path, a directory the user cannot list, or an exec whose uid or gid is outside a uid's 32-bit range
+- **WHEN** the agent handles the exec
+- **THEN** it reads no job for that operand, and the exec goes out without one for it
+
+#### Scenario: A directory operand carries the jobs of the plists in it
+
+- **GIVEN** `launchctl load agents` run in a directory whose `agents` holds `a.plist`, `b.plist`, `notes.txt` and a `nested/` subdirectory with a plist
+- **WHEN** the agent handles the exec
+- **THEN** it carries the jobs of `a.plist` and `b.plist`, listed and read as the user, as launchctl itself loads, and none from `notes.txt` or `nested/`
+
+### Requirement: Process lineage identity capture
+
+The `fork` event SHALL carry the forking process's `parent_pidversion`. The `exec` event SHALL carry `original_ppid`, the `parent_pidversion` of the parent its `ppid` names, `responsible_pid`, `responsible_pidversion`, `session_id`, `group_id`, `tty` when the process has a controlling terminal, `start_time_ns`, and the working directory in `cwd`. Each lineage field is optional on the wire and SHALL be omitted when unknown.
+
+#### Scenario: A fork names the generation of its creator
+
+- **GIVEN** the endpoint event capture is running
+- **WHEN** a process forks a child
+- **THEN** the `fork` event carries `parent_pid` and `parent_pidversion` equal to the forking process's own pid and generation
+- **AND** they identify the creator even after the child is reparented to launchd
+
+#### Scenario: A daemonized process still names its creator
+
+- **GIVEN** the endpoint event capture is running
+- **WHEN** a shell starts a command with a double fork and the command execs after its intermediate parent has exited
+- **THEN** the command's `exec` event carries `ppid` 1, because launchd adopted it
+- **AND** it carries the intermediate parent's pid in `original_ppid`
+
+#### Scenario: An exec carries its grouping identity
+
+- **GIVEN** the endpoint event capture is running
+- **WHEN** a process execs
+- **THEN** the `exec` event carries `session_id`, `group_id`, `start_time_ns`, `responsible_pid`, and `responsible_pidversion`
+- **AND** it carries `tty` only when the process has a controlling terminal
+- **AND** `cwd` holds the process's working directory at exec
+
+#### Scenario: A snapshot row carries what the process table knows
+
+- **GIVEN** the extension has started and enumerates the processes already running
+- **WHEN** it emits a synthetic `exec` event for one of them
+- **THEN** the event carries the process's `group_id` and `start_time_ns`
+- **AND** it omits the lineage fields the process table cannot supply
+
+#### Scenario: An event without lineage keeps its shape
+
+- **GIVEN** a payload built without any lineage field
+- **WHEN** it is serialized
+- **THEN** none of the lineage keys appear in it
+- **AND** a payload that carries them still decodes on a server that does not read them

@@ -570,3 +570,200 @@ This read and the match-count read SHALL fail independently. They describe diffe
 - **WHEN** the statistics are presented
 - **THEN** the entry is presented rather than rejected as malformed
 - **AND** the column is not reported as unavailable
+
+### Requirement: Ingested events carry a bounded event type
+
+The system SHALL attribute `edr.events.ingested` with `event_type` in addition to `host_id`. The value SHALL be one of the event types the event schema defines, and any other value SHALL be recorded as `other`, so the attribute's cardinality is fixed whatever an agent sends.
+
+#### Scenario: Ingested events are counted by event type
+
+- **GIVEN** the ingest endpoint accepts a batch holding events of several schema event types for a host
+- **WHEN** the batch is committed
+- **THEN** `edr.events.ingested` is incremented for each event type by the number of events of that type, with `host_id` and `event_type` attributes
+
+#### Scenario: An unknown event type is counted as other
+
+- **GIVEN** the ingest endpoint accepts an event whose type the event schema does not define
+- **WHEN** the batch is committed
+- **THEN** `edr.events.ingested` records it with `event_type` set to `other`
+
+#### Scenario: The bounded set matches the event schema
+
+- **GIVEN** the set of event types the server keeps for the attribute
+- **WHEN** it is compared with the event type enumeration in the event schema
+- **THEN** the two contain the same values
+
+### Requirement: HTTP request spans are named by route template
+
+The system SHALL name each inbound HTTP request span `METHOD /route/template` once the request has matched a route, and `METHOD unmatched` when it matched none, so a span name never carries an identifier or a probed path. The span MAY start under its raw path so the route-tier sampler can classify it at span start. Only one instrument SHALL record `http.server.request.duration`, so each request is counted once.
+
+#### Scenario: A matched request's span carries the route template
+
+- **GIVEN** a route registered as `GET /api/hosts/{host_id}`
+- **WHEN** the server handles `GET /api/hosts/host-abc`
+- **THEN** the request span ends named `GET /api/hosts/{host_id}`
+
+#### Scenario: An unmatched request's span is named unmatched
+
+- **GIVEN** no route matches `/wp-login.php`
+- **WHEN** the server handles `GET /wp-login.php`
+- **THEN** the request span ends named `GET unmatched`
+
+#### Scenario: Request duration is recorded once per request
+
+- **GIVEN** a meter provider is installed
+- **WHEN** the server handles a request
+- **THEN** the HTTP instrumentation layer records no `http.server.request.duration` sample of its own, leaving the access log's routed sample as the only one
+
+### Requirement: The ingest service counts the events it accepts
+
+The standalone ingest service SHALL record `edr.events.ingested` and `edr.ingest.heartbeats_dropped` for every batch it accepts, as the server does. It SHALL NOT report the host-fleet gauges, which describe the whole deployment and are reported by the server.
+
+#### Scenario: Events accepted by the ingest service are counted
+
+- **GIVEN** a standalone ingest service
+- **WHEN** it accepts a batch of events
+- **THEN** `edr.events.ingested` is incremented for the batch under the ingest service's name
+
+#### Scenario: The ingest service reports no host-fleet gauges
+
+- **GIVEN** a standalone ingest service
+- **WHEN** its metrics are collected
+- **THEN** neither `edr.enrolled.hosts` nor `edr.offline.hosts` is among them
+
+### Requirement: Pipeline lag and backlog are measured
+
+The server SHALL record `edr.detection.lag`, a histogram of each event's seconds from the server receiving it to its batch being acknowledged after detection, recorded only by the attempt whose acknowledgement succeeded. `rawtrail-server` SHALL report `edr.events.pending`, the count of events waiting for or in detection, stopping at 1,000,000 so the count stays within the gauge's collection budget.
+
+#### Scenario: Detection lag is recorded per processed event
+
+- **GIVEN** a batch of events the server received five seconds ago
+- **WHEN** the processor evaluates the batch and its acknowledgement succeeds
+- **THEN** one `edr.detection.lag` sample of at least five seconds is recorded per event
+- **AND** a batch that is nacked, whose acknowledgement fails, or whose claim was lost records no sample
+
+#### Scenario: Backlog count saturates at its cap
+
+- **GIVEN** a queue holding more pending events than the count's cap
+- **WHEN** the pending count is read
+- **THEN** it returns the cap rather than counting the whole backlog
+- **AND** below the cap it is exact and includes events claimed but not yet acknowledged
+
+### Requirement: Stalled and slow detection raise shipped alerts
+
+The project SHALL ship an alert rule that fires at critical severity when events stay queued while no detection lag is recorded for 15 minutes, and one that fires at error severity when the 95th percentile of detection lag stays above 5 minutes for 10 minutes.
+
+#### Scenario: A stalled pipeline raises a critical alert
+
+- **GIVEN** the shipped "EDR detection stalled" rule
+- **WHEN** `edr.events.pending` stays above zero while `edr.detection.lag` records nothing for 15 minutes
+- **THEN** the rule fires at critical severity
+- **AND** it does not fire while the backlog is zero, so an idle pipeline does not page
+
+#### Scenario: Slow detection raises an error alert
+
+- **GIVEN** the shipped "EDR detection lag high" rule
+- **WHEN** the 95th percentile of `edr.detection.lag` stays above 300 seconds for 10 minutes
+- **THEN** the rule fires at error severity
+
+### Requirement: Processor shutdown is not logged as an error
+
+The detection processor SHALL log a failed queue, lock or store call at debug level when the failure is a cancellation caused by its own worker context ending, as on server shutdown. Every other failure, including a cancellation while the worker context is still live, SHALL be logged at error level.
+
+#### Scenario: A query cancelled by shutdown is debug-logged
+
+- **GIVEN** a detection worker with a queue query in flight
+- **WHEN** the server stops, cancelling the worker's context and the query fails as cancelled
+- **THEN** the failure is logged at debug level, not error level
+
+#### Scenario: A cancellation while the worker is live stays an error
+
+- **GIVEN** a detection worker whose context is still live
+- **WHEN** a queue query fails as cancelled, as when a lost host lock cancels the locked section
+- **THEN** the failure is logged at error level
+
+#### Scenario: A real failure during shutdown stays an error
+
+- **GIVEN** a detection worker whose context has been cancelled
+- **WHEN** a queue query fails with an error that is not a cancellation
+- **THEN** the failure is logged at error level
+
+### Requirement: Shutdown exports the final gauge values
+
+On a graceful stop, the server SHALL flush its OTel telemetry before it closes its data store connections, so the final collection of every observable gauge can still query the data store.
+
+#### Scenario: The final collection reaches the data store
+
+- **GIVEN** a running server with OTLP export enabled
+- **WHEN** the server stops gracefully
+- **THEN** the OTel flush runs while the data store connections are still open
+- **AND** the data store connections are closed after the flush
+
+### Requirement: Ingest disconnects are not errors
+
+The ingest handler SHALL log a failed store write at info level, and write no response, when the failure is a cancellation caused by the agent's request ending. Every other failed write, including a cancellation while the request is still live, SHALL be logged at error level, and a failed event-archive or work-queue write SHALL be answered with HTTP 5xx.
+
+#### Scenario: A disconnect is info-logged
+
+- **GIVEN** an agent uploading a batch
+- **WHEN** the agent disconnects and a store write fails as cancelled
+- **THEN** the failure is logged at info level, not error level, and no response is written
+
+#### Scenario: A live cancellation stays an error
+
+- **GIVEN** an agent whose upload request is still live
+- **WHEN** an event-archive or work-queue write fails as cancelled
+- **THEN** the failure is logged at error level and the handler responds with HTTP 5xx
+
+#### Scenario: A write failure stays an error
+
+- **GIVEN** an agent uploading a batch
+- **WHEN** an event-archive or work-queue write fails with an error that is not a cancellation
+- **THEN** the failure is logged at error level and the handler responds with HTTP 5xx
+
+### Requirement: Shipped alert rules read emitted metrics
+
+The project SHALL ship its recommended alert rules as importable definitions rather than prose, and every metric a shipped rule reads SHALL be one that the service named in the rule's filter emits. A rule whose metric is renamed, removed, or emitted only by another service evaluates to no data, which reads exactly like a healthy system, so the mismatch MUST fail the build instead.
+
+#### Scenario: A rule reads a metric its service emits
+
+- **GIVEN** a shipped alert rule that reads an `edr.*` metric and filters on a `service.name`
+- **WHEN** the build checks the shipped rules
+- **THEN** the check fails unless that service's own source emits the metric
+
+### Requirement: Metric temporality is selectable per backend
+
+The server SHALL export metrics with the temporality the standard `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` variable selects, defaulting to cumulative, so a deployment reporting to a backend that drops the first cumulative sample (SigNoz, Datadog) can switch to delta. The quickstart compose SHALL forward that variable to the server, and the shipped dashboards SHALL NOT pin a temporality, so they read either kind.
+
+#### Scenario: Compose forwards it and dashboards do not pin it
+
+- **GIVEN** the shipped quickstart compose and dashboards
+- **WHEN** the build checks them
+- **THEN** the compose passes `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` to the server and no dashboard query names a temporality
+
+### Requirement: Background work is traced under a sampled root span
+
+Work that no inbound request starts SHALL be traced under a root span that the sampling policy can classify, so its volume is set by a sampling decision rather than by how many queries and rules it runs. Each attempt to claim and process a host's detection batch SHALL run under one root span that names the host, reports the number of events claimed (zero when the attempt claimed nothing), and is sampled at the high-volume ratio, and the batch's rule-evaluation spans and database spans SHALL be its children. Each periodic sweep pass SHALL run under its own root span at full fidelity. A database query made with no active span SHALL NOT record a span, and connection housekeeping (session reset, statement prepare, row iteration) SHALL NOT be recorded as spans. Database latency metrics SHALL still record every query.
+
+#### Scenario: A detection batch is sampled as one unit
+
+- **GIVEN** the high-volume ratio is 0
+- **WHEN** the processor claims a host batch and evaluates rules on it
+- **THEN** neither the batch span nor any rule-evaluation or database span under it is exported
+
+#### Scenario: A detection batch span names its host
+
+- **GIVEN** a host with pending events
+- **WHEN** the processor claims and evaluates a batch for that host
+- **THEN** the batch root span carries the host id and the number of events claimed, and the detection evaluation runs under it
+
+#### Scenario: A periodic sweep pass is one trace
+
+- **WHEN** a periodic sweep pass runs
+- **THEN** it is recorded as one root span named for the sweep, and a pass that fails records the error on that span
+
+#### Scenario: A query outside any span records no span
+
+- **GIVEN** a database query made with no active span
+- **WHEN** the query runs
+- **THEN** no span is recorded for it, while the same query made under a span records a query span and no housekeeping spans

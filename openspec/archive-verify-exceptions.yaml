@@ -262,9 +262,11 @@
   covered_by: server-identity-authentication/a-user-is-the-row-an-identity-is-the-way-to-authenticate
   reason: Intact; the same "wave 1" to "the current release" rename is the only difference.
 
-- requirement: server-identity-authentication/reauthentication-is-required-for-destructive-actions
-  covered_by: server-identity-authentication/reauthentication-is-required-for-destructive-actions
-  reason: Intact; the same "wave 1" to "the current release" rename is the only difference.
+- requirement: server-admin-surface/att-ck-coverage-layer-endpoint
+  covered_by: server-admin-surface/att-ck-coverage-layer-endpoint
+  reason: >-
+    Intact; the v0.8.0 archive reworded the closing aside from "since Fleet EDR is a macOS-only product" to "since the
+    product runs on macOS only" (rename-to-rawtrail task 4.1), which is the only difference.
 
 - requirement: server-identity-authorization/role-bindings-carry-a-scope-so-future-scoping-is-non-breaking
   covered_by: server-identity-authorization/role-bindings-carry-a-scope-so-future-scoping-is-non-breaking
