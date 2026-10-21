@@ -17,21 +17,21 @@ For production deployments of more than a handful of Macs, use [mdm-deployment.m
 
 ## Step 1: download the pkg
 
-Pick a release from https://github.com/rawtrail/rawtrail/releases and download the `.pkg` to the target Mac. Example for v0.7.0:
+Pick a release from https://github.com/rawtrail/rawtrail/releases and download the `.pkg` to the target Mac. Example for v0.8.0:
 
 ```sh
 cd ~/Downloads
-curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/rawtrail-v0.7.0.pkg
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.8.0/rawtrail-v0.8.0.pkg
 ```
 
 Verify the download against the published SHA256SUMS:
 
 ```sh
-curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/SHA256SUMS
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.8.0/SHA256SUMS
 shasum -a 256 -c SHA256SUMS --ignore-missing
 ```
 
-Expect: `rawtrail-v0.7.0.pkg: OK`.
+Expect: `rawtrail-v0.8.0.pkg: OK`.
 
 ## Step 2: verify the signature
 
@@ -39,17 +39,17 @@ Before you run an installer you didn't build, confirm Gatekeeper trusts it. Thes
 
 ```sh
 # Signed by us + notarized by Apple
-pkgutil --check-signature rawtrail-v0.7.0.pkg
+pkgutil --check-signature rawtrail-v0.8.0.pkg
 # Expect:
 #   Status: signed by a developer certificate issued by Apple for distribution
 #   Notarization: trusted by the Apple notary service
 
 # Stapled ticket embedded (works offline)
-xcrun stapler validate rawtrail-v0.7.0.pkg
+xcrun stapler validate rawtrail-v0.8.0.pkg
 # Expect: "The validate action worked!"
 
 # Gatekeeper's install assessment
-spctl -a -v --type install rawtrail-v0.7.0.pkg
+spctl -a -v --type install rawtrail-v0.8.0.pkg
 # Expect: "accepted / source=Notarized Developer ID"
 ```
 
@@ -59,25 +59,25 @@ If any of these fail, STOP. Don't install. File an issue at https://github.com/r
 
 Releases publish a single Sigstore bundle (`<file>.sigstore.json`) next to every artifact. The bundle carries the signature, the ephemeral signing certificate, and the transparency-log proof in one file, and ties the artifact to the exact GitHub Actions workflow run that produced it, which catches the rare attack where a Developer ID cert is stolen but the attacker can't push to our GitHub repo. Skip this step if you don't have `cosign` installed; the Apple-signature checks above are sufficient for most pilots.
 
-Use the same release tag you downloaded in Step 1 in place of the `v0.7.0` placeholder below, including in the identity regexp, which ties the signature to that release. The bundle and the `.pkg` must come from the same release.
+Use the same release tag you downloaded in Step 1 in place of the `v0.8.0` placeholder below, including in the identity regexp, which ties the signature to that release. The bundle and the `.pkg` must come from the same release.
 
 ```sh
 # Install cosign (v3+) if you don't have it: brew install cosign
-curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.7.0/rawtrail-v0.7.0.pkg.sigstore.json
+curl -fLO https://github.com/rawtrail/rawtrail/releases/download/v0.8.0/rawtrail-v0.8.0.pkg.sigstore.json
 
 cosign verify-blob \
-    --bundle rawtrail-v0.7.0.pkg.sigstore.json \
-    --certificate-identity-regexp '^https://github\.com/RawTrail/RawTrail/\.github/workflows/release\.yml@refs/tags/v0.7.0$' \
+    --bundle rawtrail-v0.8.0.pkg.sigstore.json \
+    --certificate-identity-regexp '^https://github\.com/RawTrail/RawTrail/\.github/workflows/release\.yml@refs/tags/v0.8.0$' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-    rawtrail-v0.7.0.pkg
+    rawtrail-v0.8.0.pkg
 # Expect: "Verified OK"
 ```
 
 The same `<file>.sigstore.json` bundle covers `SHA256SUMS` and all three `.mobileconfig` profiles. To verify the server image instead, pass the same keyless identity and issuer constraints:
 
 ```sh
-cosign verify ghcr.io/rawtrail/rawtrail-server:v0.7.0 \
-    --certificate-identity-regexp '^https://github\.com/RawTrail/RawTrail/\.github/workflows/release\.yml@refs/tags/v0.7.0$' \
+cosign verify ghcr.io/rawtrail/rawtrail-server:v0.8.0 \
+    --certificate-identity-regexp '^https://github\.com/RawTrail/RawTrail/\.github/workflows/release\.yml@refs/tags/v0.8.0$' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
@@ -104,7 +104,7 @@ Replace `https://edr.example.com` with your server URL and `paste-the-enroll-sec
 ## Step 4: install the pkg
 
 ```sh
-sudo installer -pkg ~/Downloads/rawtrail-v0.7.0.pkg -target /
+sudo installer -pkg ~/Downloads/rawtrail-v0.8.0.pkg -target /
 ```
 
 Expect:
@@ -191,7 +191,7 @@ In the admin UI (https://edr.example.com/ui/):
 Download the newer `.pkg` and run `installer -pkg` again. The installer detects the existing receipts and performs an upgrade:
 
 ```sh
-sudo installer -pkg rawtrail-v0.7.0.pkg -target /
+sudo installer -pkg rawtrail-v0.8.0.pkg -target /
 ```
 
 The preinstall script stops the old daemon, the postinstall script starts the new one. The persisted host token at `/var/db/rawtrail/enrolled.plist` survives, so the agent keeps its existing enrollment; no re-approval needed.
