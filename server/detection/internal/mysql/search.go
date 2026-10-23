@@ -136,7 +136,7 @@ func lineageWhere(filter api.ProcessSearchFilter, where []string, args []any) ([
 	}
 	if filter.Ancestor > 0 {
 		where = append(where, descendantsSQL)
-		args = append(args, filter.Ancestor, maxDescendantDepth, filter.Ancestor)
+		args = append(args, descendantsArgs(filter.Ancestor)...)
 	}
 	if filter.Args != "" {
 		// Each argument is matched on its own, so a search finds what one argument holds; JSON_SEARCH compares in the JSON column's
@@ -153,24 +153,47 @@ const maxDescendantDepth = 900
 // descendantsSQL keeps the rows below the ancestor: walking down the creator edges (parent_process_id) and the re-exec chain
 // (previous_exec_id) from it. A re-exec row keeps its prior generation's creator, so it is reached by its re-exec edge only: each row
 // then has one way in, and the walk visits each process once however its generations branch. A descendant inherits its creator's
-// story, so the walk stays inside the ancestor's story, which is indexed; an ancestor whose story was not seen is walked over its host
-// instead. The ancestor itself is not its own descendant. descendantsWhereSQL adds a condition each step must meet, so the walk stops
-// where it fails rather than walking past it; its one %s is that condition on p, the row the step reaches.
-const descendantsWhereSQL = `id IN (
+// story, so the walk stays inside the ancestor's story; an ancestor whose story was not seen is walked over its host instead. The
+// ancestor itself is not its own descendant.
+//
+// Each edge is its own recursive member, joined on its own index: the creator edge on idx_processes_host_parent (migration 00023) and
+// the re-exec edge on idx_processes_previous_exec. One member joining on the OR of the two can use neither index, so MySQL scanned the
+// host's whole table once per level of the walk, which on a host with millions of rows outlasted the request deadline. Each member
+// forces its index: previous_exec_id is NULL on almost every row, and the statistics that sum those NULLs make a lookup look as dear
+// as the scan, so left to itself MySQL scans for the re-exec edge.
+//
+// descendantsWhere adds a condition each step must meet, so the walk stops where it fails rather than walking past it; cond is that
+// condition on p, the row the step reaches. Both members carry it, so its arguments are bound twice: build them with descendantsArgs.
+func descendantsWhere(cond string) string {
+	return `id IN (
 	WITH RECURSIVE below (id, host_id, scope, depth) AS (
 		SELECT id, host_id, story_root_id, 0 FROM processes WHERE id = ?
 		UNION ALL
 		SELECT p.id, p.host_id, below.scope, below.depth + 1
-		FROM below JOIN processes p
-			ON p.host_id = below.host_id AND (below.scope IS NULL OR p.story_root_id = below.scope)
-			AND ((p.parent_process_id = below.id AND p.previous_exec_id IS NULL) OR p.previous_exec_id = below.id) AND %s
-		WHERE below.depth < ?
+		FROM below JOIN processes p FORCE INDEX (idx_processes_host_parent) ON p.host_id = below.host_id AND p.parent_process_id = below.id
+		WHERE p.previous_exec_id IS NULL AND (below.scope IS NULL OR p.story_root_id = below.scope) AND ` + cond + ` AND below.depth < ?
+		UNION ALL
+		SELECT p.id, p.host_id, below.scope, below.depth + 1
+		FROM below JOIN processes p FORCE INDEX (idx_processes_previous_exec) ON p.previous_exec_id = below.id
+		WHERE p.host_id = below.host_id AND (below.scope IS NULL OR p.story_root_id = below.scope) AND ` + cond + ` AND below.depth < ?
 	)
 	SELECT id FROM below WHERE id <> ?
 )`
+}
+
+// descendantsArgs binds descendantsWhere's placeholders in order: the ancestor, then each member's condition arguments and depth
+// bound, then the ancestor again.
+func descendantsArgs(ancestor int64, condArgs ...any) []any {
+	args := []any{ancestor}
+	for range 2 {
+		args = append(args, condArgs...)
+		args = append(args, maxDescendantDepth)
+	}
+	return append(args, ancestor)
+}
 
 // descendantsSQL walks every row below the ancestor.
-var descendantsSQL = fmt.Sprintf(descendantsWhereSQL, "TRUE")
+var descendantsSQL = descendantsWhere("TRUE")
 
 // Signing-class SQL fragments over the code_signing JSON, built once and composed below so no predicate literal repeats. Each uses
 // COALESCE so a missing or partial JSON key (e.g. an empty {} block) takes a definite default rather than NULL (which would make
