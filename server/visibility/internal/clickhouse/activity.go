@@ -5,7 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
@@ -45,18 +48,30 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 	genClause, genArgs := activityScopeSQL(filter)
 	scope := hostPredicate + " AND " + genClause
 	scopeArgs := append([]any{filter.HostID}, genArgs...)
+	if filter.FromNs > 0 {
+		// timestamp_ns follows (host_id, event_type) in the sorting key, so the bound prunes the host's older granules.
+		scope += " AND timestamp_ns >= ?"
+		scopeArgs = append(scopeArgs, filter.FromNs)
+	}
 
-	if err := s.activityTotals(ctx, scope, scopeArgs, &out); err != nil {
-		return api.ActivityRollup{}, err
-	}
-	var err error
-	if out.Files.Rows, out.Files.Truncated, err = s.fileActivity(ctx, scope, scopeArgs, limit); err != nil {
-		return api.ActivityRollup{}, err
-	}
-	if out.Network.Rows, out.Network.Truncated, err = s.networkActivity(ctx, scope, scopeArgs, limit); err != nil {
-		return api.ActivityRollup{}, err
-	}
-	if out.DNS.Rows, out.DNS.Truncated, err = s.dnsActivity(ctx, scope, scopeArgs, limit); err != nil {
+	// The four reads are independent and each writes its own fields of out, so they run at once: the rollup waits for the slowest.
+	// Clipped, so each list read's append of its limit copies the arguments instead of writing into an array the others share.
+	scopeArgs = slices.Clip(scopeArgs)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return s.activityTotals(gctx, scope, scopeArgs, &out) })
+	g.Go(func() (err error) {
+		out.Files.Rows, out.Files.Truncated, err = s.fileActivity(gctx, scope, scopeArgs, limit)
+		return err
+	})
+	g.Go(func() (err error) {
+		out.Network.Rows, out.Network.Truncated, err = s.networkActivity(gctx, scope, scopeArgs, limit)
+		return err
+	})
+	g.Go(func() (err error) {
+		out.DNS.Rows, out.DNS.Truncated, err = s.dnsActivity(gctx, scope, scopeArgs, limit)
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return api.ActivityRollup{}, err
 	}
 	return out, nil

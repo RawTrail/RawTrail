@@ -274,3 +274,50 @@ func TestEventArchive_AgentSpans(t *testing.T) {
 		})
 	}
 }
+
+// spec:server-rest-api/activity-rollup-bounded-to-its-scope-s-start/an-earlier-process-sharing-a-generation-is-not-counted
+//
+// pidversion starts over at each boot, so a process from before a reboot can carry the generation of one in the scope. Each class's
+// totals and list must keep only the events at or after the scope's start, and leave the earlier process's out.
+func TestEventArchive_ActivityFromBound(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	at := func(s int64) int64 { return base + s*int64(time.Second) }
+	gen := `"pid":300,"pidversion":5`
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
+		// The process before the reboot.
+		activityEvent("old-f", "h1", "open", at(1), `{`+gen+`,"path":"/tmp/old","flags":1}`),
+		activityEvent("old-n", "h1", "network_connect", at(2), `{`+gen+`,"protocol":"tcp","direction":"outbound",`+
+			`"remote_address":"9.9.9.9","remote_port":443}`),
+		activityEvent("old-d", "h1", "dns_query", at(3), `{`+gen+`,"query_name":"old.example","query_type":"A"}`),
+		// The scope's process, started at 100s.
+		activityEvent("new-f", "h1", "open", at(101), `{`+gen+`,"path":"/tmp/new","flags":1}`),
+		activityEvent("new-n", "h1", "network_connect", at(102), `{`+gen+`,"protocol":"tcp","direction":"outbound",`+
+			`"remote_address":"1.1.1.1","remote_port":443}`),
+		activityEvent("new-d", "h1", "dns_query", at(103), `{`+gen+`,"query_name":"new.example","query_type":"A"}`),
+	}))
+	scope := []visibilityapi.ProcessGeneration{{PID: 300, PIDVersion: 5}}
+
+	var unbounded visibilityapi.ActivityRollup
+	require.Eventually(t, func() bool {
+		var err error
+		unbounded, err = arch.ActivityForGenerations(ctx, visibilityapi.ActivityFilter{HostID: "h1", Generations: scope})
+		return err == nil && unbounded.DNS.Events == 2
+	}, 5*time.Second, 100*time.Millisecond)
+	assert.Equal(t, int64(2), unbounded.Files.Events, "without a bound the earlier process's events are read too")
+
+	got, err := arch.ActivityForGenerations(ctx, visibilityapi.ActivityFilter{HostID: "h1", Generations: scope, FromNs: at(100)})
+	require.NoError(t, err)
+	one := visibilityapi.ActivityTotals{Events: 1, Distinct: 1}
+	assert.Equal(t, one, got.Files.ActivityTotals)
+	assert.Equal(t, one, got.Network.ActivityTotals)
+	assert.Equal(t, one, got.DNS.ActivityTotals)
+	require.Len(t, got.Files.Rows, 1)
+	assert.Equal(t, "/tmp/new", got.Files.Rows[0].Path)
+	require.Len(t, got.Network.Rows, 1)
+	assert.Equal(t, "1.1.1.1", got.Network.Rows[0].RemoteAddress)
+	require.Len(t, got.DNS.Rows, 1)
+	assert.Equal(t, "new.example", got.DNS.Rows[0].QueryName)
+}

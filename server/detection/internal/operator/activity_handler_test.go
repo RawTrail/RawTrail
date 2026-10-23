@@ -409,3 +409,55 @@ func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
 	assert.Len(t, capped.filter.Generations, maxTimelineChain-1, "the agent's generation is the one the cap made room for")
 	assert.Equal(t, reader.filter.Spans, capped.filter.Spans, "a crowded session still bounds its agent")
 }
+
+// timedNode is a process row with only its times: its fork, its recorded start if any, and whether a snapshot found it.
+func timedNode(forkNs int64, startNs *int64, snapshot bool) api.ProcessNode {
+	var n api.ProcessNode
+	n.ForkTimeNs, n.StartTimeNs, n.IsSnapshot = forkNs, startNs, snapshot
+	return n
+}
+
+// spec:server-rest-api/activity-rollup-bounded-to-its-scope-s-start/an-earlier-process-sharing-a-generation-is-not-counted
+// spec:server-rest-api/activity-rollup-bounded-to-its-scope-s-start/a-scope-whose-start-is-not-known-is-read-unbounded
+func TestScopeStart(t *testing.T) {
+	t.Parallel()
+	start := func(ns int64) *int64 { return &ns }
+	cases := []struct {
+		name  string
+		procs []api.ProcessNode
+		want  int64
+	}{
+		{"earliest fork of the scope", []api.ProcessNode{timedNode(500, nil, false), timedNode(300, nil, false)}, 300},
+		{"a start before its fork wins", []api.ProcessNode{timedNode(500, start(200), false), timedNode(300, nil, false)}, 200},
+		{"a snapshot's recorded start bounds it", []api.ProcessNode{timedNode(900, start(100), true), timedNode(300, nil, false)}, 100},
+		{"a snapshot with no start leaves it unbounded", []api.ProcessNode{timedNode(300, nil, false), timedNode(900, nil, true)}, 0},
+		{"a process with no time leaves it unbounded", []api.ProcessNode{timedNode(300, nil, false), timedNode(0, nil, false)}, 0},
+		{"an empty scope is unbounded", nil, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, scopeStart(tc.procs))
+		})
+	}
+}
+
+// spec:server-rest-api/activity-rollup-bounded-to-its-scope-s-start/an-earlier-process-sharing-a-generation-is-not-counted
+func TestActivityHandler_ReadsFromTheScopeStart(t *testing.T) {
+	t.Parallel()
+	chain := activityChain()
+	pinned := &chain.Roots[0].Children[0]
+	pinned.ForkTimeNs = 2000
+	pinned.Children[0].ForkTimeNs = 3000
+	pinned.Children[1].ForkTimeNs = 1000 // no generation, so not read, and not what bounds the read
+	chain.Roots[0].ForkTimeNs = 500      // the ancestor, outside the subtree
+	readChain := func(context.Context, string, api.TimeRange, int64, bool) (api.ProcessTreeResult, error) {
+		return chain, nil
+	}
+	reader := &fakeActivityReader{}
+	status, _ := getActivity(t, newActivityServer(t, fakeService{buildChainTree: readChain}, reader, allowAllAuthZ{}),
+		"scope=subtree&process=2")
+	require.Equal(t, http.StatusOK, status)
+	require.NotNil(t, reader.filter)
+	assert.Equal(t, int64(2000), reader.filter.FromNs, "the earliest fork among the processes the rollup reads")
+}
