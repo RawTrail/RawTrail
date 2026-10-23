@@ -58,6 +58,29 @@
     font-family: ui-monospace, sfmono-regular, Menlo, monospace;
   }
 
+  // A file path is capped so one long path cannot stretch the table past the panel. The block runs right to left so the ellipsis
+  // falls at the path's start and its file name stays in view; the <bdi> inside keeps the path itself in its own order.
+  &__path {
+    direction: rtl;
+    display: inline-block;
+    max-width: 36rem;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+    white-space: nowrap;
+
+    bdi {
+      direction: ltr;
+      unicode-bidi: isolate;
+    }
+
+    // Each of a rename's two paths, so the row fits the same cap.
+    &--half {
+      max-width: 18rem;
+    }
+  }
+
   &__hostname {
     color: $ui-black-50;
   }

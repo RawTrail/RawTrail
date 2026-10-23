@@ -89,9 +89,36 @@ describe("ActivityTabs", () => {
     vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Files 2" }));
-    expect(screen.getByText("/tmp/a → /tmp/b")).toBeVisible();
+    const renameRow = screen.getByText("rename").closest("tr");
+    expect(renameRow).not.toBeNull();
+    expect(within(renameRow as HTMLElement).getAllByRole("cell")[1]).toHaveTextContent("/tmp/a → /tmp/b");
     expect(screen.getByText("rename")).toBeVisible();
     expect(screen.getByText("open")).toBeVisible();
+  });
+
+  // spec:web-ui/activity-table-cells-stay-on-one-line/a-long-path-is-cut-at-its-start-and-shown-whole-on-hover
+  it("caps a long path and a rename's two paths, each with the whole path as its tooltip", async () => {
+    const dir = "/Users/victor/.claude/plugins/cache/goland-claude-marketplace/modern-go-guidelines/1.0.0/.in_use";
+    const files = {
+      events: 2, distinct: 2, truncated: false,
+      rows: [
+        { pid: 21989, pidversion: 38549, count: 1, first_ns: S, last_ns: S, operation: "create" as const, path: `${dir}/21989.tmp.c22cddba` },
+        { pid: 21989, pidversion: 38549, count: 1, first_ns: 2 * S, last_ns: 2 * S, operation: "rename" as const,
+          path: `${dir}/21989`, source_path: `${dir}/21989.tmp.c22cddba` },
+      ],
+    };
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Files 2" }));
+    const [create, rename] = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1]);
+    const capped = (cell: HTMLElement) => Array.from(cell.querySelectorAll(".activity-tabs__path"), (p) => [p.className, p.getAttribute("title")]);
+    expect(capped(create)).toEqual([["activity-tabs__path", `${dir}/21989.tmp.c22cddba`]]);
+    expect(capped(rename)).toEqual([
+      ["activity-tabs__path activity-tabs__path--half", `${dir}/21989.tmp.c22cddba`],
+      ["activity-tabs__path activity-tabs__path--half", `${dir}/21989`],
+    ]);
+    // The text is still the whole path, so copying a row or searching the page finds it.
+    expect(rename).toHaveTextContent(`${dir}/21989.tmp.c22cddba → ${dir}/21989`);
   });
 
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
