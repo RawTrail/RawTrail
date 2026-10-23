@@ -131,12 +131,18 @@ test.describe("agent sessions", () => {
     await page.getByRole("group", { name: "Process activity" }).getByRole("button", { name: /^Files/ }).click();
     const panelRow = page.locator(".process-detail__activity .activity-tabs__panel").getByRole("row").nth(1);
     await expect(panelRow).toContainText("/Users/dev/project/.git/index");
-    // The lines the path's text sits on, by the distinct tops of its rendered boxes: cells share their row's height, so a cell's own
-    // box cannot tell one line from several.
+    // The lines the path's text sits on, by the distinct tops of its text's rendered boxes: cells share their row's height, so a cell's
+    // own box cannot tell one line from several. Only text nodes are measured, since the capped path's inline-block wrapper has a box
+    // of its own whose top is not a line of text.
     const pathLines = await panelRow.locator("td").nth(1).evaluate((cell) => {
-      const range = document.createRange();
-      range.selectNodeContents(cell);
-      return new Set(Array.from(range.getClientRects(), (r) => Math.round(r.top))).size;
+      const tops = new Set<number>();
+      const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of Array.from(range.getClientRects())) tops.add(Math.round(rect.top));
+      }
+      return tops.size;
     });
     expect(pathLines).toBe(1);
   });

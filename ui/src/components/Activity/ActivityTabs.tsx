@@ -155,6 +155,17 @@ function DaemonName({ path }: { readonly path: string }) {
   return name ? <span className="activity-tabs__daemon" title={DAEMON_TITLE}>{name}</span> : null;
 }
 
+// TruncatedPath shows a path on one line within the path column's cap. It is cut at its start, so the file name, the part an operator
+// reads for, stays in view, and the whole path is its tooltip. A long path otherwise stretched the table past the panel, with nothing
+// to say it scrolled. A rename's two paths each take half the cap, so the row stays one line and both file names show.
+function TruncatedPath({ path, half = false }: { readonly path: string; readonly half?: boolean }) {
+  return (
+    <span className={half ? "activity-tabs__path activity-tabs__path--half" : "activity-tabs__path"} title={path}>
+      <bdi>{path}</bdi>
+    </span>
+  );
+}
+
 function FilesPanel({ activity, processName }: PanelProps) {
   const { files } = activity;
   const text = `${plural(files.events, "file event", "file events")} on ${plural(files.distinct, "path", "paths")}`;
@@ -169,7 +180,13 @@ function FilesPanel({ activity, processName }: PanelProps) {
               <tr key={`${r.operation}|${r.path}|${r.source_path ?? ""}|${r.rolled_up ? "dir" : ""}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td>{OPERATION_LABELS[r.operation] ?? r.operation}</td>
                 <td className="activity-tabs__mono">
-                  {r.source_path ? `${r.source_path} → ${r.path}` : r.path}
+                  {r.source_path ? (
+                    <>
+                      <TruncatedPath path={r.source_path} half /> → <TruncatedPath path={r.path} half />
+                    </>
+                  ) : (
+                    <TruncatedPath path={r.path} />
+                  )}
                   {r.rolled_up && <span className="activity-tabs__rollup" title={ROLLED_UP_TITLE}>/ and below</span>}
                   {r.operation === "connect" && <DaemonName path={r.path} />}
                 </td>
