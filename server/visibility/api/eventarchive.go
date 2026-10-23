@@ -221,7 +221,11 @@ type ActivityFilter struct {
 	// Spans are generations whose events count only inside a span of time (issue #1319): an AI agent process that served several
 	// sessions belongs to each only while it served it. A generation is listed in Generations or in Spans, not both.
 	Spans []GenerationSpan
-	Limit int
+	// FromNs, when positive, keeps only events at or after it: the earliest start of the scope's processes. No process of the scope
+	// can have an event before it, so the read skips the host's older history, and an older process that shared a generation, as one
+	// before a reboot can, is not counted.
+	FromNs int64
+	Limit  int
 }
 
 // GenerationSpan is a process generation and the span its events are counted in: from FromNs, up to but excluding ToNs, zero ToNs

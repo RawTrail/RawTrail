@@ -96,6 +96,7 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	filter.FromNs = scopeStart(matched)
 	// A scope with no generation to match is answered with nothing, not with the host's whole activity: the totals would claim the
 	// scope touched what other processes did.
 	rollup, err := h.activity.ActivityForGenerations(ctx, filter)
@@ -109,6 +110,31 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 		processes = append(processes, activityProcess{ID: n.ID, PID: n.PID, PIDVersion: *n.PIDVersion, Path: n.Path})
 	}
 	h.writeJSON(w, r, activityResponse{ActivityRollup: rollup, Scope: *scope, Processes: processes})
+}
+
+// scopeStart is the earliest moment a process of the scope can have an event: the earliest of each one's start and fork. The rollup
+// reads from it, which skips the host's older history and leaves out an older process that shared a generation, as one from before a
+// reboot can. A snapshot row's fork is when the agent first saw it, so a snapshot with no recorded start, or a process with no time
+// at all, leaves the read unbounded (zero) rather than cut short.
+func scopeStart(processes []api.ProcessNode) int64 {
+	from := int64(math.MaxInt64)
+	for _, p := range processes {
+		start := p.ForkTimeNs
+		switch {
+		case p.StartTimeNs != nil:
+			start = min(start, *p.StartTimeNs)
+		case p.IsSnapshot:
+			return 0
+		}
+		if start <= 0 {
+			return 0
+		}
+		from = min(from, start)
+	}
+	if from == math.MaxInt64 {
+		return 0
+	}
+	return from
 }
 
 // activityScopeProcesses reads the scope's processes. A process alone is read by its row id. Its subtree is read from the chain
