@@ -149,18 +149,19 @@ function Seen({ row }: { readonly row: ActivityRow }) {
   );
 }
 
-// DaemonName names the daemon behind a socket a connect row reached (issue #1355), when the path is a well-known one.
+// DaemonName names the daemon behind a socket a connect row reached (issue #1355), when the path is a well-known one. It is a tag,
+// which keeps its width while the path beside it shortens, so the cell stays within its cap.
 function DaemonName({ path }: { readonly path: string }) {
   const name = socketDaemon(path);
   return name ? <span className="activity-tabs__daemon" title={DAEMON_TITLE}>{name}</span> : null;
 }
 
-// TruncatedPath shows a path on one line within the path column's cap. It is cut at its start, so the file name, the part an operator
-// reads for, stays in view, and the whole path is its tooltip. A long path otherwise stretched the table past the panel, with nothing
-// to say it scrolled. A rename's two paths each take half the cap, so the row stays one line and both file names show.
-function TruncatedPath({ path, half = false }: { readonly path: string; readonly half?: boolean }) {
+// TruncatedPath shows a path on one line, giving up width to whatever else its row's capped cell holds. It is cut at its start, so the
+// file name, the part an operator reads for, stays in view, and the whole path is its tooltip. A long path otherwise stretched the
+// table past the panel, with nothing to say it scrolled.
+function TruncatedPath({ path }: { readonly path: string }) {
   return (
-    <span className={half ? "activity-tabs__path activity-tabs__path--half" : "activity-tabs__path"} title={path}>
+    <span className="activity-tabs__path" title={path}>
       <bdi>{path}</bdi>
     </span>
   );
@@ -180,15 +181,20 @@ function FilesPanel({ activity, processName }: PanelProps) {
               <tr key={`${r.operation}|${r.path}|${r.source_path ?? ""}|${r.rolled_up ? "dir" : ""}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td>{OPERATION_LABELS[r.operation] ?? r.operation}</td>
                 <td className="activity-tabs__mono">
-                  {r.source_path ? (
-                    <>
-                      <TruncatedPath path={r.source_path} half /> → <TruncatedPath path={r.path} half />
-                    </>
-                  ) : (
-                    <TruncatedPath path={r.path} />
-                  )}
-                  {r.rolled_up && <span className="activity-tabs__rollup" title={ROLLED_UP_TITLE}>/ and below</span>}
-                  {r.operation === "connect" && <DaemonName path={r.path} />}
+                  <span className="activity-tabs__file">
+                    {r.source_path ? (
+                      <>
+                        <TruncatedPath path={r.source_path} />{" "}
+                        <span className="activity-tabs__arrow">→</span>{" "}
+                        <TruncatedPath path={r.path} />
+                      </>
+                    ) : (
+                      <TruncatedPath path={r.path} />
+                    )}
+                    {r.rolled_up && <span className="activity-tabs__rollup" title={ROLLED_UP_TITLE}>/ and below</span>}
+                    {/* A space a copy keeps; the gap alone would run the path into the daemon's name. */}
+                    {r.operation === "connect" && <>{" "}<DaemonName path={r.path} /></>}
+                  </span>
                 </td>
                 <td>{processName(r)}</td>
                 <Seen row={r} />

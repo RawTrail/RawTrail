@@ -58,26 +58,35 @@
     font-family: ui-monospace, sfmono-regular, Menlo, monospace;
   }
 
-  // A file path is capped so one long path cannot stretch the table past the panel. The block runs right to left so the ellipsis
-  // falls at the path's start and its file name stays in view; the <bdi> inside keeps the path itself in its own order.
+  // A file row's cell: its path (or a rename's two), and the tags some rows carry, on one line capped so one long path cannot stretch the
+  // table past the panel. The paths shrink to make room; the tags and the arrow keep their width.
+  &__file {
+    align-items: baseline;
+    display: inline-flex;
+    gap: 0.5rem;
+    max-width: 36rem;
+    vertical-align: bottom;
+  }
+
+  &__arrow,
+  &__rollup,
+  &__daemon {
+    flex: none;
+  }
+
+  // A path, cut at its start: the block runs right to left so the ellipsis falls at the path's start and its file name stays in view,
+  // and the <bdi> inside keeps the path itself in its own order.
   &__path {
     direction: rtl;
-    display: inline-block;
-    max-width: 36rem;
+    min-width: 0;
     overflow: hidden;
     text-align: left;
     text-overflow: ellipsis;
-    vertical-align: bottom;
     white-space: nowrap;
 
     bdi {
       direction: ltr;
       unicode-bidi: isolate;
-    }
-
-    // Each of a rename's two paths, so the row fits the same cap.
-    &--half {
-      max-width: 18rem;
     }
   }
 
@@ -90,11 +99,16 @@
     font-family: inherit;
   }
 
-  // The daemon behind a socket a connect row reached (issue #1355), set apart from the path it names.
+  // The daemon behind a socket a connect row reached (issue #1355): a tag beside the path it names.
   &__daemon {
-    margin-left: 0.5rem;
+    background: $ui-black-5;
+    border: 1px solid $ui-black-10;
+    border-radius: 999px;
+    color: $ui-black-75;
     font-family: inherit;
+    font-size: 0.8em;
     font-weight: 600;
+    padding: 0 0.45rem;
   }
 
   &__process {
