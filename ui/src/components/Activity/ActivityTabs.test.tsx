@@ -97,28 +97,35 @@ describe("ActivityTabs", () => {
   });
 
   // spec:web-ui/activity-table-cells-stay-on-one-line/a-long-path-is-cut-at-its-start-and-shown-whole-on-hover
-  it("caps a long path and a rename's two paths, each with the whole path as its tooltip", async () => {
+  it("caps a file row's cell, with each path and its daemon tag inside the cap and each path's whole value as its tooltip", async () => {
     const dir = "/Users/victor/.claude/plugins/cache/goland-claude-marketplace/modern-go-guidelines/1.0.0/.in_use";
+    const sock = "/Users/victor/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock";
     const files = {
-      events: 2, distinct: 2, truncated: false,
+      events: 3, distinct: 3, truncated: false,
       rows: [
         { pid: 21989, pidversion: 38549, count: 1, first_ns: S, last_ns: S, operation: "create" as const, path: `${dir}/21989.tmp.c22cddba` },
         { pid: 21989, pidversion: 38549, count: 1, first_ns: 2 * S, last_ns: 2 * S, operation: "rename" as const,
           path: `${dir}/21989`, source_path: `${dir}/21989.tmp.c22cddba` },
+        { pid: 21989, pidversion: 38549, count: 1, first_ns: 3 * S, last_ns: 3 * S, operation: "connect" as const, path: sock },
       ],
     };
     vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Files 2" }));
-    const [create, rename] = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1]);
-    const capped = (cell: HTMLElement) => Array.from(cell.querySelectorAll(".activity-tabs__path"), (p) => [p.className, p.getAttribute("title")]);
-    expect(capped(create)).toEqual([["activity-tabs__path", `${dir}/21989.tmp.c22cddba`]]);
-    expect(capped(rename)).toEqual([
-      ["activity-tabs__path activity-tabs__path--half", `${dir}/21989.tmp.c22cddba`],
-      ["activity-tabs__path activity-tabs__path--half", `${dir}/21989`],
-    ]);
-    // The text is still the whole path, so copying a row or searching the page finds it.
+    fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
+    const [create, rename, connect] = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1]);
+    // Everything a cell shows sits in its one capped row, so a tag cannot widen the cell past the cap.
+    for (const cell of [create, rename, connect]) {
+      expect(cell.children).toHaveLength(1);
+      expect(cell.firstElementChild).toHaveClass("activity-tabs__file");
+    }
+    const tooltips = (cell: HTMLElement) => Array.from(cell.querySelectorAll(".activity-tabs__path"), (p) => p.getAttribute("title"));
+    expect(tooltips(create)).toEqual([`${dir}/21989.tmp.c22cddba`]);
+    expect(tooltips(rename)).toEqual([`${dir}/21989.tmp.c22cddba`, `${dir}/21989`]);
+    expect(tooltips(connect)).toEqual([sock]);
+    expect(within(connect).getByText("1Password SSH agent")).toHaveClass("activity-tabs__daemon");
+    // A copy of a cell keeps the whole path and spaces between its parts.
     expect(rename).toHaveTextContent(`${dir}/21989.tmp.c22cddba → ${dir}/21989`);
+    expect(connect).toHaveTextContent(`${sock} 1Password SSH agent`);
   });
 
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
