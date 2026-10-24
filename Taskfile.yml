@@ -599,6 +599,9 @@ tasks:
     cmds:
       - npm run test:coverage
       - '[ -f coverage/lcov.info ] || { mkdir -p coverage && : > coverage/lcov.info; }'
+      # vitest records no line hit for a function's declaration line, so SonarCloud took the E2E report's zero for it; give each the
+      # function's own call count (scripts/lcov-declaration-lines.awk).
+      - awk -f ../scripts/lcov-declaration-lines.awk coverage/lcov.info > coverage/lcov.info.tmp && mv coverage/lcov.info.tmp coverage/lcov.info
 
   # -------- lint --------
 
