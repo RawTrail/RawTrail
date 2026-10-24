@@ -1480,7 +1480,7 @@ The process graph SHALL tell the operator when the window it shows starts before
 
 ### Requirement: Activity table cells stay on one line
 
-Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line. A file path SHALL be capped in width and cut at its start, so its file name stays in view, with the whole path as its tooltip; a rename's two paths SHALL each be capped. When the table is still wider than its frame, the frame SHALL scroll sideways rather than wrap the value.
+Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line. A file row's cell SHALL be capped in width: its path, or a rename's two, SHALL be cut at its start, so its file name stays in view, with the whole path as its tooltip, and a tag beside it, such as a socket's daemon, SHALL keep its width. When the table is still wider than its frame, the frame SHALL scroll sideways rather than wrap the value.
 
 #### Scenario: A file path in the process detail panel reads whole
 
@@ -1490,10 +1490,10 @@ Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one
 
 #### Scenario: A long path is cut at its start and shown whole on hover
 
-- **GIVEN** a file row whose path is longer than the cap, and a rename between two such paths
+- **GIVEN** a file row whose path is longer than the cap, a rename between two such paths, and a connect to a well-known daemon's socket
 - **WHEN** the Files tab lists them
-- **THEN** each path is capped, the rename's two at half the cap each, and each carries its whole path as its tooltip
-- **AND** the cell's text is still the whole path, a rename's as its source, an arrow and its destination
+- **THEN** each cell holds its paths, the rename's arrow and the daemon's tag in one capped row, and each path carries its whole path as its tooltip
+- **AND** a copy of the cell keeps the whole paths with a space between its parts
 
 ### Requirement: Activity tabs
 
