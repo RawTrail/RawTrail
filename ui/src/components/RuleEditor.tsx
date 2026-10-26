@@ -12,8 +12,10 @@ import {
   ruleDocumentStem,
   type RuleContentCheckResult,
 } from "../api";
+import { useReauthDraft } from "../hooks/useReauthDraft";
 import { useReauthRetry } from "../hooks/useReauthRetry";
 import { ReasonModal } from "./DetectionConfig/ReasonModal";
+import { ReauthDraftNotice } from "./ReauthDraftNotice";
 import { ReauthModal } from "./ReauthModal";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
@@ -30,6 +32,19 @@ const authoredDirectory = "authored";
 // loader is the authority and refuses anything else with its own reason.
 const identifierPattern = /^[A-Za-z0-9_-]{1,255}$/;
 
+
+// RuleEditorUnsaved is the editor's unsaved work, as it is kept across a reauthentication.
+interface RuleEditorUnsaved {
+  readonly identifier: string;
+  readonly content: string;
+}
+
+// parseRuleEditorUnsaved accepts only a payload of this editor's own shape, since storage can hold whatever was written under the key.
+function parseRuleEditorUnsaved(raw: unknown): RuleEditorUnsaved | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { identifier, content } = raw as Record<string, unknown>;
+  return typeof identifier === "string" && typeof content === "string" ? { identifier, content } : undefined;
+}
 
 type LoadState =
   | { kind: "loading" }
@@ -59,12 +74,22 @@ function RuleEditorPage({ ruleId }: { readonly ruleId: string | undefined }) {
 
   const [identifier, setIdentifier] = useState("");
   const [content, setContent] = useState(isNew ? seedTechnique(NEW_RULE_TEMPLATE, searchParams.get("technique")) : "");
+  // The document as it was offered, to tell an edit from a page nobody has touched: the template for a new rule, what was loaded for
+  // an existing one.
+  const [baseline, setBaseline] = useState(content);
   const [load, setLoad] = useState<LoadState>(isNew ? { kind: "ready", path: "" } : { kind: "loading" });
   const [check, setCheck] = useState<RuleContentCheckResult | null>(null);
   const [checking, setChecking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reasonOpen, setReasonOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // What has been typed and not saved. A reauthentication through the identity provider leaves the page, so this is kept across it and
+  // put back on return; saving is not replayed, the operator reviews it and saves again (issue #1113). Keyed by the rule, so work on
+  // one is not put into another.
+  const unsaved: RuleEditorUnsaved | null =
+    load.kind === "ready" && (content !== baseline || (isNew && identifier !== "")) ? { identifier, content } : null;
+  const { restored, consume } = useReauthDraft<RuleEditorUnsaved>(`rule-editor:${ruleId ?? "new"}`, unsaved, parseRuleEditorUnsaved);
+  const [restoredApplied, setRestoredApplied] = useState(false);
   // draft counts edits to what a check is about. A check answers for the draft it was started on, so a response that arrives after a
   // further edit is discarded rather than arming Save for content the server never saw.
   const draft = useRef(0);
@@ -85,6 +110,7 @@ function RuleEditorPage({ ruleId }: { readonly ruleId: string | undefined }) {
         if (cancelled) return;
         if (next.kind === "ready") {
           setContent(next.text);
+          setBaseline(next.text);
           setLoad({ kind: "ready", path: next.path });
         } else {
           setLoad(next);
@@ -99,6 +125,17 @@ function RuleEditorPage({ ruleId }: { readonly ruleId: string | undefined }) {
   const path = isNew ? `${authoredDirectory}/${identifier}.yml` : load.kind === "ready" ? load.path : "";
   const leaveTo = isNew ? "/rules" : `/rules/${encodeURIComponent(ruleId)}`;
   const identifierValid = !isNew || identifierPattern.test(identifier);
+
+  // The work saved before the last reauthentication, put back once the document it belongs to has loaded, since the load would
+  // otherwise write over it. Adjusting state while rendering, guarded so it happens once, rather than in an effect.
+  if (!restoredApplied && restored !== undefined && load.kind === "ready") {
+    setRestoredApplied(true);
+    setContent(restored.content);
+    if (isNew) setIdentifier(restored.identifier);
+  }
+  useEffect(() => {
+    if (restoredApplied) consume();
+  }, [restoredApplied, consume]);
 
   // Any edit invalidates the last check: a verdict about different content must not sit beside this content looking current.
   const invalidateCheck = () => {
@@ -165,6 +202,7 @@ function RuleEditorPage({ ruleId }: { readonly ruleId: string | undefined }) {
     <>
       <PageHeader title={isNew ? "New rule" : "Edit rule"} subtitle={isNew ? undefined : <code>{ruleId}</code>} />
       <div className="rule-editor">
+        {restoredApplied && <ReauthDraftNotice />}
         {isNew && (
           <>
             {/* Stated at the point of creation, because a rule that alerts nothing looks broken to someone not told why. */}

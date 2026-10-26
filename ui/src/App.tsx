@@ -25,6 +25,7 @@ import { BreakGlassSetup } from "./components/BreakGlassSetup";
 import { BreakGlassLogin } from "./components/BreakGlassLogin";
 import { TopNav } from "./components/ui/TopNav";
 import { firstPermittedRoute } from "./components/ui/nav-links";
+import { setReauthDraftUser } from "./reauthDraft";
 import { currentSession, logout, Unauthorized401Error, SessionInfo, setForbiddenHandler, setUnauthorizedHandler } from "./api";
 import { PermissionsProvider, RequirePermission } from "./permissions";
 import { PermissionAction, useCan } from "./permissions-core";
@@ -81,6 +82,8 @@ export function AuthedApp() {
       try {
         const info = await currentSession();
         if (controller.signal.aborted) return;
+        // Before the state that renders the pages, so a page that restores unsaved work on mount already knows whose it is.
+        setReauthDraftUser(info.user.id);
         setAuth({
           status: "authed",
           user: info.user,
@@ -97,6 +100,7 @@ export function AuthedApp() {
           // eslint-disable-next-line no-console
           console.warn("session probe failed", err);
         }
+        setReauthDraftUser(null);
         setAuth({ status: "anon" });
       }
     })();

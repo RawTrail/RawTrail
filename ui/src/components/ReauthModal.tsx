@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import { BreakglassError, reauthBreakglass, reauthOIDC } from "../auth";
+import { hasUnsavedWork, persistReauthDrafts } from "../reauthDraft";
 import type { ReauthModalProps } from "../hooks/useReauthRetry";
 import "./Login.scss";
 
@@ -114,6 +115,11 @@ interface OIDCReauthFlowProps {
 
 function OIDCReauthFlow({ reauthURL, resolve }: Readonly<OIDCReauthFlowProps>) {
   const [navigating, setNavigating] = useState(false);
+  // Whether the page holds unsaved work, read once as the dialog opens: the dialog is modal, so nothing can change it while it is up.
+  const [unsaved] = useState(hasUnsavedWork);
+  // Set when the page's unsaved work could not be kept (storage refused it). The first click then says so rather than leaving the
+  // page, and a second click, now an informed one, goes ahead.
+  const [cannotKeep, setCannotKeep] = useState(false);
   return (
     <>
       <div className="login-card__header">
@@ -122,12 +128,29 @@ function OIDCReauthFlow({ reauthURL, resolve }: Readonly<OIDCReauthFlowProps>) {
           This action requires a fresh sign-in. Continue to your identity
           provider to confirm, then re-run the action.
         </p>
+        {unsaved && !cannotKeep && (
+          <p className="login-card__subtitle">
+            Your unsaved changes on this page are kept and put back when you return. Signing in does not save them or re-run the
+            action: review them, then save again.
+          </p>
+        )}
+        {cannotKeep && (
+          <p className="login-card__subtitle" role="alert">
+            Your unsaved changes on this page could not be kept, and will be lost if you continue. Cancel to copy them somewhere first.
+          </p>
+        )}
       </div>
       <Button
         type="button"
         fullWidth
         isLoading={navigating}
         onClick={() => {
+          // Before the page is left: everything the page holds in memory goes with it. Persisted for every surface that registered
+          // work, and never run again on return (issue #1113).
+          if (unsaved && !cannotKeep && !persistReauthDrafts()) {
+            setCannotKeep(true);
+            return;
+          }
           setNavigating(true);
           // reauthOIDC navigates the page away; control doesn't
           // return here in any meaningful sense. The setNavigating
@@ -136,7 +159,7 @@ function OIDCReauthFlow({ reauthURL, resolve }: Readonly<OIDCReauthFlowProps>) {
           reauthOIDC(reauthURL);
         }}
       >
-        Continue with single sign-on
+        {cannotKeep ? "Continue anyway" : "Continue with single sign-on"}
       </Button>
       <Button type="button" variant="text-link" onClick={() => { resolve(false); }}>
         Cancel

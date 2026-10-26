@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ReachableAddresses } from "./ReachableAddresses";
 import { PermissionsProvider } from "../../permissions";
 import { PermissionAction } from "../../permissions-core";
 import * as api from "../../api";
+import { persistReauthDrafts, readReauthDraft, setReauthDraftUser } from "../../reauthDraft";
 import type { ContainmentState, ReachableAddress, ReachableSet } from "../../types";
 
 const makeSet = (over: Partial<ReachableSet> = {}): ReachableSet => ({
@@ -31,6 +32,7 @@ const makeState = (over: Partial<ContainmentState> = {}): ContainmentState =>
 
 // jsdom doesn't implement HTMLDialogElement.showModal/close; stub them so the reason modal renders.
 beforeEach(() => {
+  setReauthDraftUser(1);
   HTMLDialogElement.prototype.showModal = function showModal() {
     this.open = true;
   };
@@ -41,6 +43,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  sessionStorage.clear();
+  setReauthDraftUser(null);
 });
 
 async function renderLoaded(
@@ -309,5 +313,110 @@ describe("ReachableAddresses", () => {
     );
 
     expect(await screen.findByText(/Reachable destinations could not be loaded: service unavailable/)).toBeVisible();
+  });
+});
+
+// An OIDC reauthentication leaves the page, so the edited list and the destination being typed are kept across it and put back, and the
+// save that needed the sign-in is not run again (issue #1113).
+describe("ReachableAddresses across a reauthentication", () => {
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("puts back the edited list and the destination being typed, says so, and saves nothing", async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Remove 198.51.100.7/32" }));
+    fireEvent.change(screen.getByLabelText("Destination"), { target: { value: "192.0.2.10/32" } });
+    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "8443" } });
+    // What the reauthentication dialog does as the page is about to be left.
+    expect(persistReauthDrafts()).toBe(true);
+    cleanup();
+
+    const replace = vi.spyOn(api, "replaceReachableAddresses");
+    await renderLoaded();
+
+    expect(await screen.findByText(/Your unsaved changes were kept while you signed in again/)).toBeVisible();
+    expect(rows()).toEqual([expect.stringContaining("203.0.113.0/24")]);
+    expect(screen.getByLabelText("Destination")).toHaveValue("192.0.2.10/32");
+    expect(screen.getByLabelText("Port")).toHaveValue("8443");
+    expect(screen.getByRole("button", { name: "Save and push to hosts" })).toBeEnabled();
+    expect(replace).not.toHaveBeenCalled();
+    // Consumed: a reload after this starts clean rather than restoring it again.
+    expect(readReauthDraft("reachable-addresses")).toBeUndefined();
+  });
+
+  it("restores nothing, and says nothing, when no work was saved", async () => {
+    await renderLoaded();
+
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(rows()).toHaveLength(2);
+  });
+
+  it("keeps nothing when the page was clean", async () => {
+    await renderLoaded();
+    persistReauthDrafts();
+    expect(readReauthDraft("reachable-addresses")).toBeUndefined();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("saves a restored draft against the version it was edited against, so a set changed meanwhile is refused", async () => {
+    await renderLoaded(); // version 4
+    fireEvent.click(screen.getByRole("button", { name: "Remove 198.51.100.7/32" }));
+    persistReauthDrafts();
+    cleanup();
+
+    // Someone else changed the set while the operator was signing in.
+    await renderLoaded(makeSet({ version: 5, addresses: [{ cidr: "192.0.2.99/32" }] }));
+
+    expect(await screen.findByText(/changed by someone else while you were away/)).toBeVisible();
+    expect(rows()).toEqual([expect.stringContaining("203.0.113.0/24")]);
+    const replace = vi.spyOn(api, "replaceReachableAddresses").mockRejectedValue(new api.ReachableSetConflictError("out of date"));
+    await saveWithReason("remove the MDM server");
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith([{ cidr: "203.0.113.0/24" }], "remove the MDM server", 4);
+    });
+    expect(await screen.findByRole("button", { name: /Load the latest destinations/ })).toBeVisible();
+  });
+
+  it("does not warn about a changed set when it was not changed", async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Remove 198.51.100.7/32" }));
+    persistReauthDrafts();
+    cleanup();
+    await renderLoaded();
+
+    expect(await screen.findByText(/Your unsaved changes were kept/)).toBeVisible();
+    expect(screen.queryByText(/changed by someone else/)).toBeNull();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/saved-work-is-not-restored-when-it-is-stale-or-from-another-page
+  it.each([
+    ["a null payload", null],
+    ["a draft that is not a list", { draft: "nope", baseVersion: 4, newCidr: "", newPort: "", newTransport: "", newNote: "" }],
+    ["no base version", { draft: [], newCidr: "", newPort: "", newTransport: "", newNote: "" }],
+    ["an entry without a destination", { draft: [{ port: 1 }], baseVersion: 4, newCidr: "", newPort: "", newTransport: "", newNote: "" }],
+    ["a transport it does not know", { draft: [], baseVersion: 4, newCidr: "", newPort: "", newTransport: "icmp", newNote: "" }],
+  ])("ignores %s under a valid envelope, and removes it", async (_name, payload) => {
+    sessionStorage.setItem(
+      "rawtrail:reauth-draft:reachable-addresses",
+      JSON.stringify({ savedAt: Date.now(), path: "/", userId: 1, value: payload }),
+    );
+
+    await renderLoaded();
+
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(rows()).toHaveLength(2);
+    expect(sessionStorage.getItem("rawtrail:reauth-draft:reachable-addresses")).toBeNull();
+  });
+
+  it("does not restore work a different operator saved", async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Remove 198.51.100.7/32" }));
+    persistReauthDrafts();
+    cleanup();
+
+    setReauthDraftUser(2); // the sign-in completed as someone else
+    await renderLoaded();
+
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(rows()).toHaveLength(2);
   });
 });
