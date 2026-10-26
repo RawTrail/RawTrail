@@ -41,22 +41,36 @@ interface EditRuleUnsaved {
   readonly customURL: string;
   readonly comment: string;
   readonly reason: string;
+  // baseline is the rule's fields as they were when the work was saved. Restoring puts back only the fields the operator changed from
+  // it: a field they left alone takes the rule's value as it is now, so a change someone else made to it while the operator was
+  // signing in is not written back over as if it were the operator's own edit.
+  readonly baseline: EditRuleFields;
+}
+
+interface EditRuleFields {
+  readonly severity: string;
+  readonly customMsg: string;
+  readonly customURL: string;
+  readonly comment: string;
+}
+
+function parseEditRuleFields(raw: unknown): EditRuleFields | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { severity, customMsg, customURL, comment } = raw as Record<string, unknown>;
+  if (typeof severity !== "string" || typeof customMsg !== "string" || typeof customURL !== "string" || typeof comment !== "string") {
+    return undefined;
+  }
+  return { severity, customMsg, customURL, comment };
 }
 
 // parseEditRuleUnsaved accepts only a payload of this dialog's own shape, since storage can hold whatever was written under the key.
 function parseEditRuleUnsaved(raw: unknown): EditRuleUnsaved | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
-  const { severity, customMsg, customURL, comment, reason } = raw as Record<string, unknown>;
-  if (
-    typeof severity !== "string" ||
-    typeof customMsg !== "string" ||
-    typeof customURL !== "string" ||
-    typeof comment !== "string" ||
-    typeof reason !== "string"
-  ) {
-    return undefined;
-  }
-  return { severity, customMsg, customURL, comment, reason };
+  const { reason, baseline } = raw as Record<string, unknown>;
+  const fields = parseEditRuleFields(raw);
+  const base = parseEditRuleFields(baseline);
+  if (fields === undefined || base === undefined || typeof reason !== "string") return undefined;
+  return { ...fields, reason, baseline: base };
 }
 
 export function EditRuleModal({ open, rule, onClose, onSaved }: EditRuleModalProps) {
@@ -86,24 +100,31 @@ export function EditRuleModal({ open, rule, onClose, onSaved }: EditRuleModalPro
     customURL !== initialState.customURL ||
     comment !== initialState.comment ||
     reason !== "";
-  const unsaved: EditRuleUnsaved | null = open && rule !== null && touched ? { severity, customMsg, customURL, comment, reason } : null;
+  const unsaved: EditRuleUnsaved | null =
+    open && rule !== null && touched ? { severity, customMsg, customURL, comment, reason, baseline: initialState } : null;
   const { restored, consume } = useReauthDraft<EditRuleUnsaved>(editRuleDraftKey(rule?.id ?? 0), unsaved, parseEditRuleUnsaved);
-  // Taken by the first open: the page opens the dialog on return because work was saved, and that open puts the work back instead of
-  // resetting the form. Every later open resets as before.
+  // Held for the first opening: the page opens the dialog on return because work was saved, and that open puts the work back instead of
+  // resetting the form. It is dropped when the dialog closes, so every later open resets as before.
   const pendingRestore = useRef(restored);
   const [draftRestored, setDraftRestored] = useState(false);
 
   // Reset on every open so a Cancel + re-open doesn't surface the previous attempt's edits. The parent also keys this component
   // on the target rule id (PolicyDetail.tsx) so this effect's reset is a defense-in-depth path.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // The opening the saved work was for has ended, so a later open resets as it always did.
+      pendingRestore.current = undefined;
+      return;
+    }
+    // Not cleared here: React replays mount effects in development (StrictMode), and a second run that found nothing to restore would
+    // reset the form the first run had just filled.
     const kept = pendingRestore.current;
-    pendingRestore.current = undefined;
     if (kept !== undefined) {
-      setSeverity(kept.severity);
-      setCustomMsg(kept.customMsg);
-      setCustomURL(kept.customURL);
-      setComment(kept.comment);
+      // Only what the operator changed from the rule as it was; the rest is the rule as it is now.
+      setSeverity(kept.severity === kept.baseline.severity ? initialState.severity : kept.severity);
+      setCustomMsg(kept.customMsg === kept.baseline.customMsg ? initialState.customMsg : kept.customMsg);
+      setCustomURL(kept.customURL === kept.baseline.customURL ? initialState.customURL : kept.customURL);
+      setComment(kept.comment === kept.baseline.comment ? initialState.comment : kept.comment);
       setReason(kept.reason);
       setBusy(false);
       setFormError(null);

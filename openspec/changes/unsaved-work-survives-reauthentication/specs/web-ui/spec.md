@@ -30,3 +30,17 @@ When a save needs a fresh sign-in through the identity provider, which leaves th
 - **GIVEN** a page with unsaved work and a browser that refuses to store it
 - **WHEN** the operator continues to the identity provider
 - **THEN** the dialog says the work will be lost and does not leave until the operator continues again
+
+#### Scenario: A dialog with saved work is reopened by its page
+
+- **GIVEN** unsaved work in a dialog, such as adding or editing an application control rule, kept across a sign-in
+- **WHEN** the operator returns to the page
+- **THEN** the page reopens that dialog, and only that dialog
+- **AND** the work is put back as it opens, with a notice, and a later close and reopen starts empty as it always did
+
+#### Scenario: A restored edit keeps what someone else changed meanwhile
+
+- **GIVEN** an edit of an existing item kept across a sign-in, in which the operator changed some fields and left others alone
+- **WHEN** someone else changes a field the operator left alone before the operator returns
+- **THEN** the restored edit contains the operator's changes and the item's current value for the field they left alone
+- **AND** saving it does not write the old value back

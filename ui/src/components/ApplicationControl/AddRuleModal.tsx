@@ -183,16 +183,21 @@ export function AddRuleModal({ open, policyID, onClose, onCreated }: AddRuleModa
     ruleType !== "BINARY" || identifier !== "" || enforcement !== null || severity !== "medium" || customMsg !== "" || customURL !== "" || reason !== "";
   const unsaved: AddRuleUnsaved | null = open && touched ? { ruleType, identifier, enforcement, severity, customMsg, customURL, reason } : null;
   const { restored, consume } = useReauthDraft<AddRuleUnsaved>(addRuleDraftKey(policyID), unsaved, parseAddRuleUnsaved);
-  // Taken by the first open: the page opens the dialog on return because work was saved, and that open puts the work back instead of
-  // resetting the form. Every later open resets as before.
+  // Held for the first opening: the page opens the dialog on return because work was saved, and that open puts the work back instead of
+  // resetting the form. It is dropped when the dialog closes, so every later open resets as before.
   const pendingRestore = useRef(restored);
   const [draftRestored, setDraftRestored] = useState(false);
 
   // Reset the form whenever the dialog opens. Otherwise a Cancel + re-open would surface the previous attempt's values.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // The opening the saved work was for has ended, so a later open resets as it always did.
+      pendingRestore.current = undefined;
+      return;
+    }
+    // Not cleared here: React replays mount effects in development (StrictMode), and a second run that found nothing to restore would
+    // reset the form the first run had just filled.
     const kept = pendingRestore.current;
-    pendingRestore.current = undefined;
     if (kept !== undefined) {
        
       setRuleType(kept.ruleType);

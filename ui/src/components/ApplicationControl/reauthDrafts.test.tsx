@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { AddRuleModal } from "./AddRuleModal";
 import { EditRuleModal } from "./EditRuleModal";
@@ -202,6 +203,42 @@ describe("EditRuleModal across a reauthentication", () => {
   });
 });
 
+describe("EditRuleModal reconciles restored edits with the rule as it is now", () => {
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/a-restored-edit-keeps-what-someone-else-changed-meanwhile
+  it("puts back only what the operator changed, so a field someone else changed meanwhile is not written back over", async () => {
+    const before = makeRule({ severity: "high", custom_msg: "ask security" });
+    const first = render(<EditRuleModal open rule={before} onClose={noop} onSaved={noop} />);
+    fireEvent.change(screen.getByLabelText(/severity/i), { target: { value: "critical" } });
+    fireEvent.change(screen.getByLabelText(/reason/i), { target: { value: "raised after the incident" } });
+    expect(persistReauthDrafts()).toBe(true);
+    first.unmount();
+
+    // While the operator signed in again, someone else changed the custom message.
+    const now = makeRule({ severity: "high", custom_msg: "ask the helpdesk" });
+    const update = vi.spyOn(api, "updateAppControlRule").mockResolvedValue(now);
+    render(<EditRuleModal open rule={now} onClose={noop} onSaved={noop} />);
+
+    expect(screen.getByLabelText(/severity/i)).toHaveValue("critical");
+    expect(screen.getByLabelText(/custom message/i)).toHaveValue("ask the helpdesk");
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(update).toHaveBeenCalledWith(7, { severity: "critical", reason: "raised after the incident" });
+    });
+  });
+
+  it("lets the operator's own edit of a field win over the rule's current value", () => {
+    const first = render(<EditRuleModal open rule={makeRule({ custom_msg: "old" })} onClose={noop} onSaved={noop} />);
+    fireEvent.change(screen.getByLabelText(/custom message/i), { target: { value: "mine" } });
+    persistReauthDrafts();
+    first.unmount();
+
+    render(<EditRuleModal open rule={makeRule({ custom_msg: "theirs" })} onClose={noop} onSaved={noop} />);
+
+    expect(screen.getByLabelText(/custom message/i)).toHaveValue("mine");
+  });
+});
+
 describe("PasteManyModal across a reauthentication", () => {
   // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
   it("puts back the parsed rows, the choices and the reason, says so, and saves nothing", () => {
@@ -271,7 +308,7 @@ describe("PolicyDetail reopens the dialog whose work was saved", () => {
     vi.spyOn(api, "getAppControlPolicy").mockResolvedValue(makePolicy());
   });
 
-  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-kept-across-the-sign-in
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/a-dialog-with-saved-work-is-reopened-by-its-page
   it("reopens Add rule with the work put back", async () => {
     const first = renderDetail();
     fireEvent.click(await screen.findByRole("button", { name: "Add rule" }));
@@ -290,6 +327,7 @@ describe("PolicyDetail reopens the dialog whose work was saved", () => {
     expect(dialog.getByLabelText(/reason/i)).toHaveValue("block it");
   });
 
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/a-dialog-with-saved-work-is-reopened-by-its-page
   it("reopens Paste many with the work put back", async () => {
     const first = renderDetail();
     fireEvent.click(await screen.findByRole("button", { name: "Paste many" }));
@@ -306,6 +344,7 @@ describe("PolicyDetail reopens the dialog whose work was saved", () => {
     expect(dialog.getByLabelText(/identifiers/i)).toHaveValue("EQHXZ8M8AV");
   });
 
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/a-dialog-with-saved-work-is-reopened-by-its-page
   it("reopens Edit on the rule whose work was saved, once the policy has loaded", async () => {
     const first = renderDetail();
     fireEvent.click(await screen.findByRole("button", { name: /^Actions for / }));
@@ -329,5 +368,100 @@ describe("PolicyDetail reopens the dialog whose work was saved", () => {
       expect(screen.queryByText(RESTORED)).toBeNull();
     });
     expect(document.querySelectorAll("dialog[open]")).toHaveLength(0);
+  });
+});
+
+// React replays mount effects in development, and the app runs in StrictMode there. A second run of the open effect that found nothing
+// left to restore would reset the form the first run had just filled, so the restore has to hold across the replay and still give way
+// to the reset on a real close and reopen.
+describe("restoring under StrictMode", () => {
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("puts the Add rule work back, and still resets on a real close and reopen", () => {
+    const first = render(<AddRuleModal open policyID={3} onClose={noop} onCreated={noop} />);
+    fireEvent.change(screen.getByLabelText(/identifier/i), { target: { value: hex } });
+    persistReauthDrafts();
+    first.unmount();
+
+    const view = render(
+      <StrictMode>
+        <AddRuleModal open policyID={3} onClose={noop} onCreated={noop} />
+      </StrictMode>,
+    );
+    expect(screen.getByText(RESTORED)).toBeVisible();
+    expect(screen.getByLabelText(/identifier/i)).toHaveValue(hex);
+
+    view.rerender(
+      <StrictMode>
+        <AddRuleModal open={false} policyID={3} onClose={noop} onCreated={noop} />
+      </StrictMode>,
+    );
+    view.rerender(
+      <StrictMode>
+        <AddRuleModal open policyID={3} onClose={noop} onCreated={noop} />
+      </StrictMode>,
+    );
+    expect(screen.getByLabelText(/identifier/i)).toHaveValue("");
+    expect(screen.queryByText(RESTORED)).toBeNull();
+  });
+
+  it("puts the Edit rule work back", () => {
+    const rule = makeRule();
+    const first = render(<EditRuleModal open rule={rule} onClose={noop} onSaved={noop} />);
+    fireEvent.change(screen.getByLabelText(/reason/i), { target: { value: "raise it" } });
+    persistReauthDrafts();
+    first.unmount();
+
+    render(
+      <StrictMode>
+        <EditRuleModal open rule={rule} onClose={noop} onSaved={noop} />
+      </StrictMode>,
+    );
+
+    expect(screen.getByText(RESTORED)).toBeVisible();
+    expect(screen.getByLabelText(/reason/i)).toHaveValue("raise it");
+  });
+
+  it("puts the Paste many work back", () => {
+    const first = render(<PasteManyModal open policyID={3} onClose={noop} onUpserted={noop} />);
+    fireEvent.change(screen.getByLabelText(/identifiers/i), { target: { value: "half a list" } });
+    persistReauthDrafts();
+    first.unmount();
+
+    render(
+      <StrictMode>
+        <PasteManyModal open policyID={3} onClose={noop} onUpserted={noop} />
+      </StrictMode>,
+    );
+
+    expect(screen.getByText(RESTORED)).toBeVisible();
+    expect(screen.getByLabelText(/identifiers/i)).toHaveValue("half a list");
+  });
+
+  it("reopens the page's dialog with the work put back", async () => {
+    vi.spyOn(api, "getAppControlPolicy").mockResolvedValue(makePolicy());
+    const mount = (strict: boolean) => {
+      const tree = (
+        <PermissionsContext.Provider value={EVERY_RULE_ACTION}>
+          <MemoryRouter initialEntries={["/app-control/policies/3"]}>
+            <Routes>
+              <Route path="/app-control/policies/:id" element={<PolicyDetail />} />
+            </Routes>
+          </MemoryRouter>
+        </PermissionsContext.Provider>
+      );
+      return render(strict ? <StrictMode>{tree}</StrictMode> : tree);
+    };
+    const first = mount(false);
+    fireEvent.click(await screen.findByRole("button", { name: /^Actions for / }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(screen.getByRole("dialog", { name: "Edit rule" })).getByLabelText(/reason/i), { target: { value: "raise it" } });
+    persistReauthDrafts();
+    first.unmount();
+
+    mount(true);
+
+    const dialog = within(await screen.findByRole("dialog", { name: "Edit rule" }));
+    expect(dialog.getByText(RESTORED)).toBeVisible();
+    expect(dialog.getByLabelText(/reason/i)).toHaveValue("raise it");
   });
 });

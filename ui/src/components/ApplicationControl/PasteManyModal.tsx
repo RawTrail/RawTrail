@@ -151,16 +151,21 @@ export function PasteManyModal({ open, policyID, onClose, onUpserted }: PasteMan
         }
       : null;
   const { restored, consume } = useReauthDraft<PasteManyUnsaved>(pasteManyDraftKey(policyID), unsaved, parsePasteManyUnsaved);
-  // Taken by the first open: the page opens the dialog on return because work was saved, and that open puts the work back instead of
-  // resetting the form. Every later open resets as before.
+  // Held for the first opening: the page opens the dialog on return because work was saved, and that open puts the work back instead of
+  // resetting the form. It is dropped when the dialog closes, so every later open resets as before.
   const pendingRestore = useRef(restored);
   const [draftRestored, setDraftRestored] = useState(false);
 
   // Reset the whole form whenever the dialog opens. Otherwise a Cancel + re-open would surface the prior paste's state.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // The opening the saved work was for has ended, so a later open resets as it always did.
+      pendingRestore.current = undefined;
+      return;
+    }
+    // Not cleared here: React replays mount effects in development (StrictMode), and a second run that found nothing to restore would
+    // reset the form the first run had just filled.
     const kept = pendingRestore.current;
-    pendingRestore.current = undefined;
     if (kept !== undefined) {
       setPhase(kept.phase);
       setRawInput(kept.rawInput);
