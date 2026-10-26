@@ -406,18 +406,32 @@ func (d *Dispatcher) SendApplicationControl(payload []byte) error {
 // kept for the next Set (issue #1386). Only the newest set is kept, since it supersedes an older one.
 func (d *Dispatcher) SendWatchedPaths(payload []byte) error {
 	if b := d.cur.Load(); b != nil && b.c != nil {
-		return b.c.SendWatchedPaths(payload)
+		return d.sendWatchedPaths(b.c, payload)
 	}
 	d.mu.Lock()
 	// Looked at again under the lock: Set stores the Connector before it takes the lock, so one that landed since the load above is
 	// visible here, and one that has not yet will find the payload stalled.
 	if b := d.cur.Load(); b != nil && b.c != nil {
 		d.mu.Unlock()
-		return b.c.SendWatchedPaths(payload)
+		return d.sendWatchedPaths(b.c, payload)
 	}
 	d.stallWatchedPaths(payload)
 	d.mu.Unlock()
 	return ErrNoConnector
+}
+
+// sendWatchedPaths sends payload to c, and on success drops a held payload that it supersedes: a replay that failed earlier is kept for
+// the next connection, and once a newer set has been handed over, replaying the older one later could only put it back over the newer.
+func (d *Dispatcher) sendWatchedPaths(c Connector, payload []byte) error {
+	if err := c.SendWatchedPaths(payload); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	if d.stalledWatchedPaths != nil && !watchedPathsOrder(d.stalledWatchedPaths).after(watchedPathsOrder(payload)) {
+		d.stalledWatchedPaths = nil
+	}
+	d.mu.Unlock()
+	return nil
 }
 
 // stallWatchedPaths holds payload for the next Set unless a payload at least as new is already held. Newest by (epoch, version), not

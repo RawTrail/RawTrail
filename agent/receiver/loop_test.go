@@ -613,6 +613,54 @@ func TestDispatcher_AFailedReplayIsKeptForTheNextConnection(t *testing.T) {
 	assert.Equal(t, [][]byte{payload}, next.watchedPayloads)
 }
 
+// A replay that failed is kept for the next connection, but not past a newer set the live connection has since taken: replaying the
+// older one then could only put it back over the newer.
+//
+// spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/an-older-set-arriving-later-does-not-replace-it
+func TestDispatcher_AKeptReplayIsDroppedOnceANewerSetIsSent(t *testing.T) {
+	t.Parallel()
+	older := []byte(`{"version":1,"paths":[]}`)
+	newer := []byte(`{"version":2,"paths":[]}`)
+
+	for _, tc := range []struct {
+		name     string
+		sentLive []byte
+		wantNext [][]byte
+	}{
+		{"a newer set sent live drops the kept one", newer, nil},
+		{"the same set sent live drops the kept one", older, nil},
+		{"an older set sent live leaves a newer kept one", nil, [][]byte{newer}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			kept := older
+			if tc.sentLive == nil {
+				kept = newer
+			}
+			d := NewDispatcher()
+			require.ErrorIs(t, d.SendWatchedPaths(kept), ErrNoConnector)
+			// The replay to this connector fails, so the payload is kept for the next one.
+			failing := newStubConnector(stubScript{sendErr: errors.New("connection invalidated")})
+			d.Set(failing)
+
+			live := tc.sentLive
+			if live == nil {
+				live = older
+			}
+			// The connector takes the next push, which is the live send under test.
+			failing.mu.Lock()
+			failing.script.sendErr = nil
+			failing.mu.Unlock()
+			require.NoError(t, d.SendWatchedPaths(live))
+
+			d.Clear()
+			next := newStubConnector(stubScript{})
+			d.Set(next)
+			assert.Equal(t, tc.wantNext, next.watchedPayloads)
+		})
+	}
+}
+
 // A push to a live connection is not held, so a reconnect does not replay a set the extension already took.
 func TestDispatcher_WatchedPathsDeliveredToALiveConnectionAreNotReplayed(t *testing.T) {
 	t.Parallel()
