@@ -346,6 +346,20 @@ func TestHandleRotate_Lifetime(t *testing.T) {
 		})
 	}
 
+	// A chunked request with nothing in it reports no length, so judging the body absent from ContentLength alone refuses it.
+	t.Run("an empty chunked body is no body", func(t *testing.T) {
+		t.Parallel()
+		store := &fakeMgmtStore{}
+		h := newHandler(store, allowAuthZ{}, &captureAudit{})
+		w := httptest.NewRecorder()
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/settings/service-accounts/5/rotate", strings.NewReader(""))
+		r.ContentLength = -1
+		r.SetPathValue("id", "5")
+		h.handleRotate(w, r)
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, time.Unix(1_700_000_000, 0).Add(defaultLifetime).UTC(), store.rotateUntil)
+	})
+
 	t.Run("a malformed body is a bad request and rotates nothing", func(t *testing.T) {
 		t.Parallel()
 		store := &fakeMgmtStore{}

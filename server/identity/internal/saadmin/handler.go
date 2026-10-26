@@ -4,8 +4,11 @@
 package saadmin
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -202,8 +205,7 @@ func (h *Handler) handleRotate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req rotateRequest
-	// The body is optional: a rotate with none is what the console sends and what every client written before the lifetime reset sends.
-	if r.ContentLength != 0 && !adminhttp.DecodeBody(ctx, h.logger, w, r, maxBodyBytes, &req) {
+	if !h.decodeOptionalBody(w, r, &req) {
 		return
 	}
 	sa, secret, err := h.store.Rotate(ctx, id, h.now(), h.resolveExpiry(req.ExpiresInDays))
@@ -227,6 +229,30 @@ func (h *Handler) handleRotate(w http.ResponseWriter, r *http.Request) {
 		Secret string `json:"secret"`
 	}{saView: h.view(sa), Secret: secret}
 	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, resp)
+}
+
+// decodeOptionalBody reads a JSON body that may be absent. No body is what the console sends and what every client written before the
+// lifetime reset sends, and it can arrive as a zero-length body, none at all, or an empty chunked one, whose length is unknown until
+// it is read, so emptiness is judged on the bytes. A non-empty body that is not valid JSON is still refused.
+func (h *Handler) decodeOptionalBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	ctx := r.Context()
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	if err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			writeErr(ctx, h.logger, w, http.StatusRequestEntityTooLarge, "body_too_large")
+		} else {
+			writeErr(ctx, h.logger, w, http.StatusBadRequest, "read_error")
+		}
+		return false
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return true
+	}
+	if err := json.Unmarshal(raw, dst); err != nil {
+		writeErr(ctx, h.logger, w, http.StatusBadRequest, "invalid_json")
+		return false
+	}
+	return true
 }
 
 func (h *Handler) handleRevoke(w http.ResponseWriter, r *http.Request) {

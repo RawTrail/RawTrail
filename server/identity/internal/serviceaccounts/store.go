@@ -174,7 +174,19 @@ func (s *Store) Rotate(ctx context.Context, id int64, now, expiresAt time.Time) 
 	if err != nil {
 		return ServiceAccount{}, "", fmt.Errorf("serviceaccounts: generate secret: %w", err)
 	}
-	res, err := s.db.ExecContext(ctx, `
+	// One transaction for the write and the read-back: a failed read after a committed write would leave the old credential
+	// invalidated with no new secret ever shown, and a concurrent rotation could be read in place of this one.
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return ServiceAccount{}, "", fmt.Errorf("serviceaccounts: begin rotate tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE service_accounts SET secret_hash = ?, epoch = epoch + 1, expires_at = ?
 		WHERE id = ? AND revoked_at IS NULL AND expires_at > ?`,
 		hashSecret(secret), expiresAt.UTC(), id, now.UTC())
@@ -185,17 +197,18 @@ func (s *Store) Rotate(ctx context.Context, id int64, now, expiresAt time.Time) 
 	if err != nil {
 		return ServiceAccount{}, "", fmt.Errorf("serviceaccounts: rotate rows affected: %w", err)
 	}
-	if affected == 0 {
-		// Nothing matched: either no such account, or one the WHERE refused.
-		if _, err := s.getByID(ctx, id); err != nil {
-			return ServiceAccount{}, "", err
-		}
-		return ServiceAccount{}, "", ErrNotRotatable
-	}
-	sa, err := s.getByID(ctx, id)
+	sa, err := getByID(ctx, tx, id)
 	if err != nil {
 		return ServiceAccount{}, "", err
 	}
+	if affected == 0 {
+		// The account exists, so the WHERE refused it.
+		return ServiceAccount{}, "", ErrNotRotatable
+	}
+	if err := tx.Commit(); err != nil {
+		return ServiceAccount{}, "", fmt.Errorf("serviceaccounts: commit rotate tx: %w", err)
+	}
+	committed = true
 	return sa, secret, nil
 }
 
@@ -259,8 +272,13 @@ func (s *Store) NameByID(ctx context.Context, id int64) (string, error) {
 }
 
 func (s *Store) getByID(ctx context.Context, id int64) (ServiceAccount, error) {
+	return getByID(ctx, s.db, id)
+}
+
+// getByID reads one account through q, which is the store's pool or a transaction.
+func getByID(ctx context.Context, q sqlx.QueryerContext, id int64) (ServiceAccount, error) {
 	var sa ServiceAccount
-	err := s.db.GetContext(ctx, &sa, `
+	err := sqlx.GetContext(ctx, q, &sa, `
 		SELECT id, client_id, name, role_id, epoch, created_by, expires_at, revoked_at, last_used_at, created_at
 		FROM service_accounts WHERE id = ?`, id)
 	if errors.Is(err, sql.ErrNoRows) {
