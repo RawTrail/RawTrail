@@ -75,6 +75,9 @@ On the same release-prep branch, alongside the archive from step 1:
 
 1. Create the annotated RC tag on the merged commit: `git tag -a vX.Y.Z-rc.N -m "vX.Y.Z-rc.N"` and push it.
 2. The `v*` push triggers `release.yml`. Its `openspec-archived` job runs first; every publishing job (`macos-pkg`, `docker-server`, `docker-demo-seed`) depends on it via `needs:`, so the release fails before any signing if `openspec/changes/` still holds a non-archive folder. That is the automated backstop for the "nothing un-archived remains" check (step 1, item 5).
+
+   The pkg job creates the GitHub release as a draft and publishes it as its last step, after every artifact and Sigstore bundle is attached, so a failed run leaves a draft nobody sees rather than a half-signed public release. To recover from a transient failure, re-run the failed job: it reuses the draft and replaces every artifact on it. A release that is already published is refused, so a problem found after publishing needs a new tag.
+
 3. The RC is signed and published but does not advance `:latest`. Use it for the validation in steps 4 through 7.
 
 ## 4. Run candidate-only validation against the RC
