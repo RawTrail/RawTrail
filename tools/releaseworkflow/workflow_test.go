@@ -59,15 +59,15 @@ func stepIndex(t *testing.T, steps []step, name string) int {
 	return i
 }
 
-// ghStub records each call in gh.log. `release view` answers from FAKE_RELEASE: "none" is a release that does not exist, "draft" a
-// draft, and "published" a public one.
+// ghStub records each call in gh.log. The releases list answers from FAKE_RELEASE: "none" is no release for the tag, "draft" one draft,
+// "published" one public release, and "error" is a lookup that fails.
 const ghStub = `#!/usr/bin/env bash
 echo "gh $*" >> "$RUNNER_TEMP/gh.log"
-if [ "$1 $2" = "release view" ]; then
+if [ "$1" = "api" ]; then
   case "$FAKE_RELEASE" in
     draft) echo true ;;
     published) echo false ;;
-    *) exit 1 ;;
+    error) echo "HTTP 502" >&2; exit 1 ;;
   esac
 fi
 `
@@ -136,7 +136,7 @@ func runStep(t *testing.T, name, tag, fakeRelease string) run {
 	cmd := exec.CommandContext(t.Context(), "bash", "-e", "-c", script)
 	cmd.Dir = dir
 	cmd.Env = []string{
-		"HOME=" + temp, "RUNNER_TEMP=" + temp, "RELEASE_TAG=" + tag, "GH_TOKEN=token", "FAKE_RELEASE=" + fakeRelease,
+		"HOME=" + temp, "RUNNER_TEMP=" + temp, "RELEASE_TAG=" + tag, "GITHUB_REPOSITORY=rawtrail/rawtrail", "GH_TOKEN=token", "FAKE_RELEASE=" + fakeRelease,
 		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"), //nolint:forbidigo // the script needs bash and coreutils
 	}
 	out, err := cmd.CombinedOutput()
@@ -170,7 +170,7 @@ func TestCreateStep_StartsADraft(t *testing.T) {
 			require.NoError(t, r.err, r.out)
 
 			calls := r.log(t, "gh.log")
-			require.Len(t, calls, 2, "a view to look for an existing release, then one create: %v", calls)
+			require.Len(t, calls, 2, "a look-up of the existing releases, then one create: %v", calls)
 			create := calls[1]
 			assert.True(t, strings.HasPrefix(create, "gh release create "+tc.tag+" "), create)
 			assert.Contains(t, create, " --draft ")
@@ -210,7 +210,19 @@ func TestCreateStep_RefusesAPublishedRelease(t *testing.T) {
 	assert.Contains(t, r.out, "already published")
 	calls := r.log(t, "gh.log")
 	require.Len(t, calls, 1, "only the look-up ran: %v", calls)
-	assert.True(t, strings.HasPrefix(calls[0], "gh release view"))
+	assert.True(t, strings.HasPrefix(calls[0], "gh api "), calls[0])
+}
+
+// A look-up that fails says nothing about whether a release exists, so the step stops instead of creating over one.
+//
+// spec:release-packaging/a-release-is-published-only-when-complete-and-its-build-can-be-repeated/a-published-release-is-not-overwritten
+func TestCreateStep_StopsWhenTheLookUpFails(t *testing.T) {
+	t.Parallel()
+	r := runStep(t, createStep, "v0.9.0-rc.1", "error")
+	require.Error(t, r.err)
+	assert.Contains(t, r.out, "Stopping rather than assuming none exists")
+	calls := r.log(t, "gh.log")
+	require.Len(t, calls, 1, "neither a create nor an upload ran: %v", calls)
 }
 
 // The bundles replace any a failed run uploaded, so a re-run does not stop on the first one that is already there.

@@ -269,8 +269,15 @@ jobs:
             "dist/rawtrail-${RELEASE_TAG}-sbom.cdx.json"
             dist/SHA256SUMS
           )
-          if existing=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
-            if [ "$existing" != "true" ]; then
+          # The releases list, not `gh release view`: a draft has no tag page, and a non-zero exit from view does not tell a missing
+          # release from a failed lookup, so a flaky API call would be read as "none exists" and a published release written over.
+          drafts='.[] | select(.tag_name == env.RELEASE_TAG) | .draft'
+          if ! states=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq "$drafts"); then
+            echo "::error::Could not look up the releases for $RELEASE_TAG. Stopping rather than assuming none exists."
+            exit 1
+          fi
+          if [ -n "$states" ]; then
+            if printf '%s\n' "$states" | grep -qx false; then
               echo "::error::Release $RELEASE_TAG is already published. Replacing its artifacts is not a repair: cut a new tag."
               exit 1
             fi
