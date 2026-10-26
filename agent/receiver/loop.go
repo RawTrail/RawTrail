@@ -375,7 +375,8 @@ func (d *Dispatcher) Set(c Connector) {
 		return
 	}
 	if err := c.SendWatchedPaths(stalled); err != nil {
-		slog.Warn("receiver dispatcher: replaying the watched paths that arrived before the extension failed", "err", err)
+		getLogger().WarnContext(context.Background(), "receiver dispatcher: replaying the watched paths that arrived before the extension failed",
+			"err", err)
 	}
 }
 
