@@ -287,3 +287,43 @@ func TestCosignInstallIsRetried(t *testing.T) {
 	assert.Equal(t, steps[first].Uses, steps[second].Uses, "the same pinned installer each time")
 	assert.Equal(t, steps[first].Uses, steps[third].Uses)
 }
+
+// The Go test jobs must run for a change to the release workflow alone, or the tests above never see the scripts they pin: test.yml's
+// change detection skips them for a pull request that touches no Go file.
+func TestChangeDetectionRunsTheGoTestsForAReleaseWorkflowChange(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("../../.github/workflows/test.yml")
+	require.NoError(t, err)
+	var wf struct {
+		Jobs map[string]struct {
+			Steps []step `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &wf))
+	var script string
+	for _, s := range wf.Jobs["changes"].Steps {
+		if s.ID == "detect" {
+			script = s.Run
+		}
+	}
+	require.NotEmpty(t, script, "no detect step in test.yml")
+
+	temp := t.TempDir()
+	bin := filepath.Join(temp, "bin")
+	require.NoError(t, os.Mkdir(bin, 0o750))
+	writeExecutable(t, filepath.Join(bin, "gh"), "#!/usr/bin/env bash\nprintf '.github/workflows/release.yml\\n'\n")
+	out := filepath.Join(temp, "out")
+	require.NoError(t, os.WriteFile(out, nil, 0o600))
+
+	//nolint:gosec // runs this repository's own workflow script, which is what is under test
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script)
+	cmd.Env = []string{
+		"HOME=" + temp, "GITHUB_OUTPUT=" + out, "EVENT_NAME=pull_request", "PR_NUMBER=1", "REPO=rawtrail/rawtrail",
+		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"), //nolint:forbidigo // the script needs bash and grep
+	}
+	combined, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(combined))
+	got, err := os.ReadFile(out) //nolint:gosec // a file the script wrote in this test's temp dir
+	require.NoError(t, err)
+	assert.Contains(t, strings.Split(string(got), "\n"), "go=true", string(combined))
+}
