@@ -31,6 +31,8 @@ On a release-prep branch off `main`:
    - `archive-order` exit 2 is a usage, path, or write failure, and a mistyped path is refused rather than read as an empty tree. Nothing has been archived.
    - A failing `openspec archive` stops the run where it is rather than continuing down the list, because the changes after it may be the ones that had to follow the one that did not land. The tree is half-archived: fix the failure and re-run the task, which re-derives the order over what is left.
 
+   When the last change is archived the task runs `task lint:md:fix` and `task lint:md:prose:fix` over the repo, because `openspec archive` writes headings with no blank line above them and the release-prep branch has to pass `task lint:md`. If that step fails, the archive itself is done: run the two tasks by hand and fix what they report.
+
    Never pass `--skip-specs`, and the task never does. It skips the merge into `openspec/specs/**` that is the point of this step. For a tooling/doc-only change that shipped no spec delta, archive that one change by hand with `openspec archive <name> -y --skip-specs` and re-run the task for the rest.
 
 3. If a merged change is genuinely deferred to a later release (incomplete, intentionally held), it must not ship its delta into the canonical specs yet. Decide explicitly: either finish + archive it, or back its delta out of this release. The release gate (`openspec-archived` in `release.yml`) does not let an un-archived change ride silently into a release.

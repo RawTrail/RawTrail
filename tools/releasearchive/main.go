@@ -94,6 +94,8 @@ type commands interface {
 	order(ctx context.Context) ([]string, error)
 	// archive applies one change, merging its delta into the canonical specs and moving the folder under changes/archive/.
 	archive(ctx context.Context, change string) error
+	// reflow repairs the Markdown formatting the archives left behind, so the tree passes the repo's own Markdown lint.
+	reflow(ctx context.Context) error
 }
 
 // archiveAll prints the sequence, then applies it.
@@ -129,6 +131,14 @@ func archiveAll(ctx context.Context, c commands, dryRun bool, out io.Writer) err
 		}
 	}
 	fmt.Fprintf(out, "release:archive: archived %d change(s)\n", len(changes))
+	// `openspec archive` writes headings with no blank line above them, which `task lint:md` rejects (issue #1150). Reflowing here
+	// keeps the release-prep branch green without a manual step the checklist did not mention. A failure is reported as one: the
+	// archive itself is done and correct, so the message says what is left to do rather than implying it has to be redone.
+	fmt.Fprintln(out, "release:archive: reflowing the archived Markdown")
+	if err := c.reflow(ctx); err != nil {
+		return fmt.Errorf("archived %d change(s), but reflowing the Markdown failed (run `task lint:md:fix` and `task lint:md:prose:fix`"+
+			" by hand): %w", len(changes), err)
+	}
 	return nil
 }
 
@@ -223,4 +233,29 @@ func (c execCommands) archiveCmd(ctx context.Context, change string) *exec.Cmd {
 	cmd.Stdout = c.stdout
 	cmd.Stderr = c.stderr
 	return cmd
+}
+
+// reflow runs the repo's Markdown fixers over what the archives wrote: markdownlint for structure (the blank line around a heading),
+// then Prettier for the one-line prose and aligned tables. They are the tasks a contributor runs by hand, so the result is what
+// `task lint:md` and `task lint:md:prose` check.
+func (c execCommands) reflow(ctx context.Context) error {
+	for _, cmd := range c.reflowCmds(ctx) {
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("%s: %w", strings.Join(cmd.Args, " "), err)
+		}
+	}
+	return nil
+}
+
+// reflowCmds builds the two fixer invocations. Separate from running them so a test can pin which tasks run and in which order.
+func (c execCommands) reflowCmds(ctx context.Context) []*exec.Cmd {
+	cmds := make([]*exec.Cmd, 0, 2)
+	for _, name := range []string{"lint:md:fix", "lint:md:prose:fix"} {
+		cmd := exec.CommandContext(ctx, "task", name) //nolint:gosec // name is one of the two task names listed above
+		cmd.Dir = c.root
+		cmd.Stdout = c.stdout
+		cmd.Stderr = c.stderr
+		cmds = append(cmds, cmd)
+	}
+	return cmds
 }
