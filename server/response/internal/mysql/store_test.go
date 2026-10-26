@@ -229,6 +229,86 @@ func TestUndeliverableByHost(t *testing.T) {
 		"a pending command against an asleep host is the ordinary case; counting it would report every offline host as faulty")
 }
 
+// spec:server-host-status/a-host-that-takes-commands-again-stops-being-reported-as-not-taking-them/a-later-claim-clears-the-condition
+// spec:server-host-status/a-host-that-takes-commands-again-stops-being-reported-as-not-taking-them/only-expiries-after-the-latest-claim-count
+//
+// A host that comes back and claims a later command is taking commands again, so the expiries before that claim stop counting, and
+// ones after it still do (issue #1387).
+func TestUndeliverableByHost_ClearsOnceTheHostClaimsALaterCommand(t *testing.T) {
+	t.Parallel()
+	s, db := newTestStoreWithDB(t)
+	ctx := t.Context()
+	now := time.Now()
+	since := now.Add(-api.UndeliverableWindow)
+
+	expireAt := func(hostID string, at time.Time) {
+		t.Helper()
+		id, err := s.Insert(ctx, hostID, "kill_process", json.RawMessage(`{}`))
+		require.NoError(t, err)
+		_, err = s.ExpirePendingOlderThan(ctx, hostID, now.Add(time.Hour))
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, `UPDATE commands SET completed_at = ? WHERE id = ?`, at, id)
+		require.NoError(t, err)
+	}
+	claimAt := func(hostID string, to api.Status, at time.Time) {
+		t.Helper()
+		id, err := s.Insert(ctx, hostID, "kill_process", json.RawMessage(`{}`))
+		require.NoError(t, err)
+		require.NoError(t, s.UpdateStatus(ctx, id, hostID, api.StatusPending, api.StatusAcked, nil))
+		if to != api.StatusAcked {
+			require.NoError(t, s.UpdateStatus(ctx, id, hostID, api.StatusAcked, to, nil))
+		}
+		_, err = db.ExecContext(ctx, `UPDATE commands SET acked_at = ? WHERE id = ?`, at, id)
+		require.NoError(t, err)
+	}
+
+	cases := []struct {
+		name      string
+		hostID    string
+		setup     func(hostID string)
+		wantCount int
+	}{
+		{"a completed claim after the expiries clears them", "host-completed", func(h string) {
+			expireAt(h, now.Add(-3*time.Hour))
+			expireAt(h, now.Add(-2*time.Hour))
+			claimAt(h, api.StatusCompleted, now.Add(-time.Hour))
+		}, 0},
+		{"a failed claim after the expiry clears it", "host-failed", func(h string) {
+			expireAt(h, now.Add(-2*time.Hour))
+			claimAt(h, api.StatusFailed, now.Add(-time.Hour))
+		}, 0},
+		{"a claim still in flight after the expiry clears it", "host-acked", func(h string) {
+			expireAt(h, now.Add(-2*time.Hour))
+			claimAt(h, api.StatusAcked, now.Add(-time.Hour))
+		}, 0},
+		{"only the expiries after the claim count", "host-mixed", func(h string) {
+			expireAt(h, now.Add(-3*time.Hour))
+			claimAt(h, api.StatusCompleted, now.Add(-2*time.Hour))
+			expireAt(h, now.Add(-time.Hour))
+		}, 1},
+		{"a claim before the expiry does not clear it", "host-earlier-claim", func(h string) {
+			claimAt(h, api.StatusCompleted, now.Add(-3*time.Hour))
+			expireAt(h, now.Add(-time.Hour))
+		}, 1},
+	}
+	hostIDs := make([]string, 0, len(cases))
+	for _, tc := range cases {
+		tc.setup(tc.hostID)
+		hostIDs = append(hostIDs, tc.hostID)
+	}
+
+	got, err := s.UndeliverableByHost(ctx, hostIDs, since)
+	require.NoError(t, err)
+	for _, tc := range cases {
+		if tc.wantCount == 0 {
+			assert.NotContains(t, got, tc.hostID, tc.name)
+			continue
+		}
+		require.Contains(t, got, tc.hostID, tc.name)
+		assert.Equal(t, tc.wantCount, got[tc.hostID].ExpiredCount, tc.name)
+	}
+}
+
 func TestUndeliverableByHost_NoHostsAsksNothing(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)

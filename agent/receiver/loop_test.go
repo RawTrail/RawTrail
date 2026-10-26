@@ -548,6 +548,102 @@ func TestDispatcher_SendWhileDisconnected(t *testing.T) {
 	require.ErrorIs(t, d.SendNetworkContainment([]byte("z")), ErrNoConnector)
 }
 
+// spec:agent-xpc-receiver/a-watched-path-push-that-found-no-connection-is-sent-when-one-is-published/a-push-sent-before-the-extension-connects-is-replayed
+// spec:agent-xpc-receiver/a-watched-path-push-that-found-no-connection-is-sent-when-one-is-published/a-later-push-replaces-an-earlier-one
+// spec:agent-xpc-receiver/a-watched-path-push-that-found-no-connection-is-sent-when-one-is-published/a-replayed-push-is-sent-once
+//
+// A fresh install is pushed the deployment's watched paths before its extension is approved, and the server will not send them again
+// for hours, so the dispatcher holds the push that found no connection and sends it when one is published (issue #1386).
+func TestDispatcher_WatchedPathsSentBeforeTheExtensionConnectsAreReplayed(t *testing.T) {
+	t.Parallel()
+	first := []byte(`{"version":1,"paths":[]}`)
+	second := []byte(`{"version":2,"paths":[]}`)
+
+	cases := []struct {
+		name   string
+		pushes [][]byte
+		want   [][]byte
+	}{
+		{"a push sent before the extension connects is replayed", [][]byte{first}, [][]byte{first}},
+		{"a later push replaces an earlier one", [][]byte{first, second}, [][]byte{second}},
+		{"no push before the connection leaves nothing to replay", nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := NewDispatcher()
+			for _, p := range tc.pushes {
+				require.ErrorIs(t, d.SendWatchedPaths(p), ErrNoConnector, "the command itself still fails")
+			}
+
+			c := newStubConnector(stubScript{})
+			d.Set(c)
+			assert.Equal(t, tc.want, c.watchedPayloads)
+
+			// Replayed once: a later connection does not receive it again.
+			d.Clear()
+			next := newStubConnector(stubScript{})
+			d.Set(next)
+			assert.Empty(t, next.watchedPayloads)
+		})
+	}
+}
+
+// A push to a live connection is not held, so a reconnect does not replay a set the extension already took.
+func TestDispatcher_WatchedPathsDeliveredToALiveConnectionAreNotReplayed(t *testing.T) {
+	t.Parallel()
+	d := NewDispatcher()
+	c := newStubConnector(stubScript{})
+	d.Set(c)
+	require.NoError(t, d.SendWatchedPaths([]byte(`{"version":1}`)))
+
+	d.Clear()
+	next := newStubConnector(stubScript{})
+	d.Set(next)
+	assert.Empty(t, next.watchedPayloads)
+}
+
+// The interleaving the race test above reaches only by luck, forced: a push has seen no connection and is waiting for the lock when
+// the connection is stored. It must notice the connection rather than stall a payload that nothing will replay.
+func TestDispatcher_APushThatSawNoConnectionNoticesOneStoredWhileItWaited(t *testing.T) {
+	t.Parallel()
+	d := NewDispatcher()
+	c := newStubConnector(stubScript{})
+	payload := []byte(`{"version":1}`)
+
+	d.mu.Lock()
+	sent := make(chan error, 1)
+	go func() { sent <- d.SendWatchedPaths(payload) }()
+	time.Sleep(50 * time.Millisecond) // long enough for the push to have read "no connection" and queued on the lock
+	d.cur.Store(&dispatcherBox{c: c})
+	d.mu.Unlock()
+
+	require.NoError(t, <-sent)
+	assert.Equal(t, [][]byte{payload}, c.watchedPayloads)
+	assert.Nil(t, d.stalledWatchedPaths, "nothing should be left waiting for a replay that will never come")
+}
+
+// However a push and the connection's publication interleave, the push reaches the connector exactly once: directly when the push saw
+// the connection, by replay when it did not. A stall recorded after the replay has looked would lose it.
+func TestDispatcher_APushRacingTheConnectionIsNeitherLostNorDuplicated(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{"version":1}`)
+	for range 500 {
+		d := NewDispatcher()
+		c := newStubConnector(stubScript{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = d.SendWatchedPaths(payload) }()
+		go func() { defer wg.Done(); d.Set(c) }()
+		wg.Wait()
+
+		c.mu.Lock()
+		got := len(c.watchedPayloads)
+		c.mu.Unlock()
+		require.Equal(t, 1, got)
+	}
+}
+
 // spec:agent-xpc-receiver/clean-shutdown-on-context-cancellation/agent-receives-sigterm
 //
 // With a live connection in progress, cancelling the context must make Run return promptly AND the active

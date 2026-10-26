@@ -14,9 +14,11 @@
 package receiver
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -336,6 +338,13 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // hot path stays lock-free even when the Loop is mid-reconnect.
 type Dispatcher struct {
 	cur atomic.Pointer[dispatcherBox]
+
+	// mu orders a watched-path push that found no Connector against the Set that publishes one, so a push cannot be stalled after the
+	// Set that would have replayed it has already looked.
+	mu sync.Mutex
+	// stalledWatchedPaths is the latest watched-path payload that found no Connector, held for Set to send (issue #1386). Nil when
+	// nothing is waiting.
+	stalledWatchedPaths []byte
 }
 
 type dispatcherBox struct {
@@ -351,8 +360,23 @@ var ErrNoConnector = errors.New("receiver dispatcher: no connector published")
 
 // Set publishes c as the active Connector. Safe to call concurrently with SendApplicationControl. Wire this to LoopHooks.OnConnected
 // so the dispatcher always reflects the Loop's current state.
+//
+// A watched-path push that found no Connector is sent to c now. The server will not send the set again for hours, because it counts a
+// failed command as delivered for that long, and on a fresh install the extension is approved well after the first push (issue #1386).
+// The extension drops a set that is not newer than the one it holds, so a replay that a later push has overtaken does no harm.
 func (d *Dispatcher) Set(c Connector) {
 	d.cur.Store(&dispatcherBox{c: c})
+
+	d.mu.Lock()
+	stalled := d.stalledWatchedPaths
+	d.stalledWatchedPaths = nil
+	d.mu.Unlock()
+	if stalled == nil {
+		return
+	}
+	if err := c.SendWatchedPaths(stalled); err != nil {
+		slog.Warn("receiver dispatcher: replaying the watched paths that arrived before the extension failed", "err", err)
+	}
 }
 
 // Clear unpublishes the active Connector. Wire this to LoopHooks.OnDisconnected so SendApplicationControl returns ErrNoConnector
@@ -372,13 +396,22 @@ func (d *Dispatcher) SendApplicationControl(payload []byte) error {
 }
 
 // SendWatchedPaths satisfies commander.ExtensionSender, routing like SendApplicationControl: ErrNoConnector between connect cycles,
-// otherwise the active Connector.
+// otherwise the active Connector. The error still fails the command, which is the honest record of that attempt, but the payload is
+// kept for the next Set (issue #1386). Only the latest is kept, since a later set supersedes an earlier one.
 func (d *Dispatcher) SendWatchedPaths(payload []byte) error {
-	b := d.cur.Load()
-	if b == nil || b.c == nil {
-		return ErrNoConnector
+	if b := d.cur.Load(); b != nil && b.c != nil {
+		return b.c.SendWatchedPaths(payload)
 	}
-	return b.c.SendWatchedPaths(payload)
+	d.mu.Lock()
+	// Looked at again under the lock: Set stores the Connector before it takes the lock, so one that landed since the load above is
+	// visible here, and one that has not yet will find the payload stalled.
+	if b := d.cur.Load(); b != nil && b.c != nil {
+		d.mu.Unlock()
+		return b.c.SendWatchedPaths(payload)
+	}
+	d.stalledWatchedPaths = bytes.Clone(payload)
+	d.mu.Unlock()
+	return ErrNoConnector
 }
 
 // SendNetworkContainment delivers a network_containment.update to the network extension's active Connector, routing like
