@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   listDetectionExclusions,
@@ -192,7 +192,7 @@ function observedNoteBody(days: number): string {
 function costNoteBody(days: number): string {
   return (
     `is how much server time each rule used over the last ${String(days)} days: the total first, then the average per ` +
-    "run. Hover a cell for the slowest single run. Sorting ranks by the total, because a cheap rule that runs constantly " +
+    "run, then the slowest single run. Sorting ranks by the total, because a cheap rule that runs constantly " +
     "can cost more than an expensive one that rarely runs. Retries count as runs, so this is time spent rather than work " +
     "completed, and a run that ends without deciding is counted too and shown as undecided."
   );
@@ -222,45 +222,7 @@ function formatMatches(n: number): string {
 // absence can equally mean it was promoted before the window opened, or that the window predates its registration. Spelled out
 // rather than drawn as a dash glyph, both because the repo forbids the character in user-facing text and because the words say
 // the distinction the glyph only implies.
-// AbbreviatedFigure is the disclosure both abbreviated columns use, so the pair cannot diverge (#902).
-//
-// The columns draw "42k" and "1.5ms" deliberately: at a thousand rules they have to stay scannable. The precise figures used to
-// live in a native `title`, which opens on POINTER HOVER ONLY. A sighted keyboard user and anyone on a touch device could not
-// reach them at all, and these are the numbers the columns exist for: the Cost column's whole purpose is finding the slow rule,
-// and "usually fast, occasionally terrible" is an answer that lives entirely in the worst-case figure.
-//
-// A button rather than a focusable span, because this does something when activated; keyboard activation and tap then come from
-// the platform rather than from hand-rolled key handlers.
-//
-// The full sentence is ALWAYS in the DOM, visually hidden until expanded rather than absent. That is what keeps assistive
-// technology whole: it reads the description through aria-describedby whether or not a sighted user has expanded anything, which
-// is exactly what the old aria-label gave it. Rendering it only when open would quietly take that away in the name of fixing
-// access for everyone else. `title` stays for pointer users, so no one loses the hover they have now.
-function AbbreviatedFigure({ full, children }: { full: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  return (
-    <span className="detection-config__figure">
-      <button
-        type="button"
-        className="detection-config__figure-toggle"
-        aria-expanded={open}
-        aria-describedby={id}
-        title={full}
-        onClick={() => {
-          setOpen((wasOpen) => !wasOpen);
-        }}
-      >
-        {children}
-      </button>
-      <span id={id} className={open ? "detection-config__figure-full" : "detection-config__sr-only"}>
-        {full}
-      </span>
-    </span>
-  );
-}
-
-function renderObserved(count: RuleMatchCount | undefined, ruleID: string, days: number, unavailable: boolean) {
+function renderObserved(count: RuleMatchCount | undefined, ruleID: string, unavailable: boolean) {
   if (unavailable) {
     return (
       <span className="detection-config__observed-unavailable" aria-label={`match counts unavailable for ${ruleID}`}>
@@ -280,18 +242,15 @@ function renderObserved(count: RuleMatchCount | undefined, ruleID: string, days:
   // case from one still matching. Phrased by the shared helper rather than a local one, so this reads like the Hosts list instead
   // of inventing a second vocabulary for the same idea.
   const lastSeen = formatRelativeISO(count.last_seen);
-  const matches = `${count.matches.toLocaleString()} match${count.matches === 1 ? "" : "es"}`;
-  const title =
-    `approximately ${matches} on ${hosts} in the last ${String(days)} days` + (lastSeen === "" ? "" : `, last matched ${lastSeen}`);
-  // The records link sits beside the figure rather than wrapping it: the figure is already a control, the disclosure of its precise
-  // value, and giving one element two actions would make activating it ambiguous (issue #994).
+  // Plain text, with nothing to click: a figure that revealed a longer sentence in place widened its column and moved every row
+  // under the reader (issue #992). The count is abbreviated on purpose, so it stays scannable at a thousand rules.
   return (
     <>
-      <AbbreviatedFigure full={title}>
+      <span>
         {formatMatches(count.matches)}
         <span className="detection-config__observed-hosts"> on {hosts}</span>
         {lastSeen === "" ? null : <span className="detection-config__observed-last"> &middot; {lastSeen}</span>}
-      </AbbreviatedFigure>
+      </span>
       <Link
         className="detection-config__observed-records"
         to={`/rules/${encodeURIComponent(ruleID)}/monitor-records`}
@@ -336,14 +295,13 @@ function formatDuration(ns: number): string {
 // recorded", because an empty result reads as a cheap rule, and a cheap-looking rule is exactly what an operator hunting a slow
 // one will skip over.
 //
-// The MEAN is displayed and the maximum rides in the tooltip, rather than the other way round. Scanning a column of maxima finds
-// the rule with one bad batch; scanning a column of means finds the rule that is expensive every time, which is the one holding up
-// the drain loop. The maximum still has to be reachable, because a rule that is usually fast and occasionally terrible is a real
-// answer, so it is in the label rather than dropped.
+// The cell carries the total, the mean and the maximum, and nothing is hidden behind a click. The mean finds the rule that is
+// expensive every time, which is the one holding up the drain loop; the maximum finds the rule that is usually fast and
+// occasionally terrible, and it used to be reachable only by expanding the cell, which widened the column under the reader (#992).
 //
 // Retryable misses are shown only when there are any. A "0 misses" annotation on every row would cost the column's width for the
 // rows where it says nothing, and the count matters precisely when it is not zero.
-function renderCost(stat: RuleEvalSummary | undefined, ruleID: string, days: number, unavailable: boolean) {
+function renderCost(stat: RuleEvalSummary | undefined, ruleID: string, unavailable: boolean) {
   if (unavailable) {
     return (
       <span className="detection-config__observed-unavailable" aria-label={`evaluation statistics unavailable for ${ruleID}`}>
@@ -358,29 +316,16 @@ function renderCost(stat: RuleEvalSummary | undefined, ruleID: string, days: num
       </span>
     );
   }
-  const evaluations = `${stat.evaluations.toLocaleString()} evaluation${stat.evaluations === 1 ? "" : "s"}`;
-  // "could not decide", not "were retried", and the difference is real rather than pedantic: the counter increments the moment an
-  // attempt returns a retryable outcome, before anything knows whether another attempt follows. A batch that is eventually set
-  // aside has its last miss counted with no retry after it, so labelling the figure as completed retries overstates it for exactly
-  // the rules an operator is chasing.
-  // Always in the LABEL, even at zero, because that is where the figure is promised and where a reader without the column's width
-  // gets it. Only the VISIBLE annotation is suppressed at zero, since "0 undecided" on every row spends width saying nothing.
-  const misses = `, ${stat.retryable_misses.toLocaleString()} of which could not decide`;
-  // Said only when the server reports the figure. A server that predates it has measured nothing, and "gave up on 0" would state a
+  // Said only when the server reports the figure. A server that predates it has measured nothing, and "abandoned 0" would state a
   // measurement that never happened, which for a count whose whole purpose is exposing lost detections is the worst reading.
   const abandoned = stat.materialization_abandoned;
-  const gaveUp =
-    abandoned === undefined
-      ? ""
-      : `, and gave up on ${abandoned.toLocaleString()} process${abandoned === 1 ? "" : "es"} whose record never arrived`;
-  const title =
-    `${formatDuration(stat.total_eval_ns)} in total across ${evaluations} in the last ${String(days)} days, ` +
-    `${formatDuration(stat.mean_eval_ns)} on average and ${formatDuration(stat.max_eval_ns)} at worst${misses}${gaveUp}`;
   return (
-    <AbbreviatedFigure full={title}>
+    <span>
       {formatDuration(stat.total_eval_ns)}
       <span className="detection-config__observed-hosts"> total</span>
       <span className="detection-config__observed-hosts"> &middot; {formatDuration(stat.mean_eval_ns)} avg</span>
+      {/* The worst single run, which separates a rule that is expensive every time from one that is fine except when it is not. */}
+      <span className="detection-config__observed-hosts"> &middot; {formatDuration(stat.max_eval_ns)} max</span>
       {stat.retryable_misses === 0 ? null : (
         <span className="detection-config__observed-last"> &middot; {stat.retryable_misses.toLocaleString()} undecided</span>
       )}
@@ -389,7 +334,7 @@ function renderCost(stat: RuleEvalSummary | undefined, ruleID: string, days: num
       {abandoned === undefined || abandoned === 0 ? null : (
         <span className="detection-config__observed-last"> &middot; {abandoned.toLocaleString()} abandoned</span>
       )}
-    </AbbreviatedFigure>
+    </span>
   );
 }
 
@@ -959,15 +904,16 @@ export function DetectionConfig() {
                   return (
                     <tr key={r.id}>
                       <td>
-                        {r.doc.title}
+                        {/* Every row is a catalog rule with a document, so the page it names always exists. */}
+                        <Link to={`/rules/${encodeURIComponent(r.id)}`}>{r.doc.title}</Link>
                         <br />
                         <code className="detection-config__rule-id">{r.id}</code>
                       </td>
                       <td className="detection-config__default-severity">{r.doc.severity || "(unspecified)"}</td>
                       <td className="detection-config__observed">
-                        {renderObserved(observed[r.id], r.id, observedDays, observedUnavailable)}
+                        {renderObserved(observed[r.id], r.id, observedUnavailable)}
                       </td>
-                      <td className="detection-config__observed">{renderCost(cost[r.id], r.id, costDays, costUnavailable)}</td>
+                      <td className="detection-config__observed">{renderCost(cost[r.id], r.id, costUnavailable)}</td>
                       <td>
                         <Select
                           label=""
