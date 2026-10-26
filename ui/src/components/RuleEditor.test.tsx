@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { RuleEditor } from "./RuleEditor";
 import { seedTechnique } from "./ruleTemplate";
 import * as api from "../api";
+import { persistReauthDrafts, readReauthDraft } from "../reauthDraft";
 
 function renderEditor(entry: string) {
   return render(
@@ -25,6 +26,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  sessionStorage.clear();
 });
 
 const content = (): HTMLTextAreaElement => screen.getByLabelText<HTMLTextAreaElement>("Rule document");
@@ -282,5 +284,63 @@ describe("RuleEditor, existing rule", () => {
     renderEditor("/rules/suspicious_exec/edit");
 
     expect(await screen.findByText(/has no stored document to edit/)).toBeVisible();
+  });
+});
+
+// An OIDC reauthentication leaves the page, so what was typed is kept across it and put back, and the save that needed the sign-in is
+// not run again (issue #1113).
+describe("RuleEditor across a reauthentication", () => {
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("puts back a new rule's identifier and document, says so, and saves nothing", async () => {
+    renderEditor("/rules/new");
+    fireEvent.change(screen.getByLabelText("Identifier"), { target: { value: "my_rule" } });
+    fireEvent.change(content(), { target: { value: "title: my rule\n" } });
+    expect(persistReauthDrafts()).toBe(true);
+    cleanup();
+
+    const put = vi.spyOn(api, "putRuleContentDocument");
+    renderEditor("/rules/new");
+
+    expect(await screen.findByText(/Your unsaved changes were kept while you signed in again/)).toBeVisible();
+    expect(screen.getByLabelText("Identifier")).toHaveValue("my_rule");
+    expect(content().value).toBe("title: my rule\n");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled(); // a restored draft has to be checked again before it can be saved
+    expect(put).not.toHaveBeenCalled();
+    expect(readReauthDraft("rule-editor:new")).toBeUndefined();
+  });
+
+  it("puts the restored document over what an existing rule loads, once it has loaded", async () => {
+    vi.spyOn(api, "fetchRuleDocs").mockResolvedValue([]);
+    vi.spyOn(api, "listRuleContentDocuments").mockResolvedValue([{ path: "authored/my_rule.yml", bytes: 20 }]);
+    vi.spyOn(api, "getRuleContentDocument").mockResolvedValue("title: as stored\n");
+
+    renderEditor("/rules/my_rule/edit");
+    await waitFor(() => { expect(content().value).toBe("title: as stored\n"); });
+    // Not dirty yet: nothing is kept for a page nobody has touched.
+    expect(persistReauthDrafts()).toBe(true);
+    expect(readReauthDraft("rule-editor:my_rule")).toBeUndefined();
+
+    fireEvent.change(content(), { target: { value: "title: edited\n" } });
+    expect(persistReauthDrafts()).toBe(true);
+    cleanup();
+
+    renderEditor("/rules/my_rule/edit");
+    await waitFor(() => { expect(content().value).toBe("title: edited\n"); });
+    expect(screen.getByText(/Your unsaved changes were kept/)).toBeVisible();
+  });
+
+  it("does not put one rule's work into another's editor", async () => {
+    renderEditor("/rules/new");
+    fireEvent.change(screen.getByLabelText("Identifier"), { target: { value: "my_rule" } });
+    persistReauthDrafts();
+    cleanup();
+
+    vi.spyOn(api, "fetchRuleDocs").mockResolvedValue([]);
+    vi.spyOn(api, "listRuleContentDocuments").mockResolvedValue([{ path: "authored/other.yml", bytes: 20 }]);
+    vi.spyOn(api, "getRuleContentDocument").mockResolvedValue("title: other\n");
+    renderEditor("/rules/other/edit");
+
+    await waitFor(() => { expect(content().value).toBe("title: other\n"); });
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
   });
 });

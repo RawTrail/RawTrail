@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ReauthModal } from "./ReauthModal";
 import * as auth from "../auth";
+import { registerReauthDraft, readReauthDraft } from "../reauthDraft";
 import type { ReauthChallenge } from "../api";
 
 // ReauthModal renders the per-flow reauth prompt and dispatches to either an OIDC redirect or the WebAuthn break-glass
@@ -164,5 +165,68 @@ describe("ReauthModal", () => {
     expect(submit).toBeDisabled();
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "p" } });
     expect(submit).not.toBeDisabled();
+  });
+});
+
+// An OIDC reauthentication leaves the page, so the dialog keeps the page's unsaved work before it goes and says so (issue #1113). It
+// is never replayed: signing in does not save anything.
+describe("ReauthModal OIDC flow and unsaved work", () => {
+  const off: (() => void)[] = [];
+  afterEach(() => {
+    while (off.length > 0) off.pop()?.();
+    sessionStorage.clear();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-kept-across-the-sign-in
+  it("keeps the unsaved work before it leaves the page, and says it will be put back and not saved", () => {
+    off.push(registerReauthDraft("surface", () => ({ text: "typed" })));
+    const reauthSpy = vi.spyOn(auth, "reauthOIDC").mockImplementation(() => {
+      // Persisted before the page goes: by the time the redirect runs, the work is already in storage.
+      expect(readReauthDraft("surface")).toEqual({ text: "typed" });
+    });
+    render(<ReauthModal open={true} challenge={oidcChallenge} resolve={vi.fn()} />);
+
+    expect(screen.getByText(/unsaved changes on this page are kept/i)).toBeVisible();
+    expect(screen.getByText(/does not save them or re-run the action/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /continue with single sign-on/i }));
+
+    expect(reauthSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("says nothing about unsaved work when the page has none, and saves nothing", () => {
+    off.push(registerReauthDraft("surface", () => null));
+    const reauthSpy = vi.spyOn(auth, "reauthOIDC").mockImplementation(() => undefined);
+    render(<ReauthModal open={true} challenge={oidcChallenge} resolve={vi.fn()} />);
+
+    expect(screen.queryByText(/unsaved changes/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /continue with single sign-on/i }));
+
+    expect(reauthSpy).toHaveBeenCalledTimes(1);
+    expect(readReauthDraft("surface")).toBeUndefined();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/work-that-cannot-be-kept-is-said-to-be-lost
+  it("will not leave silently when the work could not be kept: it says so, and a second click goes ahead", () => {
+    off.push(registerReauthDraft("surface", () => ({ text: "typed" })));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    const reauthSpy = vi.spyOn(auth, "reauthOIDC").mockImplementation(() => undefined);
+    render(<ReauthModal open={true} challenge={oidcChallenge} resolve={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /continue with single sign-on/i }));
+
+    expect(reauthSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/could not be kept, and will be lost/i);
+    fireEvent.click(screen.getByRole("button", { name: /continue anyway/i }));
+    expect(reauthSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("never touches the work on the break-glass flow, which does not leave the page", () => {
+    off.push(registerReauthDraft("surface", () => ({ text: "typed" })));
+    render(<ReauthModal open={true} challenge={breakglassChallenge} resolve={vi.fn()} />);
+
+    expect(screen.queryByText(/unsaved changes/i)).toBeNull();
+    expect(readReauthDraft("surface")).toBeUndefined();
   });
 });

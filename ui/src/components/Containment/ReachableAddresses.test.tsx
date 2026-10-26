@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ReachableAddresses } from "./ReachableAddresses";
 import { PermissionsProvider } from "../../permissions";
 import { PermissionAction } from "../../permissions-core";
 import * as api from "../../api";
+import { persistReauthDrafts, readReauthDraft } from "../../reauthDraft";
 import type { ContainmentState, ReachableAddress, ReachableSet } from "../../types";
 
 const makeSet = (over: Partial<ReachableSet> = {}): ReachableSet => ({
@@ -41,6 +42,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  sessionStorage.clear();
 });
 
 async function renderLoaded(
@@ -309,5 +311,45 @@ describe("ReachableAddresses", () => {
     );
 
     expect(await screen.findByText(/Reachable destinations could not be loaded: service unavailable/)).toBeVisible();
+  });
+});
+
+// An OIDC reauthentication leaves the page, so the edited list and the destination being typed are kept across it and put back, and the
+// save that needed the sign-in is not run again (issue #1113).
+describe("ReachableAddresses across a reauthentication", () => {
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("puts back the edited list and the destination being typed, says so, and saves nothing", async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Remove 198.51.100.7/32" }));
+    fireEvent.change(screen.getByLabelText("Destination"), { target: { value: "192.0.2.10/32" } });
+    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "8443" } });
+    // What the reauthentication dialog does as the page is about to be left.
+    expect(persistReauthDrafts()).toBe(true);
+    cleanup();
+
+    const replace = vi.spyOn(api, "replaceReachableAddresses");
+    await renderLoaded();
+
+    expect(await screen.findByText(/Your unsaved changes were kept while you signed in again/)).toBeVisible();
+    expect(rows()).toEqual([expect.stringContaining("203.0.113.0/24")]);
+    expect(screen.getByLabelText("Destination")).toHaveValue("192.0.2.10/32");
+    expect(screen.getByLabelText("Port")).toHaveValue("8443");
+    expect(screen.getByRole("button", { name: "Save and push to hosts" })).toBeEnabled();
+    expect(replace).not.toHaveBeenCalled();
+    // Consumed: a reload after this starts clean rather than restoring it again.
+    expect(readReauthDraft("reachable-addresses")).toBeUndefined();
+  });
+
+  it("restores nothing, and says nothing, when no work was saved", async () => {
+    await renderLoaded();
+
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(rows()).toHaveLength(2);
+  });
+
+  it("keeps nothing when the page was clean", async () => {
+    await renderLoaded();
+    persistReauthDrafts();
+    expect(readReauthDraft("reachable-addresses")).toBeUndefined();
   });
 });

@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getReachableAddresses, listContainment, ReachableSetConflictError, replaceReachableAddresses } from "../../api";
 import { containmentPhase, type ContainmentPhase } from "../../containment";
+import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
 import { useCan, PermissionAction } from "../../permissions-core";
 import type { ReachableAddress, ReachableSet } from "../../types";
 import { formatRelativeISO } from "../../time";
+import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
 import { Button } from "../ui/Button";
 import { Input, Select } from "../ui/Input";
@@ -57,6 +59,15 @@ function describeAllows(a: ReachableAddress): string {
 // containment in force rather than changing what one host reports, and the server gates the write on a recent sign-in. And the page
 // says how many hosts are contained as it is edited, because "who does this reach" is the question being asked when an operator
 // widens or revokes during an incident, and a settings form that cannot answer it sends them to another tab to find out.
+// ReachableUnsaved is the page's unsaved work, as it is kept across a reauthentication.
+interface ReachableUnsaved {
+  readonly draft: ReachableAddress[];
+  readonly newCidr: string;
+  readonly newPort: string;
+  readonly newTransport: "" | "tcp" | "udp";
+  readonly newNote: string;
+}
+
 export function ReachableAddresses() {
   // Read opens the page; write enables the edit controls. The server chokepoint remains the authority (ADR-0012), so hiding the
   // controls is about not offering an operator an action that would be refused, not about enforcing anything.
@@ -77,6 +88,18 @@ export function ReachableAddresses() {
   // contained is how many hosts the set reaches at this moment, or null while it is unknown. A failed read leaves the count unsaid
   // rather than failing the page: the count is context for the edit, and not knowing it is a poor reason to refuse the edit.
   const [contained, setContained] = useState<number | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  // What an operator has typed and not saved: the edited list, and the destination being composed. A reauthentication through the
+  // identity provider leaves the page, so this is kept across it and put back below; saving is never replayed (issue #1113).
+  const unsaved: ReachableUnsaved | null =
+    stored !== null && (!sameEntries(draft, stored.addresses) || newCidr !== "" || newPort !== "" || newTransport !== "" || newNote !== "")
+      ? { draft, newCidr, newPort, newTransport, newNote }
+      : null;
+  const { restored, consume } = useReauthDraft<ReachableUnsaved>("reachable-addresses", unsaved);
+  // Held from mount: the load below puts the restored work over the stored set when it arrives, and it has to be the work the page
+  // started with rather than whatever a later render sees.
+  const restoredOnMount = useRef(restored);
 
   const replace = useCallback(
     async (addresses: ReachableAddress[], reason: string, expectedVersion: number) =>
@@ -91,7 +114,18 @@ export function ReachableAddresses() {
       .then((set) => {
         if (cancelled) return;
         setStored(set);
-        setDraft(set.addresses);
+        const kept = restoredOnMount.current;
+        if (kept === undefined) {
+          setDraft(set.addresses);
+          return;
+        }
+        setDraft(kept.draft);
+        setNewCidr(kept.newCidr);
+        setNewPort(kept.newPort);
+        setNewTransport(kept.newTransport);
+        setNewNote(kept.newNote);
+        setDraftRestored(true);
+        consume();
       })
       .catch((err: unknown) => {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
@@ -107,7 +141,7 @@ export function ReachableAddresses() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [consume]);
 
   // loadLatest replaces the stored set and the draft with what the server holds now, after a save was refused as out of date.
   const loadLatest = () => {
@@ -145,6 +179,7 @@ export function ReachableAddresses() {
     newCidr.trim() !== "" && portUsable && draft.length < MAX_ADDRESSES && !draft.some((a) => destinationKey(a) === destinationKey(candidate));
 
   const clearOutcome = () => {
+    setDraftRestored(false);
     setSavedVersion(null);
     setSaveError(null);
     setConflict(false);
@@ -186,6 +221,7 @@ export function ReachableAddresses() {
         on top of that, from every contained host. Keep the list to the systems a responder needs, because each entry is a hole in
         every containment in force.
       </p>
+      {draftRestored && <ReauthDraftNotice />}
       <p className="reachable__note" role="status">
         {contained === null
           ? "How many hosts this reaches could not be read."
