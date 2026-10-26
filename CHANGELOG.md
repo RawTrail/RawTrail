@@ -4,6 +4,12 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ## [Unreleased]
 
+### Fixed
+
+- **The detection tuning table no longer shifts when you click a figure.** Observed and Cost figures are plain text, the Cost column now shows the slowest run beside the total and average, and each rule name links to its page. The evaluation count and exact match counts are no longer shown.
+- **A freshly installed Mac gets the deployment's watched paths as soon as its extension is approved,** instead of up to six hours later.
+- **A host that starts taking commands again no longer keeps showing "it is not taking commands".**
+
 ## [0.8.0] (2026-10-21)
 
 ### Upgrade notes (action required)
