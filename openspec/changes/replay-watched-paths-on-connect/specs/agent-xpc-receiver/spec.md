@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
-### Requirement: A watched-path push that found no connection is sent when one is published
+### Requirement: A watched-path push before the connection is replayed
 
 The agent SHALL send the most recent watched-path push that found no connection to the system extension as soon as a connection is published. The push's command still fails, because it did not reach the extension when it was made. The set is not otherwise sent again for hours, and a freshly installed host is pushed it before its extension is approved.
 
-#### Scenario: A push sent before the extension connects is replayed
+#### Scenario: A push before the extension connects is replayed
 
 - **GIVEN** the agent has no connection to the system extension
 - **AND** it is asked to push the watched paths

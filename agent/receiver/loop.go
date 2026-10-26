@@ -377,6 +377,12 @@ func (d *Dispatcher) Set(c Connector) {
 	if err := c.SendWatchedPaths(stalled); err != nil {
 		getLogger().WarnContext(context.Background(), "receiver dispatcher: replaying the watched paths that arrived before the extension failed",
 			"err", err)
+		// Kept for the next connection, unless a push has stalled a newer set since, which supersedes it.
+		d.mu.Lock()
+		if d.stalledWatchedPaths == nil {
+			d.stalledWatchedPaths = stalled
+		}
+		d.mu.Unlock()
 	}
 }
 

@@ -229,8 +229,8 @@ func TestUndeliverableByHost(t *testing.T) {
 		"a pending command against an asleep host is the ordinary case; counting it would report every offline host as faulty")
 }
 
-// spec:server-host-status/a-host-that-takes-commands-again-stops-being-reported-as-not-taking-them/a-later-claim-clears-the-condition
-// spec:server-host-status/a-host-that-takes-commands-again-stops-being-reported-as-not-taking-them/only-expiries-after-the-latest-claim-count
+// spec:server-host-status/a-claimed-command-clears-earlier-expiries/a-later-claim-clears-the-condition
+// spec:server-host-status/a-claimed-command-clears-earlier-expiries/only-expiries-after-the-latest-claim-count
 //
 // A host that comes back and claims a later command is taking commands again, so the expiries before that claim stop counting, and
 // ones after it still do (issue #1387).

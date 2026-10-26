@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-### Requirement: A host that takes commands again stops being reported as not taking them
+### Requirement: A claimed command clears earlier expiries
 
 The system SHALL stop counting an expired command toward the not-taking-commands condition once the host has claimed a later command. Expiries after the most recent claim SHALL still count. A host back from days offline has expired commands with nothing wrong, and reporting it for the rest of the window would assert in the present tense something that is no longer true.
 

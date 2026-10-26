@@ -548,9 +548,9 @@ func TestDispatcher_SendWhileDisconnected(t *testing.T) {
 	require.ErrorIs(t, d.SendNetworkContainment([]byte("z")), ErrNoConnector)
 }
 
-// spec:agent-xpc-receiver/a-watched-path-push-that-found-no-connection-is-sent-when-one-is-published/a-push-sent-before-the-extension-connects-is-replayed
-// spec:agent-xpc-receiver/a-watched-path-push-that-found-no-connection-is-sent-when-one-is-published/a-later-push-replaces-an-earlier-one
-// spec:agent-xpc-receiver/a-watched-path-push-that-found-no-connection-is-sent-when-one-is-published/a-replayed-push-is-sent-once
+// spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/a-push-before-the-extension-connects-is-replayed
+// spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/a-later-push-replaces-an-earlier-one
+// spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/a-replayed-push-is-sent-once
 //
 // A fresh install is pushed the deployment's watched paths before its extension is approved, and the server will not send them again
 // for hours, so the dispatcher holds the push that found no connection and sends it when one is published (issue #1386).
@@ -587,6 +587,22 @@ func TestDispatcher_WatchedPathsSentBeforeTheExtensionConnectsAreReplayed(t *tes
 			assert.Empty(t, next.watchedPayloads)
 		})
 	}
+}
+
+// A replay that fails, because the connection dropped as it was published, is kept for the next connection rather than lost.
+//
+// spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/a-push-before-the-extension-connects-is-replayed
+func TestDispatcher_AFailedReplayIsKeptForTheNextConnection(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{"version":1,"paths":[]}`)
+	d := NewDispatcher()
+	require.ErrorIs(t, d.SendWatchedPaths(payload), ErrNoConnector)
+
+	d.Set(newStubConnector(stubScript{sendErr: errors.New("connection invalidated")}))
+	next := newStubConnector(stubScript{})
+	d.Set(next)
+
+	assert.Equal(t, [][]byte{payload}, next.watchedPayloads)
 }
 
 // A push to a live connection is not held, so a reconnect does not replay a set the extension already took.
