@@ -128,8 +128,8 @@ func TestAnOrdinaryDisconnectIsNotRecordedAsAFailedConnection(t *testing.T) {
 // A client's socket dying can fail the receive with a status (net/http's `client disconnected`) before the stream context is
 // cancelled, so a status error alone cannot separate a gone client from a rejected frame (issue #1329). The context settles it.
 //
-// spec:agent-control-channel/a-disconnect-that-fails-the-receive-with-a-status-still-ends-the-connection-cleanly/a-status-failure-followed-by-the-cancel-is-a-disconnect
-// spec:agent-control-channel/a-disconnect-that-fails-the-receive-with-a-status-still-ends-the-connection-cleanly/a-status-failure-on-a-live-context-is-still-a-fault
+// spec:agent-control-channel/a-status-failure-after-a-disconnect-ends-cleanly/a-status-then-a-cancel-is-a-disconnect
+// spec:agent-control-channel/a-status-failure-after-a-disconnect-ends-cleanly/a-status-on-a-live-context-is-a-fault
 func TestAStatusReceiveErrorIsAFaultOnlyWhileTheClientIsStillAttached(t *testing.T) {
 	t.Parallel()
 	rejectedFrame := status.Error(codes.ResourceExhausted, "message larger than max")
