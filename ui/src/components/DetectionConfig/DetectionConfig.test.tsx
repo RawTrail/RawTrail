@@ -1606,6 +1606,26 @@ describe("DetectionConfig exclusion form across a reauthentication", () => {
     expect(screen.getByLabelText("Value")).toHaveValue("");
   });
 
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("keeps the saved work when the page fails to load after the sign-in, for the refresh that follows", async () => {
+    const first = await loaded();
+    fillForm();
+    persistReauthDrafts();
+    first.unmount();
+
+    stubReads();
+    vi.spyOn(api, "listDetectionExclusions").mockRejectedValue(new Error("boom"));
+    const failed = renderPage();
+    expect(await screen.findByText(/Error: boom/)).toBeVisible();
+    expect(readReauthDraft("detection-exclusion-form")).toBeDefined();
+    failed.unmount();
+
+    await loaded();
+    expect(await screen.findByText(/Your unsaved changes were kept/)).toBeVisible();
+    expect(screen.getByLabelText("Value")).toHaveValue("*/foo/*");
+    expect(readReauthDraft("detection-exclusion-form")).toBeUndefined();
+  });
+
   it("clears the notice once the exclusion is added, which is the operator saving it themselves", async () => {
     const first = await loaded();
     fillForm();

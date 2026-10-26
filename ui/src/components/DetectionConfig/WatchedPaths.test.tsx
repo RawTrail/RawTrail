@@ -422,6 +422,24 @@ describe("WatchedPaths across a reauthentication", () => {
     expect(await screen.findByRole("button", { name: /Load the latest set/ })).toBeVisible();
   });
 
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("keeps the saved work when the set fails to load after the sign-in, for the refresh that follows", async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Remove /Library/StartupItems/" }));
+    persistReauthDrafts();
+    cleanup();
+
+    vi.spyOn(api, "getWatchedPaths").mockRejectedValue(new Error("boom"));
+    render(<WatchedPaths canWrite />);
+    expect(await screen.findByText(/could not be loaded: boom/)).toBeVisible();
+    expect(readReauthDraft("watched-paths")).toBeDefined();
+    cleanup();
+
+    await renderLoaded();
+    expect(await screen.findByText(/Your unsaved changes were kept/)).toBeVisible();
+    expect(rows()).toHaveLength(1);
+  });
+
   it("does not warn about a changed set when it was not changed", async () => {
     await renderLoaded();
     fireEvent.click(screen.getByRole("button", { name: "Remove /Library/StartupItems/" }));

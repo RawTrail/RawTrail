@@ -467,9 +467,11 @@ export function DetectionConfig() {
     setFormReason(restoredForm.formReason);
     setFormExpires(restoredForm.formExpires);
   }
+  // Removed from storage only once the page has loaded: a read that fails after the sign-in leaves an error page, and a refresh to try
+  // again must still find the work.
   useEffect(() => {
-    if (restoreApplied) consumeForm();
-  }, [restoreApplied, consumeForm]);
+    if (restoreApplied && !loading && !error) consumeForm();
+  }, [restoreApplied, loading, error, consumeForm]);
 
   // pendingMode holds a not-yet-applied disable (the alerting-reducing change) while the reason modal collects an operator
   // justification. modalError surfaces a failed confirm inside the modal so it stays open for a retry.
