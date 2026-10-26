@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type Enforcement,
   createAppControlRule,
   type CreateAppControlRuleRequest,
 } from "../../api";
+import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
+import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
 import { Input, Select } from "../ui/Input";
 import { AppControlDialogShell } from "./AppControlDialogShell";
 import { applyAppControlSubmitError } from "./dialogErrors";
 import { EnforcementChoice } from "./EnforcementChoice";
+import { addRuleDraftKey } from "./reauthDraftKeys";
+import { parseEnforcement } from "./reauthDraftParse";
 import "./ApplicationControl.scss";
 
 // AddRuleModalProps is the parent contract. open drives showModal() /
@@ -131,6 +135,37 @@ const errorMessageByCode = new Map<string, string>([
   ["application_control.invalid_json", "The request body was not valid JSON."],
 ]);
 
+// AddRuleUnsaved is the dialog's unsaved work, as it is kept across a reauthentication (issue #1113).
+interface AddRuleUnsaved {
+  readonly ruleType: string;
+  readonly identifier: string;
+  readonly enforcement: Enforcement | null;
+  readonly severity: string;
+  readonly customMsg: string;
+  readonly customURL: string;
+  readonly reason: string;
+}
+
+// parseAddRuleUnsaved accepts only a payload of this dialog's own shape, since storage can hold whatever was written under the key.
+function parseAddRuleUnsaved(raw: unknown): AddRuleUnsaved | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  const enforcement = parseEnforcement(r.enforcement);
+  if (enforcement === undefined) return undefined;
+  const { ruleType, identifier, severity, customMsg, customURL, reason } = r;
+  if (
+    typeof ruleType !== "string" ||
+    typeof identifier !== "string" ||
+    typeof severity !== "string" ||
+    typeof customMsg !== "string" ||
+    typeof customURL !== "string" ||
+    typeof reason !== "string"
+  ) {
+    return undefined;
+  }
+  return { ruleType, identifier, enforcement, severity, customMsg, customURL, reason };
+}
+
 export function AddRuleModal({ open, policyID, onClose, onCreated }: AddRuleModalProps) {
   const [ruleType, setRuleType] = useState("BINARY");
   const [identifier, setIdentifier] = useState("");
@@ -142,10 +177,45 @@ export function AddRuleModal({ open, policyID, onClose, onCreated }: AddRuleModa
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // What an operator has typed and not saved, while the dialog is open. A reauthentication through the identity provider leaves the
+  // page, so this is kept across it and put back when the page reopens the dialog; saving is never replayed (issue #1113).
+  const touched =
+    ruleType !== "BINARY" || identifier !== "" || enforcement !== null || severity !== "medium" || customMsg !== "" || customURL !== "" || reason !== "";
+  const unsaved: AddRuleUnsaved | null = open && touched ? { ruleType, identifier, enforcement, severity, customMsg, customURL, reason } : null;
+  const { restored, consume } = useReauthDraft<AddRuleUnsaved>(addRuleDraftKey(policyID), unsaved, parseAddRuleUnsaved);
+  // Held for the first opening: the page opens the dialog on return because work was saved, and that open puts the work back instead of
+  // resetting the form. It is dropped when the dialog closes, so every later open resets as before.
+  const pendingRestore = useRef(restored);
+  const [draftRestored, setDraftRestored] = useState(false);
+
   // Reset the form whenever the dialog opens. Otherwise a Cancel + re-open would surface the previous attempt's values.
   useEffect(() => {
-    if (!open) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset tied to the open prop transition
+    if (!open) {
+      // The opening the saved work was for has ended, so a later open resets as it always did.
+      pendingRestore.current = undefined;
+      return;
+    }
+    // Not cleared here: React replays mount effects in development (StrictMode), and a second run that found nothing to restore would
+    // reset the form the first run had just filled.
+    const kept = pendingRestore.current;
+    if (kept !== undefined) {
+       
+      setRuleType(kept.ruleType);
+      setIdentifier(kept.identifier);
+      setEnforcement(kept.enforcement);
+      setSeverity(kept.severity);
+      setCustomMsg(kept.customMsg);
+      setCustomURL(kept.customURL);
+      setReason(kept.reason);
+      setBusy(false);
+      setFormError(null);
+      setDraftRestored(true);
+       
+      consume();
+      return;
+    }
+     
+    setDraftRestored(false);
     setRuleType("BINARY");
     setIdentifier("");
     setEnforcement(null);
@@ -155,7 +225,7 @@ export function AddRuleModal({ open, policyID, onClose, onCreated }: AddRuleModa
     setReason("");
     setBusy(false);
     setFormError(null);
-  }, [open]);
+  }, [open, consume]);
 
   const submitCreate = useCallback(
     (req: CreateAppControlRuleRequest) => createAppControlRule(policyID, req),
@@ -226,6 +296,7 @@ export function AddRuleModal({ open, policyID, onClose, onCreated }: AddRuleModa
       onSubmit={(e) => { void handleSubmit(e); }}
       reauthModal={<ReauthModal {...reauthModal} />}
     >
+      {draftRestored && <ReauthDraftNotice />}
       <Select
         id="rule-type"
         label="Type"

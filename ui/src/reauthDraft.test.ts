@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import {
   DRAFT_TTL_MS,
   discardReauthDraft,
+  hasReauthDraft,
   hasUnsavedWork,
   persistReauthDrafts,
   readReauthDraft,
@@ -197,5 +198,24 @@ describe("discardReauthDraft", () => {
     sessionStorage.setItem(`${KEY}a`, "x");
     discardReauthDraft("a");
     expect(sessionStorage.getItem(`${KEY}a`)).toBeNull();
+  });
+});
+
+describe("hasReauthDraft", () => {
+  it("is true for work that could be restored now, and does not consume it", () => {
+    sessionStorage.setItem(`${KEY}a`, JSON.stringify({ savedAt: 1000, path: "/", userId: 1, value: { text: "typed" } }));
+
+    expect(hasReauthDraft("a", 2000)).toBe(true);
+    expect(hasReauthDraft("a", 2000)).toBe(true);
+    expect(sessionStorage.getItem(`${KEY}a`)).not.toBeNull();
+  });
+
+  it("is false for work that is stale, another operator's, or never saved", () => {
+    sessionStorage.setItem(`${KEY}old`, JSON.stringify({ savedAt: 1000, path: "/", userId: 1, value: {} }));
+    sessionStorage.setItem(`${KEY}theirs`, JSON.stringify({ savedAt: 1000, path: "/", userId: 2, value: {} }));
+
+    expect(hasReauthDraft("old", 1000 + DRAFT_TTL_MS + 1)).toBe(false);
+    expect(hasReauthDraft("theirs", 2000)).toBe(false);
+    expect(hasReauthDraft("never")).toBe(false);
   });
 });
