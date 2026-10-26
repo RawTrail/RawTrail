@@ -1,0 +1,14 @@
+@use "../styles/var/colors" as *;
+@use "../styles/var/fonts" as *;
+@use "../styles/var/global" as *;
+@use "../styles/var/padding" as *;
+
+.reauth-draft-notice {
+  margin: 0 0 $pad-medium;
+  padding: $pad-small $pad-medium;
+  font-size: $xx-small;
+  color: $core-black;
+  background: $ui-vibrant-blue-10;
+  border-left: 3px solid $core-vibrant-blue;
+  border-radius: $border-radius;
+}
