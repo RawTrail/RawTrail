@@ -21,6 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
+
+	"github.com/rawtrail/rawtrail/agent/receiver"
 )
 
 // fakeResolver answers lookups from a settable list and counts them.
@@ -1449,4 +1451,275 @@ func TestApply_ASetChangeIsNotConfirmedByAStatusForTheOldSet(t *testing.T) {
 		"reachable":[{"cidr":"198.51.100.5/32"}]}`))
 	require.Error(t, err, "a status for the previous set must not confirm this command")
 	assert.Contains(t, err.Error(), "did not confirm")
+}
+
+// errNoExtension is what the dispatcher reports while the network extension is not connected, as on a fresh install before it is approved.
+var errNoExtension = fmt.Errorf("receiver dispatcher: %w", receiver.ErrNoConnector)
+
+// disconnect makes the extension refuse every send as an unconnected one does, and connect restores it.
+func (f *fakeExtension) disconnect(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
+}
+
+// A containment that arrives before the extension has connected is sent to it when it does (issue #1404). The command still fails,
+// since it did not reach the extension then, and without the replay the server would not send the state again for hours.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/a-command-before-the-extension-is-replayed
+func TestReconnected_ReplaysAContainmentThatFoundNoExtension(t *testing.T) {
+	t.Parallel()
+	m, ext, res := newTestManager(t, serverTarget, applies)
+	res.set("203.0.113.7")
+	ext.disconnect(errNoExtension)
+
+	_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+	require.ErrorIs(t, err, receiver.ErrNoConnector, "the command itself fails")
+	ext.reset()
+	ext.disconnect(nil)
+	res.set("203.0.113.8") // moved since the command was kept: the lifeline is looked up again, not remembered
+
+	m.Reconnected()
+
+	sent := awaitSent(t, ext, 1)
+	assert.Equal(t, document{Version: 3, Epoch: 100, Contained: true,
+		Server: &server{Port: 8443, Addresses: []string{"203.0.113.8"}, Names: []string{"edr.example.com"}}}, sent[0])
+	assert.Never(t, func() bool { return len(ext.sent()) > 1 }, 300*time.Millisecond, 5*time.Millisecond, "a replay is sent once")
+}
+
+// The newest command is the one kept, by the order the extension applies them in, not the last to arrive.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/the-newest-command-is-the-one-replayed
+func TestReconnected_ReplaysTheNewestContainmentCommand(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		commands []string
+		want     document
+	}{
+		{"a release after a containment", []string{
+			`{"version":3,"epoch":100,"contained":true}`, `{"version":4,"epoch":100,"contained":false}`,
+		}, document{Version: 4, Epoch: 100}},
+		{"an older containment arriving after a newer release", []string{
+			`{"version":4,"epoch":100,"contained":false}`, `{"version":3,"epoch":100,"contained":true}`,
+		}, document{Version: 4, Epoch: 100}},
+		{"a later epoch outranks a higher version", []string{
+			`{"version":9,"epoch":100,"contained":true}`, `{"version":1,"epoch":200,"contained":false}`,
+		}, document{Version: 1, Epoch: 200}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m, ext, res := newTestManager(t, serverTarget, applies)
+			res.set("203.0.113.7")
+			ext.disconnect(errNoExtension)
+			for _, c := range tc.commands {
+				_, err := m.Apply(t.Context(), []byte(c))
+				require.ErrorIs(t, err, receiver.ErrNoConnector)
+			}
+			ext.reset()
+			ext.disconnect(nil)
+
+			m.Reconnected()
+
+			sent := awaitSent(t, ext, 1)
+			assert.Equal(t, tc.want, sent[0])
+			assert.Never(t, func() bool { return len(ext.sent()) > 1 }, 300*time.Millisecond, 5*time.Millisecond)
+		})
+	}
+}
+
+// What the extension has confirmed since is not put back: a kept command that a later confirmed one overtakes is dropped, and a
+// command that failed for any other reason is never kept.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/an-overtaken-command-is-not-replayed
+func TestReconnected_DoesNotReplayWhatIsOvertakenOrWasNotDeferred(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a later command the extension confirmed", func(t *testing.T) {
+		t.Parallel()
+		m, ext, res := newTestManager(t, serverTarget, applies)
+		res.set("203.0.113.7")
+		ext.disconnect(errNoExtension)
+		_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+		require.ErrorIs(t, err, receiver.ErrNoConnector)
+		ext.disconnect(nil)
+		_, err = m.Apply(t.Context(), []byte(`{"version":4,"epoch":100,"contained":false}`))
+		require.NoError(t, err)
+		ext.reset()
+
+		m.Reconnected()
+
+		assert.Never(t, func() bool { return len(ext.sent()) > 0 }, 300*time.Millisecond, 5*time.Millisecond)
+	})
+
+	t.Run("a state the extension reports it already holds", func(t *testing.T) {
+		t.Parallel()
+		m, ext, res := newTestManager(t, serverTarget, nil)
+		res.set("203.0.113.7")
+		ext.disconnect(errNoExtension)
+		_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+		require.ErrorIs(t, err, receiver.ErrNoConnector)
+		ext.disconnect(nil)
+		ext.reset()
+		m.Observe(t.Context(), Status{Contained: false, Version: 5, Epoch: 100, Applied: true})
+
+		m.Reconnected()
+
+		assert.Never(t, func() bool { return len(ext.sent()) > 0 }, 300*time.Millisecond, 5*time.Millisecond)
+	})
+
+	t.Run("a command that failed for another reason", func(t *testing.T) {
+		t.Parallel()
+		m, ext, res := newTestManager(t, serverTarget, applies)
+		res.set("203.0.113.7")
+		ext.disconnect(errors.New("xpc invalidated"))
+		_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+		require.Error(t, err)
+		ext.disconnect(nil)
+		ext.reset()
+
+		m.Reconnected()
+
+		assert.Never(t, func() bool { return len(ext.sent()) > 0 }, 300*time.Millisecond, 5*time.Millisecond)
+	})
+}
+
+// A replay that fails is kept for the next connection or the next refresh pass, not lost.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/a-command-before-the-extension-is-replayed
+func TestReconnected_AFailedReplayIsKept(t *testing.T) {
+	t.Parallel()
+	m, ext, res := newTestManager(t, serverTarget, applies)
+	res.set("203.0.113.7")
+	ext.disconnect(errNoExtension)
+	_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+	require.ErrorIs(t, err, receiver.ErrNoConnector)
+
+	m.Reconnected() // the connection drops again as the replay is sent
+	awaitSent(t, ext, 2)
+	ext.reset()
+	ext.disconnect(nil)
+	m.Reconnected()
+
+	sent := awaitSent(t, ext, 1)
+	assert.Equal(t, int64(3), sent[0].Version)
+	assert.True(t, sent[0].Contained)
+}
+
+// A send only hands the message to XPC, so a connection that drops as the replay is sent may never deliver it. The command is kept until
+// the extension confirms it, and the next pass sends it again.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/a-command-before-the-extension-is-replayed
+func TestReconnected_AReplayTheExtensionNeverConfirmedIsKept(t *testing.T) {
+	t.Parallel()
+	var respond atomic.Bool // the extension answers only once the connection holds
+	m, ext, res := newTestManager(t, serverTarget, func(d document) *Status {
+		if respond.Load() {
+			return applies(d)
+		}
+		return nil
+	})
+	m.opts.ApplyTimeout = 50 * time.Millisecond
+	res.set("203.0.113.7")
+	ext.disconnect(errNoExtension)
+	_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+	require.ErrorIs(t, err, receiver.ErrNoConnector)
+	ext.reset()
+	ext.disconnect(nil)
+
+	m.Reconnected() // the replay is handed over and never confirmed
+	awaitSent(t, ext, 1)
+	time.Sleep(150 * time.Millisecond) // past the confirmation timeout
+	respond.Store(true)
+	m.Reconnected()
+
+	sent := awaitSent(t, ext, 2)
+	assert.Equal(t, int64(3), sent[1].Version)
+	assert.True(t, sent[1].Contained)
+}
+
+// A connection published after the send found none but before the command is kept finds nothing to replay, so Apply asks for a pass
+// itself rather than leaving the command to wait for the refresh interval.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/a-command-before-the-extension-is-replayed
+func TestApply_AConnectionPublishedBeforeTheCommandIsKeptStillReplaysIt(t *testing.T) {
+	t.Parallel()
+	res := &fakeResolver{}
+	res.set("203.0.113.7")
+	var m *Manager
+	var attempts atomic.Int32
+	var sent []document
+	var mu sync.Mutex
+	send := func(payload []byte) error {
+		var d document
+		require.NoError(t, json.Unmarshal(payload, &d))
+		mu.Lock()
+		sent = append(sent, d)
+		mu.Unlock()
+		if attempts.Add(1) == 1 {
+			// The extension connects as the failure is reported: the hook runs before Apply has kept the command.
+			m.Reconnected()
+			return errNoExtension
+		}
+		return nil
+	}
+	m = New(Options{Target: serverTarget, Send: send, Resolver: res, ApplyTimeout: 50 * time.Millisecond, RefreshInterval: time.Hour})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); m.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+	require.ErrorIs(t, err, receiver.ErrNoConnector)
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(sent) >= 2
+	}, 5*time.Second, 5*time.Millisecond, "the replay ran without waiting for the refresh interval")
+}
+
+// The same race inside a replay: a connection published while a replay is being sent finds the command already taken, so Reconnected
+// wakes no one, and a replay that then fails would wait for the refresh interval. It asks for another pass itself.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/a-command-before-the-extension-is-replayed
+func TestReplay_AConnectionPublishedDuringAFailedReplayStillReplaysAgain(t *testing.T) {
+	t.Parallel()
+	res := &fakeResolver{}
+	res.set("203.0.113.7")
+	var m *Manager
+	var attempts atomic.Int32
+	var mu sync.Mutex
+	var sent []document
+	send := func(payload []byte) error {
+		var d document
+		require.NoError(t, json.Unmarshal(payload, &d))
+		mu.Lock()
+		sent = append(sent, d)
+		mu.Unlock()
+		switch attempts.Add(1) {
+		case 1:
+			return errNoExtension // the command arrives before the extension has connected
+		case 2:
+			m.Reconnected() // the extension connects as the replay is sent, and the send fails anyway
+			return errNoExtension
+		default:
+			return nil
+		}
+	}
+	m = New(Options{Target: serverTarget, Send: send, Resolver: res, ApplyTimeout: 50 * time.Millisecond, RefreshInterval: time.Hour})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); m.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+	require.ErrorIs(t, err, receiver.ErrNoConnector)
+	m.Reconnected()
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(sent) >= 3
+	}, 5*time.Second, 5*time.Millisecond, "the failed replay was sent again without waiting for the refresh interval")
 }

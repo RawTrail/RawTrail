@@ -7,6 +7,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 ### Fixed
 
 - **Signing in again no longer discards what you were typing.** When saving the reachable destinations or a rule needs a fresh single sign-on, your unsaved changes are kept and put back when you return, with a notice. Nothing is saved for you: review them and save again.
+- **A host told to contain before its network extension is connected is contained as soon as the extension connects,** instead of up to six hours later. The console still shows that first command as failed until the next catch-up confirms it.
 - **The detection tuning table no longer shifts when you click a figure.** Observed and Cost figures are plain text, the Cost column now shows the slowest run beside the total and average, and each rule name links to its page. The evaluation count and exact match counts are no longer shown, and a long Cost cell wraps between figures, never inside one.
 - **A freshly installed Mac gets the deployment's watched paths as soon as its extension is approved,** instead of up to six hours later.
 - **A host that starts taking commands again no longer keeps showing "it is not taking commands".**
