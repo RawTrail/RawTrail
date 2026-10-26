@@ -45,11 +45,40 @@ function formatDate(s?: string): string {
   return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString();
 }
 
-// IssuedSecret is the one-time credential shown after a create or rotate; it is never retrievable again.
+// EXPIRING_SOON_DAYS is how far ahead an active account is flagged, matching the lead time GitHub and GitLab give for a token.
+const EXPIRING_SOON_DAYS = 14;
+const MS_PER_HOUR = 3_600_000;
+const HOURS_PER_DAY = 24;
+const MS_PER_DAY = HOURS_PER_DAY * MS_PER_HOUR;
+
+function plural(n: number, unit: string): string {
+  return `${String(n)} ${unit}${n === 1 ? "" : "s"}`;
+}
+
+// describeExpiry is the time left until an expiry, in the largest whole unit: "in 12 days", "in 5 hours", or "expired".
+function describeExpiry(expiresAt: string): string {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (Number.isNaN(ms)) return "";
+  if (ms <= 0) return "expired";
+  if (ms >= MS_PER_DAY) return `in ${plural(Math.floor(ms / MS_PER_DAY), "day")}`;
+  if (ms >= MS_PER_HOUR) return `in ${plural(Math.floor(ms / MS_PER_HOUR), "hour")}`;
+  return "in under an hour";
+}
+
+// expiresSoon flags an account that still works but will stop within EXPIRING_SOON_DAYS. A revoked or expired one is not "soon": it
+// has already stopped, and its status badge says so.
+function expiresSoon(sa: ServiceAccount): boolean {
+  const ms = new Date(sa.expires_at).getTime() - Date.now();
+  return sa.status === "active" && ms > 0 && ms <= EXPIRING_SOON_DAYS * MS_PER_DAY;
+}
+
+// IssuedSecret is the one-time credential shown after a create or rotate; it is never retrievable again. expiresAt is shown with it,
+// because storing the secret is when an operator sets the reminder to rotate it.
 interface IssuedSecret {
   name: string;
   clientID: string;
   secret: string;
+  expiresAt: string;
 }
 
 export function ServiceAccounts() {
@@ -122,7 +151,7 @@ export function ServiceAccounts() {
         role,
         ...(days === undefined ? {} : { expires_in_days: days }),
       });
-      setIssued({ name: created.name, clientID: created.client_id, secret: created.secret });
+      setIssued({ name: created.name, clientID: created.client_id, secret: created.secret, expiresAt: created.expires_at });
       setName("");
       setExpiresInDays("");
       setRole(ROLES[0].value);
@@ -139,8 +168,8 @@ export function ServiceAccounts() {
     setBusyID(sa.id);
     setActionError(null);
     try {
-      const { secret } = await rotateServiceAccount(sa.id);
-      setIssued({ name: sa.name, clientID: sa.client_id, secret });
+      const rotated = await rotateServiceAccount(sa.id);
+      setIssued({ name: sa.name, clientID: sa.client_id, secret: rotated.secret, expiresAt: rotated.expires_at });
       reload();
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : "Failed to rotate secret.");
@@ -187,6 +216,10 @@ export function ServiceAccounts() {
           <p className="service-accounts__help">
             This is the only time the secret for <strong>{issued.name}</strong> is shown. Store it in your secret manager; it cannot be
             retrieved again.
+          </p>
+          <p className="service-accounts__help">
+            This credential expires on <strong>{formatDate(issued.expiresAt)}</strong> ({describeExpiry(issued.expiresAt)}). Rotate it
+            before then.
           </p>
           <div className="field">
             <span className="field__label">Client ID</span>
@@ -320,6 +353,7 @@ export function ServiceAccounts() {
                 <th>Role</th>
                 <th>Status</th>
                 <th>Created</th>
+                <th>Expires</th>
                 <th>Last used</th>
                 <th aria-label="Actions" />
               </tr>
@@ -338,21 +372,29 @@ export function ServiceAccounts() {
                     <Badge variant={statusVariant(sa.status)}>{sa.status}</Badge>
                   </td>
                   <td>{formatDate(sa.created_at)}</td>
+                  <td>
+                    <div>{formatDate(sa.expires_at)}</div>
+                    <div className="service-accounts__client-id">{describeExpiry(sa.expires_at)}</div>
+                    {expiresSoon(sa) && <Badge variant="medium">expires soon</Badge>}
+                  </td>
                   <td>{formatDate(sa.last_used_at)}</td>
                   <td className="service-accounts__row-actions">
                     {sa.status !== "revoked" && confirmRevokeID !== sa.id && (
                       <>
-                        <Button
-                          type="button"
-                          variant="inverse"
-                          size="small"
-                          isLoading={busyID === sa.id}
-                          onClick={() => {
-                            void handleRotate(sa);
-                          }}
-                        >
-                          Rotate
-                        </Button>
+                        {/* Only an active account: the server refuses a revoked or expired one, whose secret could never mint. */}
+                        {sa.status === "active" && (
+                          <Button
+                            type="button"
+                            variant="inverse"
+                            size="small"
+                            isLoading={busyID === sa.id}
+                            onClick={() => {
+                              void handleRotate(sa);
+                            }}
+                          >
+                            Rotate
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           variant="alert"

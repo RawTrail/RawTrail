@@ -35,6 +35,9 @@ const (
 // ErrNotFound is returned when no service account matches the lookup.
 var ErrNotFound = errors.New("serviceaccounts: not found")
 
+// ErrNotRotatable is returned by Rotate for an account that is revoked or has expired: no secret it was issued could mint a token.
+var ErrNotRotatable = errors.New("serviceaccounts: account is revoked or expired")
+
 // ServiceAccount is the read model returned to the admin surface. It never carries the secret or its hash.
 type ServiceAccount struct {
 	ID         int64          `db:"id"`
@@ -159,24 +162,41 @@ func (s *Store) AuthByClientID(ctx context.Context, clientID string) (AuthRecord
 	return rec, nil
 }
 
-// Rotate generates a new secret for the account, replacing the stored hash and bumping the epoch so any access token minted from the
-// old secret stops validating (a rotate is assumed to follow a suspected leak). Returns the one-time new secret. ErrNotFound when no
-// row matches.
-func (s *Store) Rotate(ctx context.Context, id int64) (string, error) {
+// Rotate generates a new secret for the account, replacing the stored hash, bumping the epoch so any access token minted from the old
+// secret stops validating (a rotate is assumed to follow a suspected leak), and setting the account's expiry to expiresAt. It returns
+// the updated account and the one-time new secret.
+//
+// A revoked account, or one that has expired as of now, is refused with ErrNotRotatable and left untouched: the token endpoint rejects
+// both however good the secret, so rotating one would issue a secret that looks valid and never works. The check is in the UPDATE, not
+// ahead of it, so a revoke or an expiry that lands between the two cannot be raced past. ErrNotFound when no row matches.
+func (s *Store) Rotate(ctx context.Context, id int64, now, expiresAt time.Time) (ServiceAccount, string, error) {
 	secret, err := generateSecret()
 	if err != nil {
-		return "", fmt.Errorf("serviceaccounts: generate secret: %w", err)
+		return ServiceAccount{}, "", fmt.Errorf("serviceaccounts: generate secret: %w", err)
 	}
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE service_accounts SET secret_hash = ?, epoch = epoch + 1 WHERE id = ?`,
-		hashSecret(secret), id)
+		UPDATE service_accounts SET secret_hash = ?, epoch = epoch + 1, expires_at = ?
+		WHERE id = ? AND revoked_at IS NULL AND expires_at > ?`,
+		hashSecret(secret), expiresAt.UTC(), id, now.UTC())
 	if err != nil {
-		return "", fmt.Errorf("serviceaccounts: rotate: %w", err)
+		return ServiceAccount{}, "", fmt.Errorf("serviceaccounts: rotate: %w", err)
 	}
-	if err := requireAffected(res); err != nil {
-		return "", err
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return ServiceAccount{}, "", fmt.Errorf("serviceaccounts: rotate rows affected: %w", err)
 	}
-	return secret, nil
+	if affected == 0 {
+		// Nothing matched: either no such account, or one the WHERE refused.
+		if _, err := s.getByID(ctx, id); err != nil {
+			return ServiceAccount{}, "", err
+		}
+		return ServiceAccount{}, "", ErrNotRotatable
+	}
+	sa, err := s.getByID(ctx, id)
+	if err != nil {
+		return ServiceAccount{}, "", err
+	}
+	return sa, secret, nil
 }
 
 // Revoke marks the account revoked and bumps its epoch so outstanding access tokens stop validating within the snapshot refresh

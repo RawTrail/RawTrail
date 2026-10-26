@@ -1420,9 +1420,11 @@ export async function createServiceAccount(req: ServiceAccountCreate): Promise<S
 }
 
 // rotateServiceAccount issues a fresh secret (and invalidates the old one + any outstanding
-// access tokens). The new secret is returned once.
-export async function rotateServiceAccount(id: number): Promise<{ secret: string }> {
-  return fetchJSON<{ secret: string }>(`/settings/service-accounts/${String(id)}/rotate`, { method: "POST" });
+// access tokens) and resets the credential's lifetime from now. The account, with its new
+// expires_at, comes back beside the secret, which is returned once. The server refuses a revoked
+// or expired account with 409.
+export async function rotateServiceAccount(id: number): Promise<ServiceAccountSecret> {
+  return fetchJSON<ServiceAccountSecret>(`/settings/service-accounts/${String(id)}/rotate`, { method: "POST" });
 }
 
 export async function revokeServiceAccount(id: number): Promise<void> {

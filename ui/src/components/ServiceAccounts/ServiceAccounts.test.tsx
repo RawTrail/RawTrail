@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import * as api from "../../api";
 import { ServiceAccounts } from "./ServiceAccounts";
 
@@ -13,6 +13,11 @@ const baseAccounts: api.ServiceAccount[] = [
     created_at: "2026-05-01T00:00:00Z", expires_at: "2026-08-01T00:00:00Z", last_used_at: "2026-06-10T00:00:00Z",
   },
 ];
+
+// inDays is an RFC 3339 instant that many days from now, plus an hour so that "in N days" is not a boundary case.
+function inDays(days: number): string {
+  return new Date(Date.now() + days * 24 * 3_600_000 + 3_600_000).toISOString();
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -141,13 +146,83 @@ describe("ServiceAccounts", () => {
 
   it("rotates a secret and shows the new value", async () => {
     vi.spyOn(api, "listServiceAccounts").mockResolvedValue(baseAccounts);
-    const rotate = vi.spyOn(api, "rotateServiceAccount").mockResolvedValue({ secret: "edrsa_rotated" });
+    const rotate = vi.spyOn(api, "rotateServiceAccount").mockResolvedValue({
+      ...baseAccounts[0], expires_at: inDays(90), secret: "edrsa_rotated",
+    });
     render(<ServiceAccounts />);
     await screen.findByText("ci-pipeline");
 
     fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
     await waitFor(() => { expect(rotate).toHaveBeenCalledWith(1); });
     expect(await screen.findByLabelText("Client secret")).toHaveValue("edrsa_rotated");
+  });
+
+  // spec:web-ui/the-service-accounts-page-shows-when-each-credential-expires/the-secret-card-states-the-expiry
+  it("states the new expiry on the secret card after a rotate and after a create", async () => {
+    vi.spyOn(api, "listServiceAccounts").mockResolvedValue(baseAccounts);
+    vi.spyOn(api, "rotateServiceAccount").mockResolvedValue({ ...baseAccounts[0], expires_at: inDays(90), secret: "edrsa_rotated" });
+    vi.spyOn(api, "createServiceAccount").mockResolvedValue({
+      id: 3, client_id: "sa_new", name: "bot", role: "analyst", status: "active",
+      created_at: "2026-06-20T00:00:00Z", expires_at: inDays(30), secret: "edrsa_new",
+    });
+    render(<ServiceAccounts />);
+    await screen.findByText("ci-pipeline");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
+    const card = (await screen.findByText("Save this secret now")).closest('[role="status"]');
+    expect(card).toHaveTextContent(`expires on ${new Date(inDays(90)).toLocaleDateString()}`);
+    expect(card).toHaveTextContent("in 90 days");
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Create service account" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "bot" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    const created = (await screen.findByText("Save this secret now")).closest('[role="status"]');
+    expect(created).toHaveTextContent(`expires on ${new Date(inDays(30)).toLocaleDateString()}`);
+    expect(created).toHaveTextContent("in 30 days");
+  });
+
+  // spec:web-ui/the-service-accounts-page-shows-when-each-credential-expires/the-list-shows-expiry-and-flags-a-near-one
+  it("shows each account's expiry with the time left, and flags only an active one within 14 days", async () => {
+    const account = (over: Partial<api.ServiceAccount>): api.ServiceAccount => ({
+      id: 10, client_id: "sa_x", name: "x", role: "analyst", status: "active", created_at: "2026-06-01T00:00:00Z",
+      expires_at: inDays(60), ...over,
+    });
+    vi.spyOn(api, "listServiceAccounts").mockResolvedValue([
+      account({ id: 11, name: "soon-bot", client_id: "sa_soon", expires_at: inDays(5) }),
+      account({ id: 12, name: "later-bot", client_id: "sa_later", expires_at: inDays(60) }),
+      account({ id: 13, name: "lapsed-bot", client_id: "sa_lapsed", status: "expired", expires_at: inDays(-2) }),
+      account({ id: 14, name: "dead-bot", client_id: "sa_dead", status: "revoked", expires_at: inDays(5) }),
+    ]);
+    render(<ServiceAccounts />);
+    await screen.findByText("soon-bot");
+
+    expect(screen.getByRole("columnheader", { name: "Expires" })).toBeVisible();
+    const row = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+    expect(row("soon-bot")).toHaveTextContent("in 5 days");
+    expect(row("soon-bot")).toHaveTextContent("expires soon");
+    expect(row("later-bot")).toHaveTextContent("in 60 days");
+    expect(row("later-bot")).not.toHaveTextContent("expires soon");
+    expect(row("lapsed-bot")).toHaveTextContent("expired");
+    expect(row("lapsed-bot")).not.toHaveTextContent("expires soon");
+    // A revoked account has stopped already; its status badge says so, and a near expiry date adds nothing to it.
+    expect(row("dead-bot")).not.toHaveTextContent("expires soon");
+  });
+
+  // spec:web-ui/the-service-accounts-page-shows-when-each-credential-expires/a-dead-account-offers-no-rotate
+  it("offers Rotate only on an active account", async () => {
+    vi.spyOn(api, "listServiceAccounts").mockResolvedValue([
+      { id: 21, client_id: "sa_live", name: "live-bot", role: "analyst", status: "active", created_at: "2026-06-01T00:00:00Z", expires_at: inDays(40) },
+      { id: 22, client_id: "sa_lapsed", name: "lapsed-bot", role: "analyst", status: "expired", created_at: "2026-06-01T00:00:00Z", expires_at: inDays(-1) },
+    ]);
+    render(<ServiceAccounts />);
+    await screen.findByText("live-bot");
+
+    const rotates = screen.getAllByRole("button", { name: "Rotate" });
+    expect(rotates).toHaveLength(1);
+    expect(rotates[0].closest("tr")).toHaveTextContent("live-bot");
+    // An expired account can still be revoked.
+    expect(within(screen.getByText("lapsed-bot").closest("tr") as HTMLElement).getByRole("button", { name: "Revoke" })).toBeVisible();
   });
 
   it("surfaces a rotate error", async () => {

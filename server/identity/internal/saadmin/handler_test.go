@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,6 +25,8 @@ type fakeMgmtStore struct {
 	createCalls int
 	rotateErr   error
 	rotateCalls int
+	rotateNow   time.Time
+	rotateUntil time.Time
 	revokeErr   error
 	revokeCalls int
 }
@@ -41,12 +44,15 @@ func (f *fakeMgmtStore) Create(_ context.Context, in serviceaccounts.CreateInput
 	return f.created, "edrsa_one_time_secret", nil
 }
 
-func (f *fakeMgmtStore) Rotate(context.Context, int64) (string, error) {
+func (f *fakeMgmtStore) Rotate(_ context.Context, id int64, now, expiresAt time.Time) (serviceaccounts.ServiceAccount, string, error) {
 	f.rotateCalls++
+	f.rotateNow, f.rotateUntil = now, expiresAt
 	if f.rotateErr != nil {
-		return "", f.rotateErr
+		return serviceaccounts.ServiceAccount{}, "", f.rotateErr
 	}
-	return "edrsa_rotated_secret", nil
+	return serviceaccounts.ServiceAccount{
+		ID: id, ClientID: "sa_rotated", Name: "rotated", RoleID: "analyst", ExpiresAt: expiresAt, CreatedAt: time.Unix(1_600_000_000, 0),
+	}, "edrsa_rotated_secret", nil
 }
 
 func (f *fakeMgmtStore) Revoke(context.Context, int64) error {
@@ -268,6 +274,21 @@ func TestHandleRotate(t *testing.T) {
 		h.handleRotate(w, r)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
+	// spec:server-identity-service-accounts/rotating-a-service-account-resets-its-lifetime/a-revoked-or-expired-account-is-not-rotated
+	t.Run("a revoked or expired account is a conflict, and is not audited as rotated", func(t *testing.T) {
+		t.Parallel()
+		store := &fakeMgmtStore{rotateErr: serviceaccounts.ErrNotRotatable}
+		audit := &captureAudit{}
+		h := newHandler(store, allowAuthZ{}, audit)
+		w := httptest.NewRecorder()
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/settings/service-accounts/9/rotate", nil)
+		r.SetPathValue("id", "9")
+		h.handleRotate(w, r)
+		assert.Equal(t, http.StatusConflict, w.Code)
+		assert.JSONEq(t, `{"error":"not_rotatable"}`, w.Body.String())
+		assert.NotContains(t, w.Body.String(), "secret")
+		assert.Empty(t, audit.events)
+	})
 	t.Run("invalid id", func(t *testing.T) {
 		t.Parallel()
 		h := newHandler(&fakeMgmtStore{}, allowAuthZ{}, &captureAudit{})
@@ -276,6 +297,65 @@ func TestHandleRotate(t *testing.T) {
 		r.SetPathValue("id", "abc")
 		h.handleRotate(w, r)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+// The lifetime a rotate asks for is resolved by the same rule as create's: a default of 90 days, a requested count honoured, and 365
+// as the cap, all counted from now rather than from the account's old deadline.
+//
+// spec:server-identity-service-accounts/rotating-a-service-account-resets-its-lifetime/rotation-sets-a-fresh-expiry
+// spec:server-identity-service-accounts/rotating-a-service-account-resets-its-lifetime/a-requested-lifetime-is-honoured-and-capped
+func TestHandleRotate_Lifetime(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_700_000_000, 0)
+	for _, tc := range []struct {
+		name string
+		body string
+		want time.Duration
+	}{
+		{"no body gets the default lifetime", "", defaultLifetime},
+		{"an empty object gets the default lifetime", `{}`, defaultLifetime},
+		{"a requested lifetime is honoured", `{"expires_in_days":30}`, 30 * day},
+		{"a request above the cap is capped", `{"expires_in_days":4000}`, maxLifetime},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := &fakeMgmtStore{}
+			h := newHandler(store, allowAuthZ{}, &captureAudit{})
+			w := httptest.NewRecorder()
+			var body io.Reader
+			if tc.body != "" {
+				body = strings.NewReader(tc.body)
+			}
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/settings/service-accounts/5/rotate", body)
+			r.SetPathValue("id", "5")
+			h.handleRotate(w, r)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, now, store.rotateNow)
+			assert.Equal(t, now.Add(tc.want).UTC(), store.rotateUntil)
+			var resp struct {
+				Secret    string    `json:"secret"`
+				ExpiresAt time.Time `json:"expires_at"`
+				ClientID  string    `json:"client_id"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, "edrsa_rotated_secret", resp.Secret)
+			assert.True(t, resp.ExpiresAt.Equal(now.Add(tc.want)), "the response carries the new expiry")
+			assert.Equal(t, "sa_rotated", resp.ClientID)
+		})
+	}
+
+	t.Run("a malformed body is a bad request and rotates nothing", func(t *testing.T) {
+		t.Parallel()
+		store := &fakeMgmtStore{}
+		h := newHandler(store, allowAuthZ{}, &captureAudit{})
+		w := httptest.NewRecorder()
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/settings/service-accounts/5/rotate", strings.NewReader("{nope"))
+		r.SetPathValue("id", "5")
+		h.handleRotate(w, r)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Zero(t, store.rotateCalls)
 	})
 }
 

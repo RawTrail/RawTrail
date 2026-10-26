@@ -12,9 +12,9 @@ Service accounts are non-human principals for automation, CI/release pipelines, 
 
 Service accounts are managed from the Admin settings area (requires the `service_account.*` permissions, held by `admin`/`super_admin`) or via the admin API:
 
-- `GET /api/settings/service-accounts` lists accounts (name, role, status, last used). Never returns secrets.
+- `GET /api/settings/service-accounts` lists accounts (name, role, status, expiry, last used). Never returns secrets.
 - `POST /api/settings/service-accounts` creates one. Body: `{"name": "...", "role": "analyst", "expires_in_days": 90}` (`expires_in_days` optional). The response includes the `client_id` and the one-time `secret`.
-- `POST /api/settings/service-accounts/{id}/rotate` issues a new secret and bumps the account's revocation epoch, so access tokens minted from the old secret stop working. Use this after a suspected leak.
+- `POST /api/settings/service-accounts/{id}/rotate` issues a new secret and bumps the account's revocation epoch, so access tokens minted from the old secret stop working. Use this after a suspected leak. It also resets the credential's lifetime from the moment of rotation: 90 days, or `{"expires_in_days": N}` up to 365. The response carries the account, including its new `expires_at`, with the one-time `secret`. A revoked or expired account is refused with `409` and left unchanged, because no secret issued to one could mint a token; create a new account instead.
 - `DELETE /api/settings/service-accounts/{id}` revokes the account: it can no longer mint tokens, and outstanding access tokens stop validating within the revocation refresh window (about 5 seconds).
 
 Every lifecycle change and every token issuance is audited. No audit row or log line ever contains the secret or an access token; the only place a secret appears is the one-time create/rotate response, and the only place an access token appears is the token-endpoint response.
