@@ -6,6 +6,7 @@ import { DetectionConfig } from "./DetectionConfig";
 import { PermissionsProvider } from "../../permissions";
 import { PermissionAction } from "../../permissions-core";
 import * as api from "../../api";
+import { persistReauthDrafts, readReauthDraft, setReauthDraftUser } from "../../reauthDraft";
 import type { DetectionExclusion, DetectionRuleSetting, RuleDoc, RuleDocEntry } from "../../api";
 
 const makeRuleDoc = (over: Partial<RuleDoc> = {}): RuleDoc => ({
@@ -95,6 +96,7 @@ function renderPage(permissions: string[] = [PermissionAction.DetectionConfigRea
 
 // jsdom doesn't implement HTMLDialogElement.showModal/close; stub them so the reason modal renders.
 beforeEach(() => {
+  setReauthDraftUser(1);
   HTMLDialogElement.prototype.showModal = function showModal() {
     this.open = true;
   };
@@ -105,6 +107,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  sessionStorage.clear();
+  setReauthDraftUser(null);
 });
 
 describe("DetectionConfig", () => {
@@ -1522,6 +1526,122 @@ describe("DetectionConfig observed column", () => {
 
     await waitFor(() => {
       expect(screen.getByText("42k")).toBeInTheDocument();
+    });
+  });
+});
+
+// An OIDC reauthentication leaves the page, so what was typed into the exclusion form is kept across it and put back once the rules
+// have loaded, and the save that needed the sign-in is not run again (issue #1113).
+describe("DetectionConfig exclusion form across a reauthentication", () => {
+  async function loaded() {
+    stubReads();
+    const view = renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/no exclusions configured/i)).toBeInTheDocument();
+    });
+    return view;
+  }
+
+  function fillForm() {
+    fireEvent.change(screen.getByLabelText("Rule"), { target: { value: "suspicious_exec" } });
+    fireEvent.change(screen.getByLabelText("Value"), { target: { value: "*/foo/*" } });
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "benign build tool" } });
+  }
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("puts back what was typed into the form, says so, and saves nothing", async () => {
+    const first = await loaded();
+    fillForm();
+    expect(persistReauthDrafts()).toBe(true);
+    first.unmount();
+
+    const create = vi.spyOn(api, "createDetectionExclusion");
+    await loaded();
+
+    expect(await screen.findByText(/Your unsaved changes were kept while you signed in again/)).toBeVisible();
+    expect(screen.getByLabelText("Rule")).toHaveValue("suspicious_exec");
+    expect(screen.getByLabelText("Match type")).toHaveValue("parent_path_glob");
+    expect(screen.getByLabelText("Value")).toHaveValue("*/foo/*");
+    expect(screen.getByLabelText("Reason")).toHaveValue("benign build tool");
+    expect(screen.getByRole("button", { name: "Add exclusion" })).toBeEnabled();
+    expect(create).not.toHaveBeenCalled();
+    expect(readReauthDraft("detection-exclusion-form")).toBeUndefined();
+  });
+
+  it("keeps nothing when the form is empty", async () => {
+    await loaded();
+    persistReauthDrafts();
+    expect(readReauthDraft("detection-exclusion-form")).toBeUndefined();
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/saved-work-is-not-restored-when-it-is-stale-or-from-another-page
+  it.each([
+    ["a null payload", null],
+    ["a field missing", { formRuleID: "suspicious_exec", formMatchType: "", formValue: "", formReason: "" }],
+    ["a field that is not text", { formRuleID: "suspicious_exec", formMatchType: 1, formValue: "", formReason: "", formExpires: "" }],
+  ])("ignores %s under a valid envelope, and removes it", async (_name, payload) => {
+    sessionStorage.setItem(
+      "rawtrail:reauth-draft:detection-exclusion-form",
+      JSON.stringify({ savedAt: Date.now(), path: "/", userId: 1, value: payload }),
+    );
+
+    await loaded();
+
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(screen.getByLabelText("Rule")).toHaveValue("");
+    expect(sessionStorage.getItem("rawtrail:reauth-draft:detection-exclusion-form")).toBeNull();
+  });
+
+  it("does not restore work a different operator saved", async () => {
+    const first = await loaded();
+    fillForm();
+    persistReauthDrafts();
+    first.unmount();
+
+    setReauthDraftUser(2);
+    await loaded();
+
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(screen.getByLabelText("Value")).toHaveValue("");
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("keeps the saved work when the page fails to load after the sign-in, for the refresh that follows", async () => {
+    const first = await loaded();
+    fillForm();
+    persistReauthDrafts();
+    first.unmount();
+
+    stubReads();
+    vi.spyOn(api, "listDetectionExclusions").mockRejectedValue(new Error("boom"));
+    const failed = renderPage();
+    expect(await screen.findByText(/Error: boom/)).toBeVisible();
+    expect(readReauthDraft("detection-exclusion-form")).toBeDefined();
+    failed.unmount();
+
+    await loaded();
+    expect(await screen.findByText(/Your unsaved changes were kept/)).toBeVisible();
+    expect(screen.getByLabelText("Value")).toHaveValue("*/foo/*");
+    expect(readReauthDraft("detection-exclusion-form")).toBeUndefined();
+  });
+
+  it("clears the notice once the exclusion is added, which is the operator saving it themselves", async () => {
+    const first = await loaded();
+    fillForm();
+    persistReauthDrafts();
+    first.unmount();
+    const create = vi.spyOn(api, "createDetectionExclusion").mockResolvedValue(makeExclusion());
+    await loaded();
+    expect(await screen.findByText(/Your unsaved changes were kept/)).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add exclusion" }));
+
+    await waitFor(() => {
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ rule_id: "suspicious_exec", value: "*/foo/*", reason: "benign build tool" }));
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
     });
   });
 });

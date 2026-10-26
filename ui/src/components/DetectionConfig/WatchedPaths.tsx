@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DetectionConfigApiError,
   getWatchedPaths,
@@ -12,7 +12,9 @@ import { Button } from "../ui/Button";
 import { Input, Select } from "../ui/Input";
 import { Table, EmptyState } from "../ui/Table";
 import { ReasonModal } from "./ReasonModal";
+import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
+import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
 
 const MATCH_LABEL: Record<WatchedPath["match"], string> = {
@@ -28,6 +30,38 @@ function entryKey(p: WatchedPath): string {
 // sameEntries reports whether two sets hold the same entries in the same order, which decides whether the draft has unsaved changes.
 function sameEntries(a: readonly WatchedPath[], b: readonly WatchedPath[]): boolean {
   return JSON.stringify(a.map(entryKey)) === JSON.stringify(b.map(entryKey));
+}
+
+// WatchedPathsUnsaved is the page's unsaved work, as it is kept across a reauthentication (issue #1113). baseVersion is the version of
+// the set the draft was edited against, which a restored draft is saved against, so a set someone else changed while the operator was
+// signing in is refused as out of date rather than silently overwritten.
+interface WatchedPathsUnsaved {
+  readonly draft: WatchedPath[];
+  readonly baseVersion: number;
+  readonly newPath: string;
+  readonly newMatch: WatchedPath["match"];
+}
+
+function parseWatchedPath(raw: unknown): WatchedPath | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { path, match } = raw as Record<string, unknown>;
+  if (typeof path !== "string" || (match !== "literal" && match !== "prefix")) return undefined;
+  return { path, match };
+}
+
+// parseWatchedPathsUnsaved accepts only a payload of this page's own shape, since storage can hold whatever was written under the key.
+function parseWatchedPathsUnsaved(raw: unknown): WatchedPathsUnsaved | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { draft, baseVersion, newPath, newMatch } = raw as Record<string, unknown>;
+  if (!Array.isArray(draft) || typeof baseVersion !== "number" || typeof newPath !== "string") return undefined;
+  if (newMatch !== "literal" && newMatch !== "prefix") return undefined;
+  const paths: WatchedPath[] = [];
+  for (const entry of draft) {
+    const path = parseWatchedPath(entry);
+    if (path === undefined) return undefined;
+    paths.push(path);
+  }
+  return { draft: paths, baseVersion, newPath, newMatch };
 }
 
 // WatchedPaths edits the file paths every host's file-tamper sensor watches on top of the ones it always watches (issue #998). The
@@ -53,6 +87,20 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
   // conflict is set when a save was refused because someone else changed the set since it was loaded.
   const [conflict, setConflict] = useState(false);
   const [saved, setSaved] = useState<ReplaceWatchedPathsResult | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
+  // The version the draft was edited against once a draft has been restored, or null when it is the stored set's own.
+  const [restoredVersion, setRestoredVersion] = useState<number | null>(null);
+
+  // What an operator has typed and not saved. A reauthentication through the identity provider leaves the page, so this is kept across
+  // it and put back below; saving is never replayed (issue #1113).
+  const unsaved: WatchedPathsUnsaved | null =
+    stored !== null && (!sameEntries(draft, stored.paths) || newPath !== "")
+      ? { draft, baseVersion: restoredVersion ?? stored.version, newPath, newMatch }
+      : null;
+  const { restored, consume } = useReauthDraft<WatchedPathsUnsaved>("watched-paths", unsaved, parseWatchedPathsUnsaved);
+  // Held from mount: the load below puts the restored work over the stored set when it arrives, and it has to be the work the page
+  // started with rather than whatever a later render sees.
+  const restoredOnMount = useRef(restored);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,7 +108,17 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
       .then((set) => {
         if (cancelled) return;
         setStored(set);
-        setDraft(set.paths);
+        const kept = restoredOnMount.current;
+        if (kept === undefined) {
+          setDraft(set.paths);
+          return;
+        }
+        setDraft(kept.draft);
+        setRestoredVersion(kept.baseVersion);
+        setNewPath(kept.newPath);
+        setNewMatch(kept.newMatch);
+        setDraftRestored(true);
+        consume();
       })
       .catch((err: unknown) => {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
@@ -68,7 +126,7 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [consume]);
 
   // loadLatest replaces the stored set and the draft with what the server holds now, after a save was refused as out of date.
   const loadLatest = () => {
@@ -76,6 +134,7 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
       .then((set) => {
         setStored(set);
         setDraft(set.paths);
+        setRestoredVersion(null);
         setSaveError(null);
         setConflict(false);
       })
@@ -100,6 +159,7 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
     !draft.some((p) => entryKey(p) === entryKey({ path: newPath, match: newMatch }));
 
   const clearOutcome = () => {
+    setDraftRestored(false);
     setSaved(null);
     setSaveError(null);
     setConflict(false);
@@ -113,10 +173,11 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
     clearOutcome();
     // The version the draft started from rides along, so a save made after someone else changed the set is refused rather than
     // silently removing what they added.
-    replaceWithReauth(draft, reason, stored.version)
+    replaceWithReauth(draft, reason, restoredVersion ?? stored.version)
       .then((result) => {
         // Every set field comes from the response, so a label the server could not resolve does not leave the previous saver's name.
         setStored({ built_in: stored.built_in, max_paths: stored.max_paths, ...result.set });
+        setRestoredVersion(null);
         setSaved(result);
       })
       .catch((err: unknown) => {
@@ -138,6 +199,7 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
   return (
     <>
       <ReauthModal {...reauthModal} />
+      {draftRestored && <ReauthDraftNotice setChanged={restoredVersion !== null && restoredVersion !== stored.version} />}
       <p className="detection-config__note">
         Each host&apos;s file sensor records writes, renames, truncations and deletions of these paths, on top of the ones it always
         watches: {stored.built_in.map((p) => p.path).join(", ")}. Start a path with <code>~/</code> to watch it in every user&apos;s home
@@ -232,6 +294,7 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
               disabled={!changed || saving}
               onClick={() => {
                 editDraft(stored.paths);
+                setRestoredVersion(null);
               }}
             >
               Discard changes
