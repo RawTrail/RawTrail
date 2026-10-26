@@ -43,7 +43,7 @@ type recordedConn struct {
 
 // recordedGateway serves a gateway over cleartext HTTP/2 with an in-memory span recorder, and returns the recorder, the gateway,
 // and a dialer.
-func recordedGateway(t *testing.T, ver *fakeVerifier) (*tracetest.SpanRecorder, *Gateway, func(token string) recordedConn) {
+func recordedGateway(t *testing.T, ver *fakeVerifier) (*tracetest.SpanRecorder, *Gateway, func(token string, opts ...grpc.CallOption) recordedConn) {
 	t.Helper()
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
@@ -67,7 +67,7 @@ func recordedGateway(t *testing.T, ver *fakeVerifier) (*tracetest.SpanRecorder, 
 	go func() { _ = httpSrv.Serve(lis) }()
 	t.Cleanup(func() { _ = httpSrv.Close() })
 
-	dial := func(token string) recordedConn {
+	dial := func(token string, opts ...grpc.CallOption) recordedConn {
 		t.Helper()
 		var socket net.Conn
 		cc, err := grpc.NewClient(lis.Addr().String(),
@@ -79,7 +79,7 @@ func recordedGateway(t *testing.T, ver *fakeVerifier) (*tracetest.SpanRecorder, 
 			grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = cc.Close() })
-		stream, err := control.NewControlChannelClient(cc).Connect(connectCtx(token))
+		stream, err := control.NewControlChannelClient(cc).Connect(connectCtx(token), opts...)
 		require.NoError(t, err)
 		return recordedConn{stream: stream, socket: socket}
 	}
@@ -125,37 +125,110 @@ func TestAnOrdinaryDisconnectIsNotRecordedAsAFailedConnection(t *testing.T) {
 	assert.Empty(t, recorded.Description)
 }
 
-// A client's socket dying can fail the receive with a status (net/http's `client disconnected`) before the stream context is
-// cancelled, so a status error alone cannot separate a gone client from a rejected frame (issue #1329). The context settles it.
+// A failed receive is read from its status code, not from the context: gRPC cancels the stream context moments after it rejects a
+// frame, so a cancelled context says only that the stream is over. A transport ending under the stream is a bare error, or under
+// net/http's HTTP/2 server an Unavailable or Canceled status (issue #1329); a status with any other code is gRPC rejecting a frame
+// (issue #1405) and stays a fault whether or not the context has been cancelled yet.
 //
-// spec:agent-control-channel/a-status-failure-after-a-disconnect-ends-cleanly/a-status-then-a-cancel-is-a-disconnect
-// spec:agent-control-channel/a-status-failure-after-a-disconnect-ends-cleanly/a-status-on-a-live-context-is-a-fault
-func TestAStatusReceiveErrorIsAFaultOnlyWhileTheClientIsStillAttached(t *testing.T) {
+// spec:agent-control-channel/a-status-failure-after-a-disconnect-ends-cleanly/an-unavailable-status-is-a-disconnect
+// spec:agent-control-channel/a-status-failure-after-a-disconnect-ends-cleanly/a-rejected-frame-is-a-fault
+func TestEndAfterReceiveReadsTheStatusCode(t *testing.T) {
 	t.Parallel()
-	rejectedFrame := status.Error(codes.ResourceExhausted, "message larger than max")
-	clientDisconnected := status.Error(codes.Internal, "client disconnected")
+	clientDisconnected := status.Error(codes.Unavailable, "client disconnected")
+	clientCanceled := status.Error(codes.Canceled, "body closed by handler")
+	oversized := status.Error(codes.ResourceExhausted, "grpc: received message larger than max")
+	unreadable := status.Error(codes.Internal, "grpc: failed to unmarshal the received message")
 
 	cases := []struct {
-		name        string
-		recvErr     error
-		cancelAfter time.Duration // zero leaves the RPC context live
-		wantErr     error
+		name         string
+		recvErr      error
+		ctxCancelled bool
+		wantErr      error
 	}{
-		{"a status followed by the cancel is a disconnect", clientDisconnected, 20 * time.Millisecond, nil},
-		{"a status on a live context is a rejected frame", rejectedFrame, 0, rejectedFrame},
+		{"an Unavailable status is a client that went away", clientDisconnected, false, nil},
+		{"an Unavailable status with the context cancelled is a client that went away", clientDisconnected, true, nil},
+		{"a Canceled status is a client that went away", clientCanceled, false, nil},
+		{"a bare transport error is a client that went away", errors.New("transport is closing"), false, nil},
+		{"a clean half-close is an ordinary end", nil, false, nil},
+		{"an oversized frame is a fault", oversized, false, oversized},
+		{"an unreadable frame is a fault", unreadable, false, unreadable},
+		// gRPC cancels the stream context after it writes the rejection, so the fault must survive a cancelled context.
+		{"an unreadable frame is a fault even once the context is cancelled", unreadable, true, unreadable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(cancel)
-			if tc.cancelAfter > 0 {
-				time.AfterFunc(tc.cancelAfter, cancel)
+			if tc.ctxCancelled {
+				cancel()
 			}
-			c := newConn("host-a", "tok-a", func() {})
-
-			assert.Equal(t, tc.wantErr, endAfterReceive(ctx, c, tc.recvErr))
+			assert.Equal(t, tc.wantErr, endAfterReceive(ctx, newConn("host-a", "tok-a", func() {}), tc.recvErr))
 		})
+	}
+}
+
+// garbageCodec marshals every message to bytes no AgentFrame can be unmarshalled from, so the server rejects the frame as unreadable.
+type garbageCodec struct{}
+
+func (garbageCodec) Marshal(any) ([]byte, error) {
+	return []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, nil
+}
+func (garbageCodec) Unmarshal([]byte, any) error { return nil }
+func (garbageCodec) Name() string                { return "proto" }
+
+// A frame the server cannot read is recorded as a failed connection, through the real gateway served over net/http's HTTP/2 server.
+// The first version of the disconnect fix waited for the stream context to be cancelled before reporting a status, and gRPC cancels it
+// moments after rejecting a frame, so this ended as a clean connection until a test sent a real one.
+//
+// spec:agent-control-channel/how-a-connection-ended-is-what-its-telemetry-reports/a-receive-failure-is-still-recorded-as-a-failure
+func TestAnUnreadableFrameIsRecordedAsAFailedConnection(t *testing.T) {
+	t.Parallel()
+	ver := newFakeVerifier()
+	ver.add("tok-a", "host-a")
+	recorder, g, dial := recordedGateway(t, ver)
+
+	conn := dial("tok-a", grpc.ForceCodec(garbageCodec{}))
+	require.Eventually(t, func() bool { return g.reg.get("host-a") != nil }, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, conn.stream.SendMsg(&control.AgentFrame{}))
+
+	recorded := connectStatus(t, recorder)
+	assert.Equal(t, otelcodes.Error, recorded.Code, "a frame this server cannot read is a fault an operator wants to find")
+	assert.Contains(t, recorded.Description, "unmarshal")
+}
+
+// An oversized frame is rejected with ResourceExhausted, which OpenTelemetry's gRPC convention does not colour as a server error, so
+// the span stays unset. What matters is that the RPC ends with that status, which the span carries as rpc.response.status_code and the
+// client receives.
+//
+// spec:agent-control-channel/how-a-connection-ended-is-what-its-telemetry-reports/a-receive-failure-is-still-recorded-as-a-failure
+func TestAnOversizedFrameEndsTheRPCWithResourceExhausted(t *testing.T) {
+	t.Parallel()
+	ver := newFakeVerifier()
+	ver.add("tok-a", "host-a")
+	recorder, g, dial := recordedGateway(t, ver)
+
+	conn := dial("tok-a")
+	require.Eventually(t, func() bool { return g.reg.get("host-a") != nil }, 5*time.Second, 10*time.Millisecond)
+	_ = conn.stream.Send(&control.AgentFrame{Frame: &control.AgentFrame_Outcome{Outcome: &control.Outcome{
+		Id: 1, Status: "completed", Result: make([]byte, 5<<20),
+	}}})
+
+	// Heartbeats tick every 20 ms here, so one can already be buffered ahead of the rejection: drain them to the end of the stream.
+	err := recvEviction(t, conn.stream)
+	assert.Equal(t, codes.ResourceExhausted, status.Code(err), "the client is told why its frame was refused")
+	connectStatus(t, recorder)
+	for _, span := range recorder.Ended() {
+		if span.Name() != "rawtrail.control.v1.ControlChannel/Connect" {
+			continue
+		}
+		var code string
+		for _, attr := range span.Attributes() {
+			if string(attr.Key) == "rpc.response.status_code" {
+				code = attr.Value.AsString()
+			}
+		}
+		assert.Equal(t, "RESOURCE_EXHAUSTED", code, "the span names the status the RPC ended with")
 	}
 }
 

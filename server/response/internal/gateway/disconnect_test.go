@@ -67,7 +67,7 @@ func (s *fakeStream) Recv() (*control.AgentFrame, error) {
 
 // connectedGateway starts Connect for one host against a fake stream and returns the gateway and a channel carrying what the handler
 // returned, once the connection is registered.
-func connectedGateway(t *testing.T, stream *fakeStream) (*Gateway, <-chan error) {
+func connectedGateway(t *testing.T, stream control.ControlChannel_ConnectServer) (*Gateway, <-chan error) {
 	t.Helper()
 	ver := newFakeVerifier()
 	ver.add("tok-a", "host-a")
@@ -287,10 +287,21 @@ func TestEndAfterReceive(t *testing.T) {
 			wantErr: unreadable,
 		},
 		{
-			// The definitive signal.
-			desc:       "the same failure once the client has gone is the disconnect",
+			// gRPC cancels the stream context moments after it writes a rejection, so a cancelled context cannot clear it (#1405).
+			desc:       "the same failure with the context already cancelled is still the failure",
 			clientGone: true,
 			recvErr:    unreadable,
+			wantErr:    unreadable,
+		},
+		{
+			// net/http's HTTP/2 server reports a dying client as a status of Unavailable (#1329).
+			desc:       "a client that went away, reported as a status, is the disconnect",
+			clientGone: true,
+			recvErr:    status.Error(codes.Unavailable, "client disconnected"),
+		},
+		{
+			desc:    "and so is one reported before the context is cancelled",
+			recvErr: status.Error(codes.Unavailable, "client disconnected"),
 		},
 		{
 			// The case that needs the error's shape read: the transport died and gRPC has not cancelled the context yet, so the
@@ -338,6 +349,58 @@ func TestEndAfterReceive(t *testing.T) {
 			default:
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+// lateRecvStream holds the receive until released, then fails it as gRPC does when it ends a stream: the failure arrives after the
+// stream context is already cancelled.
+type lateRecvStream struct {
+	*fakeStream
+	release chan struct{}
+	err     error
+}
+
+func (s *lateRecvStream) Recv() (*control.AgentFrame, error) {
+	<-s.release
+	return nil, s.err
+}
+
+// gRPC cancels the stream context moments after it rejects a frame, so Connect can see the cancellation before it sees the receive
+// result that says why. The rejection must still end the RPC, and an Unavailable status, which is how net/http reports a client that
+// went away, must still end it cleanly, whichever way the race falls.
+//
+// spec:agent-control-channel/a-status-failure-after-a-disconnect-ends-cleanly/a-rejected-frame-is-a-fault
+// spec:agent-control-channel/a-status-failure-after-a-disconnect-ends-cleanly/an-unavailable-status-is-a-disconnect
+func TestConnectWaitsForTheReceiveResultOnceTheStreamHasEnded(t *testing.T) {
+	t.Parallel()
+	unreadable := status.Error(codes.Internal, "grpc: failed to unmarshal the received message")
+
+	for _, tc := range []struct {
+		name    string
+		recvErr error
+		wantErr error
+	}{
+		{"a rejected frame", unreadable, unreadable},
+		{"a client that went away", status.Error(codes.Unavailable, "client disconnected"), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(t.Context())
+			stream := &lateRecvStream{fakeStream: newFakeStream(ctx, "host-a", "tok-a"), release: make(chan struct{}), err: tc.recvErr}
+			_, returned := connectedGateway(t, stream)
+
+			cancel() // the stream ends first
+			// Connect has to take the connection-context branch before the result exists; nothing can be waited on to know it has.
+			time.Sleep(100 * time.Millisecond)
+			close(stream.release)
+
+			err := returnedFrom(t, returned)
+			if tc.wantErr == nil {
+				assert.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }
