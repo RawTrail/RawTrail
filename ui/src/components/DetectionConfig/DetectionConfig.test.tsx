@@ -892,6 +892,25 @@ describe("DetectionConfig observed column", () => {
       expect(row).toHaveTextContent("90.0ms max");
     });
 
+    // A narrow cell has to wrap between figures, never inside one: "26.2us" on one line and "avg" on the next reads as two figures.
+    // A normal space cannot say that and jsdom has no layout to wrap with, so the non-breaking space between each figure and its word
+    // is what is pinned.
+    it("joins each Cost figure to its word with a non-breaking space", async () => {
+      stubReads({
+        rules: [makeRuleEntry()],
+        evalStats: [{ ...evalStat, retryable_misses: 12, materialization_abandoned: 3 }],
+      });
+      renderPage();
+
+      const row = await screen.findByRole("row", { name: /suspicious_exec/ });
+      await waitFor(() => {
+        expect(row).toHaveTextContent("600.0ms total");
+      });
+      for (const joined of ["600.0ms\u00a0total", "1.5ms\u00a0avg", "90.0ms\u00a0max", "12\u00a0undecided", "3\u00a0abandoned"]) {
+        expect(row.textContent).toContain(joined);
+      }
+    });
+
     // spec:web-ui/tuning-table-figures-are-static-and-a-rule-names-its-page/the-rule-opens-its-detail-page
     it("links the rule's name to its detail page", async () => {
       stubReads({ rules: [makeRuleEntry()] });
