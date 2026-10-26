@@ -4,6 +4,10 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ## [Unreleased]
 
+### Fixed
+
+- **Rotating a service account sets a fresh expiry and refuses revoked or expired accounts.** A rotated secret used to keep the old deadline, and a revoked or expired account was rotated into a secret that could never sign in; that now returns `409`. The service accounts page shows each account's expiry, flags accounts expiring within 14 days, and states the expiry when a secret is issued.
+
 ## [0.8.0] (2026-10-21)
 
 ### Upgrade notes (action required)
