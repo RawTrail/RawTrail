@@ -6,6 +6,7 @@ import {
   persistReauthDrafts,
   readReauthDraft,
   registerReauthDraft,
+  setReauthDraftUser,
 } from "./reauthDraft";
 
 // reauthDraft keeps unsaved work across an OIDC reauthentication, which leaves the page (issue #1113). These tests pin the storage
@@ -22,6 +23,7 @@ function register(key: string, value: unknown): () => void {
 
 beforeEach(() => {
   sessionStorage.clear();
+  setReauthDraftUser(1);
 });
 
 afterEach(() => {
@@ -30,6 +32,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   while (unregister.length > 0) unregister.pop()?.();
   sessionStorage.clear();
+  setReauthDraftUser(null);
 });
 
 describe("persistReauthDrafts", () => {
@@ -41,7 +44,7 @@ describe("persistReauthDrafts", () => {
 
     expect(persistReauthDrafts(1000)).toBe(true);
 
-    expect(JSON.parse(sessionStorage.getItem(`${KEY}a`) ?? "null")).toEqual({ savedAt: 1000, path: "/", value: { text: "typed" } });
+    expect(JSON.parse(sessionStorage.getItem(`${KEY}a`) ?? "null")).toEqual({ savedAt: 1000, path: "/", userId: 1, value: { text: "typed" } });
     expect(sessionStorage.getItem(`${KEY}b`)).toBeNull();
     expect(sessionStorage.getItem(`${KEY}c`)).toBeNull();
   });
@@ -54,6 +57,14 @@ describe("persistReauthDrafts", () => {
     persistReauthDrafts();
 
     expect(readReauthDraft("late")).toEqual({ later: true });
+  });
+
+  it("keeps nothing, and says so, when work exists but nobody is known to be signed in", () => {
+    register("a", { text: "typed" });
+    setReauthDraftUser(null);
+
+    expect(persistReauthDrafts()).toBe(false);
+    expect(sessionStorage.getItem(`${KEY}a`)).toBeNull();
   });
 
   it("says it could not keep the work when storage refuses it", () => {
@@ -119,7 +130,7 @@ describe("readReauthDraft", () => {
 
   // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
   it("returns the work and leaves it in place, so a render that runs twice sees it twice", () => {
-    store("a", { savedAt: 1000, path: "/", value: { text: "typed" } });
+    store("a", { savedAt: 1000, path: "/", userId: 1, value: { text: "typed" } });
 
     expect(readReauthDraft("a", 2000)).toEqual({ text: "typed" });
     expect(readReauthDraft("a", 2000)).toEqual({ text: "typed" });
@@ -127,7 +138,7 @@ describe("readReauthDraft", () => {
 
   // spec:web-ui/unsaved-work-survives-a-reauthentication/saved-work-is-not-restored-when-it-is-stale-or-from-another-page
   it("drops work older than the time to live", () => {
-    store("a", { savedAt: 1000, path: "/", value: { text: "typed" } });
+    store("a", { savedAt: 1000, path: "/", userId: 1, value: { text: "typed" } });
 
     expect(readReauthDraft("a", 1000 + DRAFT_TTL_MS)).toEqual({ text: "typed" });
     expect(readReauthDraft("a", 1001 + DRAFT_TTL_MS)).toBeUndefined();
@@ -135,14 +146,14 @@ describe("readReauthDraft", () => {
   });
 
   it("drops work stamped in the future, which no clock of ours wrote", () => {
-    store("a", { savedAt: 9000, path: "/", value: {} });
+    store("a", { savedAt: 9000, path: "/", userId: 1, value: {} });
     expect(readReauthDraft("a", 1000)).toBeUndefined();
     expect(sessionStorage.getItem(`${KEY}a`)).toBeNull();
   });
 
   // spec:web-ui/unsaved-work-survives-a-reauthentication/saved-work-is-not-restored-when-it-is-stale-or-from-another-page
   it("does not restore work saved on another page, and keeps it for that page", () => {
-    store("a", { savedAt: 1000, path: "/somewhere-else", value: { text: "typed" } });
+    store("a", { savedAt: 1000, path: "/somewhere-else", userId: 1, value: { text: "typed" } });
 
     expect(readReauthDraft("a", 2000)).toBeUndefined();
     expect(sessionStorage.getItem(`${KEY}a`)).not.toBeNull();
@@ -151,12 +162,29 @@ describe("readReauthDraft", () => {
   it.each([
     ["not JSON", "{nope"],
     ["not an object", JSON.stringify("text")],
-    ["missing its timestamp", JSON.stringify({ path: "/", value: {} })],
-    ["missing its value", JSON.stringify({ savedAt: 1000, path: "/" })],
+    ["missing its timestamp", JSON.stringify({ path: "/", userId: 1, value: {} })],
+    ["missing its value", JSON.stringify({ savedAt: 1000, path: "/", userId: 1 })],
+    ["missing its user", JSON.stringify({ savedAt: 1000, path: "/", value: {} })],
   ])("drops an entry that is %s", (_name, raw) => {
     store("a", raw);
     expect(readReauthDraft("a", 2000)).toBeUndefined();
     expect(sessionStorage.getItem(`${KEY}a`)).toBeNull();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/saved-work-is-not-restored-when-it-is-stale-or-from-another-page
+  it("drops work written by a different operator, which a reauthentication that completed as someone else must not hand over", () => {
+    store("a", { savedAt: 1000, path: "/", userId: 1, value: { text: "typed" } });
+    setReauthDraftUser(2);
+
+    expect(readReauthDraft("a", 2000)).toBeUndefined();
+    expect(sessionStorage.getItem(`${KEY}a`)).toBeNull();
+  });
+
+  it("restores nothing when nobody is known to be signed in", () => {
+    store("a", { savedAt: 1000, path: "/", userId: 1, value: { text: "typed" } });
+    setReauthDraftUser(null);
+
+    expect(readReauthDraft("a", 2000)).toBeUndefined();
   });
 
   it("returns nothing for a key never saved", () => {

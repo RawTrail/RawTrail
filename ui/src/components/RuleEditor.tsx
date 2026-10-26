@@ -39,6 +39,13 @@ interface RuleEditorUnsaved {
   readonly content: string;
 }
 
+// parseRuleEditorUnsaved accepts only a payload of this editor's own shape, since storage can hold whatever was written under the key.
+function parseRuleEditorUnsaved(raw: unknown): RuleEditorUnsaved | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { identifier, content } = raw as Record<string, unknown>;
+  return typeof identifier === "string" && typeof content === "string" ? { identifier, content } : undefined;
+}
+
 type LoadState =
   | { kind: "loading" }
   | { kind: "ready"; path: string }
@@ -81,7 +88,7 @@ function RuleEditorPage({ ruleId }: { readonly ruleId: string | undefined }) {
   // one is not put into another.
   const unsaved: RuleEditorUnsaved | null =
     load.kind === "ready" && (content !== baseline || (isNew && identifier !== "")) ? { identifier, content } : null;
-  const { restored, consume } = useReauthDraft<RuleEditorUnsaved>(`rule-editor:${ruleId ?? "new"}`, unsaved);
+  const { restored, consume } = useReauthDraft<RuleEditorUnsaved>(`rule-editor:${ruleId ?? "new"}`, unsaved, parseRuleEditorUnsaved);
   const [restoredApplied, setRestoredApplied] = useState(false);
   // draft counts edits to what a check is about. A check answers for the draft it was started on, so a response that arrives after a
   // further edit is discarded rather than arming Save for content the server never saw.

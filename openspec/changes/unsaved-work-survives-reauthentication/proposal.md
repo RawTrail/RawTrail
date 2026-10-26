@@ -9,7 +9,7 @@ The standard pattern for step-up authentication: keep the operator's input in th
 - Before it leaves the page, the reauthentication dialog saves the unsaved work of every surface that opted in, in `sessionStorage`. It says that the work will be kept, and that signing in saves nothing and re-runs nothing.
 - On return the page puts the work back, with a notice that says so. The operator reviews it and saves again. The mutation that needed the sign-in is deliberately not replayed: an action gated on fresh authentication deserves a second look after the round trip.
 - If the work could not be kept (storage refused it), the dialog says it will be lost and needs a second click to continue.
-- Saved work is restored only on the page it came from, only under the surface's own key (one rule's work is not put into another's editor), and only within 15 minutes.
+- Saved work is restored only on the page it came from, only under the surface's own key (one rule's work is not put into another's editor), only to the operator who wrote it (a sign-in that completes as someone else gets nothing), only if it is of the surface's own shape, and only within 15 minutes. A restored edit of the reachable destinations is saved against the version it was edited against, so a change someone else made meanwhile is refused as out of date, not overwritten.
 - Adopted by the reachable destinations editor and the rule editor, the two surfaces #1113 names. The break-glass flow does not leave the page and is untouched.
 
 ## Impact

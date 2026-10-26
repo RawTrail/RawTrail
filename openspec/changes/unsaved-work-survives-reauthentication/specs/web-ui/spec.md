@@ -17,10 +17,11 @@ When a save needs a fresh sign-in through the identity provider, which leaves th
 - **WHEN** the operator returns to the page
 - **THEN** the work is put back and a notice says it was kept
 - **AND** nothing has been saved, and the save is not run again
+- **AND** a restored edit of a shared setting is saved against the version it was edited against, so a change made meanwhile by someone else is refused rather than overwritten
 
 #### Scenario: Saved work is not restored when it is stale or from another page
 
-- **GIVEN** saved work older than 15 minutes, or saved for another page or another rule
+- **GIVEN** saved work older than 15 minutes, saved for another page or another rule, written by a different operator, or not of the page's own shape
 - **WHEN** a page is opened
 - **THEN** that work is not restored into it
 

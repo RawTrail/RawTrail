@@ -16,7 +16,12 @@ export interface UseReauthDraft<T> {
 
 // key names the surface, and includes whatever distinguishes one instance of it from another (the rule being edited, say), so work
 // saved from one is not restored into the other.
-export function useReauthDraft<T>(key: string, unsaved: T | null): UseReauthDraft<T> {
+//
+// parse decides whether what came out of storage is this surface's work, and returns it typed, or undefined when it is not. Storage
+// holds whatever was written under the key, and an entry that passes the envelope checks can still carry a payload of another shape
+// (an older build's, or a hand-edited one), which a surface must not be handed as if it were its own. A payload parse refuses is
+// removed, not left to be refused again on every load.
+export function useReauthDraft<T>(key: string, unsaved: T | null, parse: (raw: unknown) => T | undefined): UseReauthDraft<T> {
   // The latest unsaved work, read when the dialog asks rather than when it was last rendered, which is why this is a ref.
   const latest = useRef<T | null>(unsaved);
   useEffect(() => {
@@ -25,7 +30,13 @@ export function useReauthDraft<T>(key: string, unsaved: T | null): UseReauthDraf
   useEffect(() => registerReauthDraft(key, () => latest.current), [key]);
 
   // Read once, on mount: reading does not remove it, so a render React runs twice sees the same draft.
-  const [restored] = useState<T | undefined>(() => readReauthDraft(key) as T | undefined);
+  const [restored] = useState<T | undefined>(() => {
+    const raw = readReauthDraft(key);
+    if (raw === undefined) return undefined;
+    const parsed = parse(raw);
+    if (parsed === undefined) discardReauthDraft(key);
+    return parsed;
+  });
   const consume = useCallback(() => {
     discardReauthDraft(key);
   }, [key]);

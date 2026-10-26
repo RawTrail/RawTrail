@@ -62,10 +62,46 @@ function describeAllows(a: ReachableAddress): string {
 // ReachableUnsaved is the page's unsaved work, as it is kept across a reauthentication.
 interface ReachableUnsaved {
   readonly draft: ReachableAddress[];
+  // baseVersion is the version of the set the draft was edited against. It is what the save sends once the draft is restored, so a set
+  // that someone else changed while the operator was signing in is refused as out of date rather than silently overwritten.
+  readonly baseVersion: number;
   readonly newCidr: string;
   readonly newPort: string;
   readonly newTransport: "" | "tcp" | "udp";
   readonly newNote: string;
+}
+
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
+}
+
+function parseAddress(raw: unknown): ReachableAddress | undefined {
+  if (!isRecord(raw) || typeof raw.cidr !== "string") return undefined;
+  const { port, transport, note } = raw;
+  if (port !== undefined && typeof port !== "number") return undefined;
+  if (transport !== undefined && transport !== "tcp" && transport !== "udp") return undefined;
+  if (note !== undefined && typeof note !== "string") return undefined;
+  return {
+    cidr: raw.cidr,
+    ...(port === undefined ? {} : { port }),
+    ...(transport === undefined ? {} : { transport }),
+    ...(note === undefined ? {} : { note }),
+  };
+}
+
+// parseReachableUnsaved accepts only a payload of this page's own shape, since storage can hold whatever was written under the key.
+function parseReachableUnsaved(raw: unknown): ReachableUnsaved | undefined {
+  if (!isRecord(raw) || !Array.isArray(raw.draft) || typeof raw.baseVersion !== "number") return undefined;
+  const { newCidr, newPort, newTransport, newNote } = raw;
+  if (typeof newCidr !== "string" || typeof newPort !== "string" || typeof newNote !== "string") return undefined;
+  if (newTransport !== "" && newTransport !== "tcp" && newTransport !== "udp") return undefined;
+  const draft: ReachableAddress[] = [];
+  for (const entry of raw.draft) {
+    const address = parseAddress(entry);
+    if (address === undefined) return undefined;
+    draft.push(address);
+  }
+  return { draft, baseVersion: raw.baseVersion, newCidr, newPort, newTransport, newNote };
 }
 
 export function ReachableAddresses() {
@@ -89,14 +125,17 @@ export function ReachableAddresses() {
   // rather than failing the page: the count is context for the edit, and not knowing it is a poor reason to refuse the edit.
   const [contained, setContained] = useState<number | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
+  // The version the draft was edited against once a draft has been restored, or null when it is the stored set's own. A restored
+  // draft is saved against this and not against whatever the server holds on return.
+  const [restoredVersion, setRestoredVersion] = useState<number | null>(null);
 
   // What an operator has typed and not saved: the edited list, and the destination being composed. A reauthentication through the
   // identity provider leaves the page, so this is kept across it and put back below; saving is never replayed (issue #1113).
   const unsaved: ReachableUnsaved | null =
     stored !== null && (!sameEntries(draft, stored.addresses) || newCidr !== "" || newPort !== "" || newTransport !== "" || newNote !== "")
-      ? { draft, newCidr, newPort, newTransport, newNote }
+      ? { draft, baseVersion: restoredVersion ?? stored.version, newCidr, newPort, newTransport, newNote }
       : null;
-  const { restored, consume } = useReauthDraft<ReachableUnsaved>("reachable-addresses", unsaved);
+  const { restored, consume } = useReauthDraft<ReachableUnsaved>("reachable-addresses", unsaved, parseReachableUnsaved);
   // Held from mount: the load below puts the restored work over the stored set when it arrives, and it has to be the work the page
   // started with rather than whatever a later render sees.
   const restoredOnMount = useRef(restored);
@@ -120,6 +159,7 @@ export function ReachableAddresses() {
           return;
         }
         setDraft(kept.draft);
+        setRestoredVersion(kept.baseVersion);
         setNewCidr(kept.newCidr);
         setNewPort(kept.newPort);
         setNewTransport(kept.newTransport);
@@ -149,6 +189,7 @@ export function ReachableAddresses() {
       .then((set) => {
         setStored(set);
         setDraft(set.addresses);
+        setRestoredVersion(null);
         setSaveError(null);
         setConflict(false);
       })
@@ -193,10 +234,11 @@ export function ReachableAddresses() {
     clearOutcome();
     // The version the draft started from rides along, so a save made after someone else changed the set is refused rather than
     // silently dropping the destination they added.
-    callReplace(draft, reason, stored.version)
+    callReplace(draft, reason, restoredVersion ?? stored.version)
       .then((set) => {
         setStored(set);
         setDraft(set.addresses);
+        setRestoredVersion(null);
         setSavedVersion(set.version);
       })
       .catch((err: unknown) => {
@@ -221,7 +263,13 @@ export function ReachableAddresses() {
         on top of that, from every contained host. Keep the list to the systems a responder needs, because each entry is a hole in
         every containment in force.
       </p>
-      {draftRestored && <ReauthDraftNotice />}
+      {draftRestored && (
+        <ReauthDraftNotice>
+          {restoredVersion !== null && restoredVersion !== stored.version
+            ? "The set was changed by someone else while you were away, so saving will be refused until you load the latest."
+            : undefined}
+        </ReauthDraftNotice>
+      )}
       <p className="reachable__note" role="status">
         {contained === null
           ? "How many hosts this reaches could not be read."
@@ -347,6 +395,7 @@ export function ReachableAddresses() {
             disabled={!changed || saving}
             onClick={() => {
               editDraft(stored.addresses);
+              setRestoredVersion(null);
             }}
           >
             Discard changes

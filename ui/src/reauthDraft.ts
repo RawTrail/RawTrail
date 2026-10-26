@@ -28,7 +28,20 @@ const sources = new Map<string, DraftSource>();
 interface StoredDraft {
   readonly savedAt: number;
   readonly path: string;
+  // The operator the work belongs to. A reauthentication through the identity provider can complete as a different account, and work
+  // typed by one operator must not be put into another's editor.
+  readonly userId: number;
   readonly value: unknown;
+}
+
+// The signed-in operator's id, set by the app once the session is known and cleared when it ends. Draft storage is keyed to it: nothing
+// is saved without one, and a draft is restored only to the operator who wrote it. The session id would not do, since it changes
+// across a reauthentication, while the user id is what stays the same when the same person signs in again.
+let currentUserId: number | null = null;
+
+// setReauthDraftUser records who is signed in, or null when nobody is.
+export function setReauthDraftUser(userId: number | null): void {
+  currentUserId = userId;
 }
 
 // isWork is whether a surface's value is unsaved work: null, or undefined from a surface that has none, is not.
@@ -68,11 +81,14 @@ export function persistReauthDrafts(now: number = Date.now()): boolean {
   const store = storage();
   if (store === null) return !hasUnsavedWork();
   const path = globalThis.location.pathname;
+  const userId = currentUserId;
+  // Nobody signed in, so nobody the work could be given back to.
+  if (userId === null) return !hasUnsavedWork();
   try {
     for (const [key, source] of sources) {
       const value = source();
       if (!isWork(value)) continue;
-      const entry: StoredDraft = { savedAt: now, path, value };
+      const entry: StoredDraft = { savedAt: now, path, userId, value };
       store.setItem(KEY_PREFIX + key, JSON.stringify(entry));
     }
     return true;
@@ -85,7 +101,7 @@ export function persistReauthDrafts(now: number = Date.now()): boolean {
 function isStoredDraft(raw: unknown): raw is StoredDraft {
   if (typeof raw !== "object" || raw === null) return false;
   const e = raw as Record<string, unknown>;
-  return typeof e.savedAt === "number" && typeof e.path === "string" && "value" in e;
+  return typeof e.savedAt === "number" && typeof e.path === "string" && typeof e.userId === "number" && "value" in e;
 }
 
 // readReauthDraft returns the draft saved under key, or undefined when there is none, it is older than DRAFT_TTL_MS, it was saved on
@@ -109,6 +125,12 @@ export function readReauthDraft(key: string, now: number = Date.now()): unknown 
     return undefined;
   }
   if (!isStoredDraft(entry) || now - entry.savedAt > DRAFT_TTL_MS || entry.savedAt > now) {
+    discardReauthDraft(key);
+    return undefined;
+  }
+  // Another operator's work is dropped rather than kept: it was not written by the person now at the keyboard, and it is not theirs to
+  // see. Nor is it restored when nobody is known to be signed in.
+  if (currentUserId === null || entry.userId !== currentUserId) {
     discardReauthDraft(key);
     return undefined;
   }

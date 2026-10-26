@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { RuleEditor } from "./RuleEditor";
 import { seedTechnique } from "./ruleTemplate";
 import * as api from "../api";
-import { persistReauthDrafts, readReauthDraft } from "../reauthDraft";
+import { persistReauthDrafts, readReauthDraft, setReauthDraftUser } from "../reauthDraft";
 
 function renderEditor(entry: string) {
   return render(
@@ -20,6 +20,7 @@ function renderEditor(entry: string) {
 
 // jsdom does not implement HTMLDialogElement.showModal/close, which the reason modal opens with.
 beforeEach(() => {
+  setReauthDraftUser(1);
   HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
   HTMLDialogElement.prototype.close = function close() { this.open = false; };
 });
@@ -27,6 +28,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   sessionStorage.clear();
+  setReauthDraftUser(null);
 });
 
 const content = (): HTMLTextAreaElement => screen.getByLabelText<HTMLTextAreaElement>("Rule document");
@@ -341,6 +343,37 @@ describe("RuleEditor across a reauthentication", () => {
     renderEditor("/rules/other/edit");
 
     await waitFor(() => { expect(content().value).toBe("title: other\n"); });
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/saved-work-is-not-restored-when-it-is-stale-or-from-another-page
+  it.each([
+    ["a null payload", null],
+    ["a payload without the document", { identifier: "my_rule" }],
+    ["a document that is not text", { identifier: "my_rule", content: 7 }],
+  ])("ignores %s under a valid envelope instead of failing, and removes it", (_name, payload) => {
+    sessionStorage.setItem(
+      "rawtrail:reauth-draft:rule-editor:new",
+      JSON.stringify({ savedAt: Date.now(), path: "/", userId: 1, value: payload }),
+    );
+
+    renderEditor("/rules/new");
+
+    expect(screen.getByLabelText("Identifier")).toHaveValue("");
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(sessionStorage.getItem("rawtrail:reauth-draft:rule-editor:new")).toBeNull();
+  });
+
+  it("does not restore work a different operator saved", () => {
+    renderEditor("/rules/new");
+    fireEvent.change(screen.getByLabelText("Identifier"), { target: { value: "my_rule" } });
+    persistReauthDrafts();
+    cleanup();
+
+    setReauthDraftUser(2);
+    renderEditor("/rules/new");
+
+    expect(screen.getByLabelText("Identifier")).toHaveValue("");
     expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
   });
 });

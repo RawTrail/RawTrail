@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ReauthModal } from "./ReauthModal";
 import * as auth from "../auth";
-import { registerReauthDraft, readReauthDraft } from "../reauthDraft";
+import { registerReauthDraft, readReauthDraft, setReauthDraftUser } from "../reauthDraft";
 import type { ReauthChallenge } from "../api";
 
 // ReauthModal renders the per-flow reauth prompt and dispatches to either an OIDC redirect or the WebAuthn break-glass
@@ -172,9 +172,13 @@ describe("ReauthModal", () => {
 // is never replayed: signing in does not save anything.
 describe("ReauthModal OIDC flow and unsaved work", () => {
   const off: (() => void)[] = [];
+  beforeEach(() => {
+    setReauthDraftUser(1);
+  });
   afterEach(() => {
     while (off.length > 0) off.pop()?.();
     sessionStorage.clear();
+    setReauthDraftUser(null);
   });
 
   // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-kept-across-the-sign-in
