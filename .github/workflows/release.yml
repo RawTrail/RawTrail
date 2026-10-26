@@ -244,42 +244,80 @@ jobs:
             dist/SHA256SUMS
           retention-days: 7
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (draft)
         if: env.DRY_RUN == '' && startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         # Use `gh release` directly instead of a third-party action: keeps the
         # token scope bounded and removes one unpinned external dependency.
+        #
+        # The release is created as a DRAFT and published by the last step of the job, once every artifact and every Sigstore
+        # bundle is on it, so a failure anywhere in between leaves a draft nobody sees rather than a public release with
+        # unsigned artifacts (issue #1215). A re-run finds that draft, uploads over it with --clobber, and carries on: it
+        # rebuilt the pkg, so every artifact is replaced together to keep the set consistent. A release that is already
+        # published is refused, since replacing the bytes of something users may have downloaded is not a repair.
+        # spec:release-packaging/a-release-is-published-only-when-complete-and-its-build-can-be-repeated/a-failed-run-leaves-only-a-draft
+        # spec:release-packaging/a-release-is-published-only-when-complete-and-its-build-can-be-repeated/a-re-run-reuses-the-draft
         run: |
+          assets=(
+            dist/rawtrail-*.pkg
+            dist/edr-system-extension.mobileconfig
+            dist/edr-tcc-fda.mobileconfig
+            dist/edr-login-items.mobileconfig
+            "dist/rawtrail-${RELEASE_TAG}-sbom.spdx.json"
+            "dist/rawtrail-${RELEASE_TAG}-sbom.cdx.json"
+            dist/SHA256SUMS
+          )
+          if existing=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$existing" != "true" ]; then
+              echo "::error::Release $RELEASE_TAG is already published. Replacing its artifacts is not a repair: cut a new tag."
+              exit 1
+            fi
+            echo "Reusing the draft release $RELEASE_TAG"
+            gh release upload "$RELEASE_TAG" --clobber "${assets[@]}"
+            exit 0
+          fi
           # SemVer 2.0 pre-release tags contain a hyphen (v0.1.0-rc.1,
           # v1.0.0-beta.2). Mark those as GitHub pre-releases so they don't
           # show up as the default "Latest" on the releases page and don't
           # trigger release notifications for watchers who asked for
           # stable-only. GA tags (v0.1.0, v1.2.3) become the Latest release.
-          PRERELEASE_FLAG=""
+          PRERELEASE_FLAG=()
           case "$RELEASE_TAG" in
-              *-*) PRERELEASE_FLAG="--prerelease" ;;
+              *-*) PRERELEASE_FLAG=(--prerelease) ;;
           esac
-          # shellcheck disable=SC2086
           gh release create "$RELEASE_TAG" \
+            --draft \
             --generate-notes \
             --title "$RELEASE_TAG" \
-            $PRERELEASE_FLAG \
-            dist/rawtrail-*.pkg \
-            dist/edr-system-extension.mobileconfig \
-            dist/edr-tcc-fda.mobileconfig \
-            dist/edr-login-items.mobileconfig \
-            "dist/rawtrail-${RELEASE_TAG}-sbom.spdx.json" \
-            "dist/rawtrail-${RELEASE_TAG}-sbom.cdx.json" \
-            dist/SHA256SUMS
+            "${PRERELEASE_FLAG[@]}" \
+            "${assets[@]}"
 
       # Sigstore keyless signing of every release artifact. Skipped on
       # workflow_dispatch (DRY_RUN): a successful sign appends to Rekor's
       # public transparency log, so dry-runs would leak commit SHAs and
       # synthetic tags into a permanent record. Real tag pushes only.
+      # The installer downloads cosign from GitHub at run time, so a transient 5xx fails the job (issue #1215). Two more attempts
+      # follow the first, each only when the one before failed.
       - name: Install cosign
+        id: cosign-install-1
+        continue-on-error: true
         if: env.DRY_RUN == '' && startsWith(github.ref, 'refs/tags/v')
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.1'
+
+      - name: Install cosign (retry)
+        id: cosign-install-2
+        continue-on-error: true
+        if: steps.cosign-install-1.outcome == 'failure'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.1'
+
+      - name: Install cosign (last retry)
+        if: steps.cosign-install-2.outcome == 'failure'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: 'v3.1.1'
@@ -325,7 +363,7 @@ jobs:
               --bundle "${f}.sigstore.json" \
               "$f"
           done
-          gh release upload "$RELEASE_TAG" \
+          gh release upload "$RELEASE_TAG" --clobber \
             ./rawtrail-*.pkg.sigstore.json \
             ./edr-system-extension.mobileconfig.sigstore.json \
             ./edr-tcc-fda.mobileconfig.sigstore.json \
@@ -355,6 +393,22 @@ jobs:
             dist/rawtrail-*-sbom.spdx.json
             dist/rawtrail-*-sbom.cdx.json
             dist/SHA256SUMS
+
+      # Last, so a release is public only once every artifact and every Sigstore bundle is on it and the provenance is attested.
+      # A failure at any earlier step leaves the draft, which the next run of this job reuses (issue #1215).
+      # spec:release-packaging/a-release-is-published-only-when-complete-and-its-build-can-be-repeated/a-complete-release-is-published
+      - name: Publish the release
+        if: env.DRY_RUN == '' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          LATEST_FLAG=()
+          case "$RELEASE_TAG" in
+              *-*) ;;
+              *) LATEST_FLAG=(--latest) ;;
+          esac
+          gh release edit "$RELEASE_TAG" --draft=false "${LATEST_FLAG[@]}"
 
       - name: Teardown keychain
         if: always() && env.DRY_RUN == ''
