@@ -22,6 +22,10 @@ type stubCommands struct {
 	sequenceErr error
 	failOn      string
 	archived    []string
+	reflowErr   error
+	reflows     int
+	// archivedAtReflow is how many changes had been archived when reflow last ran.
+	archivedAtReflow int
 }
 
 func (s *stubCommands) order(context.Context) ([]string, error) {
@@ -40,6 +44,12 @@ func (s *stubCommands) archive(_ context.Context, change string) error {
 	return nil
 }
 
+func (s *stubCommands) reflow(context.Context) error {
+	s.reflows++
+	s.archivedAtReflow = len(s.archived)
+	return s.reflowErr
+}
+
 func TestArchiveAll(t *testing.T) {
 	t.Parallel()
 
@@ -54,12 +64,21 @@ func TestArchiveAll(t *testing.T) {
 		wantErr      string
 		wantArchived []string
 		wantOut      []string
+		wantReflows  int
 	}{
 		{
 			name:         "applies the order archive-order gave, not the alphabetical one",
 			stub:         &stubCommands{sequence: []string{first, second, third}},
 			wantArchived: []string{first, second, third},
 			wantOut:      []string{"3 pending change(s)", "archived 3 change(s)"},
+			wantReflows:  1,
+		},
+		{
+			name:         "a reflow failure is reported as the one thing left to do, not as a failed archive",
+			stub:         &stubCommands{sequence: []string{first}, reflowErr: errors.New("npx exited 1")},
+			wantErr:      "archived 1 change(s), but reflowing the Markdown failed",
+			wantArchived: []string{first},
+			wantReflows:  1,
 		},
 		{
 			name:         "an ordering failure archives nothing at all",
@@ -96,6 +115,7 @@ func TestArchiveAll(t *testing.T) {
 				require.ErrorContains(t, err, tc.wantErr)
 			}
 			assert.Equal(t, tc.wantArchived, tc.stub.archived)
+			assert.Equal(t, tc.wantReflows, tc.stub.reflows, "the reflow runs once, and only when something was archived")
 			for _, want := range tc.wantOut {
 				assert.Contains(t, out.String(), want)
 			}
@@ -104,6 +124,15 @@ func TestArchiveAll(t *testing.T) {
 
 	// The plan has to be readable before the first archive runs: after it, the working tree has moved and the only way back is
 	// git. A run that printed its sequence only on the way out would be useless for stopping one.
+	// The headings `openspec archive` writes are what the reflow repairs, so running it before the last archive would leave the
+	// later ones unrepaired.
+	t.Run("reflows after the last change is archived", func(t *testing.T) {
+		t.Parallel()
+		stub := &stubCommands{sequence: []string{first, second, third}}
+		require.NoError(t, archiveAll(t.Context(), stub, false, io.Discard))
+		assert.Equal(t, 3, stub.archivedAtReflow)
+	})
+
 	t.Run("prints the whole sequence before archiving the first change", func(t *testing.T) {
 		t.Parallel()
 		stub := &stubCommands{sequence: []string{first, second}}
@@ -177,6 +206,13 @@ func TestCommandArgv(t *testing.T) {
 	assert.Equal(t, []string{"openspec", "archive", "some-change", "-y"}, archive.Args)
 	assert.Equal(t, "/repo", archive.Dir)
 	assert.NotContains(t, archive.Args, "--skip-specs")
+
+	// markdownlint first for the structure the archive broke, then Prettier for the prose and tables, as a contributor would.
+	reflow := c.reflowCmds(t.Context())
+	require.Len(t, reflow, 2)
+	assert.Equal(t, []string{"task", "lint:md:fix"}, reflow[0].Args)
+	assert.Equal(t, []string{"task", "lint:md:prose:fix"}, reflow[1].Args)
+	assert.Equal(t, "/repo", reflow[0].Dir)
 }
 
 // writeChange writes one in-flight change's delta into a fixture tree, the same shape tools/spectrace parses.
@@ -266,11 +302,14 @@ func TestNoSafeOrderArchivesNothing(t *testing.T) {
 	assert.Contains(t, stderr.String(), "No order satisfies all of them")
 }
 
-// recordingArchive runs the real ordering pass and records the archive calls instead of making them.
+// recordingArchive runs the real ordering pass and records the archive calls instead of making them. The reflow is stubbed with it:
+// the fixture has no Taskfile to run, and what it runs is pinned in TestCommandArgv.
 type recordingArchive struct {
 	execCommands
 	archived []string
 }
+
+func (r *recordingArchive) reflow(context.Context) error { return nil }
 
 func (r *recordingArchive) archive(_ context.Context, change string) error {
 	r.archived = append(r.archived, change)
