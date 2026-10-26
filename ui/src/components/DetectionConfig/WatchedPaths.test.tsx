@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { WatchedPaths } from "./WatchedPaths";
 import * as api from "../../api";
+import { persistReauthDrafts, readReauthDraft, setReauthDraftUser } from "../../reauthDraft";
 import type { ReplaceWatchedPathsResult, WatchedPath, WatchedPaths as WatchedPathsResponse } from "../../api";
 
 const BUILT_IN: WatchedPath[] = [
@@ -32,6 +33,7 @@ const makeResult = (paths: WatchedPath[], over: Partial<ReplaceWatchedPathsResul
 
 // jsdom doesn't implement HTMLDialogElement.showModal/close; stub them so the reason modal renders.
 beforeEach(() => {
+  setReauthDraftUser(1);
   HTMLDialogElement.prototype.showModal = function showModal() {
     this.open = true;
   };
@@ -42,6 +44,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  sessionStorage.clear();
+  setReauthDraftUser(null);
 });
 
 async function renderLoaded(set: WatchedPathsResponse = makeSet(), canWrite = true) {
@@ -362,5 +366,100 @@ describe("WatchedPaths", () => {
     render(<WatchedPaths canWrite />);
 
     expect(await screen.findByText("Watched paths could not be loaded: 403 forbidden")).toBeVisible();
+  });
+});
+
+// An OIDC reauthentication leaves the page, so the edited set and the path being typed are kept across it and put back, and the save
+// that needed the sign-in is not run again (issue #1113).
+describe("WatchedPaths across a reauthentication", () => {
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("puts back the edited set and the path being typed, says so, and saves nothing", async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Remove /Library/StartupItems/" }));
+    fireEvent.change(screen.getByLabelText("Path"), { target: { value: "/etc/cron.d/" } });
+    fireEvent.change(screen.getByLabelText("Covers"), { target: { value: "literal" } });
+    expect(persistReauthDrafts()).toBe(true);
+    cleanup();
+
+    const replace = vi.spyOn(api, "replaceWatchedPaths");
+    await renderLoaded();
+
+    expect(await screen.findByText(/Your unsaved changes were kept while you signed in again/)).toBeVisible();
+    expect(rows()).toEqual([expect.stringContaining("/Users/alice/.ssh/authorized_keys")]);
+    expect(screen.getByLabelText("Path")).toHaveValue("/etc/cron.d/");
+    expect(screen.getByLabelText("Covers")).toHaveValue("literal");
+    expect(screen.getByRole("button", { name: "Save and push to hosts" })).toBeEnabled();
+    expect(replace).not.toHaveBeenCalled();
+    expect(readReauthDraft("watched-paths")).toBeUndefined();
+  });
+
+  it("restores nothing, and says nothing, when no work was saved or the page was clean", async () => {
+    await renderLoaded();
+    persistReauthDrafts();
+    expect(readReauthDraft("watched-paths")).toBeUndefined();
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/unsaved-work-is-restored-and-not-saved-for-the-operator
+  it("saves a restored draft against the version it was edited against, so a set changed meanwhile is refused", async () => {
+    await renderLoaded(); // version 2
+    fireEvent.click(screen.getByRole("button", { name: "Remove /Library/StartupItems/" }));
+    persistReauthDrafts();
+    cleanup();
+
+    // Someone else changed the set while the operator was signing in.
+    await renderLoaded(makeSet({ version: 3, paths: [{ path: "/etc/cron.d/", match: "prefix" }] }));
+
+    expect(await screen.findByText(/changed by someone else while you were away/)).toBeVisible();
+    const replace = vi
+      .spyOn(api, "replaceWatchedPaths")
+      .mockRejectedValue(new api.DetectionConfigApiError("detection_config.conflict", "out of date", 409));
+    await saveWithReason("drop the startup items");
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith([{ path: "/Users/alice/.ssh/authorized_keys", match: "literal" }], "drop the startup items", 2);
+    });
+    expect(await screen.findByRole("button", { name: /Load the latest set/ })).toBeVisible();
+  });
+
+  it("does not warn about a changed set when it was not changed", async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Remove /Library/StartupItems/" }));
+    persistReauthDrafts();
+    cleanup();
+    await renderLoaded();
+
+    expect(await screen.findByText(/Your unsaved changes were kept/)).toBeVisible();
+    expect(screen.queryByText(/changed by someone else/)).toBeNull();
+  });
+
+  // spec:web-ui/unsaved-work-survives-a-reauthentication/saved-work-is-not-restored-when-it-is-stale-or-from-another-page
+  it.each([
+    ["a null payload", null],
+    ["a draft that is not a list", { draft: "nope", baseVersion: 2, newPath: "", newMatch: "prefix" }],
+    ["no base version", { draft: [], newPath: "", newMatch: "prefix" }],
+    ["an entry that is not a path", { draft: [{ path: 1, match: "prefix" }], baseVersion: 2, newPath: "", newMatch: "prefix" }],
+    ["a match it does not know", { draft: [], baseVersion: 2, newPath: "", newMatch: "regex" }],
+  ])("ignores %s under a valid envelope, and removes it", async (_name, payload) => {
+    sessionStorage.setItem("rawtrail:reauth-draft:watched-paths", JSON.stringify({ savedAt: Date.now(), path: "/", userId: 1, value: payload }));
+
+    await renderLoaded();
+
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(rows()).toHaveLength(2);
+    expect(sessionStorage.getItem("rawtrail:reauth-draft:watched-paths")).toBeNull();
+  });
+
+  it("does not restore work a different operator saved", async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByRole("button", { name: "Remove /Library/StartupItems/" }));
+    persistReauthDrafts();
+    cleanup();
+
+    setReauthDraftUser(2);
+    await renderLoaded();
+
+    expect(screen.queryByText(/Your unsaved changes were kept/)).toBeNull();
+    expect(rows()).toHaveLength(2);
   });
 });

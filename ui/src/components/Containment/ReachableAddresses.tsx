@@ -263,13 +263,7 @@ export function ReachableAddresses() {
         on top of that, from every contained host. Keep the list to the systems a responder needs, because each entry is a hole in
         every containment in force.
       </p>
-      {draftRestored && (
-        <ReauthDraftNotice>
-          {restoredVersion !== null && restoredVersion !== stored.version
-            ? "The set was changed by someone else while you were away, so saving will be refused until you load the latest."
-            : undefined}
-        </ReauthDraftNotice>
-      )}
+      {draftRestored && <ReauthDraftNotice setChanged={restoredVersion !== null && restoredVersion !== stored.version} />}
       <p className="reachable__note" role="status">
         {contained === null
           ? "How many hosts this reaches could not be read."
