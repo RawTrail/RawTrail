@@ -550,6 +550,7 @@ func TestDispatcher_SendWhileDisconnected(t *testing.T) {
 
 // spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/a-push-before-the-extension-connects-is-replayed
 // spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/a-later-push-replaces-an-earlier-one
+// spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/an-older-set-arriving-later-does-not-replace-it
 // spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/a-replayed-push-is-sent-once
 //
 // A fresh install is pushed the deployment's watched paths before its extension is approved, and the server will not send them again
@@ -558,6 +559,9 @@ func TestDispatcher_WatchedPathsSentBeforeTheExtensionConnectsAreReplayed(t *tes
 	t.Parallel()
 	first := []byte(`{"version":1,"paths":[]}`)
 	second := []byte(`{"version":2,"paths":[]}`)
+	// A later epoch outranks a higher version, as after a server database restore that sent versions backwards.
+	restored := []byte(`{"version":1,"epoch":200,"paths":[]}`)
+	before := []byte(`{"version":9,"epoch":100,"paths":[]}`)
 
 	cases := []struct {
 		name   string
@@ -566,6 +570,10 @@ func TestDispatcher_WatchedPathsSentBeforeTheExtensionConnectsAreReplayed(t *tes
 	}{
 		{"a push sent before the extension connects is replayed", [][]byte{first}, [][]byte{first}},
 		{"a later push replaces an earlier one", [][]byte{first, second}, [][]byte{second}},
+		// A poll returns pending commands newest first, so the newer set can arrive first.
+		{"an older set arriving later does not replace a newer one", [][]byte{second, first}, [][]byte{second}},
+		{"a later epoch outranks a higher version", [][]byte{before, restored}, [][]byte{restored}},
+		{"a higher version at an older epoch does not replace a later epoch", [][]byte{restored, before}, [][]byte{restored}},
 		{"no push before the connection leaves nothing to replay", nil, nil},
 	}
 	for _, tc := range cases {

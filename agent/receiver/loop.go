@@ -16,6 +16,7 @@ package receiver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"sync"
@@ -342,7 +343,7 @@ type Dispatcher struct {
 	// mu orders a watched-path push that found no Connector against the Set that publishes one, so a push cannot be stalled after the
 	// Set that would have replayed it has already looked.
 	mu sync.Mutex
-	// stalledWatchedPaths is the latest watched-path payload that found no Connector, held for Set to send (issue #1386). Nil when
+	// stalledWatchedPaths is the newest watched-path payload that found no Connector, held for Set to send (issue #1386). Nil when
 	// nothing is waiting.
 	stalledWatchedPaths []byte
 }
@@ -377,11 +378,9 @@ func (d *Dispatcher) Set(c Connector) {
 	if err := c.SendWatchedPaths(stalled); err != nil {
 		getLogger().WarnContext(context.Background(), "receiver dispatcher: replaying the watched paths that arrived before the extension failed",
 			"err", err)
-		// Kept for the next connection, unless a push has stalled a newer set since, which supersedes it.
+		// Kept for the next connection, unless a push has stalled a newer set since.
 		d.mu.Lock()
-		if d.stalledWatchedPaths == nil {
-			d.stalledWatchedPaths = stalled
-		}
+		d.stallWatchedPaths(stalled)
 		d.mu.Unlock()
 	}
 }
@@ -404,7 +403,7 @@ func (d *Dispatcher) SendApplicationControl(payload []byte) error {
 
 // SendWatchedPaths satisfies commander.ExtensionSender, routing like SendApplicationControl: ErrNoConnector between connect cycles,
 // otherwise the active Connector. The error still fails the command, which is the honest record of that attempt, but the payload is
-// kept for the next Set (issue #1386). Only the latest is kept, since a later set supersedes an earlier one.
+// kept for the next Set (issue #1386). Only the newest set is kept, since it supersedes an older one.
 func (d *Dispatcher) SendWatchedPaths(payload []byte) error {
 	if b := d.cur.Load(); b != nil && b.c != nil {
 		return b.c.SendWatchedPaths(payload)
@@ -416,9 +415,39 @@ func (d *Dispatcher) SendWatchedPaths(payload []byte) error {
 		d.mu.Unlock()
 		return b.c.SendWatchedPaths(payload)
 	}
-	d.stalledWatchedPaths = bytes.Clone(payload)
+	d.stallWatchedPaths(payload)
 	d.mu.Unlock()
 	return ErrNoConnector
+}
+
+// stallWatchedPaths holds payload for the next Set unless a payload at least as new is already held. Newest by (epoch, version), not
+// by arrival: a poll returns pending commands newest first, so a version 2 can arrive before a version 1, and the extension would
+// accept the version 1 replayed later as the first set it had seen and keep it. The caller holds d.mu.
+func (d *Dispatcher) stallWatchedPaths(payload []byte) {
+	if d.stalledWatchedPaths != nil && !watchedPathsOrder(payload).after(watchedPathsOrder(d.stalledWatchedPaths)) {
+		return
+	}
+	d.stalledWatchedPaths = bytes.Clone(payload)
+}
+
+// pushOrder is where a watched-path set falls in the order the extension applies them in: by epoch, then by version, the same
+// comparison as WatchedPathsUpdate.supersedes. A payload that does not decode orders as (0, 0), so it never displaces a set that does.
+type pushOrder struct{ epoch, version int64 }
+
+func watchedPathsOrder(payload []byte) pushOrder {
+	var fields pushOrder
+	var wire struct {
+		Epoch   int64 `json:"epoch"`
+		Version int64 `json:"version"`
+	}
+	if json.Unmarshal(payload, &wire) == nil {
+		fields = pushOrder{epoch: wire.Epoch, version: wire.Version}
+	}
+	return fields
+}
+
+func (o pushOrder) after(other pushOrder) bool {
+	return o.epoch > other.epoch || (o.epoch == other.epoch && o.version > other.version)
 }
 
 // SendNetworkContainment delivers a network_containment.update to the network extension's active Connector, routing like
