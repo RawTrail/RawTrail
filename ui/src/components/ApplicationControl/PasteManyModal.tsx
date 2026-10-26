@@ -7,12 +7,16 @@ import {
   type BulkUpsertAppControlRulesRequest,
   type BulkUpsertAppControlResult,
 } from "../../api";
+import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
+import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
 import { Input, Select } from "../ui/Input";
 import { AppControlDialogShell } from "./AppControlDialogShell";
 import { applyAppControlSubmitError } from "./dialogErrors";
 import { EnforcementChoice } from "./EnforcementChoice";
+import { pasteManyDraftKey } from "./reauthDraftKeys";
+import { parseEnforcement } from "./reauthDraftParse";
 import { PASTE_MANY_RULE_TYPES, parsePasteInput, type PasteInference } from "./pasteInference";
 import "./ApplicationControl.scss";
 
@@ -61,6 +65,45 @@ interface PasteRow {
   ruleType: string | null;
 }
 
+// PasteManyUnsaved is the dialog's unsaved work, as it is kept across a reauthentication (issue #1113). Rows are kept without their ids,
+// which are minted afresh on restore: an id only has to be unique within one rendered list.
+interface PasteManyUnsaved {
+  readonly phase: "paste" | "preview";
+  readonly rawInput: string;
+  readonly rows: readonly Omit<PasteRow, "id">[];
+  readonly enforcement: Enforcement | null;
+  readonly severity: string;
+  readonly reason: string;
+}
+
+function parsePasteRow(raw: unknown): Omit<PasteRow, "id"> | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { identifier, raw: line, inferredType, hint, ruleType } = raw as Record<string, unknown>;
+  const nullableText = (v: unknown): v is string | null => v === null || typeof v === "string";
+  if (typeof identifier !== "string" || typeof line !== "string" || !nullableText(inferredType) || !nullableText(ruleType)) return undefined;
+  if (hint !== undefined && typeof hint !== "string") return undefined;
+  return { identifier, raw: line, inferredType, ruleType, ...(hint === undefined ? {} : { hint }) };
+}
+
+// parsePasteManyUnsaved accepts only a payload of this dialog's own shape, since storage can hold whatever was written under the key.
+function parsePasteManyUnsaved(raw: unknown): PasteManyUnsaved | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  const enforcement = parseEnforcement(r.enforcement);
+  if (enforcement === undefined || !Array.isArray(r.rows)) return undefined;
+  const { phase, rawInput, severity, reason } = r;
+  if ((phase !== "paste" && phase !== "preview") || typeof rawInput !== "string" || typeof severity !== "string" || typeof reason !== "string") {
+    return undefined;
+  }
+  const rows: Omit<PasteRow, "id">[] = [];
+  for (const entry of r.rows) {
+    const row = parsePasteRow(entry);
+    if (row === undefined) return undefined;
+    rows.push(row);
+  }
+  return { phase, rawInput, rows, enforcement, severity, reason };
+}
+
 function rowsFromParse(parsed: PasteInference[]): PasteRow[] {
   return parsed.map((p) => {
     nextRowId += 1;
@@ -87,10 +130,56 @@ export function PasteManyModal({ open, policyID, onClose, onUpserted }: PasteMan
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // What an operator has pasted or changed and not saved, while the dialog is open. A reauthentication through the identity provider
+  // leaves the page, so this is kept across it and put back when the page reopens the dialog; saving is never replayed (issue #1113).
+  const touched = phase === "preview" || rawInput !== "" || enforcement !== null || severity !== "medium" || reason !== "";
+  const unsaved: PasteManyUnsaved | null =
+    open && touched
+      ? {
+          phase,
+          rawInput,
+          rows: rows.map(({ identifier, raw, inferredType, hint, ruleType }) => ({
+            identifier,
+            raw,
+            inferredType,
+            ruleType,
+            ...(hint === undefined ? {} : { hint }),
+          })),
+          enforcement,
+          severity,
+          reason,
+        }
+      : null;
+  const { restored, consume } = useReauthDraft<PasteManyUnsaved>(pasteManyDraftKey(policyID), unsaved, parsePasteManyUnsaved);
+  // Taken by the first open: the page opens the dialog on return because work was saved, and that open puts the work back instead of
+  // resetting the form. Every later open resets as before.
+  const pendingRestore = useRef(restored);
+  const [draftRestored, setDraftRestored] = useState(false);
+
   // Reset the whole form whenever the dialog opens. Otherwise a Cancel + re-open would surface the prior paste's state.
   useEffect(() => {
     if (!open) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset tied to the open prop transition
+    const kept = pendingRestore.current;
+    pendingRestore.current = undefined;
+    if (kept !== undefined) {
+      setPhase(kept.phase);
+      setRawInput(kept.rawInput);
+      setRows(
+        kept.rows.map((row) => {
+          nextRowId += 1;
+          return { id: nextRowId, ...row };
+        }),
+      );
+      setEnforcement(kept.enforcement);
+      setSeverity(kept.severity);
+      setReason(kept.reason);
+      setBusy(false);
+      setFormError(null);
+      setDraftRestored(true);
+      consume();
+      return;
+    }
+    setDraftRestored(false);
     setPhase("paste");
     setRawInput("");
     setRows([]);
@@ -99,7 +188,7 @@ export function PasteManyModal({ open, policyID, onClose, onUpserted }: PasteMan
     setReason("");
     setBusy(false);
     setFormError(null);
-  }, [open]);
+  }, [open, consume]);
 
   const submitBulk = useCallback((req: BulkUpsertAppControlRulesRequest) => bulkUpsertAppControlRules(policyID, req), [policyID]);
   const { call: callBulk, modal: reauthModal } = useReauthRetry(submitBulk);
@@ -209,6 +298,7 @@ export function PasteManyModal({ open, policyID, onClose, onUpserted }: PasteMan
       }}
       reauthModal={<ReauthModal {...reauthModal} />}
     >
+      {draftRestored && <ReauthDraftNotice />}
       {phase === "paste" && (
         <div className="app-control-dialog__field">
           <label htmlFor="paste-many-input" className="app-control-dialog__label">

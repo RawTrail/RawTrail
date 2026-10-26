@@ -8,6 +8,7 @@ import {
   updateAppControlRule,
 } from "../../api";
 import { PermissionAction, useCan } from "../../permissions-core";
+import { hasReauthDraft } from "../../reauthDraft";
 import type { ApplicationControlPolicy, ApplicationControlRule } from "../../types";
 import { PageHeader } from "../ui/PageHeader";
 import { Table, EmptyState } from "../ui/Table";
@@ -21,6 +22,7 @@ import { AddRuleModal } from "./AddRuleModal";
 import { EditRuleModal } from "./EditRuleModal";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import { PasteManyModal } from "./PasteManyModal";
+import { editRuleDraftKey, savedDialogFor } from "./reauthDraftKeys";
 import { appControlRuleID, describeWouldBlock, wouldBlockImpactFrom, type WouldBlockImpact } from "./wouldBlockImpact";
 import {
   applyRulesFilter,
@@ -102,7 +104,12 @@ export function PolicyDetail() {
   const [error, setError] = useState<string | null>(null);
   // activeModal is the union of every possible per-row modal state. Mutually exclusive by construction; opening a new modal
   // implicitly closes whichever was previously active because there's exactly one state slot.
-  const [activeModal, setActiveModal] = useState<ActiveModal>({ kind: "none" });
+  // Opened on arrival when a dialog's work was saved before a reauthentication, which took the page away from under it (issue #1113):
+  // the dialog puts the work back as it opens. The edit dialog needs the rule, so it is found below once the policy has loaded.
+  const [activeModal, setActiveModal] = useState<ActiveModal>(() => {
+    const saved = savedDialogFor(policyID);
+    return saved === null ? { kind: "none" } : { kind: saved };
+  });
   const closeModal = useCallback(() => { setActiveModal({ kind: "none" }); }, []);
 
   // refreshKey bumps to force a re-fetch (e.g. after Save in the
@@ -200,6 +207,15 @@ export function PolicyDetail() {
   const availableTypes = useMemo(() => distinctRuleTypes(rules), [rules]);
   const availableSources = useMemo(() => distinctSources(rules), [rules]);
   const isFiltering = filterIsActive(filter);
+
+  // The edit dialog's saved work is keyed by the rule, so the rule it belongs to is found among the loaded ones and its dialog
+  // reopened. Once, adjusting state while rendering rather than in an effect.
+  const [editRestoreChecked, setEditRestoreChecked] = useState(false);
+  if (!editRestoreChecked && policy !== null) {
+    setEditRestoreChecked(true);
+    const withSavedWork = rules.find((r) => hasReauthDraft(editRuleDraftKey(r.id)));
+    if (withSavedWork !== undefined && activeModal.kind === "none") setActiveModal({ kind: "edit", rule: withSavedWork });
+  }
 
   if (!Number.isFinite(policyID)) {
     return (

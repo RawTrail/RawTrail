@@ -147,3 +147,9 @@ export function discardReauthDraft(key: string): void {
     // Nothing to remove from storage that will not let go of it.
   }
 }
+
+// hasReauthDraft reports whether work saved under key could be restored now: a page uses it to open the dialog the work belongs to
+// before the dialog reads it. It applies the same rules as readReauthDraft, including dropping work that is stale or another operator's.
+export function hasReauthDraft(key: string, now: number = Date.now()): boolean {
+  return readReauthDraft(key, now) !== undefined;
+}

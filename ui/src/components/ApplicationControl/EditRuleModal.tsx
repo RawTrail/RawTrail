@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   updateAppControlRule,
   type UpdateAppControlRuleRequest,
 } from "../../api";
+import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
+import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
 import type { ApplicationControlRule } from "../../types";
 import { Input, Select } from "../ui/Input";
 import { AppControlDialogShell } from "./AppControlDialogShell";
 import { applyAppControlSubmitError } from "./dialogErrors";
+import { editRuleDraftKey } from "./reauthDraftKeys";
 import "./ApplicationControl.scss";
 
 interface EditRuleModalProps {
@@ -31,6 +34,31 @@ const errorMessageByCode = new Map<string, string>([
   ["application_control.invalid_json", "The request body was not valid JSON."],
 ]);
 
+// EditRuleUnsaved is the dialog's unsaved work, as it is kept across a reauthentication (issue #1113).
+interface EditRuleUnsaved {
+  readonly severity: string;
+  readonly customMsg: string;
+  readonly customURL: string;
+  readonly comment: string;
+  readonly reason: string;
+}
+
+// parseEditRuleUnsaved accepts only a payload of this dialog's own shape, since storage can hold whatever was written under the key.
+function parseEditRuleUnsaved(raw: unknown): EditRuleUnsaved | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { severity, customMsg, customURL, comment, reason } = raw as Record<string, unknown>;
+  if (
+    typeof severity !== "string" ||
+    typeof customMsg !== "string" ||
+    typeof customURL !== "string" ||
+    typeof comment !== "string" ||
+    typeof reason !== "string"
+  ) {
+    return undefined;
+  }
+  return { severity, customMsg, customURL, comment, reason };
+}
+
 export function EditRuleModal({ open, rule, onClose, onSaved }: EditRuleModalProps) {
   // initialState mirrors the rule's mutable fields at the moment the modal opened. The submit handler diffs current state
   // against this baseline so the PATCH body only carries fields that actually changed, which keeps the audit log honest
@@ -50,11 +78,40 @@ export function EditRuleModal({ open, rule, onClose, onSaved }: EditRuleModalPro
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // What an operator has changed and not saved, while the dialog is open. A reauthentication through the identity provider leaves the
+  // page, so this is kept across it and put back when the page reopens the dialog on this rule; saving is never replayed (issue #1113).
+  const touched =
+    severity !== initialState.severity ||
+    customMsg !== initialState.customMsg ||
+    customURL !== initialState.customURL ||
+    comment !== initialState.comment ||
+    reason !== "";
+  const unsaved: EditRuleUnsaved | null = open && rule !== null && touched ? { severity, customMsg, customURL, comment, reason } : null;
+  const { restored, consume } = useReauthDraft<EditRuleUnsaved>(editRuleDraftKey(rule?.id ?? 0), unsaved, parseEditRuleUnsaved);
+  // Taken by the first open: the page opens the dialog on return because work was saved, and that open puts the work back instead of
+  // resetting the form. Every later open resets as before.
+  const pendingRestore = useRef(restored);
+  const [draftRestored, setDraftRestored] = useState(false);
+
   // Reset on every open so a Cancel + re-open doesn't surface the previous attempt's edits. The parent also keys this component
   // on the target rule id (PolicyDetail.tsx) so this effect's reset is a defense-in-depth path.
   useEffect(() => {
     if (!open) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset tied to the open prop transition
+    const kept = pendingRestore.current;
+    pendingRestore.current = undefined;
+    if (kept !== undefined) {
+      setSeverity(kept.severity);
+      setCustomMsg(kept.customMsg);
+      setCustomURL(kept.customURL);
+      setComment(kept.comment);
+      setReason(kept.reason);
+      setBusy(false);
+      setFormError(null);
+      setDraftRestored(true);
+      consume();
+      return;
+    }
+    setDraftRestored(false);
     setSeverity(initialState.severity);
     setCustomMsg(initialState.customMsg);
     setCustomURL(initialState.customURL);
@@ -62,7 +119,7 @@ export function EditRuleModal({ open, rule, onClose, onSaved }: EditRuleModalPro
     setReason("");
     setBusy(false);
     setFormError(null);
-  }, [open, initialState]);
+  }, [open, initialState, consume]);
 
   const { call: callUpdate, modal: reauthModal } = useReauthRetry(
     (ruleID: number, req: UpdateAppControlRuleRequest) => updateAppControlRule(ruleID, req),
@@ -129,6 +186,7 @@ export function EditRuleModal({ open, rule, onClose, onSaved }: EditRuleModalPro
       onSubmit={(e) => { void handleSubmit(e); }}
       reauthModal={<ReauthModal {...reauthModal} />}
     >
+      {draftRestored && <ReauthDraftNotice />}
       {rule && (
         <p className="app-control-dialog__readonly">
           <strong>{rule.rule_type}</strong> · <code>{rule.identifier}</code>
