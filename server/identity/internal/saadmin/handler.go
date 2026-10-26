@@ -4,8 +4,11 @@
 package saadmin
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -44,7 +47,7 @@ var bindableRoles = rbac.GrantableRoles
 type ManagementStore interface {
 	List(ctx context.Context) ([]serviceaccounts.ServiceAccount, error)
 	Create(ctx context.Context, in serviceaccounts.CreateInput) (serviceaccounts.ServiceAccount, string, error)
-	Rotate(ctx context.Context, id int64) (string, error)
+	Rotate(ctx context.Context, id int64, now, expiresAt time.Time) (serviceaccounts.ServiceAccount, string, error)
 	Revoke(ctx context.Context, id int64) error
 }
 
@@ -158,7 +161,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	role := strings.ToLower(strings.TrimSpace(req.Role))
 	if !bindableRoles[role] {
-		// Covers admin/super_admin (management-capable) and unknown roles alike.
+		// Covers super_admin (never bindable to a non-human credential) and unknown roles. admin is bindable.
 		writeErr(ctx, h.logger, w, http.StatusBadRequest, "invalid_role")
 		return
 	}
@@ -186,6 +189,12 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusCreated, resp)
 }
 
+// rotateRequest is the optional body of a rotate. expires_in_days resets the credential's lifetime from now, with the same default and
+// cap as create; without it the account gets a fresh default lifetime rather than keeping whatever deadline it had left.
+type rotateRequest struct {
+	ExpiresInDays *int `json:"expires_in_days,omitempty"`
+}
+
 func (h *Handler) handleRotate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if !api.HTTPGate(ctx, w, h.authz, h.logger, api.ActionServiceAccountRotate, api.Resource{Type: "service_account"}) {
@@ -195,9 +204,18 @@ func (h *Handler) handleRotate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	secret, err := h.store.Rotate(ctx, id)
+	var req rotateRequest
+	if !h.decodeOptionalBody(w, r, &req) {
+		return
+	}
+	sa, secret, err := h.store.Rotate(ctx, id, h.now(), h.resolveExpiry(req.ExpiresInDays))
 	if errors.Is(err, serviceaccounts.ErrNotFound) {
 		writeErr(ctx, h.logger, w, http.StatusNotFound, "not_found")
+		return
+	}
+	if errors.Is(err, serviceaccounts.ErrNotRotatable) {
+		// Revoked and expired accounts cannot mint a token whatever their secret, so a rotated secret would look valid and never work.
+		writeErr(ctx, h.logger, w, http.StatusConflict, "not_rotatable")
 		return
 	}
 	if err != nil {
@@ -205,8 +223,36 @@ func (h *Handler) handleRotate(w http.ResponseWriter, r *http.Request) {
 		httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
-	h.recordLifecycle(ctx, r, "service_account.rotated", strconv.FormatInt(id, 10), nil)
-	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, map[string]string{"secret": secret})
+	h.recordLifecycle(ctx, r, "service_account.rotated", strconv.FormatInt(id, 10), map[string]any{"expires_at": sa.ExpiresAt.UTC()})
+	resp := struct {
+		saView
+		Secret string `json:"secret"`
+	}{saView: h.view(sa), Secret: secret}
+	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, resp)
+}
+
+// decodeOptionalBody reads a JSON body that may be absent. No body is what the console sends and what every client written before the
+// lifetime reset sends, and it can arrive as a zero-length body, none at all, or an empty chunked one, whose length is unknown until
+// it is read, so emptiness is judged on the bytes. A non-empty body that is not valid JSON is still refused.
+func (h *Handler) decodeOptionalBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	ctx := r.Context()
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	if err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			writeErr(ctx, h.logger, w, http.StatusRequestEntityTooLarge, "body_too_large")
+		} else {
+			writeErr(ctx, h.logger, w, http.StatusBadRequest, "read_error")
+		}
+		return false
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return true
+	}
+	if err := json.Unmarshal(raw, dst); err != nil {
+		writeErr(ctx, h.logger, w, http.StatusBadRequest, "invalid_json")
+		return false
+	}
+	return true
 }
 
 func (h *Handler) handleRevoke(w http.ResponseWriter, r *http.Request) {

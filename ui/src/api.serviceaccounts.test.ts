@@ -66,12 +66,16 @@ describe("service-account API client", () => {
   });
 
   it("rotateServiceAccount POSTs to the rotate sub-path", async () => {
-    const mock = stubFetch({ secret: "edrsa_rot" });
+    const rotated = {
+      id: 7, client_id: "sa_g", name: "g", role: "analyst", status: "active", created_at: "", expires_at: "2027-01-24T00:00:00Z",
+      secret: "edrsa_rot",
+    };
+    const mock = stubFetch(rotated);
     const res = await rotateServiceAccount(7);
     const [target, init] = mock.mock.calls[0] as [URL, RequestInit];
     expect(target.toString()).toContain("/api/settings/service-accounts/7/rotate");
     expect(init.method).toBe("POST");
-    expect(res).toEqual({ secret: "edrsa_rot" });
+    expect(res).toEqual(rotated);
   });
 
   it("revokeServiceAccount DELETEs the resource", async () => {

@@ -9,6 +9,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 - **The detection tuning table no longer shifts when you click a figure.** Observed and Cost figures are plain text, the Cost column now shows the slowest run beside the total and average, and each rule name links to its page. The evaluation count and exact match counts are no longer shown.
 - **A freshly installed Mac gets the deployment's watched paths as soon as its extension is approved,** instead of up to six hours later.
 - **A host that starts taking commands again no longer keeps showing "it is not taking commands".**
+- **Rotating a service account sets a fresh expiry and refuses revoked or expired accounts.** A rotated secret used to keep the old deadline, and a revoked or expired account was rotated into a secret that could never sign in; that now returns `409`. The service accounts page shows each account's expiry, flags accounts expiring within 14 days, and states the expiry when a secret is issued.
 
 ## [0.8.0] (2026-10-21)
 

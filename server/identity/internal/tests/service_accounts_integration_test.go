@@ -2,6 +2,7 @@ package tests
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -187,6 +188,151 @@ func TestServiceAccounts_listAndRotate(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, oldw.Code, "the rotated-away secret no longer mints")
 
 	_ = mintToken(t, public, created.ClientID, rotated.Secret) // the new secret mints
+}
+
+// rotateRequest posts a rotate for the account, with an optional JSON body.
+func rotateRequest(t *testing.T, authed http.Handler, uid, id int64, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	path := "/api/settings/service-accounts/" + strconv.FormatInt(id, 10) + "/rotate"
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, reader)
+	w := httptest.NewRecorder()
+	authed.ServeHTTP(w, superAdminReq(r, uid))
+	return w
+}
+
+// A rotate gives the account a fresh lifetime from now rather than keeping what was left of the old one, and the new secret mints.
+//
+// spec:server-identity-service-accounts/rotating-a-service-account-resets-its-lifetime/rotation-sets-a-fresh-expiry
+// spec:server-identity-service-accounts/rotating-a-service-account-resets-its-lifetime/a-requested-lifetime-is-honoured-and-capped
+func TestServiceAccounts_rotateResetsTheLifetime(t *testing.T) {
+	t.Parallel()
+	id, db := newServiceAccountIdentity(t)
+	uid := seedUser(t, db, "admin-rl@itest.local")
+	authed := http.NewServeMux()
+	id.RegisterAuthedRoutes(authed)
+	public := http.NewServeMux()
+	id.RegisterPublicRoutes(public)
+
+	createBody, _ := json.Marshal(map[string]any{"name": "short-lived", "role": "auditor", "expires_in_days": 3})
+	cw := httptest.NewRecorder()
+	authed.ServeHTTP(cw, superAdminReq(httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/settings/service-accounts", strings.NewReader(string(createBody))), uid))
+	require.Equal(t, http.StatusCreated, cw.Code)
+	var created struct {
+		ID        int64     `json:"id"`
+		ClientID  string    `json:"client_id"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	require.NoError(t, json.Unmarshal(cw.Body.Bytes(), &created))
+	require.WithinDuration(t, time.Now().Add(3*24*time.Hour), created.ExpiresAt, time.Minute)
+
+	type rotated struct {
+		Secret    string    `json:"secret"`
+		ExpiresAt time.Time `json:"expires_at"`
+		ClientID  string    `json:"client_id"`
+		Status    string    `json:"status"`
+	}
+	rw := rotateRequest(t, authed, uid, created.ID, "")
+	require.Equal(t, http.StatusOK, rw.Code, rw.Body.String())
+	var first rotated
+	require.NoError(t, json.Unmarshal(rw.Body.Bytes(), &first))
+	assert.WithinDuration(t, time.Now().Add(90*24*time.Hour), first.ExpiresAt, time.Minute, "three days left becomes a fresh 90")
+	assert.Equal(t, created.ClientID, first.ClientID)
+	assert.Equal(t, "active", first.Status)
+	_ = mintToken(t, public, created.ClientID, first.Secret)
+
+	var stored time.Time
+	require.NoError(t, db.GetContext(t.Context(), &stored, `SELECT expires_at FROM service_accounts WHERE id = ?`, created.ID))
+	assert.WithinDuration(t, first.ExpiresAt, stored, time.Second, "the response states what was stored")
+
+	rw = rotateRequest(t, authed, uid, created.ID, `{"expires_in_days":30}`)
+	require.Equal(t, http.StatusOK, rw.Code, rw.Body.String())
+	var second rotated
+	require.NoError(t, json.Unmarshal(rw.Body.Bytes(), &second))
+	assert.WithinDuration(t, time.Now().Add(30*24*time.Hour), second.ExpiresAt, time.Minute)
+
+	rw = rotateRequest(t, authed, uid, created.ID, `{"expires_in_days":9999}`)
+	require.Equal(t, http.StatusOK, rw.Code, rw.Body.String())
+	var capped rotated
+	require.NoError(t, json.Unmarshal(rw.Body.Bytes(), &capped))
+	assert.WithinDuration(t, time.Now().Add(365*24*time.Hour), capped.ExpiresAt, time.Minute)
+}
+
+// A revoked or an expired account cannot mint a token whatever its secret, so rotating one would hand out a secret that looks valid and
+// never works. It is refused and left exactly as it was.
+//
+// spec:server-identity-service-accounts/rotating-a-service-account-resets-its-lifetime/a-revoked-or-expired-account-is-not-rotated
+func TestServiceAccounts_rotateRefusesDeadAccounts(t *testing.T) {
+	t.Parallel()
+	id, db := newServiceAccountIdentity(t)
+	uid := seedUser(t, db, "admin-rd@itest.local")
+	authed := http.NewServeMux()
+	id.RegisterAuthedRoutes(authed)
+
+	create := func(name string) int64 {
+		t.Helper()
+		body, _ := json.Marshal(map[string]any{"name": name, "role": "auditor"})
+		w := httptest.NewRecorder()
+		authed.ServeHTTP(w, superAdminReq(httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+			"/api/settings/service-accounts", strings.NewReader(string(body))), uid))
+		require.Equal(t, http.StatusCreated, w.Code)
+		var created struct {
+			ID int64 `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+		return created.ID
+	}
+
+	type row struct {
+		SecretHash string    `db:"secret_hash"`
+		Epoch      int64     `db:"epoch"`
+		ExpiresAt  time.Time `db:"expires_at"`
+	}
+	read := func(accountID int64) row {
+		t.Helper()
+		var r row
+		require.NoError(t, db.GetContext(t.Context(), &r, `SELECT secret_hash, epoch, expires_at FROM service_accounts WHERE id = ?`, accountID))
+		return r
+	}
+
+	for _, tc := range []struct {
+		name string
+		kill func(accountID int64)
+	}{
+		{"a revoked account", func(accountID int64) {
+			dw := httptest.NewRecorder()
+			authed.ServeHTTP(dw, superAdminReq(httptest.NewRequestWithContext(t.Context(), http.MethodDelete,
+				"/api/settings/service-accounts/"+strconv.FormatInt(accountID, 10), nil), uid))
+			require.Equal(t, http.StatusOK, dw.Code)
+		}},
+		{"an expired account", func(accountID int64) {
+			_, err := db.ExecContext(t.Context(), `UPDATE service_accounts SET expires_at = ? WHERE id = ?`,
+				time.Now().Add(-time.Hour).UTC(), accountID)
+			require.NoError(t, err)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			accountID := create(tc.name)
+			tc.kill(accountID)
+			before := read(accountID)
+
+			w := rotateRequest(t, authed, uid, accountID, "")
+
+			assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+			assert.JSONEq(t, `{"error":"not_rotatable"}`, w.Body.String())
+			assert.Equal(t, before, read(accountID), "a refused rotate changes nothing")
+		})
+	}
+
+	t.Run("an unknown account is not found", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, http.StatusNotFound, rotateRequest(t, authed, uid, 987654, "").Code)
+	})
 }
 
 // spec:server-identity-service-accounts/a-service-account-is-a-non-human-principal-bound-to-a-single-role/a-service-account-cannot-bind-to-super-admin
