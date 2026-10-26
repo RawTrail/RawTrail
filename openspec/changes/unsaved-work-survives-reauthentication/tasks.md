@@ -3,6 +3,8 @@
 - [x] 1.1 Draft storage with a time to live, a page check and a registry of surfaces, and a hook that registers a surface's unsaved work and hands back what was saved.
 - [x] 1.2 The OIDC reauthentication dialog saves the work before it leaves, says what will happen, and refuses to leave silently when the work could not be kept.
 - [x] 1.3 The reachable destinations editor and the rule editor adopt it and show a notice when work is restored.
+- [x] 1.5 The watched paths editor and the exclusion form adopt it. The exclusion form's saved work is removed only once the page has loaded.
+- [x] 1.6 The application control dialogs adopt it, and the policy page reopens the dialog that has saved work.
 - [x] 1.4 Tests for the storage rules, the hook, the dialog and both surfaces.
 
 ## 2. QA

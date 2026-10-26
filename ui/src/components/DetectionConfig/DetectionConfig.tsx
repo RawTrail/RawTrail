@@ -17,7 +17,9 @@ import {
   type RuleDocEntry,
 } from "../../api";
 import { useCan, PermissionAction } from "../../permissions-core";
+import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
+import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
 import { formatRelativeISO } from "../../time";
 import { PageHeader } from "../ui/PageHeader";
@@ -354,6 +356,31 @@ function globalSetting(settings: DetectionRuleSetting[], ruleID: string): Detect
 // mode/severity. It edits global scope only (host-group scoping arrives with editable host groups). Write affordances are gated on
 // detection_config.write; the server still enforces. The per-rule "settings" are mode + severity today; when a rule declares
 // additional config the table grows generically.
+// ExclusionFormUnsaved is the exclusion form's unsaved work, as it is kept across a reauthentication.
+interface ExclusionFormUnsaved {
+  readonly formRuleID: string;
+  readonly formMatchType: string;
+  readonly formValue: string;
+  readonly formReason: string;
+  readonly formExpires: string;
+}
+
+// parseExclusionFormUnsaved accepts only a payload of this form's own shape, since storage can hold whatever was written under the key.
+function parseExclusionFormUnsaved(raw: unknown): ExclusionFormUnsaved | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { formRuleID, formMatchType, formValue, formReason, formExpires } = raw as Record<string, unknown>;
+  if (
+    typeof formRuleID !== "string" ||
+    typeof formMatchType !== "string" ||
+    typeof formValue !== "string" ||
+    typeof formReason !== "string" ||
+    typeof formExpires !== "string"
+  ) {
+    return undefined;
+  }
+  return { formRuleID, formMatchType, formValue, formReason, formExpires };
+}
+
 export function DetectionConfig() {
   const can = useCan();
   const canWrite = can(PermissionAction.DetectionConfigWrite);
@@ -412,6 +439,39 @@ export function DetectionConfig() {
   const [formValue, setFormValue] = useState("");
   const [formReason, setFormReason] = useState("");
   const [formExpires, setFormExpires] = useState("");
+
+  // What an operator has typed into the exclusion form and not saved. A reauthentication through the identity provider leaves the page,
+  // so this is kept across it and put back; saving is never replayed (issue #1113).
+  const formUnsaved: ExclusionFormUnsaved | null =
+    formRuleID !== "" || formMatchType !== "" || formValue !== "" || formReason !== "" || formExpires !== ""
+      ? { formRuleID, formMatchType, formValue, formReason, formExpires }
+      : null;
+  const { restored: restoredForm, consume: consumeForm } = useReauthDraft<ExclusionFormUnsaved>(
+    "detection-exclusion-form",
+    formUnsaved,
+    parseExclusionFormUnsaved,
+  );
+  // restoreApplied is whether the saved work has been put back, once, and stays true; formRestored is whether the notice about it shows,
+  // which ends when the operator saves for themselves. They are separate because the saved work is held for the life of the page, so
+  // ending the notice must not let it be put back again.
+  const [restoreApplied, setRestoreApplied] = useState(false);
+  const [formRestored, setFormRestored] = useState(false);
+  if (!restoreApplied && restoredForm !== undefined) {
+    // Adjusted while rendering, once, rather than in an effect. The form is plain state, so putting it back before the rules it chooses
+    // from have loaded is harmless: it is not drawn until they have.
+    setRestoreApplied(true);
+    setFormRestored(true);
+    setFormRuleID(restoredForm.formRuleID);
+    setFormMatchType(restoredForm.formMatchType);
+    setFormValue(restoredForm.formValue);
+    setFormReason(restoredForm.formReason);
+    setFormExpires(restoredForm.formExpires);
+  }
+  // Removed from storage only once the page has loaded: a read that fails after the sign-in leaves an error page, and a refresh to try
+  // again must still find the work.
+  useEffect(() => {
+    if (restoreApplied && !loading && !error) consumeForm();
+  }, [restoreApplied, loading, error, consumeForm]);
 
   // pendingMode holds a not-yet-applied disable (the alerting-reducing change) while the reason modal collects an operator
   // justification. modalError surfaces a failed confirm inside the modal so it stays open for a retry.
@@ -573,6 +633,7 @@ export function DetectionConfig() {
       setFormValue("");
       setFormReason("");
       setFormExpires("");
+      setFormRestored(false);
     }).catch(() => {
       /* surfaced via actionError */
     });
@@ -699,6 +760,7 @@ export function DetectionConfig() {
         <>
           <section className="detection-config__section">
             <h2 className="detection-config__heading">Exclusions</h2>
+            {formRestored && <ReauthDraftNotice />}
             {canWrite && (
               <div className="detection-config__form">
                 <Select
