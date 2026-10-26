@@ -1606,3 +1606,76 @@ func TestReconnected_AFailedReplayIsKept(t *testing.T) {
 	assert.Equal(t, int64(3), sent[0].Version)
 	assert.True(t, sent[0].Contained)
 }
+
+// A send only hands the message to XPC, so a connection that drops as the replay is sent may never deliver it. The command is kept until
+// the extension confirms it, and the next pass sends it again.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/a-command-before-the-extension-is-replayed
+func TestReconnected_AReplayTheExtensionNeverConfirmedIsKept(t *testing.T) {
+	t.Parallel()
+	var respond atomic.Bool // the extension answers only once the connection holds
+	m, ext, res := newTestManager(t, serverTarget, func(d document) *Status {
+		if respond.Load() {
+			return applies(d)
+		}
+		return nil
+	})
+	m.opts.ApplyTimeout = 50 * time.Millisecond
+	res.set("203.0.113.7")
+	ext.disconnect(errNoExtension)
+	_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+	require.ErrorIs(t, err, receiver.ErrNoConnector)
+	ext.reset()
+	ext.disconnect(nil)
+
+	m.Reconnected() // the replay is handed over and never confirmed
+	awaitSent(t, ext, 1)
+	time.Sleep(150 * time.Millisecond) // past the confirmation timeout
+	respond.Store(true)
+	m.Reconnected()
+
+	sent := awaitSent(t, ext, 2)
+	assert.Equal(t, int64(3), sent[1].Version)
+	assert.True(t, sent[1].Contained)
+}
+
+// A connection published after the send found none but before the command is kept finds nothing to replay, so Apply asks for a pass
+// itself rather than leaving the command to wait for the refresh interval.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/a-command-before-the-extension-is-replayed
+func TestApply_AConnectionPublishedBeforeTheCommandIsKeptStillReplaysIt(t *testing.T) {
+	t.Parallel()
+	res := &fakeResolver{}
+	res.set("203.0.113.7")
+	var m *Manager
+	var attempts atomic.Int32
+	var sent []document
+	var mu sync.Mutex
+	send := func(payload []byte) error {
+		var d document
+		require.NoError(t, json.Unmarshal(payload, &d))
+		mu.Lock()
+		sent = append(sent, d)
+		mu.Unlock()
+		if attempts.Add(1) == 1 {
+			// The extension connects as the failure is reported: the hook runs before Apply has kept the command.
+			m.Reconnected()
+			return errNoExtension
+		}
+		return nil
+	}
+	m = New(Options{Target: serverTarget, Send: send, Resolver: res, ApplyTimeout: 50 * time.Millisecond, RefreshInterval: time.Hour})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); m.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+	require.ErrorIs(t, err, receiver.ErrNoConnector)
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(sent) >= 2
+	}, 5*time.Second, 5*time.Millisecond, "the replay ran without waiting for the refresh interval")
+}

@@ -450,11 +450,23 @@ func (m *Manager) Apply(ctx context.Context, payload []byte) (json.RawMessage, e
 
 	waiter := m.wait(&cmd, addrs)
 	defer m.unwait(waiter)
+	m.mu.Lock()
+	generation := m.generation
+	m.mu.Unlock()
 	if err := m.opts.Send(body); err != nil {
 		if errors.Is(err, receiver.ErrNoConnector) {
 			// The extension is not connected yet, as on a fresh install before it is approved. Kept so the connection that follows
 			// is sent it: the server counts a failed command as delivered for hours before it sends the state again (issue #1404).
 			m.deferCommand(cmd)
+			// A connection published between the failed send and the line above found nothing kept, so Reconnected woke no one:
+			// the generation it advanced says so. Asked here rather than from deferCommand, which a failed replay also calls and
+			// would then keep waking itself.
+			m.mu.Lock()
+			reconnected := m.generation != generation
+			m.mu.Unlock()
+			if reconnected {
+				m.signalWake()
+			}
 		}
 		return nil, fmt.Errorf("send to the network extension: %w", err)
 	}
@@ -598,10 +610,15 @@ func (m *Manager) Reconnected() {
 	m.mu.Unlock()
 	if replay {
 		// Signalled, not run here: this is called from the receiver's connect hook, and a replay does a lookup and a send.
-		select {
-		case m.wake <- struct{}{}:
-		default:
-		}
+		m.signalWake()
+	}
+}
+
+// signalWake asks the worker to run a pass. At most one request is held: a pass reads the state when it runs.
+func (m *Manager) signalWake() {
+	select {
+	case m.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -617,8 +634,8 @@ func (m *Manager) deferCommand(cmd Command) {
 // replayDeferred sends the extension the command that found it disconnected, now that it is connected. It runs one command at a time
 // with Apply, and builds the document afresh: a contained host's lifeline is looked up now, since the addresses may have moved
 // since the command was kept. A command the extension already holds, or has been overtaken by (the status that confirms a later
-// command adopts its state), is dropped. A failure keeps the command
-// for the next connection or the next refresh pass.
+// command adopts its state), is dropped. A failure, including a send the extension never confirmed, keeps the command for the next
+// connection or the next refresh pass.
 func (m *Manager) replayDeferred(ctx context.Context) {
 	m.applyMu.Lock()
 	defer m.applyMu.Unlock()
@@ -654,8 +671,11 @@ func (m *Manager) replayDeferred(ctx context.Context) {
 		return
 	}
 	if _, err := m.confirm(ctx, waiter, *cmd); err != nil {
-		// Sent, so not kept: the extension may still apply it, and its status is adopted whenever it arrives.
-		m.opts.Logger.WarnContext(ctx, "network containment replay: the extension did not confirm the state", "err", err)
+		// A send only hands the message to XPC, so a connection that dropped as it was sent may never have delivered it. Kept: a
+		// status that arrives late and confirms it, or a newer state, makes the next pass drop it as held.
+		m.opts.Logger.WarnContext(ctx, "network containment replay: the extension did not confirm the state; keeping the command",
+			"err", err)
+		m.deferCommand(*cmd)
 		return
 	}
 	m.opts.Logger.InfoContext(ctx, "network containment: the extension applied the state that arrived before it connected",
