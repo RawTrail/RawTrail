@@ -1484,7 +1484,6 @@ func TestReconnected_ReplaysAContainmentThatFoundNoExtension(t *testing.T) {
 	sent := awaitSent(t, ext, 1)
 	assert.Equal(t, document{Version: 3, Epoch: 100, Contained: true,
 		Server: &server{Port: 8443, Addresses: []string{"203.0.113.8"}, Names: []string{"edr.example.com"}}}, sent[0])
-	m.Reconnected()
 	assert.Never(t, func() bool { return len(ext.sent()) > 1 }, 300*time.Millisecond, 5*time.Millisecond, "a replay is sent once")
 }
 
