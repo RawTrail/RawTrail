@@ -457,16 +457,7 @@ func (m *Manager) Apply(ctx context.Context, payload []byte) (json.RawMessage, e
 		if errors.Is(err, receiver.ErrNoConnector) {
 			// The extension is not connected yet, as on a fresh install before it is approved. Kept so the connection that follows
 			// is sent it: the server counts a failed command as delivered for hours before it sends the state again (issue #1404).
-			m.deferCommand(cmd)
-			// A connection published between the failed send and the line above found nothing kept, so Reconnected woke no one:
-			// the generation it advanced says so. Asked here rather than from deferCommand, which a failed replay also calls and
-			// would then keep waking itself.
-			m.mu.Lock()
-			reconnected := m.generation != generation
-			m.mu.Unlock()
-			if reconnected {
-				m.signalWake()
-			}
+			m.keepCommand(cmd, generation)
 		}
 		return nil, fmt.Errorf("send to the network extension: %w", err)
 	}
@@ -631,6 +622,20 @@ func (m *Manager) deferCommand(cmd Command) {
 	}
 }
 
+// keepCommand keeps cmd as deferCommand does, and asks the worker for a pass if the extension reconnected since generation was read. A
+// connection published after the send that failed but before the command was kept found nothing to replay, so Reconnected woke no one:
+// the generation it advanced says so. It is asked here rather than from deferCommand, which would have a failed replay keep waking
+// itself, and it covers a replay as well as the first deferral, since a reconnect during a replay finds the command already taken.
+func (m *Manager) keepCommand(cmd Command, generation uint64) {
+	m.deferCommand(cmd)
+	m.mu.Lock()
+	reconnected := m.generation != generation
+	m.mu.Unlock()
+	if reconnected {
+		m.signalWake()
+	}
+}
+
 // replayDeferred sends the extension the command that found it disconnected, now that it is connected. It runs one command at a time
 // with Apply, and builds the document afresh: a contained host's lifeline is looked up now, since the addresses may have moved
 // since the command was kept. A command the extension already holds, or has been overtaken by (the status that confirms a later
@@ -642,6 +647,7 @@ func (m *Manager) replayDeferred(ctx context.Context) {
 	m.mu.Lock()
 	cmd := m.deferred
 	m.deferred = nil
+	generation := m.generation
 	held := cmd != nil && m.state != nil && !cmd.after(*m.state)
 	m.mu.Unlock()
 	if cmd == nil || held {
@@ -653,7 +659,7 @@ func (m *Manager) replayDeferred(ctx context.Context) {
 		resolved, err := m.resolve(ctx)
 		if err != nil {
 			m.opts.Logger.WarnContext(ctx, "network containment replay: resolve failed; keeping the command", "err", err)
-			m.deferCommand(*cmd)
+			m.keepCommand(*cmd, generation)
 			return
 		}
 		addrs = resolved
@@ -667,7 +673,7 @@ func (m *Manager) replayDeferred(ctx context.Context) {
 	defer m.unwait(waiter)
 	if err := m.opts.Send(body); err != nil {
 		m.opts.Logger.WarnContext(ctx, "network containment replay: send failed; keeping the command", "err", err)
-		m.deferCommand(*cmd)
+		m.keepCommand(*cmd, generation)
 		return
 	}
 	if _, err := m.confirm(ctx, waiter, *cmd); err != nil {
@@ -675,7 +681,7 @@ func (m *Manager) replayDeferred(ctx context.Context) {
 		// status that arrives late and confirms it, or a newer state, makes the next pass drop it as held.
 		m.opts.Logger.WarnContext(ctx, "network containment replay: the extension did not confirm the state; keeping the command",
 			"err", err)
-		m.deferCommand(*cmd)
+		m.keepCommand(*cmd, generation)
 		return
 	}
 	m.opts.Logger.InfoContext(ctx, "network containment: the extension applied the state that arrived before it connected",

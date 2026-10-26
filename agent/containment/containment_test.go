@@ -1679,3 +1679,48 @@ func TestApply_AConnectionPublishedBeforeTheCommandIsKeptStillReplaysIt(t *testi
 		return len(sent) >= 2
 	}, 5*time.Second, 5*time.Millisecond, "the replay ran without waiting for the refresh interval")
 }
+
+// The same race inside a replay: a connection published while a replay is being sent finds the command already taken, so Reconnected
+// wakes no one, and a replay that then fails would wait for the refresh interval. It asks for another pass itself.
+//
+// spec:agent-command-executor/containment-sent-before-the-extension-connects-is-replayed/a-command-before-the-extension-is-replayed
+func TestReplay_AConnectionPublishedDuringAFailedReplayStillReplaysAgain(t *testing.T) {
+	t.Parallel()
+	res := &fakeResolver{}
+	res.set("203.0.113.7")
+	var m *Manager
+	var attempts atomic.Int32
+	var mu sync.Mutex
+	var sent []document
+	send := func(payload []byte) error {
+		var d document
+		require.NoError(t, json.Unmarshal(payload, &d))
+		mu.Lock()
+		sent = append(sent, d)
+		mu.Unlock()
+		switch attempts.Add(1) {
+		case 1:
+			return errNoExtension // the command arrives before the extension has connected
+		case 2:
+			m.Reconnected() // the extension connects as the replay is sent, and the send fails anyway
+			return errNoExtension
+		default:
+			return nil
+		}
+	}
+	m = New(Options{Target: serverTarget, Send: send, Resolver: res, ApplyTimeout: 50 * time.Millisecond, RefreshInterval: time.Hour})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); m.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	_, err := m.Apply(t.Context(), []byte(`{"version":3,"epoch":100,"contained":true}`))
+	require.ErrorIs(t, err, receiver.ErrNoConnector)
+	m.Reconnected()
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(sent) >= 3
+	}, 5*time.Second, 5*time.Millisecond, "the failed replay was sent again without waiting for the refresh interval")
+}
