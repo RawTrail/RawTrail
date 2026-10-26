@@ -322,17 +322,18 @@ function renderCost(stat: RuleEvalSummary | undefined, ruleID: string, unavailab
   return (
     <span>
       {formatDuration(stat.total_eval_ns)}
-      <span className="detection-config__observed-hosts"> total</span>
-      <span className="detection-config__observed-hosts"> &middot; {formatDuration(stat.mean_eval_ns)} avg</span>
+      <span className="detection-config__observed-hosts">&nbsp;total</span>
+      <span className="detection-config__observed-hosts"> &middot; {formatDuration(stat.mean_eval_ns)}&nbsp;avg</span>
+      {/* Each figure joins its word with a non-breaking space, so a narrow cell wraps between figures and never inside one. */}
       {/* The worst single run, which separates a rule that is expensive every time from one that is fine except when it is not. */}
-      <span className="detection-config__observed-hosts"> &middot; {formatDuration(stat.max_eval_ns)} max</span>
+      <span className="detection-config__observed-hosts"> &middot; {formatDuration(stat.max_eval_ns)}&nbsp;max</span>
       {stat.retryable_misses === 0 ? null : (
-        <span className="detection-config__observed-last"> &middot; {stat.retryable_misses.toLocaleString()} undecided</span>
+        <span className="detection-config__observed-last"> &middot; {stat.retryable_misses.toLocaleString()}&nbsp;undecided</span>
       )}
       {/* Separate from "undecided" rather than folded into it: that figure is waiting, this one is failure to decide at all, and
           an operator acts on them differently. Hidden at zero for the same width reason; absent means unreported, so also hidden. */}
       {abandoned === undefined || abandoned === 0 ? null : (
-        <span className="detection-config__observed-last"> &middot; {abandoned.toLocaleString()} abandoned</span>
+        <span className="detection-config__observed-last"> &middot; {abandoned.toLocaleString()}&nbsp;abandoned</span>
       )}
     </span>
   );
