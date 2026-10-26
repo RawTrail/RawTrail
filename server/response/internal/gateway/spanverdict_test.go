@@ -214,7 +214,8 @@ func TestAnOversizedFrameEndsTheRPCWithResourceExhausted(t *testing.T) {
 		Id: 1, Status: "completed", Result: make([]byte, 5<<20),
 	}}})
 
-	_, err := conn.stream.Recv()
+	// Heartbeats tick every 20 ms here, so one can already be buffered ahead of the rejection: drain them to the end of the stream.
+	err := recvEviction(t, conn.stream)
 	assert.Equal(t, codes.ResourceExhausted, status.Code(err), "the client is told why its frame was refused")
 	connectStatus(t, recorder)
 	for _, span := range recorder.Ended() {

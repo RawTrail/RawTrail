@@ -288,12 +288,26 @@ func (g *Gateway) connect(stream control.ControlChannel_ConnectServer) error {
 	// status, so each case decides it from whether the client is still there to receive one (issue #1124).
 	select {
 	case <-connCtx.Done():
+		if ctx.Err() != nil && c.closedBecause() == "" {
+			// The stream is over and this server did not end it. gRPC cancels the stream context moments after it rejects a frame,
+			// so this can win the race against the receive result that says why, and returning on it alone would clear a rejection.
+			// The receive returns promptly now that the stream has ended, so its result is waited for, bounded in case it does not.
+			select {
+			case err := <-recvErr:
+				return endAfterReceive(ctx, c, err)
+			case <-time.After(recvSettleTimeout):
+			}
+		}
 		// Returning ends the RPC, which closes the stream and unblocks recvLoop.
 		return endAfterTeardown(ctx, c)
 	case err := <-recvErr:
 		return endAfterReceive(ctx, c, err)
 	}
 }
+
+// recvSettleTimeout bounds how long Connect waits for the receive loop's result after the stream has ended under it. A receive on an
+// ended stream returns at once, so this only keeps a misbehaving transport from holding the handler.
+const recvSettleTimeout = 5 * time.Second
 
 // endAfterTeardown is the status the RPC ends with when the connection's context was cancelled.
 //
