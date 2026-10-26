@@ -769,7 +769,7 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 	if p.dispatcher != nil {
 		hooks.OnConnected = p.dispatcher.Set
 		if p.containment != nil {
-			hooks.OnConnected = func(c receiver.Connector) {
+			hooks.OnConnected = func(c receiver.Connector) { //nolint:contextcheck // the OnConnected hook carries no context to pass on
 				p.dispatcher.Set(c)
 				p.containment.Reconnected()
 			}

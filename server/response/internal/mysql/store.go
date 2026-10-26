@@ -378,11 +378,15 @@ func (s *Store) LatestOfType(ctx context.Context, commandType string, hostIDs []
 // not taking commands. Counting pending rows too would report every asleep laptop as faulty, since a command queued a moment ago
 // against an offline host is the ordinary case.
 //
+// An expiry stops counting once the host claims a later command: acked_at is set by the claim, so a command that went on to complete or
+// fail counts, and one that is still acked does too. The host is taking commands again, and a host that was powered off for days would
+// otherwise keep reading as one that is not for the rest of the window (issue #1387).
+//
 // The window boundary arrives as `since` rather than being read from a clock here, matching ExpirePendingOlderThan: the store stays
 // clock-free and the caller that owns the policy owns the instant.
 //
-// It reads (host_id, status) off the prefix of idx_commands_host_status_acked and is bounded by the caller's host list, so it costs
-// an index range per host asked about rather than a scan. Hosts with no expired commands are absent from the result: the caller is
+// It reads (host_id, status) off the prefix of idx_commands_host_status_acked, probes the same index for the later claim, and is bounded
+// by the caller's host list, so it costs an index range per host asked about rather than a scan. Hosts with no expired commands are absent from the result: the caller is
 // looking for findings, and returning a zero for every healthy host would make it filter them back out.
 func (s *Store) UndeliverableByHost(ctx context.Context, hostIDs []string, since time.Time) (map[string]api.Undeliverable, error) {
 	if len(hostIDs) == 0 {
@@ -392,9 +396,12 @@ func (s *Store) UndeliverableByHost(ctx context.Context, hostIDs []string, since
 		SELECT host_id,
 		       COUNT(*) AS expired_count,
 		       CAST(UNIX_TIMESTAMP(MAX(completed_at)) * 1000000000 AS SIGNED) AS last_expired_at_ns
-		FROM commands
+		FROM commands expired
 		WHERE host_id IN (?) AND status = ? AND completed_at >= ?
-		GROUP BY host_id`, hostIDs, api.StatusExpired, since)
+		  AND NOT EXISTS (
+		    SELECT 1 FROM commands taken
+		    WHERE taken.host_id = expired.host_id AND taken.status IN (?, ?, ?) AND taken.acked_at > expired.completed_at)
+		GROUP BY host_id`, hostIDs, api.StatusExpired, since, api.StatusAcked, api.StatusCompleted, api.StatusFailed)
 	if err != nil {
 		return nil, fmt.Errorf("build undeliverable query: %w", err)
 	}

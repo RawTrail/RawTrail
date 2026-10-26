@@ -14,9 +14,12 @@
 package receiver
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -336,6 +339,13 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // hot path stays lock-free even when the Loop is mid-reconnect.
 type Dispatcher struct {
 	cur atomic.Pointer[dispatcherBox]
+
+	// mu orders a watched-path push that found no Connector against the Set that publishes one, so a push cannot be stalled after the
+	// Set that would have replayed it has already looked.
+	mu sync.Mutex
+	// stalledWatchedPaths is the newest watched-path payload that found no Connector, held for Set to send (issue #1386). Nil when
+	// nothing is waiting.
+	stalledWatchedPaths []byte
 }
 
 type dispatcherBox struct {
@@ -351,8 +361,28 @@ var ErrNoConnector = errors.New("receiver dispatcher: no connector published")
 
 // Set publishes c as the active Connector. Safe to call concurrently with SendApplicationControl. Wire this to LoopHooks.OnConnected
 // so the dispatcher always reflects the Loop's current state.
+//
+// A watched-path push that found no Connector is sent to c now. The server will not send the set again for hours, because it counts a
+// failed command as delivered for that long, and on a fresh install the extension is approved well after the first push (issue #1386).
+// The extension drops a set that is not newer than the one it holds, so a replay that a later push has overtaken does no harm.
 func (d *Dispatcher) Set(c Connector) {
 	d.cur.Store(&dispatcherBox{c: c})
+
+	d.mu.Lock()
+	stalled := d.stalledWatchedPaths
+	d.stalledWatchedPaths = nil
+	d.mu.Unlock()
+	if stalled == nil {
+		return
+	}
+	if err := c.SendWatchedPaths(stalled); err != nil {
+		getLogger().WarnContext(context.Background(), "receiver dispatcher: replaying the watched paths that arrived before the extension failed",
+			"err", err)
+		// Kept for the next connection, unless a push has stalled a newer set since.
+		d.mu.Lock()
+		d.stallWatchedPaths(stalled)
+		d.mu.Unlock()
+	}
 }
 
 // Clear unpublishes the active Connector. Wire this to LoopHooks.OnDisconnected so SendApplicationControl returns ErrNoConnector
@@ -372,13 +402,66 @@ func (d *Dispatcher) SendApplicationControl(payload []byte) error {
 }
 
 // SendWatchedPaths satisfies commander.ExtensionSender, routing like SendApplicationControl: ErrNoConnector between connect cycles,
-// otherwise the active Connector.
+// otherwise the active Connector. The error still fails the command, which is the honest record of that attempt, but the payload is
+// kept for the next Set (issue #1386). Only the newest set is kept, since it supersedes an older one.
 func (d *Dispatcher) SendWatchedPaths(payload []byte) error {
-	b := d.cur.Load()
-	if b == nil || b.c == nil {
-		return ErrNoConnector
+	if b := d.cur.Load(); b != nil && b.c != nil {
+		return d.sendWatchedPaths(b.c, payload)
 	}
-	return b.c.SendWatchedPaths(payload)
+	d.mu.Lock()
+	// Looked at again under the lock: Set stores the Connector before it takes the lock, so one that landed since the load above is
+	// visible here, and one that has not yet will find the payload stalled.
+	if b := d.cur.Load(); b != nil && b.c != nil {
+		d.mu.Unlock()
+		return d.sendWatchedPaths(b.c, payload)
+	}
+	d.stallWatchedPaths(payload)
+	d.mu.Unlock()
+	return ErrNoConnector
+}
+
+// sendWatchedPaths sends payload to c, and on success drops a held payload that it supersedes: a replay that failed earlier is kept for
+// the next connection, and once a newer set has been handed over, replaying the older one later could only put it back over the newer.
+func (d *Dispatcher) sendWatchedPaths(c Connector, payload []byte) error {
+	if err := c.SendWatchedPaths(payload); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	if d.stalledWatchedPaths != nil && !watchedPathsOrder(d.stalledWatchedPaths).after(watchedPathsOrder(payload)) {
+		d.stalledWatchedPaths = nil
+	}
+	d.mu.Unlock()
+	return nil
+}
+
+// stallWatchedPaths holds payload for the next Set unless a payload at least as new is already held. Newest by (epoch, version), not
+// by arrival: a poll returns pending commands newest first, so a version 2 can arrive before a version 1, and the extension would
+// accept the version 1 replayed later as the first set it had seen and keep it. The caller holds d.mu.
+func (d *Dispatcher) stallWatchedPaths(payload []byte) {
+	if d.stalledWatchedPaths != nil && !watchedPathsOrder(payload).after(watchedPathsOrder(d.stalledWatchedPaths)) {
+		return
+	}
+	d.stalledWatchedPaths = bytes.Clone(payload)
+}
+
+// pushOrder is where a watched-path set falls in the order the extension applies them in: by epoch, then by version, the same
+// comparison as WatchedPathsUpdate.supersedes. A payload that does not decode orders as (0, 0), so it never displaces a set that does.
+type pushOrder struct{ epoch, version int64 }
+
+func watchedPathsOrder(payload []byte) pushOrder {
+	var fields pushOrder
+	var wire struct {
+		Epoch   int64 `json:"epoch"`
+		Version int64 `json:"version"`
+	}
+	if json.Unmarshal(payload, &wire) == nil {
+		fields = pushOrder{epoch: wire.Epoch, version: wire.Version}
+	}
+	return fields
+}
+
+func (o pushOrder) after(other pushOrder) bool {
+	return o.epoch > other.epoch || (o.epoch == other.epoch && o.version > other.version)
 }
 
 // SendNetworkContainment delivers a network_containment.update to the network extension's active Connector, routing like
