@@ -353,7 +353,29 @@ func endAfterReceive(ctx context.Context, c *conn, recvErr error) error {
 	if _, isStatus := status.FromError(recvErr); !isStatus {
 		return nil
 	}
+	// A client's socket dying is not always a bare transport error: under net/http's HTTP/2 server the receive fails with a status
+	// reading `client disconnected`, and the stream context is cancelled a moment later (issue #1329). A rejected frame leaves the
+	// client attached, so its context stays live and the status stands once the grace has passed.
+	if clientGone(ctx) {
+		return nil
+	}
 	return recvErr
+}
+
+// clientGoneGrace is how long a failed receive waits for the stream context to say the client is gone. The cancel follows the
+// failed receive by microseconds when it comes at all, so this only bounds how long a genuine fault is held before it is reported.
+const clientGoneGrace = 250 * time.Millisecond
+
+// clientGone reports whether ctx, the RPC's own context, is cancelled within clientGoneGrace.
+func clientGone(ctx context.Context) bool {
+	timer := time.NewTimer(clientGoneGrace)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // writeLoop is the connection's single sender (gRPC allows one concurrent Send). It drains the send queue until the context ends or a

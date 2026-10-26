@@ -125,6 +125,40 @@ func TestAnOrdinaryDisconnectIsNotRecordedAsAFailedConnection(t *testing.T) {
 	assert.Empty(t, recorded.Description)
 }
 
+// A client's socket dying can fail the receive with a status (net/http's `client disconnected`) before the stream context is
+// cancelled, so a status error alone cannot separate a gone client from a rejected frame (issue #1329). The context settles it.
+//
+// spec:agent-control-channel/how-a-connection-ended-is-what-its-telemetry-reports/a-client-that-disconnects-ends-its-connection-cleanly
+// spec:agent-control-channel/how-a-connection-ended-is-what-its-telemetry-reports/a-receive-failure-is-still-recorded-as-a-failure
+func TestAStatusReceiveErrorIsAFaultOnlyWhileTheClientIsStillAttached(t *testing.T) {
+	t.Parallel()
+	rejectedFrame := status.Error(codes.ResourceExhausted, "message larger than max")
+	clientDisconnected := status.Error(codes.Internal, "client disconnected")
+
+	cases := []struct {
+		name        string
+		recvErr     error
+		cancelAfter time.Duration // zero leaves the RPC context live
+		wantErr     error
+	}{
+		{"a status followed by the cancel is a disconnect", clientDisconnected, 20 * time.Millisecond, nil},
+		{"a status on a live context is a rejected frame", rejectedFrame, 0, rejectedFrame},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			if tc.cancelAfter > 0 {
+				time.AfterFunc(tc.cancelAfter, cancel)
+			}
+			c := newConn("host-a", "tok-a", func() {})
+
+			assert.Equal(t, tc.wantErr, endAfterReceive(ctx, c, tc.recvErr))
+		})
+	}
+}
+
 // The other half: the wrapper must not swallow the connections an operator is looking for. A teardown the server initiated is one
 // of those, and its span has to name which teardown it was.
 //

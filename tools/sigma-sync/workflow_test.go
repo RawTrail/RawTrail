@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -187,9 +188,14 @@ func newRunner(t *testing.T, dir string) *runner {
 	}}
 }
 
+// writeExecutable writes a stub the step script will exec. Parallel subtests fork while the stub's write descriptor is open, and a
+// forked child holds that descriptor until its own exec, so an exec of the stub in that window fails with ETXTBSY (golang/go#22315).
+// Go's fork holds syscall.ForkLock until the child has exec'd, so taking the lock once the file is closed waits those children out.
 func writeExecutable(t *testing.T, path, content string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o700)) //nolint:gosec // a test stub that must be executable
+	syscall.ForkLock.Lock()
+	syscall.ForkLock.Unlock() //nolint:staticcheck // the empty critical section is the point: it waits for in-flight forks
 }
 
 // run executes the step script and returns its combined output and error.
