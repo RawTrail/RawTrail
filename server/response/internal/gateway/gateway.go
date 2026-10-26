@@ -320,24 +320,24 @@ func teardownStatus(reason closeReason) error {
 // endAfterReceive is the status the RPC ends with when it was the receive loop that ended, carrying its result: nil for a client
 // half-close, which is an ordinary end of stream, or the failure that ended it.
 //
-// Two things say the client is gone rather than at fault, and BOTH are needed because they arrive in either order.
+// Whether the client is gone or at fault is read from the error, because the context cannot say it. gRPC fails the pending receive and
+// cancels the stream context as two steps in either order, so a cancelled context only ever says the stream is over: when gRPC itself
+// rejects a frame it writes the error status and cancels the context moments later, so a rejected frame ends with a cancelled context
+// too. Measured on edr-dev, with only the context test a restarted agent still produced an error span reading `transport is closing`.
 //
-// The context is the definitive one: a client going away cancels it. It is not sufficient on its own, though, because gRPC fails the
-// pending receive and cancels the stream context as two steps, and the receive loses that race often enough to matter. Measured on
-// edr-dev: with only the context test, restarting the agent still produced an error span, reading `transport is closing`.
+// A server-side receive fails for two kinds of reason, and gRPC spells them differently. A frame this server could not read (a message
+// that does not unmarshal, one over the size limit) is rejected with a status whose code says why: Internal, ResourceExhausted. The
+// transport ending under the stream is not a rejection, and arrives either as a bare transport error with no status at all or, under
+// net/http's HTTP/2 server, as a status of Unavailable or Canceled (net/http's `client disconnected`, issue #1329). Those are a
+// connection ending, not failing, so they end the RPC cleanly; any other status keeps its error span.
 //
-// So the error itself is read too. A server-side receive fails for exactly two kinds of reason, and gRPC spells them differently. A
-// frame this server could not read (a malformed message, one over the size limit) comes back as a gRPC STATUS, because the server is
-// rejecting it with a code. The transport ending under the stream comes back as a bare transport error carrying no status at all,
-// which is what `transport is closing` is. That is a connection ending, not a connection failing, so it ends the RPC cleanly; a
-// status error is a fault and keeps its error span.
-//
-// Reading the shape of the error rather than its text is deliberate: the message is grpc-go's to change, and a server that decided
-// what to report by matching on a dependency's prose would break silently on an upgrade. The bufconn test below kills a real client
-// transport and asserts the verdict, so a grpc-go release that changed this shape fails that test rather than quietly recolouring
-// every disconnect on a fleet.
+// Reading the code rather than the message is deliberate: the message is grpc-go's to change, and a server that decided what to report
+// by matching on a dependency's prose would break silently on an upgrade. The tests kill a real client transport and send a real
+// malformed frame through the gateway served as production serves it, so a grpc-go release that changed either shape fails them
+// rather than quietly recolouring every disconnect on a fleet.
 func endAfterReceive(ctx context.Context, c *conn, recvErr error) error {
-	if ctx.Err() != nil {
+	rejected := rejectedFrame(recvErr)
+	if ctx.Err() != nil && !rejected {
 		return nil
 	}
 	// A teardown this server started is the more specific answer, and it can be in flight while the receive loop ends for its own
@@ -347,35 +347,23 @@ func endAfterReceive(ctx context.Context, c *conn, recvErr error) error {
 	if reason := c.closedBecause(); reason != "" {
 		return teardownStatus(reason)
 	}
-	if recvErr == nil {
-		return nil
+	if rejected {
+		return recvErr
 	}
-	if _, isStatus := status.FromError(recvErr); !isStatus {
-		return nil
-	}
-	// A client's socket dying is not always a bare transport error: under net/http's HTTP/2 server the receive fails with a status
-	// reading `client disconnected`, and the stream context is cancelled a moment later (issue #1329). A rejected frame leaves the
-	// client attached, so its context stays live and the status stands once the grace has passed.
-	if clientGone(ctx) {
-		return nil
-	}
-	return recvErr
+	return nil
 }
 
-// clientGoneGrace is how long a failed receive waits for the stream context to say the client is gone. The cancel follows the
-// failed receive by microseconds when it comes at all, so this only bounds how long a genuine fault is held before it is reported.
-const clientGoneGrace = 250 * time.Millisecond
-
-// clientGone reports whether ctx, the RPC's own context, is cancelled within clientGoneGrace.
-func clientGone(ctx context.Context) bool {
-	timer := time.NewTimer(clientGoneGrace)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return true
-	case <-timer.C:
+// rejectedFrame reports whether a receive error is gRPC rejecting what the client sent, as opposed to the client or its transport
+// going away. A status whose code is anything but Unavailable or Canceled is a rejection; a bare transport error, or none, is not.
+func rejectedFrame(recvErr error) bool {
+	if recvErr == nil {
 		return false
 	}
+	st, isStatus := status.FromError(recvErr)
+	if !isStatus {
+		return false
+	}
+	return st.Code() != codes.Unavailable && st.Code() != codes.Canceled
 }
 
 // writeLoop is the connection's single sender (gRPC allows one concurrent Send). It drains the send queue until the context ends or a

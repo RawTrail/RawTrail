@@ -1,4 +1,4 @@
 ## 1. Server
 
-- [x] 1.1 `endAfterReceive` gives a status receive error a short grace for the RPC context to be cancelled before reporting it.
-- [x] 1.2 Table test of both outcomes, mutation-checked.
+- [x] 1.1 `endAfterReceive` decides from the receive error's status code, not from the context or a wait.
+- [x] 1.2 Table test by code and context state, and two tests that send a real unreadable frame and a real oversized one through the gateway served over net/http.

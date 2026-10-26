@@ -287,10 +287,21 @@ func TestEndAfterReceive(t *testing.T) {
 			wantErr: unreadable,
 		},
 		{
-			// The definitive signal.
-			desc:       "the same failure once the client has gone is the disconnect",
+			// gRPC cancels the stream context moments after it writes a rejection, so a cancelled context cannot clear it (#1405).
+			desc:       "the same failure with the context already cancelled is still the failure",
 			clientGone: true,
 			recvErr:    unreadable,
+			wantErr:    unreadable,
+		},
+		{
+			// net/http's HTTP/2 server reports a dying client as a status of Unavailable (#1329).
+			desc:       "a client that went away, reported as a status, is the disconnect",
+			clientGone: true,
+			recvErr:    status.Error(codes.Unavailable, "client disconnected"),
+		},
+		{
+			desc:    "and so is one reported before the context is cancelled",
+			recvErr: status.Error(codes.Unavailable, "client disconnected"),
 		},
 		{
 			// The case that needs the error's shape read: the transport died and gRPC has not cancelled the context yet, so the
