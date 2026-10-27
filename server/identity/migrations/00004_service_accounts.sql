@@ -3,7 +3,7 @@
 -- credential (client_id + secret) that is exchanged at the token endpoint for a short-lived self-validating access token; the secret is
 -- stored only as a SHA-256 hash, never plaintext, and is shown once at creation/rotation. epoch is the revocation generation: a revoke
 -- or rotate bumps it, and the per-replica revocation snapshot rejects any outstanding access token carrying a stale epoch (mirrors the
--- #454 host-token mechanism). The bound role MUST NOT be admin/super_admin or any role granting console-management actions; that rule
+-- #454 host-token mechanism). The bound role MUST NOT be super_admin (admin is bindable on purpose; see the create handler); that rule
 -- is enforced in the application layer (the role set is dynamic), not by a CHECK here.
 
 -- +goose StatementBegin

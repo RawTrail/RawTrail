@@ -36,6 +36,11 @@ type Service interface {
 	// falls back to the raw principal id.
 	PrincipalLabel(ctx context.Context, principalID string) (string, error)
 
+	// CountExpiringServiceAccounts counts the active (not revoked, not yet expired) service accounts whose credential expires within
+	// the given window from now. The metrics gauge edr.service_accounts.expiring reads it on each collection, so a deployment can
+	// alert before an integration's token endpoint starts rejecting it.
+	CountExpiringServiceAccounts(ctx context.Context, within time.Duration) (int, error)
+
 	// SeedAdmin creates the first admin user if no users exist, prints the generated password to w, and returns the user record +
 	// plaintext password. Returns (zero User, "", ErrAlreadySeeded) if the table is non-empty so the caller can errors.Is to the
 	// success-but-noop case.

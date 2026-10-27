@@ -25,10 +25,12 @@ type service struct {
 	logger   *slog.Logger
 }
 
-// serviceAccountNamer is the subset of the service-account store the principal-label resolver needs (svc_<id> -> name). An interface
-// keeps service.New decoupled from the full SA store and lets tests inject a fake.
+// serviceAccountNamer is the subset of the service-account store this service needs: the principal-label resolver (svc_<id> -> name)
+// and the expiring-soon count behind the metrics gauge. An interface keeps service.New decoupled from the full SA store and lets
+// tests inject a fake.
 type serviceAccountNamer interface {
 	NameByID(ctx context.Context, id int64) (string, error)
+	CountExpiring(ctx context.Context, now time.Time, within time.Duration) (int, error)
 }
 
 // New constructs a Service. The Service is the cross-context entry point
@@ -38,7 +40,8 @@ type serviceAccountNamer interface {
 //
 // u, s, r, and logger are required to be non-nil; bootstrap.New is the production caller and provides them via Deps, so a
 // nil-defensive branch here would be dead code and we trust the caller. saNames is optional: when nil, PrincipalLabel cannot resolve a
-// service-account name and returns "" for svc_<id> ids (tests that don't exercise that path pass nil).
+// service-account name and returns "" for svc_<id> ids, and CountExpiringServiceAccounts must not be called (tests that exercise
+// neither pass nil).
 func New(u *users.Store, s *sessions.Store, r *rbac.Store, saNames serviceAccountNamer, logger *slog.Logger) api.Service {
 	return &service{users: u, sessions: s, rbac: r, saNames: saNames, logger: logger}
 }
@@ -74,6 +77,11 @@ func (s *service) PrincipalLabel(ctx context.Context, principalID string) (strin
 	// not a silent empty default: PrincipalType is a string type that could gain a member (an agent principal is deferred in ADR-0017),
 	// and a fail-loud error here forces this resolver to be updated when that happens rather than silently mislabeling the new type.
 	return "", fmt.Errorf("identity: unhandled principal type %q for principal %q", typ, principalID)
+}
+
+// CountExpiringServiceAccounts reports how many active service accounts have a credential that expires within the given window.
+func (s *service) CountExpiringServiceAccounts(ctx context.Context, within time.Duration) (int, error) {
+	return s.saNames.CountExpiring(ctx, time.Now(), within)
 }
 
 func (s *service) Logout(ctx context.Context, sessionToken []byte) error {

@@ -43,11 +43,12 @@ import (
 	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
 )
 
-// serverGaugeSource adapts our endpoint Service + detection Service
+// serverGaugeSource adapts our endpoint, detection and identity Services
 // to the metrics.GaugeSource interface.
 type serverGaugeSource struct {
 	endpointSvc  endpointapi.Service
 	detectionSvc detectionapi.Service
+	identitySvc  identityapi.Service
 }
 
 func (g serverGaugeSource) EnrolledHosts(ctx context.Context) (int, error) {
@@ -56,6 +57,10 @@ func (g serverGaugeSource) EnrolledHosts(ctx context.Context) (int, error) {
 
 func (g serverGaugeSource) OfflineHosts(ctx context.Context, threshold time.Duration) (int, error) {
 	return g.detectionSvc.CountOfflineHosts(ctx, threshold)
+}
+
+func (g serverGaugeSource) ExpiringServiceAccounts(ctx context.Context, within time.Duration) (int, error) {
+	return g.identitySvc.CountExpiringServiceAccounts(ctx, within)
 }
 
 func (g serverGaugeSource) PendingEvents(ctx context.Context) (int64, error) {
@@ -189,7 +194,7 @@ func run() error {
 	// into detectionCtx via SetMetrics so the engine + intake + pipeline (processttl + retention) all instrument: the recorder + recorder
 	// consumer dependency cycle resolves through this two-phase setup.
 	metricsRec := metrics.New(
-		serverGaugeSource{endpointSvc: endpointCtx.Service(), detectionSvc: detectionCtx.Service()},
+		serverGaugeSource{endpointSvc: endpointCtx.Service(), detectionSvc: detectionCtx.Service(), identitySvc: identityCtx.Service()},
 		metrics.Options{OfflineThreshold: metricsOfflineThreshold},
 	)
 	detectionCtx.SetMetrics(metricsRec)

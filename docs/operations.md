@@ -305,6 +305,7 @@ Core metrics to chart:
 | `edr.enrolled.hosts` | gauge | Should match your MDM's scoped Mac count |
 | `edr.offline.hosts` | gauge | Hosts whose `last_seen` is older than 5 min. Keep near zero |
 | `edr.detection.lag` | histogram | Seconds from the server receiving an event to detection finishing with it. Watch p95: it is how late alerts arrive. Measured on the server's clock, so an agent uploading events it buffered offline does not count as lag |
+| `edr.service_accounts.expiring` | gauge | Active service accounts whose credential expires within 14 days. Above zero means an integration will start failing at the token endpoint on that date: rotate the credential before then |
 | `edr.events.pending` | gauge | Events queued for detection. Reads 1,000,000 at and above that. Above zero while `edr.detection.lag` records nothing = the processor is stalled |
 | `edr.retention.processes.rows_deleted` | counter | Completed process rows pruned per retention run (hourly). Raw-event pruning is ClickHouse-native TTL, not a server metric |
 | `edr.processes.ttl_reconciled` | counter | TTL-driven synthetic-exit emissions. The counter only increments when the reconciler synthesises an exit (it no-ops when there's nothing stale), so a non-zero rate or spike means the reconciler is firing, typically because a host missed an exec/exit pair. A sustained zero is ambiguous (either no stale processes to reconcile, or the reconciler has wedged); rely on logs/traces or a separate heartbeat to distinguish |

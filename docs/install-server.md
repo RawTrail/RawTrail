@@ -250,6 +250,7 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel
   - `edr.enrolled.hosts` (gauge): current non-revoked enrollments.
   - `edr.offline.hosts` (gauge): hosts unseen longer than the offline threshold (5 min).
   - `edr.detection.lag` (histogram, seconds): time from the server receiving an event to detection finishing with it, per event. Its p95 is how late alerts arrive.
+  - `edr.service_accounts.expiring` (gauge): active service accounts whose credential expires within 14 days. Reported by `rawtrail-server` only.
   - `edr.events.pending` (gauge): events queued for detection, reading 1,000,000 at and above that. Reported by `rawtrail-server` only.
   - `edr.retention.processes.rows_deleted` (counter): process-graph rows pruned per retention run. (Raw-event retention is the ClickHouse archive's native TTL, ADR-0015, not a server-emitted metric.)
   - `edr.processes.ttl_reconciled` (counter): processes whose exit was synthesized by the freshness-TTL reconciler (missed-exit fallback).
