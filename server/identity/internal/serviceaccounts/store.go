@@ -147,6 +147,20 @@ func (s *Store) List(ctx context.Context) ([]ServiceAccount, error) {
 	return out, nil
 }
 
+// CountExpiring counts the active accounts whose credential expires after now and no later than now+within. A revoked account is
+// excluded because its credential is already dead, and an expired one because it is already failing: the count is the warning that
+// precedes a lapse, not a tally of lapses.
+func (s *Store) CountExpiring(ctx context.Context, now time.Time, within time.Duration) (int, error) {
+	var n int
+	if err := s.db.GetContext(ctx, &n, `
+		SELECT COUNT(*) FROM service_accounts
+		WHERE revoked_at IS NULL AND expires_at > ? AND expires_at <= ?`,
+		now.UTC(), now.Add(within).UTC()); err != nil {
+		return 0, fmt.Errorf("serviceaccounts: count expiring: %w", err)
+	}
+	return n, nil
+}
+
 // AuthByClientID loads the secret-bearing auth record for the token endpoint. Returns ErrNotFound when no row matches.
 func (s *Store) AuthByClientID(ctx context.Context, clientID string) (AuthRecord, error) {
 	var rec AuthRecord

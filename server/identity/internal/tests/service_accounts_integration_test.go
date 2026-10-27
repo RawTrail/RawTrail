@@ -335,6 +335,56 @@ func TestServiceAccounts_rotateRefusesDeadAccounts(t *testing.T) {
 	})
 }
 
+// The count behind edr.service_accounts.expiring covers only accounts that still work and will stop within the window: a revoked or an
+// expired account is already failing, and one with a long lifetime is not a warning yet.
+//
+// spec:observability-instrumentation/expiring-service-accounts-are-a-gauge/expiring-accounts-are-counted
+func TestServiceAccounts_expiringCount(t *testing.T) {
+	t.Parallel()
+	id, db := newServiceAccountIdentity(t)
+	uid := seedUser(t, db, "admin-ec@itest.local")
+	authed := http.NewServeMux()
+	id.RegisterAuthedRoutes(authed)
+
+	create := func(name string, days int) int64 {
+		t.Helper()
+		body, _ := json.Marshal(map[string]any{"name": name, "role": "auditor", "expires_in_days": days})
+		w := httptest.NewRecorder()
+		authed.ServeHTTP(w, superAdminReq(httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+			"/api/settings/service-accounts", strings.NewReader(string(body))), uid))
+		require.Equal(t, http.StatusCreated, w.Code)
+		var created struct {
+			ID int64 `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+		return created.ID
+	}
+	const window = 14 * 24 * time.Hour
+	count := func() int {
+		t.Helper()
+		n, err := id.Service().CountExpiringServiceAccounts(t.Context(), window)
+		require.NoError(t, err)
+		return n
+	}
+	require.Zero(t, count(), "no accounts, nothing expiring")
+
+	create("expires in a week", 7)
+	create("expires in three months", 90)
+	assert.Equal(t, 1, count(), "only the account inside the window counts")
+
+	revoked := create("revoked with a week left", 7)
+	dw := httptest.NewRecorder()
+	authed.ServeHTTP(dw, superAdminReq(httptest.NewRequestWithContext(t.Context(), http.MethodDelete,
+		"/api/settings/service-accounts/"+strconv.FormatInt(revoked, 10), nil), uid))
+	require.Equal(t, http.StatusOK, dw.Code)
+
+	lapsed := create("already expired", 7)
+	_, err := db.ExecContext(t.Context(), `UPDATE service_accounts SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Hour).UTC(), lapsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, count(), "a revoked and an expired account are not counted")
+}
+
 // spec:server-identity-service-accounts/a-service-account-is-a-non-human-principal-bound-to-a-single-role/a-service-account-cannot-bind-to-super-admin
 func TestServiceAccounts_superAdminRoleRejected(t *testing.T) {
 	t.Parallel()

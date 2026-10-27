@@ -27,6 +27,10 @@ const (
 	// numbers match what operators see on the host page.
 	defaultOfflineThreshold = 5 * time.Minute
 
+	// ServiceAccountExpiryWarning is the lead time of the edr.service_accounts.expiring gauge. Mirrored as the UI's expiring-soon badge
+	// (EXPIRING_SOON_DAYS) so an alert and the badge fire for the same accounts.
+	ServiceAccountExpiryWarning = 14 * 24 * time.Hour
+
 	// unitEvent is the OTel unit annotation (UCUM "{event}") shared by the event-counting instruments.
 	unitEvent = "{event}"
 )
@@ -61,6 +65,8 @@ type GaugeSource interface {
 	OfflineHosts(ctx context.Context, threshold time.Duration) (int, error)
 	// PendingEvents counts queued events not yet processed, saturating at the queue's cap.
 	PendingEvents(ctx context.Context) (int64, error)
+	// ExpiringServiceAccounts counts active service accounts whose credential expires within the given window.
+	ExpiringServiceAccounts(ctx context.Context, within time.Duration) (int, error)
 }
 
 // Recorder is the write surface instrumentation code uses. Every method is safe to call from any goroutine and safe on a nil receiver
@@ -86,6 +92,7 @@ type Recorder struct {
 	enrolledGauge metric.Int64ObservableGauge
 	offlineGauge  metric.Int64ObservableGauge
 	pendingGauge  metric.Int64ObservableGauge
+	expiringGauge metric.Int64ObservableGauge
 }
 
 // Options tune the Recorder. All fields are optional.
@@ -288,6 +295,23 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 					return nil
 				}
 				obs.Observe(n)
+				return nil
+			}),
+		)
+		r.expiringGauge, _ = meter.Int64ObservableGauge(
+			"edr.service_accounts.expiring",
+			metric.WithDescription("Active service accounts whose credential expires within 14 days. "+
+				"Alert when above zero: the integration using that credential starts failing at the token endpoint on the expiry date."),
+			metric.WithUnit("{account}"),
+			metric.WithInt64Callback(func(ctx context.Context, obs metric.Int64Observer) error {
+				gaugeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				defer cancel()
+				n, err := gauges.ExpiringServiceAccounts(gaugeCtx, ServiceAccountExpiryWarning)
+				if err != nil {
+					slog.Default().WarnContext(ctx, "edr.service_accounts.expiring gauge callback failed", "err", err)
+					return nil
+				}
+				obs.Observe(int64(n))
 				return nil
 			}),
 		)

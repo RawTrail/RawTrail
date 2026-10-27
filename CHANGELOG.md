@@ -4,6 +4,10 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ## [Unreleased]
 
+### Added
+
+- **An alertable count of service accounts about to expire.** The `edr.service_accounts.expiring` metric reports the active service accounts whose credential expires within 14 days, the same accounts the console flags. Alert when it is above zero and rotate the credential before the date.
+
 ### Fixed
 
 - **Signing in again no longer discards what you were typing.** When saving the reachable destinations, the watched paths, an exclusion, a rule or an application control rule needs a fresh single sign-on, your unsaved changes are kept and put back when you return, with a notice. Nothing is saved for you: review them and save again.

@@ -108,6 +108,9 @@ type stubGauges struct {
 	enrolled int
 	offline  int
 	pending  int64
+	expiring int
+	// window records the lead time the expiring gauge asked for, so a test can pin it.
+	window *time.Duration
 }
 
 func (s stubGauges) EnrolledHosts(context.Context) (int, error) { return s.enrolled, nil }
@@ -115,6 +118,12 @@ func (s stubGauges) OfflineHosts(context.Context, time.Duration) (int, error) {
 	return s.offline, nil
 }
 func (s stubGauges) PendingEvents(context.Context) (int64, error) { return s.pending, nil }
+func (s stubGauges) ExpiringServiceAccounts(_ context.Context, within time.Duration) (int, error) {
+	if s.window != nil {
+		*s.window = within
+	}
+	return s.expiring, nil
+}
 
 // spec:server-detection-rules-engine/evaluation-statistics-are-aggregated-in-process-and-written-periodically/evaluation-duration-is-available-as-a-histogram-per-rule
 //
@@ -250,6 +259,9 @@ func (g thresholdCapturingGauges) OfflineHosts(_ context.Context, t time.Duratio
 	return 0, nil
 }
 func (g thresholdCapturingGauges) PendingEvents(context.Context) (int64, error) { return 0, nil }
+func (g thresholdCapturingGauges) ExpiringServiceAccounts(context.Context, time.Duration) (int, error) {
+	return 0, nil
+}
 
 // spec:observability-instrumentation/instrumentation-is-safe-on-a-nil-receiver/call-sites-do-not-guard-the-recorder
 //
@@ -304,6 +316,7 @@ func TestRecorder_FailingGaugeCallbackIsContained(t *testing.T) {
 	assert.Equal(t, int64(7), findGauge(t, rm, "edr.offline.hosts"),
 		"the rest of the gauge collection must still succeed")
 	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.events.pending"), "the pending gauge's failure is contained the same way")
+	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.service_accounts.expiring"), "and so is the expiring gauge's")
 }
 
 // failingGauges has EnrolledHosts return an error to exercise the per-gauge containment branch; the
@@ -321,6 +334,10 @@ func (g failingGauges) OfflineHosts(context.Context, time.Duration) (int, error)
 }
 
 func (g failingGauges) PendingEvents(context.Context) (int64, error) { return 0, assert.AnError }
+
+func (g failingGauges) ExpiringServiceAccounts(context.Context, time.Duration) (int, error) {
+	return 0, assert.AnError
+}
 
 // spec:observability-instrumentation/http-server-request-duration/inbound-requests-are-timed-by-route-method-and-status
 // spec:observability-instrumentation/aggregate-latency-and-alerting-derive-from-metrics-not-sampled-spans/latency-percentiles-are-unaffected-by-the-sample-ratio
@@ -399,4 +416,18 @@ func TestIngestedEventTypesMatchSchema(t *testing.T) {
 		inCode = append(inCode, eventType)
 	}
 	assert.ElementsMatch(t, schema.Properties.EventType.Enum, inCode)
+}
+
+// The expiring-soon gauge reports the source's count and asks for the same 14 days the UI badge flags, so an alert and the badge agree.
+//
+// spec:observability-instrumentation/expiring-service-accounts-are-a-gauge/expiring-accounts-are-counted
+func TestRecorder_ServiceAccountsExpiringGauge(t *testing.T) {
+	t.Parallel()
+	var window time.Duration
+	_, collect := newTestRecorder(t, stubGauges{expiring: 2, window: &window}, Options{})
+
+	rm := collect()
+
+	assert.Equal(t, int64(2), findGauge(t, rm, "edr.service_accounts.expiring"))
+	assert.Equal(t, 14*24*time.Hour, window)
 }
