@@ -26,7 +26,7 @@ async function seedSession(): Promise<Seeded> {
   const hostId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
   // Explicit row ids well above any the dev database hands out, so a creator's id is known when its children are written.
-  const base = 900_000_000_000 + Math.floor(Math.random() * 1_000_000) * 1_000;
+  const base = 900_000_000_000 + crypto.randomInt(1_000_000) * 1_000;
   const startNs = (Date.now() - 3_600_000) * 1_000_000;
   const rows: unknown[][] = [];
   let pid = 40_000;
