@@ -225,8 +225,8 @@ type Line struct {
 const syntheticModel = "<synthetic>"
 
 // Usage is the tokens one assistant message used (issue #1427), as its transcript records them. Claude Code writes one entry per
-// content block of a streamed message, each carrying the whole message's usage, so the message is counted once by its id: its event
-// id is the same however many of its entries are read.
+// content block of a streamed message, each carrying the whole message's usage at its own time, so the reader sends a message's first
+// entry only, and its event id is the same each time the transcript is read.
 type Usage struct {
 	SessionID string
 	MessageID string
