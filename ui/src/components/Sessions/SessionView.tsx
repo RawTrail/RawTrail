@@ -291,14 +291,21 @@ export function SessionView() {
     [view, forest, groups, query],
   );
   // A selection belongs to the session it was made in.
-  const selectedNode = selected?.key === readKey && tree !== null ? selected.node : null;
+  // selection counts the selections made and closed, so a process read for a selection the operator has since replaced or closed is
+  // dropped rather than opened over it.
+  const selection = useRef(0);
+  // A selection belongs to the session it was made in. It needs no tree: a search result or an Activity row opens one without it.
+  const selectedNode = selected?.key === readKey ? selected.node : null;
   const rowsContext = useMemo<SessionRows>(
     () => ({
       hostId,
       alertsByProcess,
       hits,
       selectedId: selectedNode?.id ?? null,
-      onSelect: (node: ProcessNode) => { setSelected({ key: readKey, node }); },
+      onSelect: (node: ProcessNode) => {
+        selection.current += 1;
+        setSelected({ key: readKey, node });
+      },
     }),
     [hostId, alertsByProcess, hits, selectedNode, readKey],
   );
@@ -405,8 +412,9 @@ export function SessionView() {
                     return;
                   }
                   // A row can name a process on a tree page not yet read, which a search reaches (issue #1452): read that process.
+                  const asked = selection.current;
                   void getProcessDetail(hostId, process.pid, atNs, process.pidversion)
-                    .then((detail) => { rowsContext.onSelect(detail.process); })
+                    .then((detail) => { if (selection.current === asked) rowsContext.onSelect(detail.process); })
                     .catch(() => undefined);
                 }}
               />
@@ -421,7 +429,10 @@ export function SessionView() {
                 key={selectedNode.id}
                 hostId={hostId}
                 node={selectedNode}
-                onClose={() => { setSelected(null); }}
+                onClose={() => {
+                  selection.current += 1;
+                  setSelected(null);
+                }}
                 timelineHref={timelineHref(hostId, selectedNode)}
               />
             </aside>

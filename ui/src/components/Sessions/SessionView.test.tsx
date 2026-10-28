@@ -266,6 +266,59 @@ describe("SessionView commands from the server", () => {
     expect(await screen.findByRole("link", { name: "Open in host graph" })).toBeVisible();
   });
 
+  it("opens a search result's detail when the session's tree could not be read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockRejectedValue(new Error("tree down"));
+    vi.spyOn(api, "getSessionCommands").mockResolvedValue(sessionCommands(realSession()));
+    const match = proc(3_100_000, 91_000, 1000, "/usr/bin/git", ["git", "status"]);
+    vi.spyOn(api, "searchSessionProcesses").mockResolvedValue({ processes: [match], total_matched: 1, truncated: false });
+    vi.spyOn(api, "getProcessDetail").mockResolvedValue({ process: match, network_connections: [], dns_queries: [] });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "git" } });
+    fireEvent.click(await screen.findByRole("button", { name: "git" }));
+    expect(await screen.findByRole("link", { name: "Open in host graph" })).toBeVisible();
+  });
+
+  it("does not open a process read for a selection the operator has since replaced", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    const dns = (pid: number, name: string) =>
+      ({ pid, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: name, addresses: [] });
+    vi.spyOn(api, "getActivity").mockResolvedValue({
+      scope: { processes: 2, applied: 2, unmatched: 0, truncated: false },
+      processes: [{ id: 7_000_001, pid: 70_001, pidversion: 9, path: "/usr/bin/dig" },
+        { id: 7_000_002, pid: 70_002, pidversion: 9, path: "/usr/bin/host" }],
+      files: { events: 0, distinct: 0, truncated: false, rows: [] },
+      network: { events: 0, distinct: 0, truncated: false, rows: [] },
+      dns: { events: 2, distinct: 2, truncated: false, rows: [dns(70_001, "slow.example"), dns(70_002, "fast.example")] },
+    } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
+    const slow = proc(7_000_001, 70_001, 4_999, "/usr/bin/dig", ["dig"]);
+    const fast = proc(7_000_002, 70_002, 4_999, "/usr/bin/host", ["host"]);
+    let landSlow: (d: Awaited<ReturnType<typeof api.getProcessDetail>>) => void = () => undefined;
+    vi.spyOn(api, "getProcessDetail").mockImplementation((_h, pid) => (pid === 70_001
+      ? new Promise((resolve) => { landSlow = resolve; })
+      : Promise.resolve({ process: pid === 70_002 ? fast : slow, network_connections: [], dns_queries: [] })));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "dig (70001)" }));
+    fireEvent.click(screen.getByRole("button", { name: "host (70002)" }));
+    const graph = await screen.findByRole("link", { name: "Open in host graph" });
+    expect(graph.getAttribute("href")).toContain("7000002");
+    landSlow({ process: slow, network_connections: [], dns_queries: [] });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getByRole("link", { name: "Open in host graph" }).getAttribute("href")).toContain("7000002");
+
+    // Closing the pane while a read is under way leaves it closed when the read lands.
+    fireEvent.click(screen.getByRole("button", { name: "dig (70001)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("link", { name: "Open in host graph" })).toBeNull();
+    landSlow({ process: slow, network_connections: [], dns_queries: [] });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.queryByRole("link", { name: "Open in host graph" })).toBeNull();
+  });
+
   it("sends the session view's search to Activity", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());

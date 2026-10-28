@@ -42,6 +42,7 @@ async function seedSession(): Promise<Seeded> {
     }
   }
   const db = await openDB();
+  // A seed that fails part way removes what it wrote, since afterEach never sees a session the seed did not return.
   try {
     for (let i = 0; i < rows.length; i += 1_000) {
       const chunk = rows.slice(i, i + 1_000);
@@ -57,6 +58,10 @@ async function seedSession(): Promise<Seeded> {
          last_seen_ns) VALUES (?, ?, 'claude-code', '2.1.302', 39999, '/Users/qa/paging', ?, ?, ?)`,
       [hostId, sessionId, startNs, `paging-${hostId}`, startNs + (COMMANDS + 10) * 1_000_000_000],
     );
+  } catch (err) {
+    await db.query("DELETE FROM processes WHERE host_id = ?", [hostId]);
+    await db.query("DELETE FROM agent_sessions WHERE host_id = ?", [hostId]);
+    throw err;
   } finally {
     await db.end();
   }
