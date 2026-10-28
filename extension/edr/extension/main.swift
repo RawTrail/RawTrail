@@ -79,6 +79,12 @@ let credentialStores = CredentialStoreSubscriber()
 credentialStores.onEvent = { data in server.send(data: data) }
 credentialStores.start()
 
+// The credential guard (#1431) decides each open of an SSH key, a cloud or CLI token, or a similar credential file, and reports an AI
+// agent's process opening one that is not its tool's as an `agent_credential_would_block` event. Detect mode: it allows every open.
+let credentialGuard = CredentialGuardSubscriber()
+credentialGuard.onEvent = { data in server.send(data: data) }
+credentialGuard.start()
+
 // Issue #11: ESF is a pure event stream that only delivers events occurring
 // after es_subscribe. Anything already running (Safari, Slack, Finder, user
 // LaunchAgents, every long-lived daemon) is invisible to the tree until it

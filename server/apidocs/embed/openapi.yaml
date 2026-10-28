@@ -2749,6 +2749,7 @@ components:
             - file_truncate
             - file_delete
             - file_activity
+            - agent_credential_would_block
             - agent_tool_call
             - network_connect
             - dns_query
