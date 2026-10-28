@@ -18,8 +18,8 @@ func assistantLine(content string) string {
 		content + `}}`
 }
 
-// spec:endpoint-event-collection/agent-tool-call-capture/a-bash-tool-call-is-reported-with-its-command
-// spec:endpoint-event-collection/agent-tool-call-capture/prompts-and-results-never-leave-the-host
+// spec:endpoint-event-collection/agent-tool-call-reporting/a-bash-tool-call-is-reported-with-its-command
+// spec:endpoint-event-collection/agent-tool-call-reporting/model-output-and-tool-results-never-leave-the-host
 func TestParseLine(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 14, 8, 50, 0, 512_000_000, time.UTC)
@@ -79,12 +79,13 @@ func TestParseLine(t *testing.T) {
 			t.Parallel()
 			got, err := ParseLine([]byte(tc.line))
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.want, got.Calls)
+			assert.Nil(t, got.Prompt, "no prompt in an assistant turn, a tool result or bookkeeping")
 		})
 	}
 }
 
-// spec:endpoint-event-collection/agent-tool-call-capture/an-unreadable-line-is-skipped-not-guessed
+// spec:endpoint-event-collection/agent-tool-call-reporting/an-unreadable-line-is-skipped-not-guessed
 func TestParseLine_Unreadable(t *testing.T) {
 	t.Parallel()
 	anyCall := assistantLine(`[{"type":"tool_use","id":"t","name":"Bash","input":{}}]`)
@@ -104,14 +105,14 @@ func TestParseLine_Unreadable(t *testing.T) {
 	}
 }
 
-// spec:endpoint-event-collection/agent-tool-call-capture/a-bash-tool-call-is-reported-with-its-command
+// spec:endpoint-event-collection/agent-tool-call-reporting/a-bash-tool-call-is-reported-with-its-command
 func TestToolCall_Payload(t *testing.T) {
 	t.Parallel()
 	long := "a" + strings.Repeat("é", maxCommandBytes) // two bytes a rune after one: the 8 KiB cut lands inside one
-	calls, err := ParseLine([]byte(assistantLine(`[{"type":"tool_use","id":"toolu_06","name":"Bash","input":{"command":"` + long + `"}}]`)))
+	line, err := ParseLine([]byte(assistantLine(`[{"type":"tool_use","id":"toolu_06","name":"Bash","input":{"command":"` + long + `"}}]`)))
 	require.NoError(t, err)
-	require.Len(t, calls, 1)
-	p := calls[0].Payload()
+	require.Len(t, line.Calls, 1)
+	p := line.Calls[0].Payload()
 	command, ok := p["command"].(string)
 	require.True(t, ok)
 	assert.LessOrEqual(t, len(command), maxCommandBytes)
@@ -126,15 +127,19 @@ func FuzzParseLine(f *testing.F) {
 	f.Add([]byte(assistantLine(`[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"ls"}}]`)))
 	f.Add([]byte(assistantLine(`"Done."`)))
 	f.Add([]byte(`{"type":"user"}`))
-	f.Fuzz(func(t *testing.T, line []byte) {
-		calls, err := ParseLine(line)
+	f.Add([]byte(userLine(`"fix the failing test"`, "")))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		line, err := ParseLine(raw)
 		if err != nil {
 			return
 		}
-		for _, c := range calls {
+		for _, c := range line.Calls {
 			if c.SessionID == "" || c.ToolUseID == "" || c.ToolName == "" || len(c.Command) > maxCommandBytes {
 				t.Fatalf("accepted an incomplete or oversized call: %+v", c)
 			}
+		}
+		if p := line.Prompt; p != nil && (p.SessionID == "" || p.EntryID == "" || len(p.Text) > maxPromptBytes || !utf8.ValidString(p.Text)) {
+			t.Fatalf("accepted an incomplete or oversized prompt: %+v", p)
 		}
 	})
 }

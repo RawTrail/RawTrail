@@ -625,8 +625,8 @@ paths:
       summary: The tool calls an AI agent session recorded
       description: >-
         The tool calls the agent recorded in its session transcript, read by the agent from the transcript on disk and stored in the
-        event archive, oldest first and each once per transcript owner. Only tool-call metadata is held: never prompt text, model
-        output or tool results.
+        event archive, oldest first and each once per transcript owner. A call holds tool-call metadata only: never model output or
+        tool results.
         A forked session's copy of a call from the session it was forked from is listed under that session only.
         The list is capped, and a cut list says so.
       security:
@@ -3025,6 +3025,7 @@ components:
             - file_delete
             - file_activity
             - agent_tool_call
+            - agent_prompt
             - network_connect
             - dns_query
             - application_control_block
