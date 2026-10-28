@@ -17,10 +17,24 @@ func scopePredicate(scope api.TreeScope) (string, any) {
 	return "story_root_id = ?", scope.StoryRootID
 }
 
-// GetScopedProcesses returns up to limit rows of one story or agent session on the host (issue #1282), oldest first, so a page the
-// limit cut short keeps each process's creator ahead of it. One indexed read, whatever the depth of the tree.
-func (s *Store) GetScopedProcesses(ctx context.Context, hostID string, scope api.TreeScope, limit int) ([]api.Process, error) {
+// ScopedPosition is a place in a scoped read's order: the fork time and row id of the last row read. The zero value is the start.
+type ScopedPosition struct {
+	ForkTimeNs int64
+	ID         int64
+}
+
+// GetScopedProcesses returns up to limit rows of one story or agent session on the host (issue #1282) after a position, oldest first,
+// so a page the limit cut short keeps each process's creator ahead of it. One indexed read, whatever the depth of the tree; a read
+// from a position continues where the last stopped (issue #1424).
+func (s *Store) GetScopedProcesses(
+	ctx context.Context, hostID string, scope api.TreeScope, after ScopedPosition, limit int,
+) ([]api.Process, error) {
 	predicate, value := scopePredicate(scope)
+	args := []any{hostID, value}
+	if after != (ScopedPosition{}) {
+		predicate += " AND (fork_time_ns > ? OR (fork_time_ns = ? AND id > ?))"
+		args = append(args, after.ForkTimeNs, after.ForkTimeNs, after.ID)
+	}
 	procs := make([]api.Process, 0, limit)
 	if err := s.db.SelectContext(ctx, &procs, `
 		SELECT `+processReadColumns+`
@@ -28,15 +42,19 @@ func (s *Store) GetScopedProcesses(ctx context.Context, hostID string, scope api
 		WHERE host_id = ? AND `+predicate+`
 		ORDER BY fork_time_ns, id
 		LIMIT ?`,
-		hostID, value, limit,
+		append(args, limit)...,
 	); err != nil {
 		return nil, fmt.Errorf("query scoped processes: %w", err)
 	}
 	return procs, nil
 }
 
-// CountScopedProcesses counts one story's or agent session's rows on the host, at most ProcessTreeCountBound, with the same capped
-// meaning as CountProcessTree. The index range bounds the work, so unlike the window count it needs no time budget.
+// ScopedCountBound is how far CountScopedProcesses counts: past the largest scoped read (graph.MaxScopedRead), so a read that bound
+// still reports its total. The index range bounds the work.
+const ScopedCountBound = 100000
+
+// CountScopedProcesses counts one story's or agent session's rows on the host, at most ScopedCountBound, with the same capped meaning
+// as CountProcessTree. The index range bounds the work, so unlike the window count it needs no time budget.
 func (s *Store) CountScopedProcesses(ctx context.Context, hostID string, scope api.TreeScope) (int64, bool, error) {
 	predicate, value := scopePredicate(scope)
 	var total int64
@@ -44,12 +62,12 @@ func (s *Store) CountScopedProcesses(ctx context.Context, hostID string, scope a
 		SELECT COUNT(*) FROM (
 			SELECT 1 FROM processes WHERE host_id = ? AND `+predicate+` LIMIT ?
 		) AS bounded`,
-		hostID, value, ProcessTreeCountBound+1,
+		hostID, value, ScopedCountBound+1,
 	); err != nil {
 		return 0, false, fmt.Errorf("count scoped processes: %w", err)
 	}
-	if total > ProcessTreeCountBound {
-		return ProcessTreeCountBound, true, nil
+	if total > ScopedCountBound {
+		return ScopedCountBound, true, nil
 	}
 	return total, false, nil
 }

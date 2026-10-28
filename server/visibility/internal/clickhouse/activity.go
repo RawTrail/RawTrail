@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/rawtrail/rawtrail/server/visibility/api"
@@ -48,7 +49,7 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 	scope, scopeArgs := activityScope(filter)
 
 	// The four reads are independent and each writes its own fields of out, so they run at once: the rollup waits for the slowest.
-	g, gctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(withActivityQuerySize(ctx))
 	g.Go(func() error {
 		totals, err := s.activityTotals(gctx, scope, scopeArgs)
 		out.Files.Events, out.Files.Distinct = totals.Files.Events, totals.Files.Distinct
@@ -74,6 +75,16 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 	return out, nil
 }
 
+// activityQuerySize is the query size an activity read may send. Its filter names every generation of its scope, and a session's
+// scope runs to tens of thousands of them (issue #1424): at about 20 bytes a generation, ClickHouse's default 256 KiB stops a filter
+// at some ten thousand. 8 MiB holds the largest scope a read names with room to spare.
+const activityQuerySize = 8 << 20
+
+// withActivityQuerySize raises the query size of the reads made with the context to activityQuerySize.
+func withActivityQuerySize(ctx context.Context) context.Context {
+	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{"max_query_size": activityQuerySize}))
+}
+
 // activityScope is the WHERE clause, after the event types, that keeps the filter's events, and its arguments. Clipped, so each list
 // read's append of its limit copies the arguments instead of writing into an array the others share.
 func activityScope(filter api.ActivityFilter) (string, []any) {
@@ -96,7 +107,7 @@ func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter api.Act
 		return api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}, nil
 	}
 	scope, args := activityScope(filter)
-	return s.activityTotals(ctx, scope, args)
+	return s.activityTotals(withActivityQuerySize(ctx), scope, args)
 }
 
 // activityTotals counts each class's events and distinct artifacts, and the file events by operation, in one pass: a file's artifact

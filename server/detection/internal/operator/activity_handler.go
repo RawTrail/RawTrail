@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 	"github.com/rawtrail/rawtrail/server/httpserver"
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
@@ -113,14 +114,14 @@ func (h *Handler) activityFilter(
 	if err != nil {
 		return visibilityapi.ActivityFilter{}, nil, nil, err
 	}
-	return h.filterOf(ctx, hostID, req.tree.AgentSessionID, roots, agents, truncated)
+	return h.filterOf(ctx, hostID, req.tree.AgentSessionID, roots, agents, truncated, scopeBound(req))
 }
 
-// filterOf is the activity filter of a scope's processes, with a session's agents bounded to the span each served it.
+// filterOf is the activity filter of up to bound of a scope's processes, with a session's agents bounded to the span each served it.
 func (h *Handler) filterOf(
-	ctx context.Context, hostID, sessionID string, roots, agents []api.ProcessNode, truncated bool,
+	ctx context.Context, hostID, sessionID string, roots, agents []api.ProcessNode, truncated bool, bound int,
 ) (visibilityapi.ActivityFilter, *timelineScope, []api.ProcessNode, error) {
-	generations, scope, matched := scopeGenerations(roots, truncated)
+	generations, scope, matched := scopeGenerations(roots, truncated, bound)
 	filter := visibilityapi.ActivityFilter{HostID: hostID, Generations: generations}
 	if sessionID != "" {
 		var err error
@@ -166,6 +167,15 @@ func scopeStart(processes []api.ProcessNode) int64 {
 	return from
 }
 
+// scopeBound is how many of a scope's processes its activity reads: a whole session up to the scoped read's bound (issue #1424), so
+// its totals and lists are the session's, and the chain cap for any other scope.
+func scopeBound(req activityScopeRequest) int {
+	if req.tree.AgentSessionID != "" {
+		return graph.MaxScopedRead
+	}
+	return maxTimelineChain
+}
+
 // activityScopeProcesses reads the scope's processes. A process alone is read by its row id. Its subtree is read from the chain
 // pinned at it, whose descendants come from the story index (issue #1282), and cut at the pinned process: its ancestors did not do
 // what the process did. For a session it also returns the agent processes it added to the session's own, which lead the roots: a
@@ -175,7 +185,7 @@ func (h *Handler) activityScopeProcesses(
 ) (roots, agents []api.ProcessNode, truncated bool, err error) {
 	switch {
 	case req.process == 0:
-		res, err := h.svc.BuildScopedTree(ctx, hostID, req.tree, maxTimelineChain, true, 0)
+		res, err := h.svc.BuildScopedTree(ctx, hostID, req.tree, scopeBound(req), true, 0)
 		if err != nil || req.tree.AgentSessionID == "" {
 			return res.Roots, nil, res.Truncated, err
 		}

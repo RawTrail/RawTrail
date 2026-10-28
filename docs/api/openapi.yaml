@@ -643,7 +643,7 @@ paths:
         read from the wrapper, and paired with the Bash call the agent recorded for it: the nearest earlier call that ran the same
         command and that the same user's transcript holds. Identical calls the agent made in one turn are offered as `ambiguous`
         candidates rather than guessed. The server groups and pairs over the session's whole process read, so a page boundary changes
-        neither; `truncated` says when that read was cut.
+        neither. The read covers up to 20,000 of the session's processes, and `truncated` says when it was cut.
       security:
         - SessionCookie: []
         - ServiceAccountToken: []
@@ -714,7 +714,7 @@ paths:
                     type: array
                     items: {type: integer, format: int64}
                     description: The page's processes listed under the app that is responsible for them.
-                  truncated: {type: boolean, description: True when the session had more processes than are read.}
+                  truncated: {type: boolean, description: "True when the session had more processes than the 20,000 that are read."}
                   tool_calls_truncated: {type: boolean, description: True when the session recorded more tool calls than are read.}
         "400":
           description: "`invalid_cursor`: the cursor does not decode."
@@ -738,7 +738,7 @@ paths:
         processes, the alerts raised on them by severity (monitor records not counted), the tool calls it recorded by tool (each call
         once, a forked session's copies of its parent's calls left out), and its file events by operation with its network and DNS
         totals. The activity is counted over the same processes the session's activity rollup (`GET /api/hosts/{host_id}/activity`)
-        reads, and `scope` says how far that reached.
+        reads, up to 20,000 of the session's processes, and `scope` says how far that reached.
       security:
         - SessionCookie: []
         - ServiceAccountToken: []

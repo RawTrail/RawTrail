@@ -18,8 +18,8 @@ func (q *Query) BuildScopedTree(
 	ctx context.Context, hostID string, scope api.TreeScope, limit int, flatten bool, pinnedID int64,
 ) (api.ProcessTreeResult, error) {
 	// Clamped as BuildTree clamps it, for the same reasons: the arithmetic below, and a caller that did not normalize.
-	limit = min(max(limit, 1), mysql.ProcessTreeCountBound-1)
-	procs, err := q.store.GetScopedProcesses(ctx, hostID, scope, limit+1)
+	limit = min(max(limit, 1), MaxScopedRead)
+	procs, err := q.scopedProcesses(ctx, hostID, scope, limit+1)
 	if err != nil {
 		return api.ProcessTreeResult{}, err
 	}
@@ -59,6 +59,32 @@ func (q *Query) BuildScopedTree(
 	}
 	res.Roots = aggregateSiblingsKeeping(forest, linkEnds(res.Links, pinnedID))
 	return res, nil
+}
+
+// MaxScopedRead is the most rows a scoped read lists (issue #1424): four times the tree endpoint's page, so the server shapes a
+// session of up to twenty thousand processes into its commands, totals and activity whole, while a client still pages the tree.
+const MaxScopedRead = 20000
+
+// scopedChunk is how many rows one query of a scoped read fetches. A read past it continues from its last row.
+const scopedChunk = 5000
+
+// scopedProcesses reads up to limit rows of a scope, oldest first, a chunk at a time, so no one query holds the whole read.
+func (q *Query) scopedProcesses(ctx context.Context, hostID string, scope api.TreeScope, limit int) ([]api.Process, error) {
+	var procs []api.Process
+	var after mysql.ScopedPosition
+	for len(procs) < limit {
+		chunk, err := q.store.GetScopedProcesses(ctx, hostID, scope, after, min(scopedChunk, limit-len(procs)))
+		if err != nil {
+			return nil, err
+		}
+		procs = append(procs, chunk...)
+		if len(chunk) < scopedChunk {
+			break
+		}
+		last := chunk[len(chunk)-1]
+		after = mysql.ScopedPosition{ForkTimeNs: last.ForkTimeNs, ID: last.ID}
+	}
+	return procs, nil
 }
 
 // maxAgentOwnProcesses bounds an agent's own processes one read lists (issue #1361). An agent runs a few for itself around each prompt;
