@@ -32,6 +32,11 @@ func TestRedact(t *testing.T) {
 		{"a quoted value is redacted through its closing quote", `pw: password='verylongword secondhalf'`, `pw: password='[REDACTED:secret]'`},
 		{"a name with the secret's word inside it", "AWS_SECRET_ACCESS_KEY=" + strings.Repeat("aB3", 13) + "x done",
 			"AWS_SECRET_ACCESS_KEY=[REDACTED:secret] done"},
+		{"an escaped quote inside a quoted secret is part of it", `DB_PASSWORD="correct\"horse battery staple" ok`,
+			`DB_PASSWORD="[REDACTED:secret]" ok`},
+		{"a JSON secret with an escaped quote", `{"password":"prefix\"suffix-secret"}`, `{"password":"[REDACTED:secret]"}`},
+		{"secret text after a provider credential is redacted with it", `DB_PASSWORD="ghp_` + strings.Repeat("a1", 18) +
+			`!still-secret-password"`, `DB_PASSWORD="[REDACTED:secret]"`},
 		{"a provider credential given a secret's name is named once, by its provider", "GITHUB_TOKEN=ghp_" + strings.Repeat("a1", 18),
 			"GITHUB_TOKEN=[REDACTED:github-token]"},
 		{"an opaque bearer token keeps its scheme", "curl -H 'Authorization: Bearer " + strings.Repeat("Qz9", 8) + "' api",

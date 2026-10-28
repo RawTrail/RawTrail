@@ -19,6 +19,9 @@ type secretPattern struct {
 	value int
 }
 
+// wholePlaceholder is a value an earlier pattern replaced entirely.
+var wholePlaceholder = regexp.MustCompile(`^\[REDACTED:[a-z-]+\]$`)
+
 // secretWords are the words a name holds when its value is a secret: DB_PASSWORD, GITHUB_TOKEN, CLIENT_CREDENTIALS, PRIVATE_KEY.
 const secretWords = `password|passwd|secret|token|api[_-]?key|credentials?|private[_-]?key|auth[_-]?config`
 
@@ -41,11 +44,12 @@ var secretPatterns = []secretPattern{
 	{kind: "url-credentials", re: regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:([^\s/@]+)@`), value: 1},
 	// A value given a secret's name: `password=...`, `AWS_SECRET_ACCESS_KEY: ...`, `"api_key": "..."`. The name stays, so the prompt
 	// still says what was set. A quoted value is the secret through its closing quote, so a passphrase with spaces is redacted whole;
-	// an unquoted one runs to the first space or delimiter.
+	// in double quotes an escaped quote is part of the value, as JSON and the shell read it. An unquoted value runs to the first space
+	// or delimiter.
 	{
 		kind: "secret",
 		re: regexp.MustCompile(`(?i)\b[A-Z0-9_]*(?:` + secretWords + `)[A-Z0-9_]*["']?\s*[:=]\s*` +
-			`(?:"([^"\n]+)"|'([^'\n]+)'|([^\s"',;]{8,}))`),
+			`(?:"((?:[^"\\\n]|\\.)+)"|'([^'\n]+)'|([^\s"',;]{8,}))`),
 		value: 1,
 	},
 }
@@ -61,11 +65,13 @@ func Redact(text string) (string, int) {
 				return placeholder
 			}
 			start, end := valueSpan(p, match)
-			// An earlier pattern may already have replaced this credential with its own kind, which is the truer name for it.
-			if start < 0 || strings.HasPrefix(match[start:end], "[REDACTED:") {
+			// An earlier pattern may already have replaced the whole credential with its own kind, the truer name for it. A value that
+			// only begins with a placeholder still holds secret text after it, so it is redacted whole.
+			if start < 0 || wholePlaceholder.MatchString(match[start:end]) {
 				return match
 			}
-			count++
+			// The value's own placeholders are swallowed by this one, so the count stays the placeholders the text ends with.
+			count += 1 - strings.Count(match[start:end], "[REDACTED:")
 			return match[:start] + placeholder + match[end:]
 		})
 	}
