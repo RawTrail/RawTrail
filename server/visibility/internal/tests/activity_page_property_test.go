@@ -35,8 +35,11 @@ func TestEventArchive_ActivityPagesMatchOneRead(t *testing.T) {
 		host := "activity-pbt-" + strconv.Itoa(iter)
 		n := rapid.IntRange(1, 30).Draw(rt, "n")
 		var events []visibilityapi.Event
-		// The distinct network and DNS rows, counted here from what was drawn, anchor the one read that the pages are compared to.
-		networkRows, dnsRows := map[string]bool{}, map[string]bool{}
+		// Each class's rows, keyed by what groups a row and holding the artifact a search matches, are worked out here from what was
+		// drawn: they anchor the one read that the pages are compared to.
+		drawn := map[string]map[string]string{
+			visibilityapi.ActivityFiles: {}, visibilityapi.ActivityNetwork: {}, visibilityapi.ActivityDNS: {},
+		}
 		for i := range n {
 			is := strconv.Itoa(i)
 			gen := gens[rapid.IntRange(0, 1).Draw(rt, "gen"+is)]
@@ -46,65 +49,66 @@ func TestEventArchive_ActivityPagesMatchOneRead(t *testing.T) {
 			case 0:
 				op := rapid.SampledFrom([]string{"modify", "create", "delete"}).Draw(rt, "op"+is)
 				path := rapid.SampledFrom(paths).Draw(rt, "path"+is)
+				drawn[visibilityapi.ActivityFiles][path+"|"+op+"|"+strconv.FormatInt(gen.PID, 10)] = path
 				events = append(events, activityEvent("f"+is, host, "file_activity", at,
 					`{`+proc+`,"operation":"`+op+`","path":"`+path+`"}`))
 			case 1:
 				address := rapid.SampledFrom(addresses).Draw(rt, "address"+is)
 				port := rapid.SampledFrom([]string{"443", "80"}).Draw(rt, "port"+is)
-				networkRows[address+"|"+port+"|"+strconv.FormatInt(gen.PID, 10)] = true
+				drawn[visibilityapi.ActivityNetwork][address+"|"+port+"|"+strconv.FormatInt(gen.PID, 10)] = address
 				events = append(events, activityEvent("n"+is, host, "network_connect", at, `{`+proc+
 					`,"protocol":"tcp","direction":"outbound","remote_address":"`+address+`","remote_port":`+port+`}`))
 			default:
 				name := rapid.SampledFrom(names).Draw(rt, "name"+is)
-				dnsRows[name+"|"+strconv.FormatInt(gen.PID, 10)] = true
+				drawn[visibilityapi.ActivityDNS][name+"|"+strconv.FormatInt(gen.PID, 10)] = name
 				events = append(events, activityEvent("d"+is, host, "dns_query", at,
 					`{`+proc+`,"query_name":"`+name+`","query_type":"A"}`))
 			}
 		}
 		require.NoError(rt, arch.Insert(ctx, events))
-		search := rapid.SampledFrom([]string{"", "A", "b."}).Draw(rt, "search")
+		// Each search matches some artifacts of every class it can name: "A" paths and names, "b." names, "0.1" one address.
+		search := rapid.SampledFrom([]string{"", "A", "b.", "0.1"}).Draw(rt, "search")
 		pageSize := rapid.IntRange(1, 4).Draw(rt, "pageSize")
 		filter := visibilityapi.ActivityFilter{HostID: host, Generations: gens, Search: search, Limit: 1000}
 
-		// read lists a class's rows, whole, and the artifact each names.
+		// read lists a class's rows, whole, and the key that groups each.
 		read := func(class string, limit int) ([]any, []string) {
 			paged := filter
 			paged.Limit = limit
 			var rows []any
-			var artifacts []string
+			var keys []string
 			cursor := ""
 			for range n + 1 {
 				page, err := arch.ActivityPage(ctx, paged, class, cursor)
 				require.NoError(rt, err)
 				for _, f := range page.Files {
-					rows, artifacts = append(rows, f), append(artifacts, f.Path)
+					rows, keys = append(rows, f), append(keys, f.Path+"|"+f.Operation+"|"+strconv.FormatInt(f.PID, 10))
 				}
 				for _, c := range page.Network {
-					rows, artifacts = append(rows, c), append(artifacts, c.RemoteAddress)
+					rows = append(rows, c)
+					keys = append(keys, c.RemoteAddress+"|"+strconv.FormatInt(c.RemotePort, 10)+"|"+strconv.FormatInt(c.PID, 10))
 				}
 				for _, d := range page.DNS {
-					rows, artifacts = append(rows, d), append(artifacts, d.QueryName)
+					rows, keys = append(rows, d), append(keys, d.QueryName+"|"+strconv.FormatInt(d.PID, 10))
 				}
 				if cursor = page.NextCursor; cursor == "" {
-					return rows, artifacts
+					return rows, keys
 				}
 			}
 			rt.Fatalf("%s: the cursors did not end within %d pages", class, n+1)
 			return nil, nil
 		}
-		if search == "" {
-			network, _ := read(visibilityapi.ActivityNetwork, 1000)
-			require.Len(rt, network, len(networkRows))
-			dns, _ := read(visibilityapi.ActivityDNS, 1000)
-			require.Len(rt, dns, len(dnsRows))
-		}
 		for _, class := range []string{visibilityapi.ActivityFiles, visibilityapi.ActivityNetwork, visibilityapi.ActivityDNS} {
-			whole, artifacts := read(class, 1000)
+			var want []string
+			for key, artifact := range drawn[class] {
+				if strings.Contains(strings.ToLower(artifact), strings.ToLower(search)) {
+					want = append(want, key)
+				}
+			}
+			whole, keys := read(class, 1000)
+			require.ElementsMatch(rt, want, keys, "%s: the one read lists each drawn row the search keeps, once", class)
 			paged, _ := read(class, pageSize)
 			require.Equal(rt, whole, paged, class)
-			for _, artifact := range artifacts {
-				require.Contains(rt, strings.ToLower(artifact), strings.ToLower(search), "a search keeps only matching rows")
-			}
 		}
 	})
 }
