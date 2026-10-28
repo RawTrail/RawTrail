@@ -3086,6 +3086,7 @@ components:
             - file_activity
             - agent_tool_call
             - agent_prompt
+            - agent_usage
             - network_connect
             - dns_query
             - application_control_block

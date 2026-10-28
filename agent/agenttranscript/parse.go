@@ -26,6 +26,9 @@ const EventType = "agent_tool_call"
 // PromptEventType is the wire event type of one prompt the user typed.
 const PromptEventType = "agent_prompt"
 
+// UsageEventType is the event type of the tokens one assistant message used (issue #1427).
+const UsageEventType = "agent_usage"
+
 // maxPromptBytes caps a prompt's text on the wire. A prompt can hold a pasted file; the first 16 KiB say what was asked.
 const maxPromptBytes = 16 << 10
 
@@ -173,8 +176,21 @@ type transcriptLine struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`
 	PromptSource string `json:"promptSource"`
-	Message      struct {
+	// PermissionMode is the permission mode a user entry, or a permission-mode entry, records as in force from then on.
+	PermissionMode string `json:"permissionMode"`
+	Message        struct {
 		Content json.RawMessage `json:"content"`
+		ID      string          `json:"id"`
+		Model   string          `json:"model"`
+		Usage   *struct {
+			Input         int64 `json:"input_tokens"`
+			Output        int64 `json:"output_tokens"`
+			CacheCreation int64 `json:"cache_creation_input_tokens"`
+			CacheRead     int64 `json:"cache_read_input_tokens"`
+			Details       *struct {
+				Thinking int64 `json:"thinking_tokens"`
+			} `json:"output_tokens_details"`
+		} `json:"usage"`
 	} `json:"message"`
 }
 
@@ -198,6 +214,55 @@ type Line struct {
 	Turn   string
 	// TurnSession is the session the user entry that names Turn belongs to, so a reader takes the turn only from its own session.
 	TurnSession string
+	// Usage is the tokens an assistant message used, and Mode the permission mode an entry records as in force (issue #1427), named
+	// for ModeSession's session.
+	Usage       *Usage
+	Mode        string
+	ModeSession string
+}
+
+// syntheticModel is the model Claude Code names on a message it wrote itself (an error, an interrupted turn), which used no tokens.
+const syntheticModel = "<synthetic>"
+
+// Usage is the tokens one assistant message used (issue #1427), as its transcript records them. Claude Code writes one entry per
+// content block of a streamed message, each carrying the whole message's usage, so the message is counted once by its id: its event
+// id is the same however many of its entries are read.
+type Usage struct {
+	SessionID string
+	MessageID string
+	Model     string
+	// Input, Output, CacheCreation and CacheRead are the message's input and output tokens and the input tokens written to and read
+	// from the prompt cache; Thinking is the part of Output spent thinking.
+	Input, Output, CacheCreation, CacheRead, Thinking int64
+	Sidechain                                         bool
+	At                                                time.Time
+	// PromptID is the turn the message was made in, and PermissionMode the mode in force then, both from the reader's position.
+	PromptID       string
+	PermissionMode string
+	OwnerUID       uint32
+}
+
+// EventID is the message's event id, the same however many of its entries are read.
+func (u Usage) EventID() string {
+	return eventID(UsageEventType, u.OwnerUID, u.SessionID, u.MessageID)
+}
+
+// Payload is the usage's wire payload; empty fields are left out.
+func (u Usage) Payload() map[string]any {
+	out := map[string]any{
+		"agent_session_id": u.SessionID, "message_id": u.MessageID, "model": u.Model, "input_tokens": u.Input,
+		"output_tokens": u.Output, "cache_creation_input_tokens": u.CacheCreation, "cache_read_input_tokens": u.CacheRead,
+		"thinking_tokens": u.Thinking, "uid": u.OwnerUID,
+	}
+	for key, value := range map[string]string{"prompt_id": u.PromptID, "permission_mode": u.PermissionMode} {
+		if value != "" {
+			out[key] = value
+		}
+	}
+	if u.Sidechain {
+		out["sidechain"] = true
+	}
+	return out
 }
 
 // ParseLine returns what one transcript line records: one tool call per tool_use block of an assistant turn, or the prompt of a user
@@ -211,12 +276,40 @@ func ParseLine(raw []byte) (Line, error) {
 	switch line.Type {
 	case "assistant":
 		calls, err := parseCalls(line)
-		return Line{Calls: calls}, err
+		if err != nil {
+			return Line{}, err
+		}
+		usage, err := parseUsage(line)
+		return Line{Calls: calls, Usage: usage}, err
 	case "user":
 		prompt, err := parsePrompt(line)
-		return Line{Prompt: prompt, Turn: line.PromptID, TurnSession: line.SessionID}, err
+		return Line{Prompt: prompt, Turn: line.PromptID, TurnSession: line.SessionID, Mode: line.PermissionMode,
+			ModeSession: line.SessionID}, err
+	case "permission-mode":
+		return Line{Mode: line.PermissionMode, ModeSession: line.SessionID}, nil
 	}
 	return Line{}, nil
+}
+
+// parseUsage reads the tokens an assistant message used. A message Claude Code wrote itself, and a line a forked session copied from
+// the session it was forked from, which that session already counts, used none of this session's.
+func parseUsage(line transcriptLine) (*Usage, error) {
+	u := line.Message.Usage
+	if u == nil || line.Message.Model == syntheticModel || (line.OriginSession != "" && line.OriginSession != line.SessionID) {
+		return nil, nil
+	}
+	at, err := time.Parse(time.RFC3339Nano, line.Timestamp)
+	if err != nil || line.SessionID == "" || line.Message.ID == "" {
+		return nil, errUnreadable
+	}
+	usage := &Usage{
+		SessionID: line.SessionID, MessageID: line.Message.ID, Model: line.Message.Model, Input: u.Input, Output: u.Output,
+		CacheCreation: u.CacheCreation, CacheRead: u.CacheRead, Sidechain: line.IsSidechain, At: at,
+	}
+	if u.Details != nil {
+		usage.Thinking = u.Details.Thinking
+	}
+	return usage, nil
 }
 
 // parseCalls reads an assistant turn's tool calls.
