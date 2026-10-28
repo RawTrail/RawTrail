@@ -28,6 +28,8 @@ final class CredentialGuardSubscriber: Sendable {
     /// processes is the observed agent subtrees. ES calls the handler serially, and only the handler reads or writes the set.
     private nonisolated(unsafe) var processes = AgentProcessSet(capacity: maxProcesses)
     private static let maxProcesses = 4096
+    /// refusalsPerLog spaces the log lines a runaway subtree past maxProcesses produces.
+    private static let refusalsPerLog = 1_000
 
     /// queue serializes every change to the muted set, the start and each refresh. `applied` is only read and written on it.
     private let queue = DispatchQueue(label: "io.rawtrail.credentialguard")
@@ -128,7 +130,13 @@ final class CredentialGuardSubscriber: Sendable {
     private func handleMessage(_ client: OpaquePointer, _ message: UnsafePointer<es_message_t>) {
         let msg = message.pointee
         if let change = AgentProcessSet.Change(of: msg) {
+            let refusedBefore = processes.refused
             processes.apply(change)
+            if processes.refused > refusedBefore, processes.refused % Self.refusalsPerLog == 1 {
+                // A process the full set refused is unguarded, so say so: on the first refusal and every refusalsPerLog after it.
+                let summary = "credential-guard process set full: \(processes.refused) processes unguarded (\(processes.count) observed)"
+                logger.error("\(summary, privacy: .public)")
+            }
             return
         }
         guard msg.event_type == ES_EVENT_TYPE_AUTH_OPEN else {
