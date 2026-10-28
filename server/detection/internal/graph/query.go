@@ -424,7 +424,16 @@ func buildForest(procs []api.Process, resolved map[int64]int64) []api.ProcessNod
 
 	childIDs := make(map[int64][]int64) // parentID -> child IDs
 	var rootIDs []int64
-	for _, node := range nodeMap {
+	// In the read's order rather than the index's, so a forest lists its roots and each node's children the same way every time it is
+	// read (issue #1424): a scoped read oldest first, and a scope cut at a bound keeps the same processes on every request.
+	placed := make(map[int64]bool, len(procs))
+	for i := range procs {
+		// A row the read holds twice is placed once, as the index holds it once.
+		node, ok := nodeMap[procs[i].ID]
+		if !ok || placed[node.ID] {
+			continue
+		}
+		placed[node.ID] = true
 		// A parent resolved by the caller wins over matching on the process number. byPID keeps the NEWEST row per number, which
 		// is the right guess when the only evidence is the page, and the wrong answer when the number has been reused: a child
 		// whose parent generation was fetched deliberately would be hung under whichever later generation happens to share the

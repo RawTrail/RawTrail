@@ -111,3 +111,59 @@ func TestBuildScopedTree_PagesFromItsLastRow(t *testing.T) {
 	}
 	assert.Len(t, seen, size)
 }
+
+// A session's pages list each process once, though a launch on one page names a process of the session that its own page reads: the
+// link still names it, so the client joins it to its launcher once both pages are read (issue #1424 review).
+//
+// spec:server-rest-api/agent-session-tree-pages/a-session-tree-pages-by-cursor
+func TestBuildScopedTree_PagesListALaunchedSessionProcessOnce(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	seed := seedLaunches(t, store, db, "host-a")
+	query := graph.NewQuery(store)
+	scope := api.TreeScope{AgentSessionID: launchSession}
+	seen := map[int64]int{}
+	var links []api.ProcessLink
+	for page := 0; page < 20; page++ {
+		res, err := query.BuildScopedTree(t.Context(), "host-a", scope, 2, true, 0)
+		require.NoError(t, err)
+		for id, n := range forestIDs(res.Roots) {
+			seen[id] += n
+		}
+		links = append(links, res.Links...)
+		if res.Next == nil {
+			break
+		}
+		scope.After = *res.Next
+	}
+	for id, n := range seen {
+		assert.Equal(t, 1, n, "row %d listed %d times across the pages", id, n)
+	}
+	assert.Equal(t, 1, seen[seed.textEdit], "the launched TextEdit, which the session holds, is listed")
+	assert.Contains(t, links, api.ProcessLink{From: seed.open, To: seed.textEdit, Kind: api.ProcessLinkInferredLaunch},
+		"its launch is still named")
+}
+
+// A last page counts the scope as it stands: when retention removed the earlier page's rows, the rows it returns are the whole scope,
+// and its total is exact, not a floor (issue #1424 review).
+//
+// spec:server-rest-api/agent-session-tree-pages/a-session-tree-pages-by-cursor
+func TestBuildScopedTree_LastPageCountIsExact(t *testing.T) {
+	t.Parallel()
+	store, db := openProcessStore(t)
+	seedLargeSession(t, db, "host-a", "retained", 4)
+	query := graph.NewQuery(store)
+	scope := api.TreeScope{AgentSessionID: "retained"}
+	first, err := query.BuildScopedTree(t.Context(), "host-a", scope, 2, true, 0)
+	require.NoError(t, err)
+	require.NotNil(t, first.Next)
+	_, err = db.ExecContext(t.Context(), "DELETE FROM processes WHERE host_id = 'host-a' AND agent_session_id = 'retained' AND pid < 10002")
+	require.NoError(t, err)
+	scope.After = *first.Next
+	last, err := query.BuildScopedTree(t.Context(), "host-a", scope, 2, true, 0)
+	require.NoError(t, err)
+	assert.False(t, last.Truncated)
+	assert.Nil(t, last.Next)
+	assert.Equal(t, int64(2), last.TotalMatched)
+	assert.False(t, last.TotalMatchedCapped, "an exact count is not a floor")
+}

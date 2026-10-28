@@ -101,6 +101,32 @@ func TestEventArchive_ActivityPages(t *testing.T) {
 			assert.ErrorIs(t, err, visibilityapi.ErrInvalidActivityCursor, tc.class)
 		}
 	})
+	t.Run("a search keeps the rows whose artifact holds it, regardless of case", func(t *testing.T) {
+		t.Parallel()
+		// Pages of one row, so the search must continue past its cursor to the other process's row of the path.
+		searched := small
+		searched.Search, searched.Limit = "/R/F1", 1
+		page, err := arch.ActivityPage(ctx, searched, visibilityapi.ActivityFiles, "")
+		require.NoError(t, err)
+		require.Len(t, page.Files, 1)
+		require.NotEmpty(t, page.NextCursor)
+		rest, err := arch.ActivityPage(ctx, searched, visibilityapi.ActivityFiles, page.NextCursor)
+		require.NoError(t, err)
+		require.Len(t, rest.Files, 1)
+		assert.Empty(t, rest.NextCursor, "both processes' rows of /r/f1, and no other")
+		assert.Equal(t, []string{"/r/f1", "/r/f1"}, []string{page.Files[0].Path, rest.Files[0].Path})
+		assert.NotEqual(t, page.Files[0].PID, rest.Files[0].PID)
+		searched.Limit = 10
+		searched.Search = "10.0.0.0"
+		network, err := arch.ActivityPage(ctx, searched, visibilityapi.ActivityNetwork, "")
+		require.NoError(t, err)
+		assert.Len(t, network.Network, 2)
+		searched.Search = "N0.EXAMPLE"
+		dns, err := arch.ActivityPage(ctx, searched, visibilityapi.ActivityDNS, "")
+		require.NoError(t, err)
+		require.Len(t, dns.DNS, 2)
+		assert.Equal(t, "n0.example", dns.DNS[0].QueryName)
+	})
 	t.Run("no cursor reads the first page", func(t *testing.T) {
 		t.Parallel()
 		page, err := arch.ActivityPage(ctx, small, visibilityapi.ActivityFiles, "")

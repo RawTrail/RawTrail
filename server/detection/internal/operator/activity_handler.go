@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
 	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
@@ -45,7 +46,8 @@ type activityPageResponse struct {
 }
 
 // handleActivityPage serves GET /api/hosts/{host_id}/activity/{class}: the page of one class (files, network or dns) of a scope's
-// activity after ?cursor=, the cursor the rollup or the previous page handed out (issue #1424). The scope is named as for the rollup.
+// activity after ?cursor=, the cursor the rollup or the previous page handed out (issue #1424), optionally searched by ?q=. The scope
+// is named as for the rollup.
 func (h *Handler) handleActivityPage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	hostID := r.PathValue("host_id")
@@ -68,6 +70,8 @@ func (h *Handler) handleActivityPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter.Limit = min(max(httpserver.ParseIntParam(r, "limit", activityPageLimit), 1), activityPageLimit)
+	// ?q= keeps the rows whose artifact holds it; a cursor continues the list it was handed out for, so a client sends the same q.
+	filter.Search = strings.TrimSpace(r.URL.Query().Get("q"))
 	class := r.PathValue("class")
 	page, err := h.activity.ActivityPage(ctx, filter, class, r.URL.Query().Get("cursor"))
 	if err != nil {

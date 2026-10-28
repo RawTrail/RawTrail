@@ -259,6 +259,9 @@ type ActivityFilter struct {
 	// before a reboot can, is not counted.
 	FromNs int64
 	Limit  int
+	// Search, when set, keeps only the rows of an ActivityPage whose artifact holds it, case-insensitively: a file's path or a rename's
+	// origin, a destination's address or name, a lookup's name (issue #1424). The rollup's totals and lists do not read it.
+	Search string
 }
 
 // GenerationSpan is a process generation and the span its events are counted in: from FromNs, up to but excluding ToNs, zero ToNs

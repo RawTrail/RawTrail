@@ -33,7 +33,12 @@ func (q *Query) BuildScopedTree(
 		if err != nil {
 			return api.ProcessTreeResult{}, err
 		}
-		res.TotalMatched, res.TotalMatchedCapped = resolveTotalMatched(res.Returned, total, capped)
+		if truncated {
+			res.TotalMatched, res.TotalMatchedCapped = resolveTotalMatched(res.Returned, total, capped)
+		} else {
+			// The last page proved no row beyond it; the count stands as counted, at least what this page returned.
+			res.TotalMatched, res.TotalMatchedCapped = max(total, res.Returned), capped
+		}
 	}
 	if truncated {
 		last := procs[len(procs)-1]
@@ -45,14 +50,14 @@ func (q *Query) BuildScopedTree(
 	if err != nil {
 		return api.ProcessTreeResult{}, err
 	}
-	forest = append(forest, launched...)
+	forest = append(forest, inOtherScope(launched, scope)...)
 	// So does what those apps asked launchd for: the services that name one of them as responsible (issue #1340), the launched apps
 	// included, since an app the agent opened is the usual one.
 	services, servicesExtra, servicesCut, err := q.serviceLinks(ctx, hostID, forest, true)
 	if err != nil {
 		return api.ProcessTreeResult{}, err
 	}
-	forest = append(forest, servicesExtra...)
+	forest = append(forest, inOtherScope(servicesExtra, scope)...)
 	links = append(links, services...)
 	res.Links = links
 	// A launched program's descendants cut at their bound are a partial read like any other.
@@ -63,6 +68,24 @@ func (q *Query) BuildScopedTree(
 	}
 	res.Roots = aggregateSiblingsKeeping(forest, linkEnds(res.Links, pinnedID))
 	return res, nil
+}
+
+// inOtherScope keeps what a scoped read adds through its launches and services that is outside its scope. A process of the scope is
+// read by the scope's page that holds it, so adding it through a link as well, or under a launched program that is not the scope's,
+// would list it twice across the pages (issue #1424): its link still names it, and its creator id joins it to the program once its
+// page is read.
+func inOtherScope(extra []api.ProcessNode, scope api.TreeScope) []api.ProcessNode {
+	var out []api.ProcessNode
+	for _, n := range extra {
+		ownSession := scope.AgentSessionID != "" && n.AgentSessionID != nil && *n.AgentSessionID == scope.AgentSessionID
+		ownStory := scope.AgentSessionID == "" && n.StoryRootID != nil && *n.StoryRootID == scope.StoryRootID
+		if ownSession || ownStory {
+			continue
+		}
+		n.Children = inOtherScope(n.Children, scope)
+		out = append(out, n)
+	}
+	return out
 }
 
 // MaxScopedRead is the most rows a scoped read lists (issue #1424): four times the tree endpoint's page, so the server shapes a

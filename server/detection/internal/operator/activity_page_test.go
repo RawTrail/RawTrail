@@ -36,7 +36,7 @@ func TestActivityPageHandler(t *testing.T) {
 		reader := &fakeActivityReader{page: visibilityapi.ActivityPage{
 			DNS: []visibilityapi.DNSActivityRow{{QueryName: "example.com"}}, NextCursor: "next",
 		}}
-		status, out := getActivityPage(t, reader, "/api/hosts/h1/activity/dns?scope=process&process=2&cursor=abc&limit=7")
+		status, out := getActivityPage(t, reader, "/api/hosts/h1/activity/dns?scope=process&process=2&cursor=abc&limit=7&q=%20example%20")
 		require.Equal(t, http.StatusOK, status)
 		assert.JSONEq(t, `[{"query_name":"example.com","addresses":null,"pid":0,"pidversion":0,"count":0,"first_ns":0,"last_ns":0}]`,
 			string(out["rows"]))
@@ -44,6 +44,7 @@ func TestActivityPageHandler(t *testing.T) {
 		assert.Equal(t, "dns", reader.class)
 		assert.Equal(t, "abc", reader.cursor)
 		assert.Equal(t, 7, reader.filter.Limit)
+		assert.Equal(t, "example", reader.filter.Search)
 		assert.Equal(t, []visibilityapi.ProcessGeneration{{PID: 20, PIDVersion: 200}}, reader.filter.Generations)
 	})
 

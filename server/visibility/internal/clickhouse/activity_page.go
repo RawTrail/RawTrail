@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/rawtrail/rawtrail/server/visibility/api"
@@ -17,6 +18,15 @@ const (
 	networkOrder = "first, address, port, protocol, pid, pv"
 	dnsOrder     = "first, name, pid, pv"
 )
+
+// activitySearch is what each class's search matches: the artifact a row names, case-insensitively.
+var activitySearch = map[string]string{
+	api.ActivityFiles: "(positionCaseInsensitiveUTF8(JSONExtractString(payload, 'path'), ?) > 0 OR " +
+		"positionCaseInsensitiveUTF8(JSONExtractString(payload, 'source_path'), ?) > 0)",
+	api.ActivityNetwork: "(positionCaseInsensitiveUTF8(JSONExtractString(payload, 'remote_address'), ?) > 0 OR " +
+		"positionCaseInsensitiveUTF8(JSONExtractString(payload, 'remote_hostname'), ?) > 0)",
+	api.ActivityDNS: "positionCaseInsensitiveUTF8(JSONExtractString(payload, 'query_name'), ?) > 0",
+}
 
 // keyset is a list row's place in its class's order, the values of the order's columns, or nil for the start of the list.
 type keyset []any
@@ -124,6 +134,11 @@ func (s *Store) ActivityPage(ctx context.Context, filter api.ActivityFilter, cla
 		return page, nil
 	}
 	scope, args := activityScope(filter)
+	if filter.Search != "" {
+		clause := activitySearch[class]
+		scope += " AND " + clause
+		args = append(slices.Clip(args), slices.Repeat([]any{filter.Search}, strings.Count(clause, "?"))...)
+	}
 	ctx = withActivityQuerySize(ctx)
 	var cut bool
 	switch class {
