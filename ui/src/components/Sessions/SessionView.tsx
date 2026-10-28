@@ -37,6 +37,7 @@ import {
 } from "./sessionTree";
 import { commandLine } from "./toolCommand";
 import { sessionPath } from "./sessionPath";
+import { mergeTreePages } from "./treePages";
 
 // AUTO_EXPAND_GROUPS is the most commands a session can have and still open with every one expanded. A longer session opens with
 // only the commands an alert was raised in expanded, so the operator starts from what was flagged.
@@ -214,6 +215,21 @@ export function SessionView() {
     return () => { cancelled = true; };
   }, [hostId, sessionId, readKey]);
 
+  // The process tree's next page, read on request and joined to the pages before it (issue #1425), for the session it was asked for.
+  const [moreProcesses, setMoreProcesses] = useState<{ key: string; loading: boolean; failed: boolean } | null>(null);
+  const processesMore = moreProcesses?.key === readKey ? moreProcesses : null;
+  const loadMoreProcesses = useCallback(() => {
+    const cursor = tree?.next_cursor;
+    if (!cursor) return;
+    setMoreProcesses({ key: readKey, loading: true, failed: false });
+    getSessionTree(hostId, sessionId, undefined, cursor)
+      .then((page) => {
+        setRead((r) => (r?.key === readKey && r.tree ? { ...r, tree: mergeTreePages(r.tree, page) } : r));
+        setMoreProcesses({ key: readKey, loading: false, failed: false });
+      })
+      .catch(() => { setMoreProcesses({ key: readKey, loading: false, failed: true }); });
+  }, [tree, hostId, sessionId, readKey]);
+
   // The session's commands, a page at a time, as the server groups them (issue #1425). A search asks the server for the commands it
   // finds once the operator stops typing.
   const searched = useDebounced(query.trim(), SEARCH_DELAY_MS);
@@ -359,7 +375,15 @@ export function SessionView() {
               />
             )}
             {view === "processes" && (
-              <ProcessesBody read={current} forest={forest} agent={agentLabel(agentName)} showOwn={showOwn} onShowOwn={setShowOwn} />
+              <ProcessesBody
+                read={current}
+                forest={forest}
+                agent={agentLabel(agentName)}
+                showOwn={showOwn}
+                onShowOwn={setShowOwn}
+                more={processesMore}
+                onMore={loadMoreProcesses}
+              />
             )}
             {view === "activity" && (
               <ActivityTabs
@@ -516,13 +540,16 @@ function SessionBody({ groups, commands, expandAll }: {
 
 // ProcessesBody lists every process the session ran as one tree rooted at the agent (issue #1335), with nothing hidden or folded: the
 // forensic counterpart to the commands, which group and trim the same processes for reading.
-function ProcessesBody({ read, forest, agent, showOwn, onShowOwn }: {
+function ProcessesBody({ read, forest, agent, showOwn, onShowOwn, more, onMore }: {
   readonly read: SessionRead | null;
   readonly forest: SessionRow[];
   // agent is the name the view calls the session's agent by, such as Claude Code.
   readonly agent: string;
   readonly showOwn: boolean;
   readonly onShowOwn: (show: boolean) => void;
+  // more is the state of the next page's read; onMore reads it.
+  readonly more: { loading: boolean; failed: boolean } | null;
+  readonly onMore: () => void;
 }) {
   if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
   if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
@@ -547,6 +574,12 @@ function ProcessesBody({ read, forest, agent, showOwn, onShowOwn }: {
         </div>
       )}
       <ProcessRows rows={forest} />
+      {more?.failed && <p className="session-view__notice" role="status">The next processes could not be loaded.</p>}
+      {read.tree.next_cursor && (
+        <Button variant="text-link" disabled={more?.loading === true} onClick={onMore}>
+          Load more processes
+        </Button>
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@
 // session-probe endpoint.
 import type {
   ActivityHistogram,
+  ActivityPage,
   ActivityResponse,
   AgentSessionLineage,
   AgentSessionResult,
@@ -369,8 +370,10 @@ export async function getProcessTree(
 // read by its index, and no sibling aggregation, since the session view groups the processes itself. limit bounds the rows; its
 // default is the server's cap, the same bound the session's activity read resolves its processes with, so every process the activity
 // names is in the tree the view can open it from.
-export async function getSessionTree(hostId: string, sessionId: string, limit = 5000): Promise<TreeResponse> {
+export async function getSessionTree(hostId: string, sessionId: string, limit = 5000, cursor?: string): Promise<TreeResponse> {
   const query = new URLSearchParams({ scope: "session", session: sessionId, flatten: "1", limit: String(limit) });
+  // A cut read's next page continues after its last row (issue #1424).
+  if (cursor) query.set("cursor", cursor);
   return fetchJSON<TreeResponse>(`/hosts/${encodeURIComponent(hostId)}/tree?${queryString(query)}`);
 }
 
@@ -379,15 +382,33 @@ export type ActivityScopeQuery =
   | { kind: "process" | "subtree"; process: number }
   | { kind: "session"; session: string };
 
-// getActivity reads what a scope touched on a host: its files, network destinations and DNS names (issue #1285).
-export async function getActivity(hostId: string, scope: ActivityScopeQuery): Promise<ActivityResponse> {
+// activityScopeParams names an activity scope as the activity reads take it.
+function activityScopeParams(scope: ActivityScopeQuery): URLSearchParams {
   const query = new URLSearchParams({ scope: scope.kind });
   if (scope.kind === "session") {
     query.set("session", scope.session);
   } else {
     query.set("process", String(scope.process));
   }
-  return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${queryString(query)}`);
+  return query;
+}
+
+// getActivity reads what a scope touched on a host: its files, network destinations and DNS names (issue #1285).
+export async function getActivity(hostId: string, scope: ActivityScopeQuery): Promise<ActivityResponse> {
+  return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${queryString(activityScopeParams(scope))}`);
+}
+
+// ActivityClassName names one class of a scope's activity.
+export type ActivityClassName = "files" | "network" | "dns";
+
+// getActivityPage reads the page of one class of a scope's activity after a cursor the rollup or the previous page handed out
+// (issue #1424).
+export async function getActivityPage<Row>(
+  hostId: string, scope: ActivityScopeQuery, cls: ActivityClassName, cursor: string,
+): Promise<ActivityPage<Row>> {
+  const query = activityScopeParams(scope);
+  query.set("cursor", cursor);
+  return fetchJSON<ActivityPage<Row>>(`/hosts/${encodeURIComponent(hostId)}/activity/${cls}?${queryString(query)}`);
 }
 
 // SessionCommandsQuery pages a session's commands: the previous page's cursor, a search, and the page size.

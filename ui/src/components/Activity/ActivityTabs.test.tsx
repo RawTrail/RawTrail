@@ -262,3 +262,46 @@ describe("ActivityTabs", () => {
     expect(screen.queryByText("4 connections to 3 destinations")).not.toBeInTheDocument();
   });
 });
+
+// A cut list reads its next page on request (issue #1424), from the cursor the rollup named and then each page's own.
+describe("ActivityTabs paging", () => {
+  const S = 1_000_000_000;
+  const dnsRow = (name: string, first: number) =>
+    ({ pid: 43027, pidversion: 3552899, count: 1, first_ns: first * S, last_ns: first * S, query_name: name, addresses: [] });
+
+  // spec:web-ui/agent-session-view-pages-its-processes-and-activity/the-rest-of-an-activity-list-comes-on-request
+  it("reads a cut list's rows page by page until the last", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({
+      dns: { events: 3, distinct: 3, truncated: true, rows: [dnsRow("a.example", 1)], next_cursor: "c1" },
+    }));
+    const page = vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, _c, cursor) => Promise.resolve(cursor === "c1"
+      ? { rows: [dnsRow("b.example", 2)], next_cursor: "c2" }
+      : { rows: [dnsRow("c.example", 3)] }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    expect(screen.getByRole("status")).toHaveTextContent("Showing the first 1 row");
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("b.example")).toBeVisible();
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "c1");
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("c.example")).toBeVisible();
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "c2");
+    expect(screen.getByText("a.example")).toBeVisible();
+    expect(screen.getByText("b.example")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more rows" })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("says when the next rows could not be loaded, and offers them again", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({
+      files: { events: 2, distinct: 2, truncated: true, next_cursor: "f1",
+        rows: [{ pid: 43017, pidversion: 3552872, count: 1, first_ns: S, last_ns: S, operation: "modify", path: "/r/a" }] },
+    }));
+    vi.spyOn(api, "getActivityPage").mockRejectedValue(new Error("down"));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Files/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Load more rows" })).toBeVisible();
+  });
+});

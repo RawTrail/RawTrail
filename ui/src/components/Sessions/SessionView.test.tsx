@@ -180,6 +180,37 @@ describe("SessionView commands from the server", () => {
     expect(spy).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ q: "step 1", cursor: "" }));
   });
 
+  // spec:web-ui/agent-session-view-pages-its-processes-and-activity/the-rest-of-the-processes-come-on-request
+  it("reads the process tree's next page on request, listing each process under its creator", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const late = proc(2298999, 80999, 900, "/usr/bin/git", ["git", "status"], [], { parent_process_id: 2298322 });
+    const spy = vi.spyOn(api, "getSessionTree").mockImplementation((_h, _s, _l, cursor) => Promise.resolve(cursor === "p2"
+      ? tree({ roots: [late], returned: 1, total_matched: 17, truncated: false })
+      : tree({ returned: 16, total_matched: 17, truncated: true, next_cursor: "p2" })));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    expect(screen.queryByRole("button", { name: "git" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Load more processes" }));
+    const git = await screen.findByRole("button", { name: "git" });
+    expect(git).toBeVisible();
+    expect(spy).toHaveBeenLastCalledWith("H1", SESSION, undefined, "p2");
+    // Under the shell that created it, beside the ls and head it ran.
+    expect(git.closest("ul")?.parentElement?.querySelector("button")?.textContent).toBe("zsh");
+    expect(screen.queryByRole("button", { name: "Load more processes" })).toBeNull();
+  });
+
+  it("says when the process tree's next page could not be read, and offers it again", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockImplementation((_h, _s, _l, cursor) => (cursor
+      ? Promise.reject(new Error("down"))
+      : Promise.resolve(tree({ truncated: true, next_cursor: "p2" }))));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more processes" }));
+    expect(await screen.findByText("The next processes could not be loaded.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Load more processes" })).toBeVisible();
+  });
+
   // spec:web-ui/agent-session-view-pages-its-commands/the-header-counts-the-whole-session
   it("counts the session's commands and processes from its totals", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
