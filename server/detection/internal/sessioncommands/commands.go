@@ -42,17 +42,23 @@ func fromNodes(nodes []*node) []api.ProcessNode {
 	return out
 }
 
-// locate returns the node with the given row id and the slice that holds it.
-func locate(nodes *[]*node, id int64) (*node, *[]*node) {
+// located is a node and the slice that holds it.
+type located struct {
+	node     *node
+	siblings *[]*node
+}
+
+// locate returns the node with the given row id and the slice that holds it, or nil when the forest does not hold it.
+func locate(nodes *[]*node, id int64) *located {
 	for _, n := range *nodes {
 		if n.process.ID == id {
-			return n, nodes
+			return &located{node: n, siblings: nodes}
 		}
-		if found, siblings := locate(&n.children, id); found != nil {
-			return found, siblings
+		if found := locate(&n.children, id); found != nil {
+			return found
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 func holds(n *node, id int64) bool {
@@ -79,14 +85,13 @@ func ApplyLaunchLinks(roots []api.ProcessNode, links []api.ProcessLink) LogicalF
 	out := LogicalForest{Inferred: map[int64]bool{}, Services: map[int64]bool{}}
 	forest := toNodes(roots)
 	for _, link := range links {
-		launched, siblings := locate(&forest, link.To)
-		launcher, _ := locate(&forest, link.From)
-		if launched == nil || launcher == nil || holds(launched, link.From) {
+		launched, launcher := locate(&forest, link.To), locate(&forest, link.From)
+		if launched == nil || launcher == nil || holds(launched.node, link.From) {
 			continue
 		}
-		*siblings = slices.DeleteFunc(*siblings, func(n *node) bool { return n == launched })
-		launcher.children = append(launcher.children, launched)
-		slices.SortStableFunc(launcher.children, func(a, b *node) int { return byForkTime(a.process, b.process) })
+		*launched.siblings = slices.DeleteFunc(*launched.siblings, func(n *node) bool { return n == launched.node })
+		launcher.node.children = append(launcher.node.children, launched.node)
+		slices.SortStableFunc(launcher.node.children, func(a, b *node) int { return byForkTime(a.process, b.process) })
 		if link.Kind == api.ProcessLinkResponsibleProcess {
 			out.Services[link.To] = true
 		} else {
