@@ -106,6 +106,8 @@ func TestLoad(t *testing.T) {
 				assert.Equal(t, 180, c.AlertRetentionDays)
 				// Monitor records are kept for the week the promote decision is made over (issue #994).
 				assert.Equal(t, 7, c.MonitorRecordRetentionDays)
+				// Events keep the 30 days the archive's migration set, so an upgrade does not change how long events are kept.
+				assert.Equal(t, 30, c.EventRetentionDays)
 				// The exported default has to BE the one a loaded config carries: it exists so the deployments this project
 				// ships can be checked against the drain they must outlast, and an accessor that drifted from the value in
 				// use would have that check validating the wrong number (issue #1127).
@@ -176,6 +178,29 @@ func TestLoad(t *testing.T) {
 			wantErr: "EDR_ALERT_RETENTION_DAYS=200000 exceeds the maximum",
 		},
 		{
+			// Event retention is its own knob: turning process retention off must not leave the archive keeping events forever.
+			name: "the event retention window is independent of EDR_RETENTION_DAYS",
+			env:  withExtra(minEnv, map[string]string{"EDR_RETENTION_DAYS": "0", "EDR_EVENT_RETENTION_DAYS": "7"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, 7, c.EventRetentionDays)
+				assert.Equal(t, 0, c.RetentionDays)
+			},
+		},
+		{
+			// An archive has no "disable": 0 would keep events without bound and fill the disk, so it is refused rather than read
+			// as off.
+			// spec:server-configuration/event-retention-follows-a-setting/an-out-of-range-setting-stops-startup
+			name:    "EDR_EVENT_RETENTION_DAYS=0 is rejected",
+			env:     withExtra(minEnv, map[string]string{"EDR_EVENT_RETENTION_DAYS": "0"}),
+			wantErr: "EDR_EVENT_RETENTION_DAYS=0 must be positive",
+		},
+		{
+			name:    "an EDR_EVENT_RETENTION_DAYS past the maximum is rejected",
+			env:     withExtra(minEnv, map[string]string{"EDR_EVENT_RETENTION_DAYS": "36501"}),
+			wantErr: "EDR_EVENT_RETENTION_DAYS=36501 exceeds the maximum",
+		},
+		{
 			name:    "an EDR_RETENTION_DAYS past the maximum is rejected",
 			env:     withExtra(minEnv, map[string]string{"EDR_RETENTION_DAYS": "36501"}),
 			wantErr: "EDR_RETENTION_DAYS=36501 exceeds the maximum",
@@ -184,9 +209,11 @@ func TestLoad(t *testing.T) {
 			name: "every retention window at the maximum is accepted",
 			env: withExtra(minEnv, map[string]string{
 				"EDR_RETENTION_DAYS": "36500", "EDR_ALERT_RETENTION_DAYS": "36500", "EDR_MONITOR_RETENTION_DAYS": "36500",
+				"EDR_EVENT_RETENTION_DAYS": "36500",
 			}),
 			validate: func(t *testing.T, c *Config) {
 				t.Helper()
+				assert.Equal(t, 36500, c.EventRetentionDays)
 				assert.Equal(t, 36500, c.RetentionDays)
 				assert.Equal(t, 36500, c.AlertRetentionDays)
 				assert.Equal(t, 36500, c.MonitorRecordRetentionDays)

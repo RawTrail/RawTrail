@@ -23,7 +23,10 @@ type Deps struct {
 	// ClickHouseDB is the ClickHouse pool backing the EventArchive (opened via clickhouse.Open). Optional: when nil, the context runs
 	// without an archive (queue only) and EventArchive returns nil. The cutover wires it in cmd/main.
 	ClickHouseDB *sqlx.DB
-	Logger       *slog.Logger
+	// EventRetentionDays is how long the archive keeps events: ApplySchema sets its TTL to it (issue #1434). 0 leaves the TTL the
+	// migrations set.
+	EventRetentionDays int
+	Logger             *slog.Logger
 }
 
 // Visibility is the handle cmd/main holds for the visibility context.
@@ -32,6 +35,7 @@ type Visibility struct {
 	eventArchive *clickhouse.Store
 	db           *sqlx.DB
 	chDB         *sqlx.DB
+	retention    int
 	logger       *slog.Logger
 }
 
@@ -55,7 +59,7 @@ func New(deps Deps) (*Visibility, error) {
 	if err != nil {
 		return nil, fmt.Errorf("visibility bootstrap: %w", err)
 	}
-	v := &Visibility{eventLog: el, db: deps.DB, chDB: deps.ClickHouseDB, logger: logger}
+	v := &Visibility{eventLog: el, db: deps.DB, chDB: deps.ClickHouseDB, retention: deps.EventRetentionDays, logger: logger}
 	if deps.ClickHouseDB != nil {
 		archive, err := clickhouse.New(deps.ClickHouseDB)
 		if err != nil {
@@ -78,13 +82,26 @@ func (v *Visibility) EventArchive() api.EventArchive {
 }
 
 // ApplySchema runs visibility's migrations: the MySQL queue always, and the ClickHouse event archive when a ClickHouse connection was
-// provided. Idempotent.
+// provided, whose TTL it then sets to the event retention. Idempotent.
 func (v *Visibility) ApplySchema(ctx context.Context) error {
 	if err := ApplySchema(ctx, v.db); err != nil {
 		return err
 	}
-	if v.chDB != nil {
-		return ApplyClickHouseSchema(ctx, v.chDB)
+	if v.chDB == nil {
+		return nil
+	}
+	if err := ApplyClickHouseSchema(ctx, v.chDB); err != nil {
+		return err
+	}
+	if v.retention == 0 {
+		return nil
+	}
+	changed, err := clickhouse.ApplyEventRetention(ctx, v.chDB, v.retention)
+	if err != nil {
+		return fmt.Errorf("visibility: event retention: %w", err)
+	}
+	if changed {
+		v.logger.InfoContext(ctx, "event retention set", "edr.event_retention_days", v.retention)
 	}
 	return nil
 }
