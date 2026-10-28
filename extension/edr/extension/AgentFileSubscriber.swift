@@ -196,7 +196,7 @@ extension ProcessKey {
 extension AgentProcessSet {
     /// Change is what one FORK, EXEC or EXIT does to the set, read from the message while it is valid.
     enum Change {
-        case fork(parent: ProcessKey, child: ProcessKey)
+        case fork(parent: ProcessKey, child: ProcessKey, root: Bool)
         case exec(from: ProcessKey, to: ProcessKey, root: Bool)
         case exit(ProcessKey)
 
@@ -205,7 +205,8 @@ extension AgentProcessSet {
             let actor = ProcessKey(msg.process.pointee.audit_token)
             switch msg.event_type {
             case ES_EVENT_TYPE_NOTIFY_FORK:
-                self = .fork(parent: actor, child: ProcessKey(msg.event.fork.child.pointee.audit_token))
+                let root = isAgentRoot(codeSigning: ESFSubscriber.extractCodeSigning(from: msg.process.pointee), env: nil)
+                self = .fork(parent: actor, child: ProcessKey(msg.event.fork.child.pointee.audit_token), root: root)
             case ES_EVENT_TYPE_NOTIFY_EXEC:
                 var exec = msg.event.exec
                 let target = exec.target.pointee
@@ -223,8 +224,8 @@ extension AgentProcessSet {
 
     mutating func apply(_ change: Change) {
         switch change {
-        case let .fork(parent, child):
-            fork(parent: parent, child: child)
+        case let .fork(parent, child, root):
+            fork(parent: parent, child: child, root: root)
         case let .exec(old, new, root):
             exec(from: old, to: new, root: root)
         case let .exit(key):

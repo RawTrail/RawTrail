@@ -46,8 +46,12 @@ struct AgentProcessSet {
         tracked.contains(key)
     }
 
-    /// fork observes the child of an observed parent.
-    mutating func fork(parent: ProcessKey, child: ProcessKey) {
+    /// fork observes the child of an observed parent. A fork by a root starts observing the parent too: a Claude Code process that
+    /// exec'd before the subscriber started was never seen as a root, and its helpers (`rg`, `git`) carry no session id of their own.
+    mutating func fork(parent: ProcessKey, child: ProcessKey, root: Bool) {
+        if root, !contains(parent) {
+            insert(parent)
+        }
         if contains(parent) {
             insert(child)
         }

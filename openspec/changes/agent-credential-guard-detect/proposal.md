@@ -6,6 +6,7 @@ The main attack on a coding agent is a prompt injection that makes it read `~/.s
 
 - A fifth Endpoint Security client, the credential guard, decides every open of a credential file in every home: SSH private keys, AWS CLI credentials, the GitHub CLI's `hosts.yml`, `.netrc`, Docker's `config.json` and the Kubernetes config. Target-path muting is inverted to those files, so no other open on the host reaches it.
 - An open is decided against when the opener is an AI agent's process and not one of the credential's owner tools, matched by signing identity: `ssh` and its helpers for SSH keys, the vendor's signed CLI for the others. `git push` runs `ssh` and stays quiet; `cat ~/.ssh/id_ed25519` from an agent does not.
+- A fork by the Claude Code binary now starts an agent subtree, for the guard and for agent file activity alike. A session that started before the extension was invisible to both until its commands carried a session id, and Claude's own helpers (`rg` for its Grep tool, `git`) carry none.
 - Detect mode only, as the default: every open is allowed, and a decided-against open is reported as a new `agent_credential_would_block` event. Protect mode, the server rule, the policy switch and the session badges are follow-ups (#1432, #1433).
 
 ## Impact

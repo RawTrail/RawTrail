@@ -41,11 +41,11 @@ final class AgentFileActivityTests: XCTestCase {
         XCTAssertTrue(set.contains(claude), "a root is observed from its exec")
         XCTAssertFalse(set.contains(launcher), "but not the process it exec'd from")
 
-        set.fork(parent: claude, child: shell)
+        set.fork(parent: claude, child: shell, root: false)
         XCTAssertTrue(set.contains(shell), "an observed parent's child is observed from the fork")
         let stranger = ProcessKey(pid: 900, pidVersion: 1)
         let strangerChild = ProcessKey(pid: 901, pidVersion: 1)
-        set.fork(parent: stranger, child: strangerChild)
+        set.fork(parent: stranger, child: strangerChild, root: false)
         XCTAssertFalse(set.contains(strangerChild), "an unobserved parent's is not")
         set.exec(from: strangerChild, to: ProcessKey(pid: 901, pidVersion: 2), root: false)
         XCTAssertEqual(set.count, 2, "an unobserved exec that is no root changes nothing")
@@ -60,13 +60,26 @@ final class AgentFileActivityTests: XCTestCase {
         XCTAssertEqual(set.count, 1)
     }
 
+    // spec:endpoint-event-collection/agent-scoped-file-activity/a-session-older-than-the-extension-is-observed-from-its-next-fork
+    //
+    // A Claude Code process that exec'd before the subscriber started is unknown to the set until it forks: the fork names it a root,
+    // so it and the helper it starts are observed, though the helper carries no session id of its own.
+    func testAForkByARootObservesTheParentAndTheChild() {
+        var set = AgentProcessSet(capacity: 8)
+        set.fork(parent: claude, child: shell, root: true)
+        XCTAssertTrue(set.contains(claude), "the root is observed from its fork")
+        XCTAssertTrue(set.contains(shell), "and so is its child")
+        set.fork(parent: claude, child: ProcessKey(pid: 3001, pidVersion: 1), root: true)
+        XCTAssertEqual(set.count, 3, "a second fork by an observed root adds only the child")
+    }
+
     // spec:endpoint-event-collection/agent-scoped-file-activity/the-observed-set-follows-the-subtree
     func testProcessSetCapacity() {
         var set = AgentProcessSet(capacity: 2)
         set.exec(from: ProcessKey(pid: claude.pid, pidVersion: 1), to: claude, root: true)
-        set.fork(parent: claude, child: shell)
+        set.fork(parent: claude, child: shell, root: false)
         let third = ProcessKey(pid: 3000, pidVersion: 1)
-        set.fork(parent: claude, child: third)
+        set.fork(parent: claude, child: third, root: false)
         XCTAssertFalse(set.contains(third), "a fork past the capacity is not observed")
         XCTAssertEqual(set.refused, 1)
         // An exec frees the old slot as it takes the new one, so a full set still follows its processes' execs.
@@ -74,7 +87,7 @@ final class AgentFileActivityTests: XCTestCase {
         set.exec(from: shell, to: execd, root: false)
         XCTAssertTrue(set.contains(execd))
         set.exit(execd)
-        set.fork(parent: claude, child: third)
+        set.fork(parent: claude, child: third, root: false)
         XCTAssertTrue(set.contains(third), "an exit makes room again")
     }
 

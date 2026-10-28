@@ -37,9 +37,6 @@ final class CredentialGuardSubscriber: Sendable {
     /// refreshSeconds is how long an account added to the host goes unguarded at most, as for the other home-scoped clients.
     private static let refreshSeconds = 300
 
-    /// allowAll is the AUTH_OPEN answer that grants every access the open asked for.
-    private static let allowAll = UInt32.max
-
     init() {
         var rawClient: OpaquePointer?
         let result = es_new_client(&rawClient) { [weak self] client, message in
@@ -145,9 +142,12 @@ final class CredentialGuardSubscriber: Sendable {
         let decision = CredentialGuard.decide(
             path: path, opener: ESFSubscriber.extractCodeSigning(from: opener), inAgentProcessSet: processes.contains(key), mode: mode
         )
-        let answered = es_respond_flags_result(client, message, decision.deniesOpen ? 0 : Self.allowAll, false)
+        // An allowed open is answered with the access it asked for, in the kernel's FREAD and FWRITE flags as the open reports them.
+        let requested = UInt32(bitPattern: msg.event.open.fflag)
+        let answered = es_respond_flags_result(client, message, decision.deniesOpen ? 0 : requested, false)
         // The time from the open to its answer, logged for every open so the guard's cost to the tools it allows is measurable too.
-        let latency = "credential-guard answered pid=\(key.pid) in \(Self.microseconds(since: msg.mach_time))us: \(decision)"
+        let verdict = decision.deniesOpen ? "deny" : decision == .allow ? "allow" : "allow, would block"
+        let latency = "credential-guard answered pid=\(key.pid) in \(Self.microseconds(since: msg.mach_time))us: \(verdict)"
         logger.debug("\(latency, privacy: .public)")
         if answered != ES_RESPOND_RESULT_SUCCESS {
             logger.error("credential-guard could not answer an open: \(answered.rawValue, privacy: .public)")
