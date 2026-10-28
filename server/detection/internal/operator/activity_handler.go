@@ -113,15 +113,32 @@ func (h *Handler) activityFilter(
 	if err != nil {
 		return visibilityapi.ActivityFilter{}, nil, nil, err
 	}
+	return h.filterOf(ctx, hostID, req.tree.AgentSessionID, roots, agents, truncated)
+}
+
+// filterOf is the activity filter of a scope's processes, with a session's agents bounded to the span each served it.
+func (h *Handler) filterOf(
+	ctx context.Context, hostID, sessionID string, roots, agents []api.ProcessNode, truncated bool,
+) (visibilityapi.ActivityFilter, *timelineScope, []api.ProcessNode, error) {
 	generations, scope, matched := scopeGenerations(roots, truncated)
 	filter := visibilityapi.ActivityFilter{HostID: hostID, Generations: generations}
-	if req.tree.AgentSessionID != "" {
-		if filter, err = h.boundAgents(ctx, req.tree.AgentSessionID, agents, filter); err != nil {
+	if sessionID != "" {
+		var err error
+		if filter, err = h.boundAgents(ctx, sessionID, agents, filter); err != nil {
 			return visibilityapi.ActivityFilter{}, nil, nil, fmt.Errorf("bound agent activity: %w", err)
 		}
 	}
 	filter.FromNs = scopeStart(matched)
 	return filter, scope, matched, nil
+}
+
+// withSessionAgents adds a session's agent processes to its tree's roots, leading them: a scope over the generation cap is cut from
+// its tail, and the agent, whose Read, Edit and Write run inside it, must not be what goes.
+func (h *Handler) withSessionAgents(
+	ctx context.Context, hostID, sessionID string, tree api.ProcessTreeResult,
+) (roots, agents []api.ProcessNode, err error) {
+	agents, err = h.sessionAgents(ctx, hostID, sessionID, tree.Roots)
+	return append(slices.Clone(agents), tree.Roots...), agents, err
 }
 
 // scopeStart is the earliest moment a process of the scope can have an event: the earliest of each one's start and fork. The rollup
@@ -162,8 +179,8 @@ func (h *Handler) activityScopeProcesses(
 		if err != nil || req.tree.AgentSessionID == "" {
 			return res.Roots, nil, res.Truncated, err
 		}
-		agents, err := h.sessionAgents(ctx, hostID, req.tree.AgentSessionID, res.Roots)
-		return append(slices.Clone(agents), res.Roots...), agents, res.Truncated, err
+		roots, agents, err := h.withSessionAgents(ctx, hostID, req.tree.AgentSessionID, res)
+		return roots, agents, res.Truncated, err
 	case !req.subtree:
 		proc, err := h.activity.GetProcessByID(ctx, hostID, req.process)
 		if err != nil || proc == nil {

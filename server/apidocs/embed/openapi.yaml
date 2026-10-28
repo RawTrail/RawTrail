@@ -632,6 +632,103 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/agent-sessions/{session_id}/commands:
+    get:
+      tags: [Hosts]
+      summary: The commands an AI agent session ran
+      description: >-
+        The session's commands in the order they started, a page at a time. A command is the processes one call started: the
+        agent's wrapper shell for a Bash call and everything under it, a daemon it backgrounded included, with what launchd started
+        for it (an `open`, a `launchctl submit`) moved under the process that asked. Each is labelled with the command the agent ran,
+        read from the wrapper, and paired with the Bash call the agent recorded for it: the nearest earlier call that ran the same
+        command and that the same user's transcript holds. Identical calls the agent made in one turn are offered as `ambiguous`
+        candidates rather than guessed. The server groups and pairs over the session's whole process read, so a page boundary changes
+        neither; `truncated` says when that read was cut.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+        - name: q
+          in: query
+          description: Keep the commands whose label, or whose processes' path or command line, holds this text, case-insensitively.
+          schema: {type: string}
+        - name: cursor
+          in: query
+          description: The previous page's `next_cursor`.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Commands per page.
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the session's commands
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commands, total_matched, inferred, services, truncated, tool_calls_truncated]
+                properties:
+                  commands:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, command, from_agent, start_ns, last_ns, process_ids, roots]
+                      properties:
+                        key: {type: string, description: "The command by the row of the root that started it, `row:<id>`."}
+                        command: {type: string, description: "What the agent ran, or the root's command line when it is not the agent's wrapper."}
+                        from_agent: {type: boolean, description: True when the root is the agent's wrapper shell for a Bash call.}
+                        uid: {type: integer, description: The user the command's root ran as.}
+                        start_ns: {type: integer, format: int64}
+                        last_ns: {type: integer, format: int64, description: "The latest observed exit, exec or fork of its processes."}
+                        process_ids:
+                          type: array
+                          items: {type: integer, format: int64}
+                          description: Every process the command started, shell plumbing included.
+                        roots:
+                          type: array
+                          description: The command's processes as a forest, nested by creator, launched programs under their launcher.
+                          items: {$ref: "#/components/schemas/ProcessNode"}
+                        tool_call:
+                          type: object
+                          required: [kind]
+                          description: The Bash call the command pairs with; absent when none does.
+                          properties:
+                            kind: {type: string, enum: [matched, ambiguous]}
+                            call: {type: object, description: "The paired call, as the tool-calls endpoint lists it, when `matched`."}
+                            candidates: {type: array, items: {type: object}, description: "The first 10 of the tied calls, when `ambiguous`."}
+                            candidate_count: {type: integer, description: "How many calls are tied, when `ambiguous`."}
+                  next_cursor: {type: string, description: Absent on the last page.}
+                  total_matched: {type: integer, description: The commands the query matched across every page.}
+                  inferred:
+                    type: array
+                    items: {type: integer, format: int64}
+                    description: The page's processes launchd started for the command they are listed under, linked by timing and target.
+                  services:
+                    type: array
+                    items: {type: integer, format: int64}
+                    description: The page's processes listed under the app that is responsible for them.
+                  truncated: {type: boolean, description: True when the session had more processes than are read.}
+                  tool_calls_truncated: {type: boolean, description: True when the session recorded more tool calls than are read.}
+        "400":
+          description: "`invalid_cursor`: the cursor does not decode."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/hosts/{host_id}/agent-sessions/{session_id}/summary:
     get:
       tags: [Hosts]
@@ -659,8 +756,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [processes, alerts, tool_calls, activity, scope]
+                required: [commands, processes, alerts, tool_calls, activity, scope]
                 properties:
+                  commands: {type: integer, description: "The session's commands, as `GET .../commands` lists them."}
                   processes: {type: integer, format: int64, description: "The session's retained processes."}
                   alerts:
                     type: object

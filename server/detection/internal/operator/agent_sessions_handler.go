@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/sessioncommands"
 	"github.com/rawtrail/rawtrail/server/httpserver"
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
@@ -24,6 +25,7 @@ func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls", h.handleAgentToolCalls)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage", h.handleAgentSessionLineage)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary", h.handleAgentSessionSummary)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands", h.handleAgentSessionCommands)
 }
 
 // AgentToolCallReader is the read of the tool calls a session recorded (issue #1288), and of the sessions forked from each other that
@@ -175,6 +177,102 @@ func (h *Handler) handleAgentSessionSummary(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	h.writeJSON(w, r, summary)
+}
+
+// agentCommandsResponse is one page of a session's commands, in the order they started, with the cursor for the next page. Inferred
+// and Services name the rows of the page that were moved under the process that asked launchd for them, as inferred launches and as
+// services. Truncated reports that the session had more processes than its read lists, and ToolCallsTruncated more tool calls.
+type agentCommandsResponse struct {
+	Commands           []sessioncommands.Command `json:"commands"`
+	NextCursor         string                    `json:"next_cursor,omitempty"`
+	TotalMatched       int                       `json:"total_matched"`
+	Inferred           []int64                   `json:"inferred"`
+	Services           []int64                   `json:"services"`
+	Truncated          bool                      `json:"truncated"`
+	ToolCallsTruncated bool                      `json:"tool_calls_truncated"`
+}
+
+// handleAgentSessionCommands serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands: the commands a session ran, each
+// paired with the tool call the agent reported for it, a page at a time, filtered by ?q= and keyset-paged by ?cursor=. The session
+// is shaped into commands over its whole process read, so a page boundary cannot split a command or change which call pairs with it.
+// Gated on process read for the host, like the session's processes.
+func (h *Handler) handleAgentSessionCommands(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	resp, err := h.sessionCommands(ctx, session, q.Get("q"), q.Get("cursor"), parseSearchLimit(q))
+	if err != nil {
+		if errors.Is(err, api.ErrInvalidCursor) {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		h.logger.ErrorContext(ctx, "read agent session commands", "host_id", session.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	h.writeJSON(w, r, resp)
+}
+
+// sessionCommands reads a session's processes and tool calls and returns one page of its commands.
+func (h *Handler) sessionCommands(
+	ctx context.Context, session *api.AgentSessionSummary, query, cursor string, limit int,
+) (agentCommandsResponse, error) {
+	logical, commands, truncated, err := h.buildSessionCommands(ctx, session)
+	if err != nil {
+		return agentCommandsResponse{}, err
+	}
+	calls, callsCut, err := h.agentToolCalls.AgentToolCalls(ctx, sessionToolCalls(session))
+	if err != nil {
+		return agentCommandsResponse{}, err
+	}
+	sessioncommands.JoinToolCalls(commands, calls)
+	page, err := sessioncommands.PageOf(sessioncommands.Search(commands, query), cursor, limit)
+	if err != nil {
+		return agentCommandsResponse{}, err
+	}
+	resp := agentCommandsResponse{
+		Commands: page.Commands, NextCursor: page.NextCursor, TotalMatched: page.TotalMatched, Inferred: []int64{}, Services: []int64{},
+		Truncated: truncated, ToolCallsTruncated: callsCut,
+	}
+	for _, c := range page.Commands {
+		for _, id := range c.ProcessIDs {
+			if logical.Inferred[id] {
+				resp.Inferred = append(resp.Inferred, id)
+			}
+			if logical.Services[id] {
+				resp.Services = append(resp.Services, id)
+			}
+		}
+	}
+	return resp, nil
+}
+
+// buildSessionCommands reads a session's processes and shapes them into its commands, with what launchd started for each moved under
+// it, and reports whether the read was cut.
+func (h *Handler) buildSessionCommands(
+	ctx context.Context, session *api.AgentSessionSummary,
+) (sessioncommands.LogicalForest, []sessioncommands.Command, bool, error) {
+	tree, err := h.readSession(ctx, session)
+	if err != nil {
+		return sessioncommands.LogicalForest{}, nil, false, err
+	}
+	logical, commands := commandsOf(tree)
+	return logical, commands, tree.Truncated, nil
+}
+
+// readSession reads a session's processes as the activity rollup reads a session scope: as a flat forest, up to the chain cap.
+func (h *Handler) readSession(ctx context.Context, session *api.AgentSessionSummary) (api.ProcessTreeResult, error) {
+	scope := api.TreeScope{AgentSessionID: session.AgentSessionID}
+	return h.svc.BuildScopedTree(ctx, session.HostID, scope, maxTimelineChain, true, 0)
+}
+
+// commandsOf shapes a session's process read into its commands, with what launchd started for each moved under it.
+func commandsOf(tree api.ProcessTreeResult) (sessioncommands.LogicalForest, []sessioncommands.Command) {
+	logical := sessioncommands.ApplyLaunchLinks(tree.Roots, tree.Links)
+	return logical, sessioncommands.Build(logical.Roots)
 }
 
 // sessionToolCalls selects the tool calls of a session: those it recorded within its span widened by toolCallMargin, up to
