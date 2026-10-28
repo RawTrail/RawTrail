@@ -801,6 +801,10 @@ type ProcessTreeResult struct {
 	// Agents are an AI agent session's agent processes (issue #1334), read only for a session scope: the agent carries no session
 	// marker, so it is not among the roots, and each root it created names its row as ParentProcessID. Absent otherwise.
 	Agents []ProcessNode `json:"agents,omitempty"`
+	// LinksTruncated reports that what a read added through its links, a launched program's descendants or an app's services, was cut
+	// at its bound (issue #1425). Truncated says so too, but a later page of a scoped read does not read them again, so a client
+	// joining pages keeps this to know the joined tree is still partial.
+	LinksTruncated bool `json:"links_truncated,omitempty"`
 	// AgentOwnTruncated reports that an agent's own processes, the Children of an Agents node (issue #1361), were cut at their bound.
 	AgentOwnTruncated bool `json:"agent_own_truncated,omitempty"`
 	// Next is where a truncated scoped read's next page starts (issue #1424): its last row. The handler hands it out as a cursor.

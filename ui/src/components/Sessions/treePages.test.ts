@@ -31,6 +31,24 @@ describe("mergeTreePages", () => {
     expect(second.roots).toHaveLength(4);
   });
 
+  // spec:server-rest-api/a-tree-read-reports-its-links-cut/a-launched-program-cut-is-told-apart-from-paging
+  it("keeps a page's cut of what its links added, which no later page reads again", () => {
+    const shell = proc(1, 100, 10, "/bin/zsh", ["zsh"]);
+    const merged = mergeTreePages(page([shell], { links_truncated: true }),
+      page([proc(2, 101, 11, "/bin/ls", ["ls"])], { truncated: false, next_cursor: undefined }));
+    expect(merged).toMatchObject({ truncated: true, links_truncated: true, next_cursor: undefined });
+    expect(mergeTreePages(page([shell]), page([], { truncated: false, next_cursor: undefined })))
+      .toMatchObject({ truncated: false, links_truncated: undefined });
+  });
+
+  it("lists a creator's children in fork order when a page brings many of them out of order", () => {
+    const shell = proc(1, 100, 10, "/bin/zsh", ["zsh"], [proc(2, 101, 50, "/bin/ls", ["ls"])]);
+    const late = [40, 60, 20, 55].map((fork, i) => proc(10 + i, 200 + i, fork, "/bin/echo", ["echo"], [], { parent_process_id: 1 }));
+    const merged = mergeTreePages(page([shell]), page(late));
+    // By fork time: 20 (id 12), 40 (id 10), 50 (id 2, the earlier page's), 55 (id 13), 60 (id 11).
+    expect(merged.roots[0].children?.map((c) => c.id)).toEqual([12, 10, 2, 13, 11]);
+  });
+
   it("hangs a process under a creator its own page also read later", () => {
     const shell = proc(1, 100, 10, "/bin/zsh", ["zsh"]);
     const child = proc(2, 101, 11, "/bin/ls", ["ls"], [], { parent_process_id: 1 });

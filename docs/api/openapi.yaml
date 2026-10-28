@@ -397,6 +397,12 @@ paths:
                       was not seen.
                     items:
                       $ref: "#/components/schemas/ProcessNode"
+                  links_truncated:
+                    type: boolean
+                    description: >-
+                      True when what the read added through its links (a launched program's descendants, an app's services) was cut at
+                      its bound. `truncated` is set too; a later page of a scoped read does not read them again, so a client joining
+                      pages keeps this.
                   agent_own_truncated:
                     type: boolean
                     description: For a `session` read, true when an agent's own processes were cut at their bound (2,000 per agent).

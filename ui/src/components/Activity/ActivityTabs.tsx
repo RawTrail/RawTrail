@@ -93,13 +93,23 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
         return { key, byClass };
       });
     };
+    // A page lands only on the scope it was read for: one read before the operator moved to another scope is dropped, rather than
+    // replacing what was loaded for the scope now shown.
+    const settle = (change: (prior: ClassMore) => ClassMore) => {
+      setMore((m) => {
+        if (m.key !== key) return m;
+        const byClass = new Map(m.byClass);
+        byClass.set(cls, change(byClass.get(cls) ?? { rows: [], loading: false, failed: false }));
+        return { key, byClass };
+      });
+    };
     // The cursor being read stays the class's until a page replaces it, so a failed read is offered again.
     update((prior) => ({ ...prior, cursor, loading: true, failed: false }));
     getActivityPage<unknown>(hostId, scope, cls, cursor)
       .then((page) => {
-        update((prior) => ({ rows: [...prior.rows, ...page.rows], cursor: page.next_cursor, loading: false, failed: false }));
+        settle((prior) => ({ rows: [...prior.rows, ...page.rows], cursor: page.next_cursor, loading: false, failed: false }));
       })
-      .catch(() => { update((prior) => ({ ...prior, loading: false, failed: true })); });
+      .catch(() => { settle((prior) => ({ ...prior, loading: false, failed: true })); });
   }, [hostId, scope, key]);
 
   useEffect(() => {

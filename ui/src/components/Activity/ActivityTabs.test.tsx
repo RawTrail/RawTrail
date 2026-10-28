@@ -304,4 +304,26 @@ describe("ActivityTabs paging", () => {
     expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Load more rows" })).toBeVisible();
   });
+
+  it("drops a page read for a scope the operator has since left", async () => {
+    vi.spyOn(api, "getActivity").mockImplementation((_h, scope) => Promise.resolve(session({
+      dns: { events: 2, distinct: 2, truncated: true, rows: [dnsRow(`${scope.kind === "session" ? scope.session : ""}-a.example`, 1)],
+        next_cursor: "c1" },
+    })));
+    let landOld: (page: { rows: unknown[] }) => void = () => undefined;
+    vi.spyOn(api, "getActivityPage").mockImplementation((_h, scope) => (scope.kind === "session" && scope.session === "s1"
+      ? new Promise((resolve) => { landOld = resolve; })
+      : Promise.resolve({ rows: [dnsRow("s2-b.example", 2)] })));
+    const { rerender } = render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    rerender(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s2" }} />);
+    expect(await screen.findByText("s2-a.example")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("s2-b.example")).toBeVisible();
+    landOld({ rows: [dnsRow("s1-b.example", 2)] });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getByText("s2-b.example")).toBeVisible();
+    expect(screen.queryByText("s1-b.example")).toBeNull();
+  });
 });

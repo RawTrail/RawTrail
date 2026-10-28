@@ -225,9 +225,10 @@ export function SessionView() {
     getSessionTree(hostId, sessionId, undefined, cursor)
       .then((page) => {
         setRead((r) => (r?.key === readKey && r.tree ? { ...r, tree: mergeTreePages(r.tree, page) } : r));
-        setMoreProcesses({ key: readKey, loading: false, failed: false });
+        // A page of a session the operator has since left does not settle the state of the one now shown.
+        setMoreProcesses((m) => (m?.key === readKey ? { key: readKey, loading: false, failed: false } : m));
       })
-      .catch(() => { setMoreProcesses({ key: readKey, loading: false, failed: true }); });
+      .catch(() => { setMoreProcesses((m) => (m?.key === readKey ? { key: readKey, loading: false, failed: true } : m)); });
   }, [tree, hostId, sessionId, readKey]);
 
   // The session's commands, a page at a time, as the server groups them (issue #1425). A search asks the server for the commands it

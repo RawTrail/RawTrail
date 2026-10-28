@@ -61,7 +61,8 @@ func (q *Query) BuildScopedTree(
 	links = append(links, services...)
 	res.Links = links
 	// A launched program's descendants cut at their bound are a partial read like any other.
-	res.Truncated = res.Truncated || launchedCut || servicesCut
+	res.LinksTruncated = launchedCut || servicesCut
+	res.Truncated = res.Truncated || res.LinksTruncated
 	if flatten {
 		res.Roots = forest
 		return res, nil

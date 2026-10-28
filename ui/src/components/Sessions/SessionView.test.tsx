@@ -199,6 +199,34 @@ describe("SessionView commands from the server", () => {
     expect(screen.queryByRole("button", { name: "Load more processes" })).toBeNull();
   });
 
+  it("keeps the current session's next page loading when the previous session's lands", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    let landPrevious: (res: TreeResponse) => void = () => undefined;
+    vi.spyOn(api, "getSessionTree").mockImplementation((_h, sessionId, _l, cursor) => {
+      if (!cursor) return Promise.resolve(tree({ returned: 16, total_matched: 17, truncated: true, next_cursor: "p2" }));
+      return sessionId === SESSION ? new Promise((resolve) => { landPrevious = resolve; }) : new Promise(() => undefined);
+    });
+    render(
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
+        <Link to="/agent-sessions/H1/other-session">next</Link>
+        <Routes>
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load more processes" }));
+    fireEvent.click(screen.getByRole("link", { name: "next" }));
+    await waitFor(() => { expect(api.getSessionTree).toHaveBeenCalledWith("H1", "other-session"); });
+    const more = await screen.findByRole("button", { name: "Load more processes" });
+    await waitFor(() => { expect(more).toBeEnabled(); });
+    fireEvent.click(more);
+    expect(screen.getByRole("button", { name: "Load more processes" })).toBeDisabled();
+    landPrevious(tree({ roots: [], returned: 1, total_matched: 17, truncated: false }));
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getByRole("button", { name: "Load more processes" })).toBeDisabled();
+  });
+
   it("says when the process tree's next page could not be read, and offers it again", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockImplementation((_h, _s, _l, cursor) => (cursor
