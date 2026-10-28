@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 	"github.com/rawtrail/rawtrail/server/detection/internal/sessioncommands"
 	"github.com/rawtrail/rawtrail/server/httpserver"
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
@@ -40,7 +41,7 @@ func (h *Handler) SetAgentToolCalls(r AgentToolCallReader) { h.agentToolCalls = 
 
 const (
 	// maxToolCalls bounds the calls one read lists, the same bound as the session's process read.
-	maxToolCalls = maxTimelineChain
+	maxToolCalls = graph.MaxScopedRead
 	// toolCallMargin widens the session's span when reading its calls. A session's span runs from its first marked process to its last,
 	// and a call comes before its process, by as long as the user took to approve it.
 	toolCallMargin = time.Hour
@@ -263,10 +264,11 @@ func (h *Handler) buildSessionCommands(
 	return logical, commands, tree.Truncated, nil
 }
 
-// readSession reads a session's processes as the activity rollup reads a session scope: as a flat forest, up to the chain cap.
+// readSession reads a session's processes as the activity rollup reads a session scope: as a flat forest, the whole session up to
+// the scoped read's bound.
 func (h *Handler) readSession(ctx context.Context, session *api.AgentSessionSummary) (api.ProcessTreeResult, error) {
 	scope := api.TreeScope{AgentSessionID: session.AgentSessionID}
-	return h.svc.BuildScopedTree(ctx, session.HostID, scope, maxTimelineChain, true, 0)
+	return h.svc.BuildScopedTree(ctx, session.HostID, scope, graph.MaxScopedRead, true, 0)
 }
 
 // commandsOf shapes a session's process read into its commands, with what launchd started for each moved under it.

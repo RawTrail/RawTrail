@@ -308,6 +308,12 @@ paths:
           in: query
           description: The process id of the story's root, for `scope=story`.
           schema: {type: integer, format: int64, minimum: 1}
+        - name: cursor
+          in: query
+          description: >-
+            For `scope=session` or `scope=story`, the previous page's `next_cursor`: the read continues after that page's last row,
+            oldest first. A session's `agents` come with its first page only. A malformed cursor is rejected with `invalid_cursor`.
+          schema: {type: string}
       responses:
         "200":
           description: Forest of process roots
@@ -317,6 +323,11 @@ paths:
                 type: object
                 required: [roots, returned, total_matched, total_matched_capped, truncated]
                 properties:
+                  next_cursor:
+                    type: string
+                    description: >-
+                      For a cut `scope=session` or `scope=story` read, the cursor of the next page. A page's processes whose creator is on
+                      an earlier page are its roots. Absent on the last page and for any other read.
                   roots:
                     type: array
                     items:
@@ -537,6 +548,71 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/activity/{class}:
+    get:
+      tags: [Hosts]
+      summary: The next page of one class of a scope's activity
+      description: >-
+        One page of the files, network destinations or DNS names a scope touched, after the cursor the activity rollup or the previous
+        page handed out, in the rollup's order. The scope is named as for `GET /api/hosts/{host_id}/activity`. Each row has the shape
+        of its class's rows there.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: class
+          in: path
+          required: true
+          schema: {type: string, enum: [files, network, dns]}
+        - name: scope
+          in: query
+          required: true
+          description: As for the rollup.
+          schema: {type: string, enum: [process, subtree, session, story]}
+        - name: process
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: session
+          in: query
+          schema: {type: string, maxLength: 256}
+        - name: root
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: cursor
+          in: query
+          description: The cursor the rollup or the previous page handed out for this class; none reads the first page.
+          schema: {type: string}
+        - name: q
+          in: query
+          description: >-
+            Keep the rows whose artifact holds this text, regardless of case: a file's path or a rename's origin, a destination's
+            address or name, a lookup's name. Send the same q with a cursor this search handed out.
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, default: 200, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the class's rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows]
+                properties:
+                  rows:
+                    type: array
+                    description: The class's rows, shaped as in the activity rollup.
+                    items: {type: object}
+                  next_cursor: {type: string, description: Absent on the last page.}
+        "400":
+          description: "`invalid_scope`, or `invalid_cursor` for a malformed cursor, one of another class, or an unknown class."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls:
     get:
       tags: [Hosts]
@@ -643,7 +719,7 @@ paths:
         read from the wrapper, and paired with the Bash call the agent recorded for it: the nearest earlier call that ran the same
         command and that the same user's transcript holds. Identical calls the agent made in one turn are offered as `ambiguous`
         candidates rather than guessed. The server groups and pairs over the session's whole process read, so a page boundary changes
-        neither; `truncated` says when that read was cut.
+        neither. The read covers up to 20,000 of the session's processes, and `truncated` says when it was cut.
       security:
         - SessionCookie: []
         - ServiceAccountToken: []
@@ -714,7 +790,7 @@ paths:
                     type: array
                     items: {type: integer, format: int64}
                     description: The page's processes listed under the app that is responsible for them.
-                  truncated: {type: boolean, description: True when the session had more processes than are read.}
+                  truncated: {type: boolean, description: "True when the session had more processes than the 20,000 that are read."}
                   tool_calls_truncated: {type: boolean, description: True when the session recorded more tool calls than are read.}
         "400":
           description: "`invalid_cursor`: the cursor does not decode."
@@ -738,7 +814,7 @@ paths:
         processes, the alerts raised on them by severity (monitor records not counted), the tool calls it recorded by tool (each call
         once, a forked session's copies of its parent's calls left out), and its file events by operation with its network and DNS
         totals. The activity is counted over the same processes the session's activity rollup (`GET /api/hosts/{host_id}/activity`)
-        reads, and `scope` says how far that reached.
+        reads, up to 20,000 of the session's processes, and `scope` says how far that reached.
       security:
         - SessionCookie: []
         - ServiceAccountToken: []
@@ -3016,6 +3092,9 @@ components:
             - type: object
               required: [rows]
               properties:
+                next_cursor:
+                  type: string
+                  description: When the list was cut, the cursor that reads its next page from `GET /api/hosts/{host_id}/activity/{class}`.
                 rows:
                   type: array
                   items:
@@ -3041,6 +3120,9 @@ components:
             - type: object
               required: [rows]
               properties:
+                next_cursor:
+                  type: string
+                  description: When the list was cut, the cursor that reads its next page from `GET /api/hosts/{host_id}/activity/{class}`.
                 rows:
                   type: array
                   items:
@@ -3059,6 +3141,9 @@ components:
             - type: object
               required: [rows]
               properties:
+                next_cursor:
+                  type: string
+                  description: When the list was cut, the cursor that reads its next page from `GET /api/hosts/{host_id}/activity/{class}`.
                 rows:
                   type: array
                   items:

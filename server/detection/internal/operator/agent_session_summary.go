@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
@@ -59,7 +60,7 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}
-	filter, scope, _, err := h.filterOf(ctx, hostID, sessionID, roots, agents, tree.Truncated)
+	filter, scope, _, err := h.filterOf(ctx, hostID, sessionID, roots, agents, tree.Truncated, graph.MaxScopedRead)
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}

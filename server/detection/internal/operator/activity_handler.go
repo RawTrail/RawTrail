@@ -2,14 +2,17 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 	"github.com/rawtrail/rawtrail/server/httpserver"
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
@@ -19,6 +22,7 @@ import (
 // the one process a process scope names, read by its row id.
 type ActivityReader interface {
 	ActivityForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivityRollup, error)
+	ActivityPage(ctx context.Context, filter visibilityapi.ActivityFilter, class, cursor string) (visibilityapi.ActivityPage, error)
 	GetProcessByID(ctx context.Context, hostID string, id int64) (*api.Process, error)
 	SessionTouches(ctx context.Context, hostID string, generation visibilityapi.ProcessGeneration) ([]visibilityapi.SessionTouch, error)
 }
@@ -29,6 +33,82 @@ func (h *Handler) SetActivity(r ActivityReader) { h.activity = r }
 
 func (h *Handler) registerActivityRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/hosts/{host_id}/activity", h.handleActivity)
+	mux.HandleFunc("GET /api/hosts/{host_id}/activity/{class}", h.handleActivityPage)
+}
+
+// activityPageLimit is how many rows a page of one activity class lists unless ?limit= asks for fewer.
+const activityPageLimit = 200
+
+// activityPageResponse is one page of one activity class, with the cursor of the next page.
+type activityPageResponse struct {
+	Rows       any    `json:"rows"`
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// handleActivityPage serves GET /api/hosts/{host_id}/activity/{class}: the page of one class (files, network or dns) of a scope's
+// activity after ?cursor=, the cursor the rollup or the previous page handed out (issue #1424), optionally searched by ?q=. The scope
+// is named as for the rollup.
+func (h *Handler) handleActivityPage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	hostID := r.PathValue("host_id")
+	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionProcessRead, identityapi.Resource{Type: "process", ID: hostID}) {
+		return
+	}
+	if h.activity == nil {
+		h.writeError(ctx, w, http.StatusServiceUnavailable, errInternal)
+		return
+	}
+	req, ok := parseActivityScope(r.URL.Query())
+	if !ok {
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidScope)
+		return
+	}
+	// The class is checked before the scope is read: a session scope reads up to MaxScopedRead processes, which an unknown class
+	// would spend only to be refused.
+	class := r.PathValue("class")
+	switch class {
+	case visibilityapi.ActivityFiles, visibilityapi.ActivityNetwork, visibilityapi.ActivityDNS:
+	default:
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+		return
+	}
+	filter, _, _, err := h.activityFilter(ctx, hostID, req)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "resolve activity scope", "host_id", hostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	filter.Limit = min(max(httpserver.ParseIntParam(r, "limit", activityPageLimit), 1), activityPageLimit)
+	// ?q= keeps the rows whose artifact holds it; a cursor continues the list it was handed out for, so a client sends the same q.
+	filter.Search = strings.TrimSpace(r.URL.Query().Get("q"))
+	page, err := h.activity.ActivityPage(ctx, filter, class, r.URL.Query().Get("cursor"))
+	if err != nil {
+		if errors.Is(err, visibilityapi.ErrInvalidActivityCursor) {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		h.logger.ErrorContext(ctx, "activity page", "host_id", hostID, "class", class, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	resp := activityPageResponse{NextCursor: page.NextCursor}
+	switch class {
+	case visibilityapi.ActivityFiles:
+		resp.Rows = nonNil(page.Files)
+	case visibilityapi.ActivityNetwork:
+		resp.Rows = nonNil(page.Network)
+	default:
+		resp.Rows = nonNil(page.DNS)
+	}
+	h.writeJSON(w, r, resp)
+}
+
+// nonNil returns rows, or an empty list for none: the client iterates rows unconditionally.
+func nonNil[R any](rows []R) []R {
+	if rows == nil {
+		return []R{}
+	}
+	return rows
 }
 
 // activityProcess names a process of the scope, so a client can say which process touched each artifact: rows carry the (pid,
@@ -113,14 +193,14 @@ func (h *Handler) activityFilter(
 	if err != nil {
 		return visibilityapi.ActivityFilter{}, nil, nil, err
 	}
-	return h.filterOf(ctx, hostID, req.tree.AgentSessionID, roots, agents, truncated)
+	return h.filterOf(ctx, hostID, req.tree.AgentSessionID, roots, agents, truncated, scopeBound(req))
 }
 
-// filterOf is the activity filter of a scope's processes, with a session's agents bounded to the span each served it.
+// filterOf is the activity filter of up to bound of a scope's processes, with a session's agents bounded to the span each served it.
 func (h *Handler) filterOf(
-	ctx context.Context, hostID, sessionID string, roots, agents []api.ProcessNode, truncated bool,
+	ctx context.Context, hostID, sessionID string, roots, agents []api.ProcessNode, truncated bool, bound int,
 ) (visibilityapi.ActivityFilter, *timelineScope, []api.ProcessNode, error) {
-	generations, scope, matched := scopeGenerations(roots, truncated)
+	generations, scope, matched := scopeGenerations(roots, truncated, bound)
 	filter := visibilityapi.ActivityFilter{HostID: hostID, Generations: generations}
 	if sessionID != "" {
 		var err error
@@ -166,6 +246,15 @@ func scopeStart(processes []api.ProcessNode) int64 {
 	return from
 }
 
+// scopeBound is how many of a scope's processes its activity reads: a whole session up to the scoped read's bound (issue #1424), so
+// its totals and lists are the session's, and the chain cap for any other scope.
+func scopeBound(req activityScopeRequest) int {
+	if req.tree.AgentSessionID != "" {
+		return graph.MaxScopedRead
+	}
+	return maxTimelineChain
+}
+
 // activityScopeProcesses reads the scope's processes. A process alone is read by its row id. Its subtree is read from the chain
 // pinned at it, whose descendants come from the story index (issue #1282), and cut at the pinned process: its ancestors did not do
 // what the process did. For a session it also returns the agent processes it added to the session's own, which lead the roots: a
@@ -175,7 +264,7 @@ func (h *Handler) activityScopeProcesses(
 ) (roots, agents []api.ProcessNode, truncated bool, err error) {
 	switch {
 	case req.process == 0:
-		res, err := h.svc.BuildScopedTree(ctx, hostID, req.tree, maxTimelineChain, true, 0)
+		res, err := h.svc.BuildScopedTree(ctx, hostID, req.tree, scopeBound(req), true, 0)
 		if err != nil || req.tree.AgentSessionID == "" {
 			return res.Roots, nil, res.Truncated, err
 		}

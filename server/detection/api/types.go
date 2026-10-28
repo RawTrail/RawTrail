@@ -168,10 +168,18 @@ type ExecLineage struct {
 }
 
 // TreeScope selects the rows of an indexed tree read (issue #1282): an AI agent session by its id when AgentSessionID is set, or
-// else the story whose root row is StoryRootID.
+// else the story whose root row is StoryRootID. A read of it starts after After (issue #1424), or at its oldest row when After is
+// zero.
 type TreeScope struct {
 	StoryRootID    int64
 	AgentSessionID string
+	After          TreePosition
+}
+
+// TreePosition is a place in a scoped tree read's order, oldest first: the fork time and row id of the last row read.
+type TreePosition struct {
+	ForkTimeNs int64 `json:"f"`
+	ID         int64 `json:"i"`
 }
 
 // AgentSessionFilter selects agent sessions for the sessions list (issue #1283). Every field is optional: HostID, AgentSessionID and
@@ -795,6 +803,10 @@ type ProcessTreeResult struct {
 	Agents []ProcessNode `json:"agents,omitempty"`
 	// AgentOwnTruncated reports that an agent's own processes, the Children of an Agents node (issue #1361), were cut at their bound.
 	AgentOwnTruncated bool `json:"agent_own_truncated,omitempty"`
+	// Next is where a truncated scoped read's next page starts (issue #1424): its last row. The handler hands it out as a cursor.
+	Next *TreePosition `json:"-"`
+	// NextCursor is the opaque cursor of a truncated scoped read's next page. Absent on the last page and for any other read.
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 // ProcessLinkInferredLaunch is a link inferred from timing and a matching target: an open or launchctl exec, then within seconds a

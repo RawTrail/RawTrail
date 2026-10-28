@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
@@ -37,7 +38,7 @@ func toolCallShell(id int64, pid int, forkNs int64, command string, children ...
 // the inferred-launch link moves under the call's open.
 func commandsTree(truncated bool) func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
 	return func(_ context.Context, _ string, scope api.TreeScope, limit int, flatten bool, _ int64) (api.ProcessTreeResult, error) {
-		if scope.AgentSessionID != "47abb2a1" || limit != processTreeMaxLimit || !flatten {
+		if scope.AgentSessionID != "47abb2a1" || limit != graph.MaxScopedRead || !flatten {
 			return api.ProcessTreeResult{}, errors.New("unexpected session read")
 		}
 		return api.ProcessTreeResult{Roots: []api.ProcessNode{

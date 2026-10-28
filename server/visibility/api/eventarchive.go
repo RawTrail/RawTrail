@@ -87,6 +87,11 @@ type EventArchive interface {
 	// operation, for a summary that names how much a scope touched but none of what.
 	ActivityTotalsForGenerations(ctx context.Context, filter ActivityFilter) (ActivitySummary, error)
 
+	// ActivityPage lists one class of the rollup's rows (issue #1424), filter.Limit of them, from after the row a cursor names, or
+	// from the first when the cursor is empty: the page that follows the rollup's own list, or one after it. The rows are in the
+	// rollup's order. A cursor of another class, or one that does not decode, is ErrInvalidActivityCursor.
+	ActivityPage(ctx context.Context, filter ActivityFilter, class, cursor string) (ActivityPage, error)
+
 	// SessionTouches lists, for one process generation, the first time it touched a path of each AI agent session (issue #1319),
 	// from its agent file activity: Claude Code's transcript ~/.claude/projects/<project>/<session id>.jsonl, and the session's
 	// directories.
@@ -218,6 +223,26 @@ const TotalNotCounted int64 = -1
 // sees rather than a false accusation against that host.
 var ErrEventsTruncated = errors.New("visibility: event read exceeded its row cap")
 
+// ErrInvalidActivityCursor is returned by ActivityPage when its cursor does not decode or names another class. The operator handler
+// maps it to 400.
+var ErrInvalidActivityCursor = errors.New("visibility: invalid activity cursor")
+
+// Activity classes, as ActivityPage names them.
+const (
+	ActivityFiles   = "files"
+	ActivityNetwork = "network"
+	ActivityDNS     = "dns"
+)
+
+// ActivityPage is one page of one activity class's rows: the class's rows, the others nil, and the cursor of the next page, empty on
+// the last.
+type ActivityPage struct {
+	Files      []FileActivityRow
+	Network    []NetworkActivityRow
+	DNS        []DNSActivityRow
+	NextCursor string
+}
+
 // ErrInvalidEventCursor is returned by SearchEvents when the pagination cursor does not decode. The operator handler maps it to 400.
 var ErrInvalidEventCursor = errors.New("visibility: invalid event search cursor")
 
@@ -234,6 +259,9 @@ type ActivityFilter struct {
 	// before a reboot can, is not counted.
 	FromNs int64
 	Limit  int
+	// Search, when set, keeps only the rows of an ActivityPage whose artifact holds it, case-insensitively: a file's path or a rename's
+	// origin, a destination's address or name, a lookup's name (issue #1424). The rollup's totals and lists do not read it.
+	Search string
 }
 
 // GenerationSpan is a process generation and the span its events are counted in: from FromNs, up to but excluding ToNs, zero ToNs
@@ -310,6 +338,8 @@ type ActivityRow struct {
 type FileActivity struct {
 	ActivityTotals
 	Rows []FileActivityRow `json:"rows"`
+	// NextCursor reads the rows past the list, by ActivityPage, when the list was cut.
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 // FileActivityRow is one path one process touched in one way.
@@ -326,7 +356,8 @@ type FileActivityRow struct {
 // NetworkActivity lists, per process, the destinations it connected to.
 type NetworkActivity struct {
 	ActivityTotals
-	Rows []NetworkActivityRow `json:"rows"`
+	Rows       []NetworkActivityRow `json:"rows"`
+	NextCursor string               `json:"next_cursor,omitempty"`
 }
 
 // NetworkActivityRow is one destination one process connected to. RemoteHostname is the name the network extension reported for
@@ -342,7 +373,8 @@ type NetworkActivityRow struct {
 // DNSActivity lists, per process, the names it resolved.
 type DNSActivity struct {
 	ActivityTotals
-	Rows []DNSActivityRow `json:"rows"`
+	Rows       []DNSActivityRow `json:"rows"`
+	NextCursor string           `json:"next_cursor,omitempty"`
 }
 
 // DNSActivityRow is one name one process resolved, with the addresses its answers carried.

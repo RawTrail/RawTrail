@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
@@ -21,6 +22,9 @@ type fakeActivityReader struct {
 	filter *visibilityapi.ActivityFilter
 	result visibilityapi.ActivityRollup
 	err    error
+	// page is what ActivityPage answers; class and cursor are what it was asked for.
+	page          visibilityapi.ActivityPage
+	class, cursor string
 	// touches are what SessionTouches answers, by pid; touchesErr fails it.
 	touches    map[int64][]visibilityapi.SessionTouch
 	touchesErr error
@@ -44,6 +48,13 @@ func (f *fakeActivityReader) SessionTouches(
 	_ context.Context, _ string, generation visibilityapi.ProcessGeneration,
 ) ([]visibilityapi.SessionTouch, error) {
 	return f.touches[generation.PID], f.touchesErr
+}
+
+func (f *fakeActivityReader) ActivityPage(
+	_ context.Context, filter visibilityapi.ActivityFilter, class, cursor string,
+) (visibilityapi.ActivityPage, error) {
+	f.filter, f.class, f.cursor = &filter, class, cursor
+	return f.page, f.err
 }
 
 func (f *fakeActivityReader) ActivityForGenerations(
@@ -152,16 +163,18 @@ func TestActivityHandler_SessionAndStory(t *testing.T) {
 	for _, tc := range []struct {
 		query string
 		want  api.TreeScope
+		// limit is how many of the scope's processes the read asks for: a whole session (issue #1424), a story's chain cap.
+		limit int
 	}{
-		{query: "scope=session&session=169b5bb1", want: api.TreeScope{AgentSessionID: "169b5bb1"}},
-		{query: "scope=story&root=875325", want: api.TreeScope{StoryRootID: 875325}},
+		{query: "scope=session&session=169b5bb1", want: api.TreeScope{AgentSessionID: "169b5bb1"}, limit: graph.MaxScopedRead},
+		{query: "scope=story&root=875325", want: api.TreeScope{StoryRootID: 875325}, limit: maxTimelineChain},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			t.Parallel()
 			var got api.TreeScope
 			readScope := func(_ context.Context, _ string, scope api.TreeScope, limit int, flatten bool, _ int64) (api.ProcessTreeResult, error) {
 				assert.True(t, flatten)
-				assert.Equal(t, maxTimelineChain, limit)
+				assert.Equal(t, tc.limit, limit)
 				got = scope
 				res := activityChain()
 				res.Truncated = true
@@ -401,12 +414,12 @@ func TestActivityHandler_SessionBoundsTheAgent(t *testing.T) {
 
 	// A session over the generation cap is cut from its tail, and the agent is not what is cut.
 	crowded := []api.ProcessNode{shell}
-	for i := range maxTimelineChain {
+	for i := range graph.MaxScopedRead {
 		crowded = append(crowded, activityNode(int64(100+i), 10_000+i, 1))
 	}
 	capped := &fakeActivityReader{processes: reader.processes, touches: reader.touches}
 	require.Equal(t, http.StatusOK, serveRoots(capped, crowded))
-	assert.Len(t, capped.filter.Generations, maxTimelineChain-1, "the agent's generation is the one the cap made room for")
+	assert.Len(t, capped.filter.Generations, graph.MaxScopedRead-1, "the agent's generation is the one the cap made room for")
 	assert.Equal(t, reader.filter.Spans, capped.filter.Spans, "a crowded session still bounds its agent")
 }
 
