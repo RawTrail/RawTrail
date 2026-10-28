@@ -363,7 +363,9 @@ func openContexts(
 	// The visibility context (ADR-0015) owns the two event stores: the MySQL EventLog work queue and the ClickHouse EventArchive.
 	// Built under the same migration lock as the others; detection consumes both (intake fans out to them, the processor claims from
 	// the queue). chDB is non-nil here (run() makes EDR_CLICKHOUSE_DSN required), so EventArchive() is the live archive, not nil.
-	visibilityCtx, verr := visibilitybootstrap.New(visibilitybootstrap.Deps{DB: db, ClickHouseDB: chDB, Logger: logger})
+	visibilityCtx, verr := visibilitybootstrap.New(visibilitybootstrap.Deps{
+		DB: db, ClickHouseDB: chDB, EventRetentionDays: cfg.EventRetentionDays, Logger: logger,
+	})
 	if verr != nil {
 		logger.ErrorContext(ctx, "open visibility", "err", verr)
 		err = verr

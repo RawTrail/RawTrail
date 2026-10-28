@@ -188,7 +188,9 @@ func openVisibility(ctx context.Context, logger *slog.Logger, cfg *config.Config
 		logger.ErrorContext(ctx, "open clickhouse", "err", err)
 		return nil, nil, err
 	}
-	visibilityCtx, err := visibilitybootstrap.New(visibilitybootstrap.Deps{DB: db, ClickHouseDB: chDB, Logger: logger})
+	visibilityCtx, err := visibilitybootstrap.New(visibilitybootstrap.Deps{
+		DB: db, ClickHouseDB: chDB, EventRetentionDays: cfg.EventRetentionDays, Logger: logger,
+	})
 	if err != nil {
 		_ = chDB.Close()
 		logger.ErrorContext(ctx, "open visibility", "err", err)
