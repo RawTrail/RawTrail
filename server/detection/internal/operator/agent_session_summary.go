@@ -21,6 +21,8 @@ func (h *Handler) SetAgentSessionTotals(r AgentSessionTotalsReader) { h.sessionT
 // agentSessionSummaryResponse is a session's totals. They are counted by the server over the whole session, so they do not depend
 // on how much of it a page lists. Activity covers what the session's activity rollup covers, and Scope reports how far that reached.
 type agentSessionSummaryResponse struct {
+	// Commands counts the session's commands as its commands list does, over the same process read.
+	Commands  int                           `json:"commands"`
 	Processes int64                         `json:"processes"`
 	Alerts    alertTotals                   `json:"alerts"`
 	ToolCalls toolCallTotals                `json:"tool_calls"`
@@ -59,7 +61,12 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}
+	_, commands, _, err := h.buildSessionCommands(ctx, session)
+	if err != nil {
+		return agentSessionSummaryResponse{}, err
+	}
 	out := agentSessionSummaryResponse{
+		Commands:  len(commands),
 		Processes: counts.Processes,
 		Alerts:    alertTotals{BySeverity: counts.AlertsBySeverity},
 		ToolCalls: toolCallTotals{ByTool: tools},

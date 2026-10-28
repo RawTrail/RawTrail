@@ -118,6 +118,7 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 	status, got := getSummary(t, srv)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, agentSessionSummaryResponse{
+		Commands:  2,
 		Processes: 3,
 		Alerts:    alertTotals{Total: 3, BySeverity: map[string]int64{api.SeverityHigh: 2, api.SeverityCritical: 1}},
 		ToolCalls: toolCallTotals{Total: 6, ByTool: totals.tools},
@@ -134,6 +135,24 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 		HostID: "h1", SessionID: "47abb2a1", Limit: maxToolCalls,
 		FromNs: 10_000_000_000_000 - toolCallMargin.Nanoseconds(), ToNs: 20_000_000_000_000 + toolCallMargin.Nanoseconds(),
 	}, *totals.toolsRead, "the tool calls are counted over the window the session's tool-call read uses")
+}
+
+// The summary counts the commands its session's commands list lists: two tool calls, the second without a child.
+//
+// spec:server-rest-api/agent-session-summary-command-total/the-summary-counts-what-the-commands-list-lists
+func TestAgentSessionSummary_CountsCommands(t *testing.T) {
+	t.Parallel()
+	totals := &fakeSessionTotals{counts: api.AgentSessionCounts{AlertsBySeverity: map[string]int64{}}}
+	svc := fakeService{buildScopedTree: summaryTree(false)}
+	srv := newSummaryServer(t, svc, allowAllAuthZ{}, summarySession(), totals)
+	status, got := getSummary(t, srv)
+	require.Equal(t, http.StatusOK, status)
+
+	commandsSrv := newCommandsServer(t, svc, &fakeToolCallReader{}, summarySession())
+	status, listed := getCommands(t, commandsSrv, "")
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, listed.TotalMatched, got.Commands)
+	assert.Equal(t, 2, got.Commands)
 }
 
 // spec:server-rest-api/agent-session-summary/the-summary-reports-the-reach-of-its-activity
