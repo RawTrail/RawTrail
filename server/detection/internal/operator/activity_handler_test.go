@@ -22,6 +22,9 @@ type fakeActivityReader struct {
 	filter *visibilityapi.ActivityFilter
 	result visibilityapi.ActivityRollup
 	err    error
+	// page is what ActivityPage answers; class and cursor are what it was asked for.
+	page          visibilityapi.ActivityPage
+	class, cursor string
 	// touches are what SessionTouches answers, by pid; touchesErr fails it.
 	touches    map[int64][]visibilityapi.SessionTouch
 	touchesErr error
@@ -45,6 +48,13 @@ func (f *fakeActivityReader) SessionTouches(
 	_ context.Context, _ string, generation visibilityapi.ProcessGeneration,
 ) ([]visibilityapi.SessionTouch, error) {
 	return f.touches[generation.PID], f.touchesErr
+}
+
+func (f *fakeActivityReader) ActivityPage(
+	_ context.Context, filter visibilityapi.ActivityFilter, class, cursor string,
+) (visibilityapi.ActivityPage, error) {
+	f.filter, f.class, f.cursor = &filter, class, cursor
+	return f.page, f.err
 }
 
 func (f *fakeActivityReader) ActivityForGenerations(

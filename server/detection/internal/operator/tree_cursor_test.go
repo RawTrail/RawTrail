@@ -56,7 +56,9 @@ func TestProcessTreeHandler_ScopedReadPagesByCursor(t *testing.T) {
 	status, second := read("&cursor=" + first.NextCursor)
 	require.Equal(t, http.StatusOK, status)
 	assert.Empty(t, second.NextCursor, "the last page names no next")
+	require.Len(t, second.Roots, 1)
 	assert.Equal(t, int64(8), second.Roots[0].ID)
+	require.Len(t, asked, 2)
 	assert.Equal(t, api.TreePosition{ForkTimeNs: 700, ID: 7}, asked[1].After, "the next page reads after the first's last row")
 	assert.Equal(t, api.AgentSessionFilter{}, lister.filter, "a later page does not read the agents again")
 

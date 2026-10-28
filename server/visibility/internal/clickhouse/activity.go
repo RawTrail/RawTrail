@@ -58,20 +58,24 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 		return err
 	})
 	g.Go(func() (err error) {
-		out.Files.Rows, out.Files.Truncated, err = s.fileActivity(gctx, scope, scopeArgs, limit)
+		out.Files.Rows, out.Files.Truncated, err = s.fileActivity(gctx, scope, scopeArgs, nil, limit)
 		return err
 	})
 	g.Go(func() (err error) {
-		out.Network.Rows, out.Network.Truncated, err = s.networkActivity(gctx, scope, scopeArgs, limit)
+		out.Network.Rows, out.Network.Truncated, err = s.networkActivity(gctx, scope, scopeArgs, nil, limit)
 		return err
 	})
 	g.Go(func() (err error) {
-		out.DNS.Rows, out.DNS.Truncated, err = s.dnsActivity(gctx, scope, scopeArgs, limit)
+		out.DNS.Rows, out.DNS.Truncated, err = s.dnsActivity(gctx, scope, scopeArgs, nil, limit)
 		return err
 	})
 	if err := g.Wait(); err != nil {
 		return api.ActivityRollup{}, err
 	}
+	// A cut list names where its next page starts, which ActivityPage reads.
+	out.Files.NextCursor = nextCursor(out.Files.Rows, out.Files.Truncated, fileCursor)
+	out.Network.NextCursor = nextCursor(out.Network.Rows, out.Network.Truncated, networkCursor)
+	out.DNS.NextCursor = nextCursor(out.DNS.Rows, out.DNS.Truncated, dnsCursor)
 	return out, nil
 }
 
@@ -141,7 +145,7 @@ func (s *Store) activityTotals(ctx context.Context, scope string, args []any) (a
 	return out, nil
 }
 
-func (s *Store) fileActivity(ctx context.Context, scope string, args []any, limit int) ([]api.FileActivityRow, bool, error) {
+func (s *Store) fileActivity(ctx context.Context, scope string, args []any, after keyset, limit int) ([]api.FileActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+activityFileOperation+` AS operation, JSONExtractString(payload, 'path') AS path,
 			JSONExtractString(payload, 'source_path') AS source_path, toBool(JSONExtractBool(payload, 'rolled_up')) AS rolled_up,
@@ -149,8 +153,9 @@ func (s *Store) fileActivity(ctx context.Context, scope string, args []any, limi
 		FROM events FINAL
 		WHERE event_type IN `+activityFileTypes+` AND `+scope+`
 		GROUP BY operation, path, source_path, rolled_up, pid, pv
-		ORDER BY first, path, operation
-		LIMIT ?`, append(args, limit+1)...)
+		`+after.having(fileOrder)+`
+		ORDER BY `+fileOrder+`
+		LIMIT ?`, after.args(args, limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse file activity: %w", err)
 	}
@@ -159,7 +164,9 @@ func (s *Store) fileActivity(ctx context.Context, scope string, args []any, limi
 	})
 }
 
-func (s *Store) networkActivity(ctx context.Context, scope string, args []any, limit int) ([]api.NetworkActivityRow, bool, error) {
+func (s *Store) networkActivity(
+	ctx context.Context, scope string, args []any, after keyset, limit int,
+) ([]api.NetworkActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT JSONExtractString(payload, 'remote_address') AS address, JSONExtractInt(payload, 'remote_port') AS port,
 			JSONExtractString(payload, 'protocol') AS protocol,
@@ -169,8 +176,9 @@ func (s *Store) networkActivity(ctx context.Context, scope string, args []any, l
 		FROM events FINAL
 		WHERE event_type = 'network_connect' AND `+scope+`
 		GROUP BY address, port, protocol, pid, pv
-		ORDER BY first, address, port
-		LIMIT ?`, append(args, limit+1)...)
+		`+after.having(networkOrder)+`
+		ORDER BY `+networkOrder+`
+		LIMIT ?`, after.args(args, limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse network activity: %w", err)
 	}
@@ -181,7 +189,7 @@ func (s *Store) networkActivity(ctx context.Context, scope string, args []any, l
 
 // dnsActivity lists the names resolved, each with up to 16 of the addresses its answers carried, sorted. The bound is inside the
 // aggregate, so a name whose answers rotate through many addresses does not collect all of them only to keep 16.
-func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, limit int) ([]api.DNSActivityRow, bool, error) {
+func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, after keyset, limit int) ([]api.DNSActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT JSONExtractString(payload, 'query_name') AS name,
 			arraySort(groupUniqArrayArray(16)(JSONExtract(payload, 'response_addresses', 'Array(String)'))),
@@ -190,8 +198,9 @@ func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, limit
 		FROM events FINAL
 		WHERE event_type = 'dns_query' AND `+scope+`
 		GROUP BY name, pid, pv
-		ORDER BY first, name
-		LIMIT ?`, append(args, limit+1)...)
+		`+after.having(dnsOrder)+`
+		ORDER BY `+dnsOrder+`
+		LIMIT ?`, after.args(args, limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse dns activity: %w", err)
 	}

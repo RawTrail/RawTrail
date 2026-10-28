@@ -77,6 +77,10 @@ func (f *fakeEventArchive) ActivityTotalsForGenerations(context.Context, api.Act
 	return visibilityapi.ActivitySummary{}, nil
 }
 
+func (f *fakeEventArchive) ActivityPage(context.Context, api.ActivityFilter, string, string) (visibilityapi.ActivityPage, error) {
+	return visibilityapi.ActivityPage{}, nil
+}
+
 func (f *fakeEventArchive) AgentToolCallCounts(context.Context, visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error) {
 	return nil, nil
 }

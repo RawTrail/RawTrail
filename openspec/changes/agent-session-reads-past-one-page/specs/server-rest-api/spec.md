@@ -23,3 +23,14 @@ The process-forest endpoint's `scope=session` and `scope=story` reads SHALL page
 - **THEN** every process is read once across the pages, each page reports the session's total, and the last names no cursor
 - **AND** the agent processes are read with the first page only, and a malformed cursor is rejected
 
+### Requirement: Agent session activity pages
+
+The activity rollup SHALL name, for each class whose list it cut, the cursor of that list's next page. `GET /api/hosts/{host_id}/activity/{class}`, for `files`, `network` or `dns` and the rollup's scope, SHALL list the class's rows after a cursor in the rollup's order, bounded by `limit`, with the next page's cursor. It SHALL reject a malformed cursor, one of another class, or an unknown class with `invalid_cursor`.
+
+#### Scenario: An activity list pages by cursor
+
+- **GIVEN** a scope whose files, connections and lookups outnumber one page, several first seen at the same time
+- **WHEN** each class is read from the rollup's cursor, page by page
+- **THEN** every row of the class is listed once, in the rollup's order, and the last page names no cursor
+- **AND** a cursor of another class, a malformed cursor and an unknown class are rejected with `invalid_cursor`
+

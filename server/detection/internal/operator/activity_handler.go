@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 // the one process a process scope names, read by its row id.
 type ActivityReader interface {
 	ActivityForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivityRollup, error)
+	ActivityPage(ctx context.Context, filter visibilityapi.ActivityFilter, class, cursor string) (visibilityapi.ActivityPage, error)
 	GetProcessByID(ctx context.Context, hostID string, id int64) (*api.Process, error)
 	SessionTouches(ctx context.Context, hostID string, generation visibilityapi.ProcessGeneration) ([]visibilityapi.SessionTouch, error)
 }
@@ -30,6 +32,71 @@ func (h *Handler) SetActivity(r ActivityReader) { h.activity = r }
 
 func (h *Handler) registerActivityRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/hosts/{host_id}/activity", h.handleActivity)
+	mux.HandleFunc("GET /api/hosts/{host_id}/activity/{class}", h.handleActivityPage)
+}
+
+// activityPageLimit is how many rows a page of one activity class lists unless ?limit= asks for fewer.
+const activityPageLimit = 200
+
+// activityPageResponse is one page of one activity class, with the cursor of the next page.
+type activityPageResponse struct {
+	Rows       any    `json:"rows"`
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// handleActivityPage serves GET /api/hosts/{host_id}/activity/{class}: the page of one class (files, network or dns) of a scope's
+// activity after ?cursor=, the cursor the rollup or the previous page handed out (issue #1424). The scope is named as for the rollup.
+func (h *Handler) handleActivityPage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	hostID := r.PathValue("host_id")
+	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionProcessRead, identityapi.Resource{Type: "process", ID: hostID}) {
+		return
+	}
+	if h.activity == nil {
+		h.writeError(ctx, w, http.StatusServiceUnavailable, errInternal)
+		return
+	}
+	req, ok := parseActivityScope(r.URL.Query())
+	if !ok {
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidScope)
+		return
+	}
+	filter, _, _, err := h.activityFilter(ctx, hostID, req)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "resolve activity scope", "host_id", hostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	filter.Limit = min(max(httpserver.ParseIntParam(r, "limit", activityPageLimit), 1), activityPageLimit)
+	class := r.PathValue("class")
+	page, err := h.activity.ActivityPage(ctx, filter, class, r.URL.Query().Get("cursor"))
+	if err != nil {
+		if errors.Is(err, visibilityapi.ErrInvalidActivityCursor) {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		h.logger.ErrorContext(ctx, "activity page", "host_id", hostID, "class", class, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	resp := activityPageResponse{NextCursor: page.NextCursor}
+	switch class {
+	case visibilityapi.ActivityFiles:
+		resp.Rows = nonNil(page.Files)
+	case visibilityapi.ActivityNetwork:
+		resp.Rows = nonNil(page.Network)
+	default:
+		resp.Rows = nonNil(page.DNS)
+	}
+	h.writeJSON(w, r, resp)
+}
+
+// nonNil returns rows, or an empty list for none: the client iterates rows unconditionally.
+func nonNil[R any](rows []R) []R {
+	if rows == nil {
+		return []R{}
+	}
+	return rows
 }
 
 // activityProcess names a process of the scope, so a client can say which process touched each artifact: rows carry the (pid,
