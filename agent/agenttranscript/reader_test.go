@@ -65,7 +65,7 @@ func newTestReader(t *testing.T, q *recordingQueue, hostID string) (*Reader, str
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	path := filepath.Join(dir, "47abb2a1-d231-4304-8cb1-52f4460fcd11.jsonl")
 	require.NoError(t, os.WriteFile(path, nil, 0o600))
-	r := New(root, func() string { return hostID }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := New(root, func() string { return hostID }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), true)
 	return r, path
 }
 
@@ -78,7 +78,7 @@ func appendTo(t *testing.T, path, text string) {
 	require.NoError(t, f.Close())
 }
 
-// spec:endpoint-event-collection/agent-tool-call-capture/a-bash-tool-call-is-reported-with-its-command
+// spec:endpoint-event-collection/agent-tool-call-reporting/a-bash-tool-call-is-reported-with-its-command
 func TestReader_TailsTranscripts(t *testing.T) {
 	t.Parallel()
 	q := &recordingQueue{}
@@ -100,7 +100,7 @@ func TestReader_TailsTranscripts(t *testing.T) {
 	assert.Equal(t, PassStats{}, r.RunOnce(ctx), "an unchanged transcript reads nothing")
 }
 
-// spec:endpoint-event-collection/agent-tool-call-capture/an-unreadable-line-is-skipped-not-guessed
+// spec:endpoint-event-collection/agent-tool-call-reporting/an-unreadable-line-is-skipped-not-guessed
 func TestReader_SkipsUnreadableLines(t *testing.T) {
 	t.Parallel()
 	q := &recordingQueue{}
@@ -176,7 +176,7 @@ func TestReader_StaysInsideTheHome(t *testing.T) {
 			}
 			require.NoError(t, os.Symlink(target, at))
 			q := &recordingQueue{}
-			r := New(root, func() string { return "H1" }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			r := New(root, func() string { return "H1" }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), true)
 			assert.Equal(t, PassStats{}, r.RunOnce(context.Background()))
 			assert.Empty(t, q.events)
 		})
@@ -221,7 +221,7 @@ func TestReader_EventIDsAreStable(t *testing.T) {
 	r, path := newTestReader(t, q, "H1")
 	appendTo(t, path, bashLine("toolu_01", "ls")+bashLine("toolu_02", "pwd"))
 	r.RunOnce(context.Background())
-	restarted := New(r.root, r.hostID, q.enqueue, r.logger)
+	restarted := New(r.root, r.hostID, q.enqueue, r.logger, true)
 	restarted.RunOnce(context.Background())
 	require.Len(t, q.events, 4)
 	assert.Equal(t, q.events[0]["event_id"], q.events[2]["event_id"])
@@ -263,7 +263,7 @@ func TestReader_AFIFOForADirectoryDoesNotBlock(t *testing.T) {
 			at := filepath.Join(root, "dev", fifo)
 			require.NoError(t, os.MkdirAll(filepath.Dir(at), 0o700))
 			require.NoError(t, syscall.Mkfifo(at, 0o600))
-			r := New(root, func() string { return "H1" }, (&recordingQueue{}).enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			r := New(root, func() string { return "H1" }, (&recordingQueue{}).enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), true)
 			done := make(chan struct{})
 			go func() { r.RunOnce(context.Background()); close(done) }()
 			select {
@@ -320,7 +320,7 @@ func TestReader_RefusesASymlinkSwappedIn(t *testing.T) {
 
 // A user writes their own transcripts, so a line naming another session than its transcript's is refused, and a call is stamped
 // with the uid of the transcript's owner, which its event id is bound to: another user's forged line can never take its place.
-// spec:endpoint-event-collection/agent-tool-call-capture/a-forged-line-cannot-stand-in-for-another-session-s-call
+// spec:endpoint-event-collection/agent-tool-call-reporting/a-forged-line-cannot-stand-in-for-another-session-s-call
 func TestReader_BindsCallsToTheirTranscript(t *testing.T) {
 	t.Parallel()
 	q := &recordingQueue{}
@@ -442,4 +442,70 @@ func TestReader_ForkParentFromItsJob(t *testing.T) {
 		require.Len(t, q.events, 1)
 		assert.Equal(t, []any{nil}, forkedFrom(q))
 	})
+}
+
+// The prompts the user typed are sent beside the tool calls, stamped with the transcript's owner, unless prompt capture is off; a
+// prompt naming a session other than its transcript's is passed over, as a call is.
+//
+// spec:endpoint-event-collection/agent-prompt-capture/a-typed-prompt-is-reported-with-its-turn
+// spec:agent-configuration/the-agent-configuration-surface-is-intentionally-minimal/prompt-capture-can-be-turned-off
+func TestReader_Prompts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	lines := userLine(`"fix the failing auth test"`, typed) + "\n" + bashLine("toolu_01", "go test ./...") +
+		strings.Replace(userLine(`"forged"`, typed), "47abb2a1-d231-4304-8cb1-52f4460fcd11", "5828cd24-efb7-4b7b-a5bf-f3b24681ba10", 1) + "\n"
+
+	t.Run("captured", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueue{}
+		r, path := newTestReader(t, q, "H1")
+		appendTo(t, path, lines)
+		assert.Equal(t, PassStats{Prompts: 1, Calls: 1, Unreadable: 1}, r.RunOnce(ctx), "the forged prompt is passed over")
+		require.Len(t, q.events, 2)
+		assert.Equal(t, PromptEventType, q.events[0]["event_type"])
+		payload, _ := q.events[0]["payload"].(map[string]any)
+		assert.Equal(t, "fix the failing auth test", payload["text"])
+		assert.Equal(t, "p-1", payload["prompt_id"])
+		call, _ := q.events[1]["payload"].(map[string]any)
+		assert.Equal(t, "p-1", call["prompt_id"], "the call is made in the turn of the user entry before it")
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		require.True(t, ok)
+		assert.InDelta(t, float64(stat.Uid), payload["uid"], 0, "stamped with the transcript's owner")
+	})
+
+	t.Run("off", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueue{}
+		r, path := newTestReader(t, q, "H1")
+		r.prompts = false
+		appendTo(t, path, lines)
+		assert.Equal(t, PassStats{Calls: 1}, r.RunOnce(ctx), "no prompt is read, and so none is passed over")
+		assert.Equal(t, []string{"toolu_01"}, q.toolUseIDs())
+	})
+}
+
+// A call is made in the turn of the user entry before it, whichever kind: a prompt, or a tool result of a turn the agent began for a
+// notification. The turn carries over passes, as a transcript is read in pieces.
+//
+// spec:endpoint-event-collection/agent-prompt-capture/a-typed-prompt-is-reported-with-its-turn
+func TestReader_CallsTakeTheirTurn(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	ctx := context.Background()
+	notified := strings.Replace(userLine(`[{"tool_use_id":"toolu_00","type":"tool_result","content":"ok"}]`, ""), `"promptId":"p-1"`,
+		`"promptId":"p-2"`, 1)
+	appendTo(t, path, userLine(`"fix it"`, typed)+"\n"+bashLine("toolu_01", "ls"))
+	r.RunOnce(ctx)
+	appendTo(t, path, bashLine("toolu_02", "pwd")+notified+"\n"+bashLine("toolu_03", "git status"))
+	r.RunOnce(ctx)
+	turns := map[string]any{}
+	for _, e := range q.events {
+		if payload, _ := e["payload"].(map[string]any); e["event_type"] == EventType {
+			turns[payload["tool_use_id"].(string)] = payload["prompt_id"]
+		}
+	}
+	assert.Equal(t, map[string]any{"toolu_01": "p-1", "toolu_02": "p-1", "toolu_03": "p-2"}, turns)
 }

@@ -6,6 +6,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ### Upgrade notes (action required)
 
+- **The agent now sends the prompts people type to Claude Code.** Each prompt is stored as an event, with recognizable credentials replaced and long text cut at 16 KiB. To keep prompts on the Mac, set `EDR_CAPTURE_PROMPTS=0` in the agent's configuration before upgrading.
 - **If you changed the event archive's retention by hand, set `EDR_EVENT_RETENTION_DAYS` to it before upgrading.** Set it on every server and ingest replica. The upgraded server resets the archive to the setting at startup, 30 days when unset, and a shorter window deletes the older events.
 
 ### Added

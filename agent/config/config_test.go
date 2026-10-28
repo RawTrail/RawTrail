@@ -73,6 +73,23 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			// spec:agent-configuration/the-agent-configuration-surface-is-intentionally-minimal/prompt-capture-can-be-turned-off
+			name: "prompt capture is on unless turned off",
+			env:  minEnv,
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.True(t, c.CapturePrompts)
+			},
+		},
+		{
+			name: "prompt capture turned off",
+			env:  withExtra(minEnv, map[string]string{"EDR_CAPTURE_PROMPTS": "0"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.False(t, c.CapturePrompts)
+			},
+		},
+		{
 			name:    "missing server url",
 			env:     map[string]string{},
 			wantErr: "EDR_SERVER_URL",

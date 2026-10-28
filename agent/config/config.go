@@ -73,6 +73,9 @@ type Config struct {
 	LogLevel                 string
 	LogFormat                string
 	AllowInsecure            bool
+	// CapturePrompts is whether the prompts the user types to an AI agent are read from its transcripts and sent, redacted (issue
+	// #1426). On unless EDR_CAPTURE_PROMPTS is 0.
+	CapturePrompts bool
 	// Proxy is the outbound proxy every connection to the server goes through, or the zero value for a direct connection.
 	Proxy ProxyConfig
 }
@@ -133,6 +136,7 @@ func loadFrom(getenv func(string) string) (*Config, error) {
 	optional(&c.QueueDBPath, "EDR_QUEUE_DB_PATH", getenv)
 	optional(&c.XPCService, "EDR_XPC_SERVICE", getenv)
 	optional(&c.NetXPCService, "EDR_NET_XPC_SERVICE", getenv)
+	c.CapturePrompts = getenv("EDR_CAPTURE_PROMPTS") != "0"
 
 	// 0 disables the agent-side process-tree reconciliation loop entirely (issue #6 client half): useful for narrow QA where synthetic
 	// exits would distort what a clean ESF feed looks like. Negative values are rejected.
