@@ -811,6 +811,66 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/agent-sessions/{session_id}/processes:
+    get:
+      tags: [Hosts]
+      summary: Search an AI agent session's processes
+      description: >-
+        The session's processes whose path or command line holds `q`, case-insensitively, each listed without its children and in the
+        order they forked, a page at a time. The search covers the session's whole process read, not a page of its tree, so it finds
+        a process however deep it sits or however late it ran. The read covers up to 20,000 of the session's processes, and
+        `truncated` says when it was cut. An empty `q` lists every process.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+        - name: q
+          in: query
+          description: Keep the processes whose path or command line holds this text, case-insensitively.
+          schema: {type: string}
+        - name: cursor
+          in: query
+          description: The previous page's `next_cursor`.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Processes per page.
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the processes the search found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [processes, total_matched, truncated]
+                properties:
+                  processes:
+                    type: array
+                    description: The matching processes, each without its children.
+                    items: {$ref: "#/components/schemas/ProcessNode"}
+                  next_cursor: {type: string, description: Absent on the last page.}
+                  total_matched: {type: integer, description: The processes the search matched across every page.}
+                  truncated: {type: boolean, description: "True when the session had more processes than the 20,000 that are read."}
+        "400":
+          description: "`invalid_cursor`: the cursor does not decode."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/hosts/{host_id}/agent-sessions/{session_id}/summary:
     get:
       tags: [Hosts]

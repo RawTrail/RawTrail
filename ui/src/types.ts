@@ -287,6 +287,15 @@ export interface SessionCommand {
 }
 
 // SessionCommandsResponse is one page of a session's commands, in the order they started.
+// SessionProcessesResponse is one page of the processes a search found in a session (issue #1452): each alone, in fork order, with
+// the matches' total and whether the session had more processes than its read lists.
+export interface SessionProcessesResponse {
+  processes: ProcessNode[];
+  next_cursor?: string;
+  total_matched: number;
+  truncated: boolean;
+}
+
 export interface SessionCommandsResponse {
   commands: SessionCommand[];
   next_cursor?: string;

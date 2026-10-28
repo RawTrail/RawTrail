@@ -53,8 +53,12 @@ interface Props {
   readonly label: string;
   readonly hostId: string;
   readonly scope: ActivityScopeQuery;
-  // onProcess, when set, makes each row's process a button that selects it (the session view); otherwise it is plain text.
-  readonly onProcess?: (processId: number) => void;
+  // onProcess, when set, makes each row's process a button that selects it (the session view); otherwise it is plain text. It is
+  // handed the process and the moment of the row's first event, which together name the process to read when it is not loaded.
+  readonly onProcess?: (process: ActivityResponse["processes"][number], atNs: number) => void;
+  // search, when set, lists each class's rows the server finds for it (issue #1452) in place of the rollup's list; the totals stay
+  // the scope's.
+  readonly search?: string;
 }
 
 // scopeNote says how much of the scope the activity reflects, or null when it reflects all of it.
@@ -76,16 +80,20 @@ function scopeNote(scope: ActivityScope): string | null {
 // ActivityTabs shows what a process, its subtree or an agent session touched (issue #1285): its files, network destinations and DNS
 // names as totals and lists, each row naming the process behind it. The server matches events to processes by exact generation and
 // says how far the scope reached; this says so too.
-export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
+export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: Props) {
   const key = `${hostId}/${JSON.stringify(scope)}`;
+  // The rows read past the rollup belong to the scope and the search they were read for.
+  const listKey = `${key}\n${search}`;
   const [read, setRead] = useState<ActivityRead | null>(null);
   const [tab, setTab] = useState<TabKey>("network");
   const current = read?.key === key ? read : null;
-  const [more, setMore] = useState<More>({ key, byClass: new Map() });
-  const extra: ReadonlyMap<TabKey, ClassMore> = more.key === key ? more.byClass : new Map();
+  const [more, setMore] = useState<More>({ key: listKey, byClass: new Map() });
+  const extra: ReadonlyMap<TabKey, ClassMore> = more.key === listKey ? more.byClass : new Map();
 
-  // loadMore reads a class's next page after its cursor and appends it, for the scope it was asked for only.
+  // loadMore reads a class's next page after its cursor and appends it, for the scope and search it was asked for only. An empty
+  // cursor reads a search's first page.
   const loadMore = useCallback((cls: TabKey, cursor: string) => {
+    const key = listKey;
     const update = (change: (prior: ClassMore) => ClassMore) => {
       setMore((m) => {
         const byClass = new Map(m.key === key ? m.byClass : []);
@@ -105,12 +113,19 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
     };
     // The cursor being read stays the class's until a page replaces it, so a failed read is offered again.
     update((prior) => ({ ...prior, cursor, loading: true, failed: false }));
-    getActivityPage<unknown>(hostId, scope, cls, cursor)
+    getActivityPage<unknown>(hostId, scope, cls, cursor, search)
       .then((page) => {
         settle((prior) => ({ rows: [...prior.rows, ...page.rows], cursor: page.next_cursor, loading: false, failed: false }));
       })
       .catch(() => { settle((prior) => ({ ...prior, loading: false, failed: true })); });
-  }, [hostId, scope, key]);
+  }, [hostId, scope, listKey, search]);
+
+  // A search reads the open class's first page from the server once the rollup is in; another class's waits until it is opened.
+  const searching = search !== "";
+  const pending = searching && current?.activity !== undefined && !extra.has(tab);
+  useEffect(() => {
+    if (pending) loadMore(tab, "");
+  }, [pending, tab, loadMore]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +145,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
     const label = `${executableName(process.path)} (${String(row.pid)})`;
     if (!onProcess) return label;
     return (
-      <button type="button" className="activity-tabs__process" onClick={() => { onProcess(process.id); }}>
+      <button type="button" className="activity-tabs__process" onClick={() => { onProcess(process, row.first_ns); }}>
         {label}
       </button>
     );
@@ -160,10 +175,13 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
         ))}
       </div>
       <div className="activity-tabs__panel">
+        {searching && extra.get(tab)?.rows.length === 0 && extra.get(tab)?.loading === true && (
+          <p className="activity-tabs__note" role="status">Searching...</p>
+        )}
         {tab === "files" && (
           <FilesPanel
             activity={activity}
-            rows={[...activity.files.rows, ...(extra.get("files")?.rows ?? []) as FileActivityRow[]]}
+            rows={listed(activity.files.rows, extra.get("files"), searching) as FileActivityRow[]}
             processName={processName}
             hasMore={hasMore(activity.files, extra.get("files"))}
             more={<LoadMore cls="files" first={activity.files.next_cursor} extra={extra.get("files")} onMore={loadMore} />}
@@ -172,7 +190,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
         {tab === "network" && (
           <NetworkPanel
             activity={activity}
-            rows={[...activity.network.rows, ...(extra.get("network")?.rows ?? []) as NetworkActivityRow[]]}
+            rows={listed(activity.network.rows, extra.get("network"), searching) as NetworkActivityRow[]}
             processName={processName}
             hasMore={hasMore(activity.network, extra.get("network"))}
             more={<LoadMore cls="network" first={activity.network.next_cursor} extra={extra.get("network")} onMore={loadMore} />}
@@ -181,7 +199,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
         {tab === "dns" && (
           <DNSPanel
             activity={activity}
-            rows={[...activity.dns.rows, ...(extra.get("dns")?.rows ?? []) as DNSActivityRow[]]}
+            rows={listed(activity.dns.rows, extra.get("dns"), searching) as DNSActivityRow[]}
             processName={processName}
             hasMore={hasMore(activity.dns, extra.get("dns"))}
             more={<LoadMore cls="dns" first={activity.dns.next_cursor} extra={extra.get("dns")} onMore={loadMore} />}
@@ -202,6 +220,11 @@ interface PanelProps<Row> {
   readonly more: ReactNode;
 }
 
+// listed is a class's rows as shown: the rollup's list and the rows read past it, or under a search only what the server found.
+function listed(rollup: readonly unknown[], extra: ClassMore | undefined, searching: boolean): unknown[] {
+  return searching ? (extra?.rows ?? []) : [...rollup, ...(extra?.rows ?? [])];
+}
+
 // hasMore reports a class with rows not yet listed: one whose last page read names a next page, or whose cut list does.
 function hasMore(listed: { truncated: boolean }, extra: ClassMore | undefined): boolean {
   return extra ? extra.cursor !== undefined : listed.truncated;
@@ -219,7 +242,8 @@ function LoadMore({ cls, first, extra, onMore }: {
   return (
     <>
       {extra?.failed && <p className="activity-tabs__note" role="status">The next rows could not be loaded.</p>}
-      {cursor && (
+      {/* A search's first page is read from the empty cursor, so a failed first read is offered again from it. */}
+      {cursor !== undefined && (cursor !== "" || extra?.failed === true) && (
         <Button variant="text-link" disabled={extra?.loading === true} onClick={() => { onMore(cls, cursor); }}>
           Load more rows
         </Button>

@@ -199,6 +199,146 @@ describe("SessionView commands from the server", () => {
     expect(screen.queryByRole("button", { name: "Load more processes" })).toBeNull();
   });
 
+  // spec:web-ui/the-session-view-searches-its-processes-and-activity-on-the-server/a-processes-search-finds-a-process-not-yet-loaded
+  it("lists the processes the server's search found, a process past the loaded pages included", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ returned: 16, total_matched: 17, truncated: true, next_cursor: "p2" }));
+    const late = proc(2298999, 80999, 900, "/usr/bin/git", ["git", "status"], [], { parent_process_id: 2298322 });
+    const early = proc(2298998, 80998, 800, "/usr/bin/git", ["git", "log"]);
+    const search = vi.spyOn(api, "searchSessionProcesses").mockImplementation((_h, _s, page) => Promise.resolve(page?.cursor === "s2"
+      ? { processes: [late], total_matched: 2, truncated: false }
+      : { processes: [early], next_cursor: "s2", total_matched: 2, truncated: true }));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: " git " } });
+    expect(await screen.findByText("2 processes match")).toBeVisible();
+    expect(search).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ q: "git", cursor: "" }));
+    expect(screen.getByText(/a match among the later ones is not found/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more processes" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Load more matches (1 more)" }));
+    await waitFor(() => { expect(screen.getAllByRole("button", { name: "git" })).toHaveLength(2); });
+    expect(screen.queryByRole("button", { name: /Load more matches/ })).toBeNull();
+  });
+
+  it("says a cut search found nothing among what the server read, not that nothing matches", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "searchSessionProcesses").mockResolvedValue({ processes: [], total_matched: 0, truncated: true });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "docker" } });
+    expect(await screen.findByText("No process the server read matches.")).toBeVisible();
+    expect(screen.getByText(/a match among the later ones is not found/)).toBeVisible();
+  });
+
+  it("lists every match a search page read, past the row cap", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    const matches = Array.from({ length: 30 }, (_, i) => proc(3_000_000 + i, 90_000 + i, 1000 + i, "/bin/echo", ["echo", `m${String(i)}`]));
+    vi.spyOn(api, "searchSessionProcesses").mockResolvedValue({ processes: matches, total_matched: 30, truncated: false });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "echo" } });
+    expect(await screen.findByText("30 processes match")).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "echo" })).toHaveLength(30);
+    expect(screen.queryByRole("button", { name: /Show \d+ more process/ })).toBeNull();
+  });
+
+  it("reads and opens a process an Activity row names that the loaded tree does not hold", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getActivity").mockResolvedValue({
+      scope: { processes: 1, applied: 1, unmatched: 0, truncated: false },
+      processes: [{ id: 7_777_777, pid: 77_777, pidversion: 9, path: "/usr/bin/dig" }],
+      files: { events: 0, distinct: 0, truncated: false, rows: [] },
+      network: { events: 0, distinct: 0, truncated: false, rows: [] },
+      dns: { events: 1, distinct: 1, truncated: false, rows: [
+        { pid: 77_777, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: "late.example", addresses: [] },
+      ] },
+    } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
+    const late = proc(7_777_777, 77_777, 4_999, "/usr/bin/dig", ["dig", "late.example"]);
+    const detail = vi.spyOn(api, "getProcessDetail").mockResolvedValue({ process: late, network_connections: [], dns_queries: [] });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "dig (77777)" }));
+    await waitFor(() => { expect(detail).toHaveBeenCalledWith("H1", 77_777, 5_000, 9); });
+    expect(await screen.findByRole("link", { name: "Open in host graph" })).toBeVisible();
+  });
+
+  it("opens a search result's detail when the session's tree could not be read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockRejectedValue(new Error("tree down"));
+    vi.spyOn(api, "getSessionCommands").mockResolvedValue(sessionCommands(realSession()));
+    const match = proc(3_100_000, 91_000, 1000, "/usr/bin/git", ["git", "status"]);
+    vi.spyOn(api, "searchSessionProcesses").mockResolvedValue({ processes: [match], total_matched: 1, truncated: false });
+    vi.spyOn(api, "getProcessDetail").mockResolvedValue({ process: match, network_connections: [], dns_queries: [] });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "git" } });
+    fireEvent.click(await screen.findByRole("button", { name: "git" }));
+    expect(await screen.findByRole("link", { name: "Open in host graph" })).toBeVisible();
+  });
+
+  it("does not open a process read for a selection the operator has since replaced", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    const dns = (pid: number, name: string) =>
+      ({ pid, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: name, addresses: [] });
+    vi.spyOn(api, "getActivity").mockResolvedValue({
+      scope: { processes: 2, applied: 2, unmatched: 0, truncated: false },
+      processes: [{ id: 7_000_001, pid: 70_001, pidversion: 9, path: "/usr/bin/dig" },
+        { id: 7_000_002, pid: 70_002, pidversion: 9, path: "/usr/bin/host" }],
+      files: { events: 0, distinct: 0, truncated: false, rows: [] },
+      network: { events: 0, distinct: 0, truncated: false, rows: [] },
+      dns: { events: 2, distinct: 2, truncated: false, rows: [dns(70_001, "slow.example"), dns(70_002, "fast.example")] },
+    } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
+    const slow = proc(7_000_001, 70_001, 4_999, "/usr/bin/dig", ["dig"]);
+    const fast = proc(7_000_002, 70_002, 4_999, "/usr/bin/host", ["host"]);
+    let landSlow: (d: Awaited<ReturnType<typeof api.getProcessDetail>>) => void = () => undefined;
+    vi.spyOn(api, "getProcessDetail").mockImplementation((_h, pid) => (pid === 70_001
+      ? new Promise((resolve) => { landSlow = resolve; })
+      : Promise.resolve({ process: pid === 70_002 ? fast : slow, network_connections: [], dns_queries: [] })));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "dig (70001)" }));
+    fireEvent.click(screen.getByRole("button", { name: "host (70002)" }));
+    const graph = await screen.findByRole("link", { name: "Open in host graph" });
+    expect(graph.getAttribute("href")).toContain("7000002");
+    landSlow({ process: slow, network_connections: [], dns_queries: [] });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getByRole("link", { name: "Open in host graph" }).getAttribute("href")).toContain("7000002");
+
+    // Closing the pane while a read is under way leaves it closed when the read lands.
+    fireEvent.click(screen.getByRole("button", { name: "dig (70001)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("link", { name: "Open in host graph" })).toBeNull();
+    landSlow({ process: slow, network_connections: [], dns_queries: [] });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.queryByRole("link", { name: "Open in host graph" })).toBeNull();
+  });
+
+  it("sends the session view's search to Activity", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getActivity").mockResolvedValue({
+      scope: { processes: 1, applied: 1, unmatched: 0, truncated: false }, processes: [],
+      files: { events: 0, distinct: 0, truncated: false, rows: [] },
+      network: { events: 0, distinct: 0, truncated: false, rows: [] },
+      dns: { events: 0, distinct: 0, truncated: false, rows: [] },
+    } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
+    const page = vi.spyOn(api, "getActivityPage").mockResolvedValue({ rows: [] });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
+    const box = screen.getByRole("searchbox", { name: "Search this session" });
+    expect(box).toHaveAttribute("placeholder", "Search activity");
+    fireEvent.change(box, { target: { value: " example.com " } });
+    await waitFor(() => {
+      expect(page).toHaveBeenCalledWith("H1", { kind: "session", session: SESSION }, "network", "", "example.com");
+    });
+  });
+
   it("keeps the current session's next page loading when the previous session's lands", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     let landPrevious: (res: TreeResponse) => void = () => undefined;

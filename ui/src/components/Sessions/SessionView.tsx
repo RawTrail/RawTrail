@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
-import { getAgentSessionLineage, getAgentSessionTotals, getSessionCommands, getSessionTree, listAgentSessions, listAlerts } from "../../api";
+import {
+  getAgentSessionLineage, getAgentSessionTotals, getProcessDetail, getSessionCommands, getSessionTree, listAgentSessions, listAlerts, searchSessionProcesses,
+} from "../../api";
 import type {
   AgentSessionLineage, AgentSessionSummary, AgentSessionTotals, Alert, ProcessNode, SessionCommand, ToolCallMatch, TreeResponse,
 } from "../../types";
@@ -289,14 +291,21 @@ export function SessionView() {
     [view, forest, groups, query],
   );
   // A selection belongs to the session it was made in.
-  const selectedNode = selected?.key === readKey && tree !== null ? selected.node : null;
+  // selection counts the selections made and closed, so a process read for a selection the operator has since replaced or closed is
+  // dropped rather than opened over it.
+  const selection = useRef(0);
+  // A selection belongs to the session it was made in. It needs no tree: a search result or an Activity row opens one without it.
+  const selectedNode = selected?.key === readKey ? selected.node : null;
   const rowsContext = useMemo<SessionRows>(
     () => ({
       hostId,
       alertsByProcess,
       hits,
       selectedId: selectedNode?.id ?? null,
-      onSelect: (node: ProcessNode) => { setSelected({ key: readKey, node }); },
+      onSelect: (node: ProcessNode) => {
+        selection.current += 1;
+        setSelected({ key: readKey, node });
+      },
     }),
     [hostId, alertsByProcess, hits, selectedNode, readKey],
   );
@@ -333,7 +342,7 @@ export function SessionView() {
             <Input
               type="search"
               aria-label="Search this session"
-              placeholder={view === "processes" ? "Search processes" : "Search commands"}
+              placeholder={view === "commands" ? "Search commands" : `Search ${view}`}
               value={query}
               onChange={(e) => { setQuery(e.target.value); }}
             />
@@ -375,7 +384,10 @@ export function SessionView() {
                 expandAll={(current?.totals?.commands ?? commands.total) <= AUTO_EXPAND_GROUPS}
               />
             )}
-            {view === "processes" && (
+            {view === "processes" && searched !== "" && (
+              <ProcessSearchBody hostId={hostId} sessionId={sessionId} query={searched} />
+            )}
+            {view === "processes" && searched === "" && (
               <ProcessesBody
                 read={current}
                 forest={forest}
@@ -391,10 +403,19 @@ export function SessionView() {
                 label="Session activity"
                 hostId={hostId}
                 scope={{ kind: "session", session: sessionId }}
-                onProcess={(id) => {
+                search={searched}
+                onProcess={(process, atNs) => {
                   // The agent is not among the roots, and its own edits are what the Files tab lists most (issue #1287).
-                  const node = tree ? findNodeByDbId([...(tree.agents ?? []), ...tree.roots], id) : null;
-                  if (node) rowsContext.onSelect(node);
+                  const node = tree ? findNodeByDbId([...(tree.agents ?? []), ...tree.roots], process.id) : null;
+                  if (node) {
+                    rowsContext.onSelect(node);
+                    return;
+                  }
+                  // A row can name a process on a tree page not yet read, which a search reaches (issue #1452): read that process.
+                  const asked = selection.current;
+                  void getProcessDetail(hostId, process.pid, atNs, process.pidversion)
+                    .then((detail) => { if (selection.current === asked) rowsContext.onSelect(detail.process); })
+                    .catch(() => undefined);
                 }}
               />
             )}
@@ -408,7 +429,10 @@ export function SessionView() {
                 key={selectedNode.id}
                 hostId={hostId}
                 node={selectedNode}
-                onClose={() => { setSelected(null); }}
+                onClose={() => {
+                  selection.current += 1;
+                  setSelected(null);
+                }}
                 timelineHref={timelineHref(hostId, selectedNode)}
               />
             </aside>
@@ -536,6 +560,52 @@ function SessionBody({ groups, commands, expandAll }: {
         </Button>
       )}
     </>
+  );
+}
+
+// ProcessSearchBody lists the processes a search found across the whole session (issue #1452), each alone and in fork order, from the
+// server and a page at a time: the tree a match sits in may lie on a page not yet read, so the loaded tree cannot answer it.
+function ProcessSearchBody({ hostId, sessionId, query }: {
+  readonly hostId: string;
+  readonly sessionId: string;
+  readonly query: string;
+}) {
+  const key = `${hostId}/${sessionId}\n${query}`;
+  const [cut, setCut] = useState<{ key: string; truncated: boolean } | null>(null);
+  // The key on screen, read when a page lands so a slower page for a search since replaced cannot report its cut as this one's.
+  const activeKey = useRef(key);
+  useEffect(() => { activeKey.current = key; }, [key]);
+  const fetchPage = useCallback(async (cursor: string): Promise<CursorPage<SessionRow>> => {
+    const page = await searchSessionProcesses(hostId, sessionId, { cursor, q: query, limit: COMMANDS_PAGE });
+    if (activeKey.current === key) setCut({ key, truncated: page.truncated });
+    return { rows: page.processes.map((node) => ({ node, children: [] })), nextCursor: page.next_cursor, total: page.total_matched };
+  }, [hostId, sessionId, query, key]);
+  const found = useCursorList(key, fetchPage);
+  if (found.error && found.rows.length === 0) return <EmptyState>Error: {found.error}</EmptyState>;
+  const partial = cut?.key === key && cut.truncated;
+  const notice = partial && (
+    <p className="session-view__notice" role="status">
+      This session ran more processes than the server reads, so a match among the later ones is not found.
+    </p>
+  );
+  if (found.rows.length === 0) {
+    if (found.loading) return <EmptyState>Searching...</EmptyState>;
+    // A cut read cannot say that nothing matches, only that nothing it read does.
+    return <>{notice}<EmptyState>{partial ? "No process the server read matches." : "No process in this session matches."}</EmptyState></>;
+  }
+  return (
+    <div className="session-view__processes">
+      <p className="session-view__processes-summary">{plural(found.total, "process matches", "processes match")}</p>
+      {notice}
+      {/* The server pages the matches, so every match read is listed: no second cap behind Load more. */}
+      <ProcessRows rows={found.rows} cap={Infinity} />
+      {found.error && <p className="session-view__notice" role="alert">The next processes could not be loaded: {found.error}</p>}
+      {found.hasMore && (
+        <Button variant="text-link" disabled={found.loading} onClick={found.loadMore}>
+          {`Load more matches (${(found.total - found.rows.length).toLocaleString()} more)`}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -673,9 +743,9 @@ function AgentCall({ match }: { readonly match: ToolCallMatch }) {
 
 // ProcessRows lists rows up to ROW_CAP, then offers the rest. A row holding a search hit or an alert is listed past the cap, since
 // the command opened, or the search expanded it, to show that row.
-function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
+function ProcessRows({ rows, cap = ROW_CAP }: { readonly rows: SessionRow[]; readonly cap?: number }) {
   const { hits, alertsByProcess } = useSessionRows();
-  const [shown, setShown] = useState(ROW_CAP);
+  const [shown, setShown] = useState(cap);
   const listed = rows.filter((r, i) => i < shown || containsHit(r, hits) || containsProcess(r, alertsByProcess));
   const rest = rows.length - listed.length;
   return (

@@ -11,6 +11,8 @@ import {
   searchEvents,
   getHostTimeline,
   getSessionCommands,
+  searchSessionProcesses,
+  getActivityPage,
   setForbiddenHandler,
   setUnauthorizedHandler,
   Unauthorized401Error,
@@ -617,6 +619,25 @@ describe("free-text queries", () => {
     const url = new URL(target.toString());
     expect(url.pathname).toMatch(/\/hosts\/host-a\/agent-sessions\/s1\/commands$/);
     expect(Object.fromEntries(url.searchParams)).toEqual({ q: "rm -rf build* && git status", limit: "50" });
+  });
+
+  it("sends a session process search to the session's processes, with its cursor and page size", async () => {
+    const fetchMock = stubFetch({ processes: [], total_matched: 0, truncated: false });
+    await searchSessionProcesses("host a", "s1", { q: "git status", cursor: "c2", limit: 50 });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host%20a\/agent-sessions\/s1\/processes$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: "git status", cursor: "c2", limit: "50" });
+  });
+
+  it("sends an activity class's search with its cursor", async () => {
+    const fetchMock = stubFetch({ rows: [] });
+    await getActivityPage("host-a", { kind: "session", session: "s1" }, "dns", "c2", "evil example");
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host-a\/activity\/dns$/);
+    expect(url.searchParams.get("q")).toBe("evil example");
+    expect(url.searchParams.get("cursor")).toBe("c2");
   });
 
   it("sends a host timeline text search with a space and a literal plus", async () => {
