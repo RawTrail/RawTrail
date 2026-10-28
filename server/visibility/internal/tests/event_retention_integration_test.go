@@ -74,6 +74,21 @@ func TestApplyEventRetention_AltersOnlyOnChange(t *testing.T) {
 	changed, err = chstore.ApplyEventRetention(ctx, chDB, 30)
 	require.NoError(t, err)
 	assert.False(t, changed, "the value just applied is recognized, so the read of the TTL matches what the ALTER wrote")
+
+	// A hand-set TTL on the same day count that expires only some events keeps the rest forever, so it is replaced, not matched.
+	for _, handSet := range []string{
+		"ingested_date + INTERVAL 30 DAY DELETE WHERE event_type = 'network_connect'",
+		"ingested_date + INTERVAL 30 DAY, ingested_date + INTERVAL 1 DAY DELETE WHERE event_type = 'dns_query'",
+	} {
+		_, err = chDB.ExecContext(ctx, "ALTER TABLE events MODIFY TTL "+handSet)
+		require.NoError(t, err)
+		changed, err = chstore.ApplyEventRetention(ctx, chDB, 30)
+		require.NoError(t, err)
+		assert.True(t, changed, handSet)
+		changed, err = chstore.ApplyEventRetention(ctx, chDB, 30)
+		require.NoError(t, err)
+		assert.False(t, changed, "the plain TTL that replaced %q is recognized", handSet)
+	}
 }
 
 // A retention the archive cannot take fails the startup that applies it, rather than leaving the archive on a window nobody set.

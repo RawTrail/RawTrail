@@ -9,8 +9,10 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// eventsTTL reads the event archive's TTL from its table definition, which ClickHouse renders as toIntervalDay(<days>).
-var eventsTTL = regexp.MustCompile(`TTL ingested_date \+ toIntervalDay\((\d+)\)`)
+// eventsTTL reads the event archive's TTL from its table definition, which ClickHouse renders as toIntervalDay(<days>). It matches the
+// whole clause, up to SETTINGS or the end: a hand-set TTL with a WHERE condition or a second rule renders more after the interval, and
+// is not the retention the setting asks for.
+var eventsTTL = regexp.MustCompile(`TTL ingested_date \+ toIntervalDay\((\d+)\)(?: SETTINGS |$)`)
 
 // ApplyEventRetention sets the event archive's TTL to days when it holds another value, and reports whether it changed it (issue
 // #1434). An unchanged retention issues no ALTER, so every server start does not rewrite the TTL. A shorter retention expires older

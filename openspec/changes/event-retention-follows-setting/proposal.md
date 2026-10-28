@@ -11,4 +11,4 @@ The event archive kept raw events for a fixed 30 days set in its ClickHouse migr
 ## Impact
 
 - `server/config`, `server/visibility/bootstrap`, `server/visibility/internal/clickhouse`, both server binaries.
-- No migration. An existing deployment keeps 30 days until the setting changes.
+- No migration. A deployment on the migration's 30 days keeps them. A TTL an operator changed by hand is reset to the setting, 30 days when unset, on the first upgraded startup; the changelog's upgrade note says to set it first.
