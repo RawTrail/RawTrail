@@ -10,7 +10,7 @@
 
 ### Requirement: Agent tool call reporting
 
-The agent SHALL report each tool call an AI agent records in its session transcript as an `agent_tool_call` event, stamped at the transcript's time, carrying the session id, `tool_use_id`, tool name, a Bash call's command and description, a file tool's path, and the turn it was made in. It SHALL NOT send model output or tool results. A line it cannot read, or naming a session not its transcript's, SHALL be skipped; each call SHALL carry its transcript owner's uid.
+The agent SHALL report each tool call an AI agent records in its session transcript as an `agent_tool_call` event, stamped at the transcript's time, carrying the session id, `tool_use_id`, tool name, a Bash call's command and description, a file tool's path, and its turn when one precedes it. It SHALL NOT send model output or tool results. A line it cannot read, or naming a session not its transcript's, SHALL be skipped; each call SHALL carry its transcript owner's uid.
 
 #### Scenario: A Bash tool call is reported with its command
 

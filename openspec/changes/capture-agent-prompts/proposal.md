@@ -6,7 +6,7 @@ The session view can say what an agent ran but not what it was asked (#1426). Th
 
 - The agent reads each prompt a person typed to Claude Code from its transcript and sends it as an `agent_prompt` event. A slash command reads as `/name args`. The agent's own turns, its notifications, a compacted history, tool results and turns from an agent too old to record their origin are not prompts.
 - Before a prompt leaves the Mac, recognizable credentials are replaced with `[REDACTED:<kind>]` and the text is cut to 16 KiB. The event carries the length as typed, the cut, and the count of credentials replaced.
-- Each `agent_tool_call` names the turn it was made in (`prompt_id`), which its prompt also names.
+- Each `agent_tool_call` names the turn it was made in (`prompt_id`), which its prompt also names. A call before any turn the transcript names carries none.
 - `EDR_CAPTURE_PROMPTS=0` turns prompt capture off on a Mac; tool calls are still sent.
 - Model output and tool results are still never sent.
 
