@@ -75,6 +75,9 @@ func TestActivityPageHandler(t *testing.T) {
 		{"a malformed cursor", "/api/hosts/h1/activity/files?scope=process&process=2&cursor=x",
 			&fakeActivityReader{err: visibilityapi.ErrInvalidActivityCursor}, http.StatusBadRequest},
 		{"no scope", "/api/hosts/h1/activity/files", &fakeActivityReader{}, http.StatusBadRequest},
+		// The failing scope read would answer 500, so a 400 shows the class was refused before the scope was read.
+		{"an unknown class, refused before the scope is read", "/api/hosts/h1/activity/bogus?scope=process&process=2",
+			&fakeActivityReader{processErr: errors.New("db")}, http.StatusBadRequest},
 		{"a failed read", "/api/hosts/h1/activity/files?scope=process&process=2", &fakeActivityReader{err: errors.New("ch")},
 			http.StatusInternalServerError},
 		{"a failed scope", "/api/hosts/h1/activity/files?scope=process&process=2",

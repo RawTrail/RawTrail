@@ -67,4 +67,10 @@ func TestProcessTreeHandler_ScopedReadPagesByCursor(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, status, bad)
 	}
 	assert.Len(t, asked, 2, "a bad cursor reads nothing")
+
+	// A row stamped before the epoch is still a position: its cursor reads from it rather than being refused.
+	status, _ = read("&cursor=" + encodeTreeCursor(api.TreePosition{ForkTimeNs: -5, ID: 9}))
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, asked, 3)
+	assert.Equal(t, api.TreePosition{ForkTimeNs: -5, ID: 9}, asked[2].After)
 }

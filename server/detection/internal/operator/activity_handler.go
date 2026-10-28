@@ -63,6 +63,15 @@ func (h *Handler) handleActivityPage(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusBadRequest, errInvalidScope)
 		return
 	}
+	// The class is checked before the scope is read: a session scope reads up to MaxScopedRead processes, which an unknown class
+	// would spend only to be refused.
+	class := r.PathValue("class")
+	switch class {
+	case visibilityapi.ActivityFiles, visibilityapi.ActivityNetwork, visibilityapi.ActivityDNS:
+	default:
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+		return
+	}
 	filter, _, _, err := h.activityFilter(ctx, hostID, req)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "resolve activity scope", "host_id", hostID, "err", err)
@@ -72,7 +81,6 @@ func (h *Handler) handleActivityPage(w http.ResponseWriter, r *http.Request) {
 	filter.Limit = min(max(httpserver.ParseIntParam(r, "limit", activityPageLimit), 1), activityPageLimit)
 	// ?q= keeps the rows whose artifact holds it; a cursor continues the list it was handed out for, so a client sends the same q.
 	filter.Search = strings.TrimSpace(r.URL.Query().Get("q"))
-	class := r.PathValue("class")
 	page, err := h.activity.ActivityPage(ctx, filter, class, r.URL.Query().Get("cursor"))
 	if err != nil {
 		if errors.Is(err, visibilityapi.ErrInvalidActivityCursor) {

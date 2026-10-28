@@ -20,8 +20,9 @@ func encodeTreeCursor(after api.TreePosition) string {
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
-// decodeTreeCursor reads a cursor encodeTreeCursor wrote. No row forks at zero or has a zero id, so a cursor missing either names no
-// position and is rejected rather than read from the start.
+// decodeTreeCursor reads a cursor encodeTreeCursor wrote. No row has a zero id, so a cursor without one names no position and is
+// rejected rather than read from the start. Any fork time is a position: intake bounds no timestamp, so a row can fork at or before
+// zero.
 func decodeTreeCursor(token string) (api.TreePosition, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
@@ -31,7 +32,7 @@ func decodeTreeCursor(token string) (api.TreePosition, error) {
 	if err := json.Unmarshal(raw, &after); err != nil {
 		return api.TreePosition{}, err
 	}
-	if after.ForkTimeNs <= 0 || after.ID <= 0 {
+	if after.ID <= 0 {
 		return api.TreePosition{}, errBadTreeCursor
 	}
 	return after, nil
