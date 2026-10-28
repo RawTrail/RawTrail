@@ -395,7 +395,7 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, pos 
 		pos.mode = line.Mode
 	}
 	if usage := line.Usage; usage != nil && usage.SessionID == src.session && !pos.sent(usage.MessageID) {
-		usage.OwnerUID, usage.PromptID, usage.PermissionMode = src.ownerUID, pos.turn, pos.mode
+		usage.OwnerUID, usage.PromptID, usage.PermissionMode, usage.ForkedFromSessionID = src.ownerUID, pos.turn, pos.mode, src.forkedFrom
 		body, err := sensorevent.Marshal(usage.EventID(), hostID, UsageEventType, usage.At.UnixNano(), usage.Payload())
 		if err != nil {
 			return err

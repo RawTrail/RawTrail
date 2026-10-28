@@ -240,6 +240,11 @@ type Usage struct {
 	PromptID       string
 	PermissionMode string
 	OwnerUID       uint32
+	// OriginSessionID and ForkedFromSessionID name the session a line may have been copied from, as on a tool call. A line of a
+	// session forked from another, or of one /clear started, names the first session either way, so the server tells a copy apart
+	// by whether that session holds the same message, as it does for tool calls.
+	OriginSessionID     string
+	ForkedFromSessionID string
 }
 
 // EventID is the message's event id, the same however many of its entries are read.
@@ -254,7 +259,8 @@ func (u Usage) Payload() map[string]any {
 		"output_tokens": u.Output, "cache_creation_input_tokens": u.CacheCreation, "cache_read_input_tokens": u.CacheRead,
 		"thinking_tokens": u.Thinking, "uid": u.OwnerUID,
 	}
-	for key, value := range map[string]string{"prompt_id": u.PromptID, "permission_mode": u.PermissionMode} {
+	for key, value := range map[string]string{"prompt_id": u.PromptID, "permission_mode": u.PermissionMode,
+		"origin_session_id": u.OriginSessionID, "forked_from_session_id": u.ForkedFromSessionID} {
 		if value != "" {
 			out[key] = value
 		}
@@ -291,11 +297,12 @@ func ParseLine(raw []byte) (Line, error) {
 	return Line{}, nil
 }
 
-// parseUsage reads the tokens an assistant message used. A message Claude Code wrote itself, and a line a forked session copied from
-// the session it was forked from, which that session already counts, used none of this session's.
+// parseUsage reads the tokens an assistant message used. A message Claude Code wrote itself used none. A line naming another session
+// is sent with that session named: it may be a fork's copy, which the first session already counts, or a message of a session /clear
+// started, which names its first session too, and only the server can tell the two apart.
 func parseUsage(line transcriptLine) (*Usage, error) {
 	u := line.Message.Usage
-	if u == nil || line.Message.Model == syntheticModel || (line.OriginSession != "" && line.OriginSession != line.SessionID) {
+	if u == nil || line.Message.Model == syntheticModel {
 		return nil, nil
 	}
 	at, err := time.Parse(time.RFC3339Nano, line.Timestamp)
@@ -305,6 +312,9 @@ func parseUsage(line transcriptLine) (*Usage, error) {
 	usage := &Usage{
 		SessionID: line.SessionID, MessageID: line.Message.ID, Model: line.Message.Model, Input: u.Input, Output: u.Output,
 		CacheCreation: u.CacheCreation, CacheRead: u.CacheRead, Sidechain: line.IsSidechain, At: at,
+	}
+	if line.OriginSession != line.SessionID {
+		usage.OriginSessionID = line.OriginSession
 	}
 	if u.Details != nil {
 		usage.Thinking = u.Details.Thinking

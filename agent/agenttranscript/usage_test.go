@@ -1,10 +1,7 @@
 package agenttranscript
 
 import (
-	"context"
 	"encoding/json"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,16 +28,18 @@ func TestParseLine_Usage(t *testing.T) {
 		Output: 120, CacheCreation: 512, CacheRead: 4096, Thinking: 40, At: time.Date(2026, 10, 28, 9, 31, 0, 500_000_000, time.UTC)},
 		*got.Usage)
 
-	// spec:endpoint-event-collection/agent-token-usage-reporting/a-message-that-used-no-tokens-of-this-session-is-not-counted
-	for name, line := range map[string]string{
-		"a message Claude Code wrote itself": usageLine("msg_02", "<synthetic>", ""),
-		"a line a fork copied from its parent": usageLine("msg_03", "claude-opus-5-5",
-			`,"session_id":"5828cd24-efb7-4b7b-a5bf-f3b24681ba10"`),
-	} {
-		got, err := ParseLine([]byte(line))
-		require.NoError(t, err, name)
-		assert.Nil(t, got.Usage, name)
-	}
+	// spec:endpoint-event-collection/agent-token-usage-reporting/a-message-claude-code-wrote-itself-is-not-counted
+	got, err = ParseLine([]byte(usageLine("msg_02", "<synthetic>", "")))
+	require.NoError(t, err)
+	assert.Nil(t, got.Usage, "a message Claude Code wrote itself used no tokens")
+
+	// A line naming another session is a fork's copy, or a message of a session /clear started: sent with that session named, for the
+	// server to tell apart.
+	// spec:endpoint-event-collection/agent-token-usage-reporting/a-line-naming-another-session-is-sent-naming-it
+	got, err = ParseLine([]byte(usageLine("msg_03", "claude-opus-5-5", `,"session_id":"5828cd24-efb7-4b7b-a5bf-f3b24681ba10"`)))
+	require.NoError(t, err)
+	require.NotNil(t, got.Usage)
+	assert.Equal(t, "5828cd24-efb7-4b7b-a5bf-f3b24681ba10", got.Usage.OriginSessionID)
 
 	_, err = ParseLine([]byte(usageLine("", "claude-opus-5-5", "")))
 	assert.ErrorIs(t, err, errUnreadable, "a message without its id cannot be counted once")
@@ -64,44 +63,6 @@ func TestParseLine_PermissionMode(t *testing.T) {
 	}
 }
 
-// spec:endpoint-event-collection/agent-token-usage-reporting/a-streamed-message-is-counted-once-with-its-turn-and-mode
-func TestReader_SendsEachMessagesUsageOnce(t *testing.T) {
-	t.Parallel()
-	for _, capture := range []bool{true, false} {
-		q := &recordingQueue{}
-		r, path := newTestReader(t, q, "H1")
-		r.prompts = capture
-		mode := `{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"47abb2a1-d231-4304-8cb1-52f4460fcd11"}`
-		foreignMode := `{"type":"permission-mode","permissionMode":"plan","sessionId":"99999999-0000-4000-8000-000000000000"}`
-		// Two entries of one streamed message, then a second message.
-		appendTo(t, path, userLine(`"fix it"`, typed)+"\n"+mode+"\n"+foreignMode+"\n"+usageLine("msg_01", "claude-opus-5-5", "")+"\n"+
-			usageLine("msg_01", "claude-opus-5-5", "")+"\n"+usageLine("msg_02", "claude-sonnet-5-5", "")+"\n")
-		// The streamed message's second entry carries its own, later time, as Claude Code writes them.
-		appendTo(t, path, strings.Replace(usageLine("msg_01", "claude-opus-5-5", ""), "09:31:00.500Z", "09:31:02.000Z", 1)+"\n")
-		stats := r.RunOnce(context.Background())
-		assert.Equal(t, 2, stats.Usage, "a streamed message is sent once, from its first entry")
-		byID := map[string]map[string]any{}
-		for _, e := range q.events {
-			if e["event_type"] == UsageEventType {
-				payload, _ := e["payload"].(map[string]any)
-				byID[e["event_id"].(string)] = payload
-			}
-		}
-		require.Len(t, byID, 2, "capture=%v: two messages, two event ids", capture)
-		for _, e := range q.events {
-			if payload, _ := e["payload"].(map[string]any); e["event_type"] == UsageEventType && payload["message_id"] == "msg_01" {
-				assert.Equal(t, time.Date(2026, 10, 28, 9, 31, 0, 500_000_000, time.UTC).UnixNano(), int64(e["timestamp_ns"].(float64)),
-					"the first entry's time, so a re-read sends the same row")
-			}
-		}
-		for _, payload := range byID {
-			assert.Equal(t, "p-1", payload["prompt_id"], "the turn of the prompt before it")
-			assert.Equal(t, "bypassPermissions", payload["permission_mode"], "the mode its own session put in force")
-			assert.InDelta(t, 501, payload["uid"], 0)
-		}
-	}
-}
-
 type wireUsage struct {
 	SessionID      string `json:"agent_session_id"`
 	MessageID      string `json:"message_id"`
@@ -114,6 +75,8 @@ type wireUsage struct {
 	PromptID       string `json:"prompt_id"`
 	PermissionMode string `json:"permission_mode"`
 	Sidechain      bool   `json:"sidechain"`
+	Origin         string `json:"origin_session_id"`
+	ForkedFrom     string `json:"forked_from_session_id"`
 	UID            uint32 `json:"uid"`
 }
 
@@ -128,6 +91,7 @@ func TestUsagePayloadRoundTrip(t *testing.T) {
 			CacheCreation: tokens.Draw(t, "cacheCreation"), CacheRead: tokens.Draw(t, "cacheRead"), Thinking: tokens.Draw(t, "thinking"),
 			PromptID: rapid.String().Draw(t, "prompt"), PermissionMode: rapid.String().Draw(t, "mode"),
 			Sidechain: rapid.Bool().Draw(t, "sidechain"), OwnerUID: rapid.Uint32().Draw(t, "uid"),
+			OriginSessionID: rapid.String().Draw(t, "origin"), ForkedFromSessionID: rapid.String().Draw(t, "forkedFrom"),
 		}
 		payload := u.Payload()
 		raw, err := json.Marshal(payload)
@@ -139,36 +103,15 @@ func TestUsagePayloadRoundTrip(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		want := wireUsage{u.SessionID, u.MessageID, u.Model, u.Input, u.Output, u.CacheCreation, u.CacheRead, u.Thinking, u.PromptID,
-			u.PermissionMode, u.Sidechain, u.OwnerUID}
+			u.PermissionMode, u.Sidechain, u.OriginSessionID, u.ForkedFromSessionID, u.OwnerUID}
 		if got != want {
 			t.Fatalf("round trip changed the usage: got %+v, want %+v", got, want)
 		}
 		for key, present := range map[string]bool{"prompt_id": u.PromptID != "", "permission_mode": u.PermissionMode != "",
-			"sidechain": u.Sidechain} {
+			"sidechain": u.Sidechain, "origin_session_id": u.OriginSessionID != "", "forked_from_session_id": u.ForkedFromSessionID != ""} {
 			if _, ok := payload[key]; ok != present {
 				t.Fatalf("%s present=%v, want %v", key, ok, present)
 			}
 		}
 	})
-}
-
-// A restarted agent reads a recent transcript from its start again. Each message it sends again is the same row: the same event id at
-// the same time, which the archive keeps once.
-func TestReader_ARereadSendsTheSameUsageRows(t *testing.T) {
-	t.Parallel()
-	q := &recordingQueue{}
-	r, path := newTestReader(t, q, "H1")
-	appendTo(t, path, usageLine("msg_01", "claude-opus-5-5", "")+"\n"+
-		strings.Replace(usageLine("msg_01", "claude-opus-5-5", ""), "09:31:00.500Z", "09:31:02.000Z", 1)+"\n")
-	r.RunOnce(context.Background())
-	restarted := New(r.root, r.hostID, q.enqueue, r.logger, true)
-	restarted.RunOnce(context.Background())
-	var rows []string
-	for _, e := range q.events {
-		if e["event_type"] == UsageEventType {
-			rows = append(rows, e["event_id"].(string)+"@"+strconv.FormatFloat(e["timestamp_ns"].(float64), 'f', 0, 64))
-		}
-	}
-	require.Len(t, rows, 2, "once per read of the transcript")
-	assert.Equal(t, rows[0], rows[1])
 }

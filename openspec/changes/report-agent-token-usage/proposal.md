@@ -6,7 +6,7 @@ The transcript the agent already reads records the tokens each assistant message
 
 - The agent sends one `agent_usage` event per assistant message: its model, its input, output, cache-write, cache-read and thinking tokens, the turn it was made in, and the permission mode the transcript last put in force.
 - A streamed message is written as several transcript entries, each carrying the whole message's usage, so the event id is derived from the message id and the archive keeps one row per message.
-- A message Claude Code wrote itself (`<synthetic>`), and a line a forked session copied from its parent, are not counted.
+- A message Claude Code wrote itself (`<synthetic>`) is not counted. A line naming another session is sent naming it (`origin_session_id`, and the fork parent its job names), since a fork's copy and a message after `/clear` look alike; the server's totals leave out a message the named session also holds, as they do for tool calls.
 - Usage is metadata, not content, so it is sent whatever the prompt-capture setting.
 
 ## Impact

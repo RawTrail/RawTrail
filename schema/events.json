@@ -384,6 +384,8 @@
         "prompt_id": { "type": "string", "description": "Optional. The turn the message was made in, as on agent_tool_call." },
         "permission_mode": { "type": "string", "description": "Optional. The permission mode the transcript last put in force, as the agent records it (such as auto, acceptEdits, plan or bypassPermissions)." },
         "sidechain": { "type": "boolean", "description": "Optional. True for a message a subagent wrote." },
+        "origin_session_id": { "type": "string", "description": "Optional. The session the line names as its own where it differs from agent_session_id, as on agent_tool_call: a copy from it, or a message of a session /clear started." },
+        "forked_from_session_id": { "type": "string", "description": "Optional. The session this one was forked from, as its /fork job names it, as on agent_tool_call." },
         "uid": { "type": "integer", "minimum": 0, "description": "The uid of the transcript's owner, as on agent_tool_call." }
       }
     },
