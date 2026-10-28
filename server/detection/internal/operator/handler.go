@@ -100,6 +100,7 @@ type Handler struct {
 	agentSessions  AgentSessionLister
 	agentToolCalls AgentToolCallReader
 	activity       ActivityReader
+	sessionTotals  AgentSessionTotalsReader
 	// processRetentionDays is how many days completed process records are kept, or 0 when retention is disabled. See
 	// SetProcessRetention.
 	processRetentionDays int

@@ -61,6 +61,30 @@ func (s *Store) GetAgentSession(ctx context.Context, hostID, sessionID string) (
 	return &rows[0], nil
 }
 
+// AgentSessionCounts counts one session's retained processes and the alerts raised on them by severity (issue #1422), as the sessions
+// list counts them, both served by idx_processes_host_agent_session_fork.
+func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string) (api.AgentSessionCounts, error) {
+	out := api.AgentSessionCounts{AlertsBySeverity: map[string]int64{}}
+	if err := s.db.GetContext(ctx, &out.Processes,
+		`SELECT COUNT(*) FROM processes WHERE host_id = ? AND agent_session_id = ?`, hostID, sessionID); err != nil {
+		return api.AgentSessionCounts{}, fmt.Errorf("count session processes: %w", err)
+	}
+	var bySeverity []struct {
+		Severity string `db:"severity"`
+		N        int64  `db:"n"`
+	}
+	if err := s.db.SelectContext(ctx, &bySeverity, `
+		SELECT a.severity, COUNT(*) AS n FROM alerts a JOIN processes p ON p.id = a.process_id
+		WHERE p.host_id = ? AND p.agent_session_id = ? AND a.disposition = ?
+		GROUP BY a.severity`, hostID, sessionID, api.AlertDispositionAlert); err != nil {
+		return api.AgentSessionCounts{}, fmt.Errorf("count session alerts by severity: %w", err)
+	}
+	for _, c := range bySeverity {
+		out.AlertsBySeverity[c.Severity] = c.N
+	}
+	return out, nil
+}
+
 // ListAgentSessions returns one page of agent sessions (issue #1283), most recently active first, keyset-paged on (last_seen_ns,
 // host_id, agent_session_id), which is idx_agent_sessions_last_seen's order (InnoDB appends the primary key), so a page reads only
 // its rows. Each row carries its process and alert counts, read with one grouped query each over the page's sessions rather than one

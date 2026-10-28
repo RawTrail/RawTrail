@@ -44,3 +44,28 @@ func TestMemArchive_AgentToolCalls(t *testing.T) {
 	assert.True(t, truncated, "toolu_a's second recording is in the window too")
 	assert.Equal(t, "toolu_b", cut[0].ToolUseID)
 }
+
+// TestMemArchive_AgentToolCallCounts pins the fake to the ClickHouse read (TestEventArchive_AgentToolCallCounts): each call once by
+// its first recording's tool, most used first and then by name, uncapped by the limit, only the session's and the host's.
+func TestMemArchive_AgentToolCallCounts(t *testing.T) {
+	t.Parallel()
+	call := func(id, host, session, toolUseID, tool string, ts int64) api.Event {
+		payload, err := json.Marshal(map[string]any{"agent_session_id": session, "tool_use_id": toolUseID, "tool_name": tool, "uid": 501})
+		require.NoError(t, err)
+		return api.Event{EventID: id, HostID: host, TimestampNs: ts, IngestedAtNs: ts, EventType: "agent_tool_call", Payload: payload}
+	}
+	arch := NewMemArchive()
+	require.NoError(t, arch.Insert(context.Background(), []api.Event{
+		call("c1", "h1", "s1", "toolu_a", "Bash", 10),
+		call("c2", "h1", "s1", "toolu_b", "Read", 20),
+		call("c3", "h1", "s1", "toolu_c", "Read", 30),
+		call("c4", "h1", "s1", "toolu_d", "Edit", 40),
+		call("c5", "h1", "s1", "toolu_a", "Write", 90), // reported again after a restart, under another name
+		call("c6", "h1", "s2", "toolu_e", "Bash", 50),
+		call("c7", "h2", "s1", "toolu_f", "Bash", 60),
+	}))
+
+	got, err := arch.AgentToolCallCounts(context.Background(), api.AgentToolCallFilter{HostID: "h1", SessionID: "s1", Limit: 1})
+	require.NoError(t, err)
+	assert.Equal(t, []api.ToolCallCount{{ToolName: "Read", Count: 2}, {ToolName: "Bash", Count: 1}, {ToolName: "Edit", Count: 1}}, got)
+}

@@ -944,6 +944,16 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter visibilityapi
 	return s.archive.ActivityForGenerations(ctx, filter)
 }
 
+// ActivityTotalsForGenerations delegates the activity totals (issue #1422) to the visibility EventArchive.
+func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivitySummary, error) {
+	return s.archive.ActivityTotalsForGenerations(ctx, filter)
+}
+
+// AgentToolCallCounts delegates a session's tool calls counted by tool (issue #1422) to the visibility EventArchive.
+func (s *Store) AgentToolCallCounts(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error) {
+	return s.archive.AgentToolCallCounts(ctx, filter)
+}
+
 // SessionTouches delegates the transcripts a process generation touched (issue #1319) to the visibility EventArchive.
 func (s *Store) SessionTouches(
 	ctx context.Context, hostID string, generation visibilityapi.ProcessGeneration,

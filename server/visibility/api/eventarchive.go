@@ -83,6 +83,10 @@ type EventArchive interface {
 	// later process that reused a pid, is never counted. See ActivityRollup for what each class reports.
 	ActivityForGenerations(ctx context.Context, filter ActivityFilter) (ActivityRollup, error)
 
+	// ActivityTotalsForGenerations is ActivityForGenerations' totals without its lists (issue #1422), with the file events counted by
+	// operation, for a summary that names how much a scope touched but none of what.
+	ActivityTotalsForGenerations(ctx context.Context, filter ActivityFilter) (ActivitySummary, error)
+
 	// SessionTouches lists, for one process generation, the first time it touched a path of each AI agent session (issue #1319),
 	// from its agent file activity: Claude Code's transcript ~/.claude/projects/<project>/<session id>.jsonl, and the session's
 	// directories.
@@ -92,6 +96,10 @@ type EventArchive interface {
 	// transcript owner however many times the agent reported it, and reports whether more than the limit were recorded. A call that
 	// is a copy of another session's (see AgentSessionLineage) is not listed: it is that session's.
 	AgentToolCalls(ctx context.Context, filter AgentToolCallFilter) ([]AgentToolCall, bool, error)
+
+	// AgentToolCallCounts counts the calls AgentToolCalls would list for the filter, uncapped, by tool name (issue #1422), most used
+	// first and then by name. The filter's Limit is ignored.
+	AgentToolCallCounts(ctx context.Context, filter AgentToolCallFilter) ([]ToolCallCount, error)
 
 	// AgentSessionLineage reads which session a session was forked from and which were forked from it (issue #1347), from the copies
 	// of each other's tool calls their transcripts hold. Only calls read from transcripts ownerUID owns count: the session's owner,
@@ -257,6 +265,33 @@ type ActivityTotals struct {
 	Events    int64 `json:"events"`
 	Distinct  int64 `json:"distinct"`
 	Truncated bool  `json:"truncated"`
+}
+
+// ClassTotals is a class's size without the report of a cut list: Events counts its events, a coalesced one counting as the
+// occurrences it stands for, and Distinct its distinct artifacts.
+type ClassTotals struct {
+	Events   int64 `json:"events"`
+	Distinct int64 `json:"distinct"`
+}
+
+// ActivitySummary is how much a set of process generations touched, by class, with no list of what (issue #1422).
+type ActivitySummary struct {
+	Files   FileTotals  `json:"files"`
+	Network ClassTotals `json:"network"`
+	DNS     ClassTotals `json:"dns"`
+}
+
+// FileTotals is the file class's totals and its events by operation, keyed as FileActivityRow.Operation is. A coalesced event counts
+// as the operations it stands for, as in Events, so the operations sum to Events.
+type FileTotals struct {
+	ClassTotals
+	ByOperation map[string]int64 `json:"by_operation"`
+}
+
+// ToolCallCount is how many calls of one tool an AI agent session recorded.
+type ToolCallCount struct {
+	ToolName string `json:"tool"`
+	Count    int64  `json:"count"`
 }
 
 // ActivityRow is the part of a listed artifact every class shares: the process generation that touched it, how many times, and when.

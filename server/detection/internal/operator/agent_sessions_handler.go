@@ -23,6 +23,7 @@ func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/agent-sessions", h.handleListAgentSessions)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls", h.handleAgentToolCalls)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage", h.handleAgentSessionLineage)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary", h.handleAgentSessionSummary)
 }
 
 // AgentToolCallReader is the read of the tool calls a session recorded (issue #1288), and of the sessions forked from each other that
@@ -141,13 +142,9 @@ func (h *Handler) handleAgentToolCalls(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	hostID, sessionID := session.HostID, session.AgentSessionID
-	calls, truncated, err := h.agentToolCalls.AgentToolCalls(ctx, visibilityapi.AgentToolCallFilter{
-		HostID: hostID, SessionID: sessionID, Limit: maxToolCalls,
-		FromNs: session.FirstSeenNs - toolCallMargin.Nanoseconds(), ToNs: session.LastSeenNs + toolCallMargin.Nanoseconds(),
-	})
+	calls, truncated, err := h.agentToolCalls.AgentToolCalls(ctx, sessionToolCalls(session))
 	if err != nil {
-		h.logger.ErrorContext(ctx, "read agent tool calls", "host_id", hostID, "err", err)
+		h.logger.ErrorContext(ctx, "read agent tool calls", "host_id", session.HostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
@@ -155,6 +152,38 @@ func (h *Handler) handleAgentToolCalls(w http.ResponseWriter, r *http.Request) {
 		calls = []visibilityapi.AgentToolCall{}
 	}
 	h.writeJSON(w, r, agentToolCallsResponse{ToolCalls: calls, Truncated: truncated})
+}
+
+// handleAgentSessionSummary serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary: a session's totals, which the
+// session view's counts and its Summary read rather than counting the rows a page loaded. Gated on process read for the host, like
+// the session's processes and activity.
+func (h *Handler) handleAgentSessionSummary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	if h.sessionTotals == nil || h.activity == nil {
+		h.writeError(ctx, w, http.StatusServiceUnavailable, errInternal)
+		return
+	}
+	hostID, sessionID := session.HostID, session.AgentSessionID
+	summary, err := h.sessionSummary(ctx, session)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "read agent session summary", "host_id", hostID, "session", sessionID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	h.writeJSON(w, r, summary)
+}
+
+// sessionToolCalls selects the tool calls of a session: those it recorded within its span widened by toolCallMargin, up to
+// maxToolCalls.
+func sessionToolCalls(session *api.AgentSessionSummary) visibilityapi.AgentToolCallFilter {
+	return visibilityapi.AgentToolCallFilter{
+		HostID: session.HostID, SessionID: session.AgentSessionID, Limit: maxToolCalls,
+		FromNs: session.FirstSeenNs - toolCallMargin.Nanoseconds(), ToNs: session.LastSeenNs + toolCallMargin.Nanoseconds(),
+	}
 }
 
 // SetAgentSessions installs the sessions list surface. Bootstrap wires it with the detection store in ModeFull; unset, the route

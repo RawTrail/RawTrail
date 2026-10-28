@@ -632,6 +632,101 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/agent-sessions/{session_id}/summary:
+    get:
+      tags: [Hosts]
+      summary: An AI agent session's totals
+      description: >-
+        How much one AI agent session did, counted by the server over the whole session rather than over a page of it: its retained
+        processes, the alerts raised on them by severity (monitor records not counted), the tool calls it recorded by tool (each call
+        once, a forked session's copies of its parent's calls left out), and its file events by operation with its network and DNS
+        totals. The activity is counted over the same processes the session's activity rollup (`GET /api/hosts/{host_id}/activity`)
+        reads, and `scope` says how far that reached.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+      responses:
+        "200":
+          description: The session's totals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [processes, alerts, tool_calls, activity, scope]
+                properties:
+                  processes: {type: integer, format: int64, description: The session's retained processes.}
+                  alerts:
+                    type: object
+                    required: [total, by_severity]
+                    properties:
+                      total: {type: integer, format: int64}
+                      by_severity:
+                        type: object
+                        description: "Alerts by severity (low, medium, high, critical); a severity no alert carries is absent."
+                        additionalProperties: {type: integer, format: int64}
+                  tool_calls:
+                    type: object
+                    required: [total, by_tool]
+                    properties:
+                      total: {type: integer, format: int64}
+                      by_tool:
+                        type: array
+                        description: Most used first, then by name.
+                        items:
+                          type: object
+                          required: [tool, count]
+                          properties:
+                            tool: {type: string, description: "The tool called, e.g. Bash, Edit, Write or Read."}
+                            count: {type: integer, format: int64}
+                  activity:
+                    type: object
+                    required: [files, network, dns]
+                    properties:
+                      files:
+                        type: object
+                        required: [events, distinct, by_operation]
+                        properties:
+                          events: {type: integer, format: int64, description: "File events, a folded one counting as the operations it stands for."}
+                          distinct: {type: integer, format: int64, description: Distinct paths.}
+                          by_operation:
+                            type: object
+                            description: "Events by operation: an agent's create, modify, rename or delete, or a watched path's event type."
+                            additionalProperties: {type: integer, format: int64}
+                      network:
+                        type: object
+                        required: [events, distinct]
+                        properties:
+                          events: {type: integer, format: int64, description: "Connections, a coalesced flow counting as the connections it stands for."}
+                          distinct: {type: integer, format: int64, description: Distinct destinations by address, port and protocol.}
+                      dns:
+                        type: object
+                        required: [events, distinct]
+                        properties:
+                          events: {type: integer, format: int64}
+                          distinct: {type: integer, format: int64, description: Distinct names.}
+                  scope:
+                    type: object
+                    required: [applied, processes, unmatched, truncated]
+                    description: How far the activity's scope reached, as the activity rollup reports it.
+                    properties:
+                      applied: {type: boolean, description: False when no process of the session carries a generation, so no activity is counted.}
+                      processes: {type: integer, description: The processes the activity was counted over.}
+                      unmatched: {type: integer, description: Those of them with no generation, whose events cannot be counted.}
+                      truncated: {type: boolean, description: True when the session had more processes than the activity is counted over.}
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/agent-sessions:
     get:
       tags: [Hosts]

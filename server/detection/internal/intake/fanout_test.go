@@ -73,6 +73,14 @@ func (f *fakeEventArchive) AgentToolCalls(context.Context, visibilityapi.AgentTo
 	return nil, false, nil
 }
 
+func (f *fakeEventArchive) ActivityTotalsForGenerations(context.Context, api.ActivityFilter) (visibilityapi.ActivitySummary, error) {
+	return visibilityapi.ActivitySummary{}, nil
+}
+
+func (f *fakeEventArchive) AgentToolCallCounts(context.Context, visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error) {
+	return nil, nil
+}
+
 func (f *fakeEventArchive) AgentSessionLineage(context.Context, string, string, int64) (visibilityapi.AgentSessionLineage, error) {
 	return visibilityapi.AgentSessionLineage{}, nil
 }
