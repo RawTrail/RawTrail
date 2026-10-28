@@ -95,6 +95,13 @@ func openTestArchive(t *testing.T) visibilityapi.EventArchive {
 // until test cleanup, so a test may use it for the whole test body.
 func openTestArchiveWithHandle(t *testing.T) (visibilityapi.EventArchive, *sqlx.DB) {
 	t.Helper()
+	return openTestArchiveWithRetention(t, 0)
+}
+
+// openTestArchiveWithRetention is openTestArchiveWithHandle with the event retention the server passes at startup; 0 keeps the
+// migration's TTL.
+func openTestArchiveWithRetention(t *testing.T, retentionDays int) (visibilityapi.EventArchive, *sqlx.DB) {
+	t.Helper()
 	dsn := clickhouseTestDSN(t)
 	ctx := context.Background()
 
@@ -119,7 +126,7 @@ func openTestArchiveWithHandle(t *testing.T) (visibilityapi.EventArchive, *sqlx.
 		_ = admin.Close()
 	})
 
-	vis, err := visibilitybootstrap.New(visibilitybootstrap.Deps{DB: testdb.Open(t), ClickHouseDB: chDB})
+	vis, err := visibilitybootstrap.New(visibilitybootstrap.Deps{DB: testdb.Open(t), ClickHouseDB: chDB, EventRetentionDays: retentionDays})
 	require.NoError(t, err)
 	require.NoError(t, vis.ApplySchema(ctx))
 	return vis.EventArchive(), chDB

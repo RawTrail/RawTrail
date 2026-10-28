@@ -13,7 +13,7 @@ This is the recommended way to stand up a RawTrail server for a pilot. You run o
 - Ports 80 and 443 open to the internet on the VM. Caddy needs both for the ACME certificate challenge and for serving traffic.
 - A DNS `A` (and optional `AAAA`) record for your domain pointing at the VM's public IP, created before you run the script so the certificate can be issued.
 
-Event telemetry dominates storage and a busy host can add many GB per day, so size the VM disk for it and keep `EDR_RETENTION_DAYS` sized to the disk (see retention tuning in [operations.md](operations.md#retention-tuning)). A full disk stops MySQL writes (ingest returns 5xx and the server logs the error) and, because Docker's data root sits on it, affects the rest of Docker too, so alert on disk usage.
+Event telemetry dominates storage and a busy host can add many GB per day, so size the VM disk for it and keep `EDR_EVENT_RETENTION_DAYS` sized to the disk (see retention tuning in [operations.md](operations.md#retention-tuning)). A full disk stops MySQL writes (ingest returns 5xx and the server logs the error) and, because Docker's data root sits on it, affects the rest of Docker too, so alert on disk usage.
 
 ## Steps
 
