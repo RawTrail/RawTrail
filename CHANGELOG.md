@@ -6,6 +6,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ### Added
 
+- **Long agent sessions open quickly.** A session's commands load a page at a time with the rest on request, a search in them runs on the server, and the header counts the whole session's commands and processes.
 - **An alertable count of service accounts about to expire.** The `edr.service_accounts.expiring` metric reports the active service accounts whose credential expires within 14 days, the same accounts the console flags. Alert when it is above zero and rotate the credential before the date.
 
 ### Fixed

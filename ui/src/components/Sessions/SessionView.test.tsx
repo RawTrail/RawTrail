@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Link } from "react-router";
 
 import { SessionView } from "./SessionView";
 import * as api from "../../api";
-import { proc, realSession, SESSION } from "../../test/agentSession";
-import type { AgentSessionSummary, Alert, ProcessNode, TreeResponse } from "../../types";
+import { proc, realSession, SESSION, sessionCommands } from "../../test/agentSession";
+import type { AgentSessionSummary, AgentToolCall, Alert, ProcessNode, SessionCommandsResponse, TreeResponse } from "../../types";
 
 function tree(over: Partial<TreeResponse> = {}): TreeResponse {
   return { roots: realSession(), returned: 16, total_matched: 16, total_matched_capped: false, truncated: false, ...over };
@@ -31,14 +31,24 @@ function callHeaders(): HTMLElement[] {
   return screen.getAllByRole("button", { expanded: true });
 }
 
-// The record, alert and tool-call reads decorate the tree; by default the session has no record, alerts or calls, and each test
-// overrides what it is about.
+// The record, alert, totals and lineage reads decorate the session; by default the session has none of them, and each test overrides
+// what it is about. The commands are the server's grouping of the tree the test reads (issue #1423), so a test names its session once.
 beforeEach(() => {
   vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
   vi.spyOn(api, "listAlerts").mockResolvedValue([]);
-  vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({ tool_calls: [], truncated: false });
+  vi.spyOn(api, "getAgentSessionTotals").mockRejectedValue(new Error("not read"));
   vi.spyOn(api, "getAgentSessionLineage").mockResolvedValue({ forked_session_ids: [] });
+  vi.spyOn(api, "getSessionCommands").mockImplementation(async (hostId, sessionId) => {
+    const read = await api.getSessionTree(hostId, sessionId);
+    return sessionCommands(read.roots, read.links, { truncated: read.truncated });
+  });
 });
+
+// withToolCalls is the server's commands for a session, with the tool call each pairs with by its position.
+function withToolCalls(roots: ProcessNode[], calls: (SessionCommandsResponse["commands"][number]["tool_call"])[]): SessionCommandsResponse {
+  const res = sessionCommands(roots);
+  return { ...res, commands: res.commands.map((c, i) => ({ ...c, tool_call: calls.find((_, j) => j === i) })) };
+}
 
 // A /fork is a session of its own, linked both ways to the session it was forked from (issue #1347).
 describe("SessionView lineage", () => {
@@ -134,6 +144,55 @@ function manyCalls(n: number): ProcessNode[] {
     [proc(10 * (i + 1) + 1, 2000 + i, 100 * (i + 1) + 1, "/bin/echo", ["echo", String(i)])], { tool_call_group: 1000 + i }));
 }
 
+// The session's commands are read from the server a page at a time, searched there, and counted from its totals (issue #1425).
+describe("SessionView commands from the server", () => {
+  // spec:web-ui/agent-session-view-pages-its-commands/the-rest-of-the-commands-come-on-request
+  it("lists a page of commands and the next on request", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(3) }));
+    const all = sessionCommands(manyCalls(3));
+    const spy = vi.spyOn(api, "getSessionCommands").mockImplementation((_h, _s, page) => Promise.resolve(page?.cursor === "c2"
+      ? { ...all, commands: all.commands.slice(2) }
+      : { ...all, commands: all.commands.slice(0, 2), next_cursor: "c2" }));
+    renderView();
+    expect(await screen.findByText("step 1")).toBeVisible();
+    expect(screen.queryByText("step 2")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Load more commands (1 more)" }));
+    expect(await screen.findByText("step 2")).toBeVisible();
+    expect(screen.getByText("step 0")).toBeVisible();
+    expect(spy).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ cursor: "c2" }));
+    expect(screen.queryByRole("button", { name: /Load more commands/ })).toBeNull();
+  });
+
+  // spec:web-ui/agent-session-view-pages-its-commands/a-search-asks-the-server
+  it("asks the server for the commands a search finds once the operator stops typing", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(3) }));
+    const all = sessionCommands(manyCalls(3));
+    const spy = vi.spyOn(api, "getSessionCommands").mockImplementation((_h, _s, page) => Promise.resolve(page?.q
+      ? { ...all, commands: all.commands.filter((c) => c.command.includes(page.q ?? "")), total_matched: 1 }
+      : all));
+    renderView();
+    expect(await screen.findByText("step 2")).toBeVisible();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: " step 1 " } });
+    await waitFor(() => { expect(screen.queryByText("step 2")).toBeNull(); });
+    expect(screen.getByText("step 1")).toBeVisible();
+    expect(spy).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ q: "step 1", cursor: "" }));
+  });
+
+  // spec:web-ui/agent-session-view-pages-its-commands/the-header-counts-the-whole-session
+  it("counts the session's commands and processes from its totals", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({
+      commands: 1234, processes: 5678, alerts: { total: 0, by_severity: {} }, tool_calls: { total: 0, by_tool: [] },
+    });
+    renderView();
+    expect(await screen.findByText("1,234 commands")).toBeVisible();
+    expect(screen.getByText("5,678 processes")).toBeVisible();
+  });
+});
+
 describe("SessionView", () => {
   // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
   // spec:web-ui/tool-calls-beside-their-processes/calls-that-cannot-be-told-apart-are-marked-ambiguous
@@ -141,15 +200,15 @@ describe("SessionView", () => {
   it("shows each command's reported tool call, and calls it cannot tell apart as ambiguous", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(3) }));
-    const call = (id: string, command: string, at: number, description?: string) =>
+    const call = (id: string, command: string, at: number, description?: string): AgentToolCall =>
       ({ tool_use_id: id, tool_name: "Bash", command, called_at_ns: at, description, uid: 501 });
-    const spy = vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({
-      tool_calls: [call("toolu_a", "step 0", 90, "First step"), call("toolu_b", "step 1", 190), call("toolu_c", "step 1", 190)],
-      truncated: false,
-    });
+    const spy = vi.spyOn(api, "getSessionCommands").mockResolvedValue(withToolCalls(manyCalls(3), [
+      { kind: "matched", call: call("toolu_a", "step 0", 90, "First step") },
+      { kind: "ambiguous", candidates: [call("toolu_b", "step 1", 190), call("toolu_c", "step 1", 190)], candidate_count: 2 },
+    ]));
     renderView();
     const headers = await screen.findAllByRole("button", { expanded: true });
-    expect(spy).toHaveBeenCalledWith("H1", SESSION);
+    expect(spy).toHaveBeenCalledWith("H1", SESSION, expect.objectContaining({ cursor: "" }));
     expect(within(headers[0]).getByText("First step")).toBeVisible();
     expect(within(headers[0]).getByText("toolu_a")).toBeVisible();
     // Both the paired call and the ambiguous one say they are the agent's report; the unpaired command says nothing.
@@ -169,18 +228,22 @@ describe("SessionView", () => {
   it("says when the agent reported more tool calls than were read", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(1) }));
-    vi.spyOn(api, "getAgentToolCalls").mockResolvedValue({ tool_calls: [], truncated: true });
+    vi.spyOn(api, "getSessionCommands").mockResolvedValue(sessionCommands(manyCalls(1), undefined, { tool_calls_truncated: true }));
     renderView();
     expect(await screen.findByText(/reported more tool calls than are read/)).toBeVisible();
   });
 
-  it("lists the calls without their tool calls when the transcript read fails", async () => {
+  it("names how many identical calls a command could be when the server lists only the first", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
-    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
-    vi.spyOn(api, "getAgentToolCalls").mockRejectedValue(new Error("down"));
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(1) }));
+    const first: AgentToolCall = { tool_use_id: "toolu_a", tool_name: "Bash", command: "step 0", called_at_ns: 90, uid: 501 };
+    vi.spyOn(api, "getSessionCommands").mockResolvedValue(withToolCalls(manyCalls(1), [
+      { kind: "ambiguous", candidates: [first], candidate_count: 30 },
+    ]));
     renderView();
-    expect(await screen.findAllByRole("button", { expanded: true })).toHaveLength(2);
-    expect(screen.queryByText(/toolu_/)).toBeNull();
+    const ambiguous = await screen.findByText(/One of 30 identical calls made at once/);
+    expect(ambiguous).toBeVisible();
+    expect(ambiguous).toHaveAttribute("title", "One of: toolu_a and 29 more");
   });
 
   // spec:web-ui/ai-agent-session-view/tool-calls-are-labelled-with-the-command-the-agent-ran
@@ -253,6 +316,9 @@ describe("SessionView", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, returned: 16, total_matched: 2500 }));
     renderView();
+    // The commands say their read was cut; the process tree, in its own view, how much of the session it shows.
+    expect(await screen.findByRole("status")).toHaveTextContent("ran more processes than the server reads");
+    fireEvent.click(screen.getByRole("button", { name: "Processes" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Showing the first 16 of 2,500 processes in this session.");
   });
 
@@ -743,6 +809,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, total_matched: 10_000, total_matched_capped: true }));
     renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Showing the first 16 of more than 10,000 processes in this session.");
   });
 
@@ -750,6 +817,9 @@ describe("SessionView", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree")
       .mockResolvedValueOnce(tree())
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    vi.spyOn(api, "getSessionCommands")
+      .mockResolvedValueOnce(sessionCommands(realSession()))
       .mockImplementationOnce(() => new Promise(() => undefined));
     render(
       <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
@@ -788,9 +858,13 @@ describe("SessionView", () => {
   it("does not show the previous session's error after moving to another session", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     let resolveNext: (t: TreeResponse) => void = () => undefined;
+    let resolveCommands: (c: SessionCommandsResponse) => void = () => undefined;
     vi.spyOn(api, "getSessionTree")
       .mockRejectedValueOnce(new Error("boom"))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }));
+    vi.spyOn(api, "getSessionCommands")
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveCommands = resolve; }));
     render(
       <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
         <Link to="/agent-sessions/H1/other-session">next</Link>
@@ -804,6 +878,7 @@ describe("SessionView", () => {
     expect(await screen.findByText("Loading...")).toBeVisible();
     expect(screen.queryByText("Error: boom")).not.toBeInTheDocument();
     resolveNext(tree());
+    resolveCommands(sessionCommands(realSession()));
     expect(await screen.findByText("ls /private/tmp | head -3")).toBeVisible();
   });
 

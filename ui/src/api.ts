@@ -11,7 +11,7 @@ import type {
   ActivityResponse,
   AgentSessionLineage,
   AgentSessionResult,
-  AgentToolCallsResponse,
+  AgentSessionTotals,
   Alert,
   AlertDetail,
   ApplicationControlPolicy,
@@ -28,6 +28,7 @@ import type {
   ProcessSearchResult,
   ReachableAddress,
   ReachableSet,
+  SessionCommandsResponse,
   TreeResponse,
 } from "./types";
 import {
@@ -382,10 +383,32 @@ export async function getActivity(hostId: string, scope: ActivityScopeQuery): Pr
   return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${query.toString()}`);
 }
 
-// getAgentToolCalls reads the tool calls an AI agent session recorded in its transcript (issue #1288), oldest first.
-export async function getAgentToolCalls(hostId: string, sessionId: string): Promise<AgentToolCallsResponse> {
-  return fetchJSON<AgentToolCallsResponse>(
-    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/tool-calls`,
+// SessionCommandsQuery pages a session's commands: the previous page's cursor, a search, and the page size.
+export interface SessionCommandsQuery {
+  cursor?: string;
+  q?: string;
+  limit?: number;
+}
+
+// getSessionCommands reads one page of the commands an AI agent session ran, as the server groups them and pairs each with the tool
+// call the agent reported for it (issue #1423).
+export async function getSessionCommands(
+  hostId: string, sessionId: string, page: SessionCommandsQuery = {},
+): Promise<SessionCommandsResponse> {
+  const query = new URLSearchParams();
+  if (page.cursor) query.set("cursor", page.cursor);
+  if (page.q) query.set("q", page.q);
+  if (page.limit !== undefined) query.set("limit", String(page.limit));
+  const qs = query.toString();
+  return fetchJSON<SessionCommandsResponse>(
+    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/commands${qs ? `?${qs}` : ""}`,
+  );
+}
+
+// getAgentSessionTotals reads a session's totals, counted by the server over the whole session (issue #1422).
+export async function getAgentSessionTotals(hostId: string, sessionId: string): Promise<AgentSessionTotals> {
+  return fetchJSON<AgentSessionTotals>(
+    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/summary`,
   );
 }
 

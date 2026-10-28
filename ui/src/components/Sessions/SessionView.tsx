@@ -1,8 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
-import { getAgentSessionLineage, getAgentToolCalls, getSessionTree, listAgentSessions, listAlerts } from "../../api";
-import type { AgentSessionLineage, AgentSessionSummary, AgentToolCall, Alert, ProcessNode, TreeResponse } from "../../types";
+import { getAgentSessionLineage, getAgentSessionTotals, getSessionCommands, getSessionTree, listAgentSessions, listAlerts } from "../../api";
+import type {
+  AgentSessionLineage, AgentSessionSummary, AgentSessionTotals, Alert, ProcessNode, SessionCommand, ToolCallMatch, TreeResponse,
+} from "../../types";
+import { useCursorList, type CursorPage } from "../Search/useCursorList";
 import { PageHeader } from "../ui/PageHeader";
 import { Toggle } from "../ui/Toggle";
 import { Input } from "../ui/Input";
@@ -18,7 +21,7 @@ import { applyLaunchLinks } from "../launchLinks";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import {
-  buildCommands,
+  shapeCommand,
   containsHit,
   containsProcess,
   forkSpan,
@@ -33,7 +36,6 @@ import {
   type Command,
 } from "./sessionTree";
 import { commandLine } from "./toolCommand";
-import { joinToolCalls, type ToolCallMatch } from "./toolCallJoin";
 import { sessionPath } from "./sessionPath";
 
 // AUTO_EXPAND_GROUPS is the most commands a session can have and still open with every one expanded. A longer session opens with
@@ -84,6 +86,11 @@ const SERVICE_TITLE = "launchd started it for the app it is listed under, which 
 // INFERRED_LAUNCH_TITLE explains an inferred launch's badge: the row is listed under its launcher, which is not its creator.
 const INFERRED_LAUNCH_TITLE =
   "Started by launchd moments after the process it is listed under asked for it: linked by timing and target, not lineage";
+// COMMANDS_PAGE is how many commands one read lists; the rest are a "Load more" away (issue #1425).
+const COMMANDS_PAGE = 50;
+// SEARCH_DELAY_MS is how long the view waits after the last keystroke before it asks the server for the commands a search finds.
+const SEARCH_DELAY_MS = 300;
+
 // MAX_SESSION_ALERTS bounds the session's alert read. One more is asked for, so a session with more is reported rather than shown as
 // if its first page were all of them.
 const MAX_SESSION_ALERTS = 1000;
@@ -99,10 +106,8 @@ interface SessionRead {
   alertsFailed?: boolean;
   // alertsTruncated is set when the session has more alerts than were read, so some are not badged.
   alertsTruncated?: boolean;
-  // toolCalls are the tool calls the agent reported in its transcript (issue #1288). Unread, the groups simply carry no call.
-  toolCalls?: AgentToolCall[];
-  // toolCallsTruncated is set when the session recorded more calls than were read, so some groups may show none.
-  toolCallsTruncated?: boolean;
+  // totals are the session's totals the server counted (issue #1422). Unread, the header counts what the tree read holds.
+  totals?: AgentSessionTotals;
   // lineage is the session this one was forked from and the sessions forked from it (issue #1347). Unread, none are linked.
   lineage?: AgentSessionLineage;
 }
@@ -130,13 +135,13 @@ function message(err: unknown): string {
 }
 
 async function readSession(key: string, hostId: string, sessionId: string): Promise<SessionRead> {
-  const [tree, record, alerts, toolCalls, lineage] = await Promise.all([
+  const [tree, record, alerts, totals, lineage] = await Promise.all([
     getSessionTree(hostId, sessionId).catch((err: unknown) => message(err)),
     listAgentSessions({ host_id: hostId, session: sessionId })
       .then((res) => res.rows[0] as AgentSessionSummary | undefined)
       .catch(() => undefined),
     listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
-    getAgentToolCalls(hostId, sessionId).catch(() => undefined),
+    getAgentSessionTotals(hostId, sessionId).catch(() => undefined),
     getAgentSessionLineage(hostId, sessionId).catch(() => undefined),
   ]);
   if (typeof tree === "string") return { key, error: tree };
@@ -152,10 +157,32 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
     alerts: lists.flatMap((list) => (list ?? []).slice(0, MAX_SESSION_ALERTS)),
     alertsFailed: lists.includes(null),
     alertsTruncated: lists.some((list) => (list?.length ?? 0) > MAX_SESSION_ALERTS),
-    toolCalls: toolCalls?.tool_calls,
-    toolCallsTruncated: toolCalls?.truncated,
+    totals,
     lineage,
   };
+}
+
+// ListedCommand is a command as a page lists it, with the rows of it that page names as moved under a launcher.
+interface ListedCommand extends SessionCommand {
+  inferred: number[];
+  services: number[];
+}
+
+// CommandsMeta is what a commands page says about the whole read: whether the server's process read, or its tool-call read, was cut.
+interface CommandsMeta {
+  key: string;
+  truncated: boolean;
+  toolCallsTruncated: boolean;
+}
+
+// useDebounced is value once it has held still for delayMs.
+function useDebounced(value: string, delayMs: number): string {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => { setSettled(value); }, delayMs);
+    return () => { clearTimeout(timer); };
+  }, [value, delayMs]);
+  return settled;
 }
 
 // SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its commands ran, one
@@ -186,6 +213,24 @@ export function SessionView() {
     return () => { cancelled = true; };
   }, [hostId, sessionId, readKey]);
 
+  // The session's commands, a page at a time, as the server groups them (issue #1425). A search asks the server for the commands it
+  // finds once the operator stops typing.
+  const searched = useDebounced(query.trim(), SEARCH_DELAY_MS);
+  const commandsKey = `${readKey}\n${searched}`;
+  const [commandsMeta, setCommandsMeta] = useState<CommandsMeta | null>(null);
+  const fetchCommands = useCallback(async (cursor: string): Promise<CursorPage<ListedCommand>> => {
+    const page = await getSessionCommands(hostId, sessionId, { cursor, q: searched, limit: COMMANDS_PAGE });
+    setCommandsMeta({ key: commandsKey, truncated: page.truncated, toolCallsTruncated: page.tool_calls_truncated });
+    const within = (ids: number[], command: SessionCommand) => ids.filter((id) => command.process_ids.includes(id));
+    return {
+      rows: page.commands.map((c) => ({ ...c, inferred: within(page.inferred, c), services: within(page.services, c) })),
+      nextCursor: page.next_cursor,
+      total: page.total_matched,
+    };
+  }, [hostId, sessionId, searched, commandsKey]);
+  const commands = useCursorList(commandsKey, fetchCommands);
+  const meta = commandsMeta?.key === commandsKey ? commandsMeta : null;
+
   const alertsByProcess = useMemo(() => {
     const byProcess = new Map<number, Alert[]>();
     for (const alert of current?.alerts ?? []) byProcess.set(alert.process_id, [...(byProcess.get(alert.process_id) ?? []), alert]);
@@ -195,14 +240,14 @@ export function SessionView() {
   const logical = useMemo(() => (tree ? applyLaunchLinks(tree.roots, tree.links) : null), [tree]);
   const groups = useMemo(
     () => {
-      if (!tree || !logical) return [];
-      const incomplete = tree.truncated || current === null || current.alertsFailed === true || current.alertsTruncated === true
-        || beganBeforeRetention(current);
-      return buildCommands(logical.roots, {
-        verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred, services: logical.services,
-      });
+      const incomplete = meta?.truncated === true || current === null || current.alertsFailed === true
+        || current.alertsTruncated === true || beganBeforeRetention(current);
+      const keep = new Set(alertsByProcess.keys());
+      return commands.rows.map((c) => shapeCommand(c, {
+        verbose, keep, incomplete, inferred: new Set(c.inferred), services: new Set(c.services),
+      }));
     },
-    [tree, logical, verbose, alertsByProcess, current],
+    [commands.rows, meta, verbose, alertsByProcess, current],
   );
   const forest = useMemo(
     () => (tree && logical
@@ -241,7 +286,10 @@ export function SessionView() {
       {project && <span className="session-view__mono">{project}</span>}
       <span>{hostNames.get(hostId) ?? hostId}</span>
       {firstNs !== undefined && lastNs !== undefined && <span>{`${formatNs(firstNs)} to ${formatNs(lastNs)}`}</span>}
-      {tree && <span>{plural(summary.processCount, "process", "processes")}</span>}
+      {current?.totals && <span>{plural(current.totals.commands, "command", "commands")}</span>}
+      {(current?.totals ?? tree) && (
+        <span>{plural(current?.totals?.processes ?? summary.processCount, "process", "processes")}</span>
+      )}
       {record?.agent_pid !== undefined && <span>agent pid {record.agent_pid}</span>}
       <span className="session-view__mono" title={sessionId}>Session {sessionId}</span>
     </span>
@@ -276,7 +324,7 @@ export function SessionView() {
         )}
       />
       <SessionLineageLine hostId={hostId} lineage={current?.lineage} />
-      <SessionNotices read={current} />
+      <SessionNotices read={current} meta={meta} view={view} />
       <SessionRowsContext.Provider value={rowsContext}>
         <div className="session-view__layout">
           <div className="session-view__main">
@@ -293,7 +341,13 @@ export function SessionView() {
                 </button>
               ))}
             </div>
-            {view === "commands" && <SessionBody read={current} groups={groups} />}
+            {view === "commands" && (
+              <SessionBody
+                groups={groups}
+                commands={commands}
+                expandAll={(current?.totals?.commands ?? commands.total) <= AUTO_EXPAND_GROUPS}
+              />
+            )}
             {view === "processes" && (
               <ProcessesBody read={current} forest={forest} agent={agentLabel(agentName)} showOwn={showOwn} onShowOwn={setShowOwn} />
             )}
@@ -363,13 +417,18 @@ function beganBeforeRetention(read: SessionRead): boolean {
   return retainedFrom !== undefined && read.record !== undefined && read.record.first_seen_ns < retainedFrom;
 }
 
-function SessionNotices({ read }: { readonly read: SessionRead | null }) {
+// Each read's cut is told with the view it cuts: the commands with Commands, the process tree with Processes.
+function SessionNotices({ read, meta, view }: {
+  readonly read: SessionRead | null;
+  readonly meta: CommandsMeta | null;
+  readonly view: SessionLens;
+}) {
   const tree = read?.tree;
   if (!tree) return null;
   const retainedFrom = tree.retained_from_ns;
   return (
     <>
-      {tree.truncated && (
+      {view === "processes" && tree.truncated && (
         <p className="session-view__notice" role="status">
           Showing the first {tree.returned.toLocaleString()} of {tree.total_matched_capped ? "more than " : ""}
           {tree.total_matched.toLocaleString()} processes in this session.
@@ -383,7 +442,12 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
       {read.alertsFailed && (
         <p className="session-view__notice" role="status">This session&apos;s alerts could not be loaded, so none are shown.</p>
       )}
-      {read.toolCallsTruncated && (
+      {view === "commands" && meta?.truncated && (
+        <p className="session-view__notice" role="status">
+          This session ran more processes than the server reads, so its later commands are not listed.
+        </p>
+      )}
+      {meta?.toolCallsTruncated && (
         <p className="session-view__notice" role="status">
           The agent reported more tool calls than are read, so some commands may show without the tool call the agent reported for
           them.
@@ -399,28 +463,40 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
   );
 }
 
-function SessionBody({ read, groups }: { readonly read: SessionRead | null; readonly groups: Command[] }) {
+// SessionBody lists the session's commands a page at a time. A session of at most AUTO_EXPAND_GROUPS commands opens with every one
+// expanded; a longer one with only those an alert was raised in.
+function SessionBody({ groups, commands, expandAll }: {
+  readonly groups: Command[];
+  readonly commands: { error: string | null; loading: boolean; hasMore: boolean; total: number; loadMore: () => void };
+  readonly expandAll: boolean;
+}) {
   const { alertsByProcess } = useSessionRows();
-  if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
-  if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
-  if (groups.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
-  const expandAll = groups.length <= AUTO_EXPAND_GROUPS;
-  const matches = joinToolCalls(groups, read.toolCalls ?? []);
+  if (commands.error) return <EmptyState>Error: {commands.error}</EmptyState>;
+  if (groups.length === 0) {
+    return <EmptyState>{commands.loading ? "Loading..." : "No processes are recorded for this session."}</EmptyState>;
+  }
   return (
-    <ol className="session-view__calls">
-      {groups.map((group) => {
-        const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
-        return (
-          <CommandGroup
-            key={group.key}
-            group={group}
-            match={matches.get(group.key)}
-            alerts={alerts}
-            defaultOpen={expandAll || alerts.length > 0}
-          />
-        );
-      })}
-    </ol>
+    <>
+      <ol className="session-view__calls">
+        {groups.map((group) => {
+          const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
+          return (
+            <CommandGroup
+              key={group.key}
+              group={group}
+              match={group.toolCall}
+              alerts={alerts}
+              defaultOpen={expandAll || alerts.length > 0}
+            />
+          );
+        })}
+      </ol>
+      {commands.hasMore && (
+        <Button variant="text-link" disabled={commands.loading} onClick={commands.loadMore}>
+          {`Load more commands (${(commands.total - groups.length).toLocaleString()} more)`}
+        </Button>
+      )}
+    </>
   );
 }
 
@@ -529,10 +605,11 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
 function AgentCall({ match }: { readonly match: ToolCallMatch }) {
   if (match.kind === "ambiguous") {
     const ids = match.candidates.map((c) => c.tool_use_id);
+    const unlisted = match.candidate_count - ids.length;
     return (
-      <span className="session-view__agent-call" title={`One of: ${ids.join(", ")}`}>
+      <span className="session-view__agent-call" title={`One of: ${ids.join(", ")}${unlisted > 0 ? ` and ${String(unlisted)} more` : ""}`}>
         <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
-        One of {match.candidates.length} identical calls made at once
+        One of {match.candidate_count} identical calls made at once
       </span>
     );
   }
