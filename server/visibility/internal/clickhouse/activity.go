@@ -89,73 +89,44 @@ func activityScope(filter api.ActivityFilter) (string, []any) {
 }
 
 // ActivityTotalsForGenerations totals what the generations touched, as ActivityForGenerations does, with the file events by operation
-// and no lists. A filter with no generation and no span totals nothing, as the rollup does.
+// and no lists. Every figure comes from one aggregate, so a live session's events arriving mid-read cannot make the operations disagree
+// with the file total. A filter with no generation and no span totals nothing, as the rollup does.
 func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter api.ActivityFilter) (api.ActivitySummary, error) {
-	out := api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}
 	if len(filter.Generations) == 0 && len(filter.Spans) == 0 {
-		return out, nil
+		return api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}, nil
 	}
 	scope, args := activityScope(filter)
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		totals, err := s.activityTotals(gctx, scope, args)
-		out.Files.ClassTotals, out.Network, out.DNS = totals.Files.ClassTotals, totals.Network, totals.DNS
-		return err
-	})
-	g.Go(func() (err error) {
-		out.Files.ByOperation, err = s.fileOperations(gctx, scope, args)
-		return err
-	})
-	if err := g.Wait(); err != nil {
-		return api.ActivitySummary{}, err
-	}
-	return out, nil
+	return s.activityTotals(ctx, scope, args)
 }
 
-// fileOperations counts the file events of each operation, a coalesced one counting as the operations it stands for.
-func (s *Store) fileOperations(ctx context.Context, scope string, args []any) (map[string]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+activityFileOperation+` AS operation, toInt64(sum(`+activityWeight+`))
-		FROM events FINAL
-		WHERE event_type IN `+activityFileTypes+` AND `+scope+`
-		GROUP BY operation`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse file operations: %w", err)
-	}
-	defer rows.Close()
-	out := map[string]int64{}
-	for rows.Next() {
-		var operation string
-		var n int64
-		if err := rows.Scan(&operation, &n); err != nil {
-			return nil, fmt.Errorf("scan file operation: %w", err)
-		}
-		out[operation] = n
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate file operations: %w", err)
-	}
-	return out, nil
-}
-
-// activityTotals counts each class's events and distinct artifacts in one pass: a file's artifact is its path, a connection's its
-// destination (address, port and protocol), a query's its name. The file operations are left to fileOperations.
+// activityTotals counts each class's events and distinct artifacts, and the file events by operation, in one pass: a file's artifact
+// is its path, a connection's its destination (address, port and protocol), a query's its name.
 func (s *Store) activityTotals(ctx context.Context, scope string, args []any) (api.ActivitySummary, error) {
-	var out api.ActivitySummary
+	out := api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}
+	var operations []string
+	var counts []int64
+	// The operations are one map, read as its keys and values from the row that computes it once.
 	row := s.db.QueryRowContext(ctx, `
-		SELECT
-			toInt64(sumIf(`+activityWeight+`, event_type IN `+activityFileTypes+`)),
-			toInt64(uniqExactIf(JSONExtractString(payload, 'path'), event_type IN `+activityFileTypes+`)),
-			toInt64(sumIf(`+activityWeight+`, event_type = 'network_connect')),
-			toInt64(uniqExactIf((JSONExtractString(payload, 'remote_address'), JSONExtractInt(payload, 'remote_port'),
-				JSONExtractString(payload, 'protocol')), event_type = 'network_connect')),
-			toInt64(sumIf(`+activityWeight+`, event_type = 'dns_query')),
-			toInt64(uniqExactIf(JSONExtractString(payload, 'query_name'), event_type = 'dns_query'))
-		FROM events FINAL
-		WHERE event_type IN `+activityAllTypes+` AND `+scope, args...)
-	if err := row.Scan(&out.Files.Events, &out.Files.Distinct, &out.Network.Events, &out.Network.Distinct,
+		SELECT operations.1, operations.2, files, paths, connections, destinations, queries, names
+		FROM (
+			SELECT
+				sumMapIf(([`+activityFileOperation+`], [toInt64(`+activityWeight+`)]), event_type IN `+activityFileTypes+`) AS operations,
+				toInt64(sumIf(`+activityWeight+`, event_type IN `+activityFileTypes+`)) AS files,
+				toInt64(uniqExactIf(JSONExtractString(payload, 'path'), event_type IN `+activityFileTypes+`)) AS paths,
+				toInt64(sumIf(`+activityWeight+`, event_type = 'network_connect')) AS connections,
+				toInt64(uniqExactIf((JSONExtractString(payload, 'remote_address'), JSONExtractInt(payload, 'remote_port'),
+					JSONExtractString(payload, 'protocol')), event_type = 'network_connect')) AS destinations,
+				toInt64(sumIf(`+activityWeight+`, event_type = 'dns_query')) AS queries,
+				toInt64(uniqExactIf(JSONExtractString(payload, 'query_name'), event_type = 'dns_query')) AS names
+			FROM events FINAL
+			WHERE event_type IN `+activityAllTypes+` AND `+scope+`
+		)`, args...)
+	if err := row.Scan(&operations, &counts, &out.Files.Events, &out.Files.Distinct, &out.Network.Events, &out.Network.Distinct,
 		&out.DNS.Events, &out.DNS.Distinct); err != nil {
 		return api.ActivitySummary{}, fmt.Errorf("clickhouse activity totals: %w", err)
+	}
+	for i, operation := range operations {
+		out.Files.ByOperation[operation] = counts[i]
 	}
 	return out, nil
 }
