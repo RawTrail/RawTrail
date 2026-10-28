@@ -17,21 +17,13 @@ func scopePredicate(scope api.TreeScope) (string, any) {
 	return "story_root_id = ?", scope.StoryRootID
 }
 
-// ScopedPosition is a place in a scoped read's order: the fork time and row id of the last row read. The zero value is the start.
-type ScopedPosition struct {
-	ForkTimeNs int64
-	ID         int64
-}
-
-// GetScopedProcesses returns up to limit rows of one story or agent session on the host (issue #1282) after a position, oldest first,
-// so a page the limit cut short keeps each process's creator ahead of it. One indexed read, whatever the depth of the tree; a read
-// from a position continues where the last stopped (issue #1424).
-func (s *Store) GetScopedProcesses(
-	ctx context.Context, hostID string, scope api.TreeScope, after ScopedPosition, limit int,
-) ([]api.Process, error) {
+// GetScopedProcesses returns up to limit rows of one story or agent session on the host (issue #1282) after the scope's position,
+// oldest first, so a page the limit cut short keeps each process's creator ahead of it. One indexed read, whatever the depth of the
+// tree; a read from a position continues where the last stopped (issue #1424).
+func (s *Store) GetScopedProcesses(ctx context.Context, hostID string, scope api.TreeScope, limit int) ([]api.Process, error) {
 	predicate, value := scopePredicate(scope)
 	args := []any{hostID, value}
-	if after != (ScopedPosition{}) {
+	if after := scope.After; after != (api.TreePosition{}) {
 		predicate += " AND (fork_time_ns > ? OR (fork_time_ns = ? AND id > ?))"
 		args = append(args, after.ForkTimeNs, after.ForkTimeNs, after.ID)
 	}

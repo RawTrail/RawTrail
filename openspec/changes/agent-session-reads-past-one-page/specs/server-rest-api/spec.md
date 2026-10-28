@@ -11,3 +11,15 @@ The server SHALL compute an AI agent session's commands, its summary and its act
 - **THEN** every process is read once, in fork order with ties by row, across every chunk
 - **AND** the activity is matched over every one of their generations
 - **AND** a read cut shorter than the session still reports the session's total
+
+### Requirement: Agent session tree pages
+
+The process-forest endpoint's `scope=session` and `scope=story` reads SHALL page by an opaque `cursor`: a cut page SHALL name the cursor of the next, read from after its last row in fork order, each page SHALL report the scope's total, and a session's agent processes SHALL lead its first page only. A malformed cursor SHALL be rejected with `invalid_cursor`.
+
+#### Scenario: A session tree pages by cursor
+
+- **GIVEN** a session with more processes than one page
+- **WHEN** its tree is read page by page, each from the last page's cursor
+- **THEN** every process is read once across the pages, each page reports the session's total, and the last names no cursor
+- **AND** the agent processes are read with the first page only, and a malformed cursor is rejected
+

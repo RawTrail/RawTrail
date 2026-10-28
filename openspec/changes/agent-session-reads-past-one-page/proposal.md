@@ -5,7 +5,7 @@ The server read at most 5000 of a session's processes for anything it computed a
 ## What changes
 
 - A session's commands, its summary and its activity rollup are computed over up to 20,000 of its processes, read a chunk of 5000 at a time in fork order. A session larger than that still reports that its read was cut.
-- The session tree endpoint is unchanged: a client still reads at most 5000 rows a request.
+- The session and story tree reads page by an opaque `cursor`: a cut page names the next, each page reports the scope's total, and a session's agents lead its first page only. A client still reads at most 5000 rows a request.
 - A story's activity, and the timeline's scopes, keep the chain's 5000 bound.
 - Counting a scoped read's total reaches 100,000, past the largest read, so a cut read still reports its real total.
 
@@ -13,5 +13,5 @@ The server read at most 5000 of a session's processes for anything it computed a
 
 - `server/detection/internal/mysql`: `GetScopedProcesses` reads from a position; `CountScopedProcesses` counts further.
 - `server/detection/internal/graph`: `BuildScopedTree` reads in chunks up to `MaxScopedRead`.
-- `server/detection/internal/operator`: the commands, summary and session activity reads use the larger bound.
+- `server/detection/internal/operator`: the commands, summary and session activity reads use the larger bound; the tree read takes and hands out a cursor.
 - `server/visibility/internal/clickhouse`: activity reads raise their query size.

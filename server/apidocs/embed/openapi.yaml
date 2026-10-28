@@ -308,6 +308,12 @@ paths:
           in: query
           description: The process id of the story's root, for `scope=story`.
           schema: {type: integer, format: int64, minimum: 1}
+        - name: cursor
+          in: query
+          description: >-
+            For `scope=session` or `scope=story`, the previous page's `next_cursor`: the read continues after that page's last row,
+            oldest first. A session's `agents` come with its first page only. A malformed cursor is rejected with `invalid_cursor`.
+          schema: {type: string}
       responses:
         "200":
           description: Forest of process roots
@@ -317,6 +323,11 @@ paths:
                 type: object
                 required: [roots, returned, total_matched, total_matched_capped, truncated]
                 properties:
+                  next_cursor:
+                    type: string
+                    description: >-
+                      For a cut `scope=session` or `scope=story` read, the cursor of the next page. A page's processes whose creator is on
+                      an earlier page are its roots. Absent on the last page and for any other read.
                   roots:
                     type: array
                     items:

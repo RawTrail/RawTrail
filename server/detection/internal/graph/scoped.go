@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
-	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
 )
 
 // BuildScopedTree returns one story or AI agent session as a forest (issue #1282): every row stamped with the scope, read by its
@@ -28,12 +27,17 @@ func (q *Query) BuildScopedTree(
 		procs = procs[:limit]
 	}
 	res := api.ProcessTreeResult{Returned: int64(len(procs)), TotalMatched: int64(len(procs)), Truncated: truncated}
-	if truncated {
+	// A page after the first counts what the whole scope holds, as the first does, so a client reads one total across its pages.
+	if truncated || scope.After != (api.TreePosition{}) {
 		total, capped, err := q.store.CountScopedProcesses(ctx, hostID, scope)
 		if err != nil {
 			return api.ProcessTreeResult{}, err
 		}
 		res.TotalMatched, res.TotalMatchedCapped = resolveTotalMatched(res.Returned, total, capped)
+	}
+	if truncated {
+		last := procs[len(procs)-1]
+		res.Next = &api.TreePosition{ForkTimeNs: last.ForkTimeNs, ID: last.ID}
 	}
 	forest := buildForest(procs, nil)
 	// A story or session shows what its launchers caused launchd to run, as extra roots the links name (issue #1286).
@@ -68,12 +72,12 @@ const MaxScopedRead = 20000
 // scopedChunk is how many rows one query of a scoped read fetches. A read past it continues from its last row.
 const scopedChunk = 5000
 
-// scopedProcesses reads up to limit rows of a scope, oldest first, a chunk at a time, so no one query holds the whole read.
+// scopedProcesses reads up to limit rows of a scope from its position, oldest first, a chunk at a time, so no one query holds the
+// whole read.
 func (q *Query) scopedProcesses(ctx context.Context, hostID string, scope api.TreeScope, limit int) ([]api.Process, error) {
 	var procs []api.Process
-	var after mysql.ScopedPosition
 	for len(procs) < limit {
-		chunk, err := q.store.GetScopedProcesses(ctx, hostID, scope, after, min(scopedChunk, limit-len(procs)))
+		chunk, err := q.store.GetScopedProcesses(ctx, hostID, scope, min(scopedChunk, limit-len(procs)))
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +86,7 @@ func (q *Query) scopedProcesses(ctx context.Context, hostID string, scope api.Tr
 			break
 		}
 		last := chunk[len(chunk)-1]
-		after = mysql.ScopedPosition{ForkTimeNs: last.ForkTimeNs, ID: last.ID}
+		scope.After = api.TreePosition{ForkTimeNs: last.ForkTimeNs, ID: last.ID}
 	}
 	return procs, nil
 }
