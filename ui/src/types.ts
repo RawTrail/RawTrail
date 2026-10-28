@@ -255,9 +255,48 @@ export interface AgentToolCall {
   uid: number;
 }
 
-export interface AgentToolCallsResponse {
-  tool_calls: AgentToolCall[];
+// ToolCallMatch is the tool call the agent reported for a command (issue #1288), paired by the server (issue #1423): the call, or, for
+// identical calls of one turn that cannot be told apart, the first of them with how many there are.
+export type ToolCallMatch =
+  | { kind: "matched"; call: AgentToolCall }
+  | { kind: "ambiguous"; candidates: AgentToolCall[]; candidate_count: number };
+
+// SessionCommand is one command an AI agent session ran, as the server groups it (issue #1423): the processes one command started, as
+// a forest under its root, labelled with what the agent ran.
+export interface SessionCommand {
+  // key names the command by the row of the root that started it.
+  key: string;
+  command: string;
+  // from_agent is set when the command's root is the agent's wrapper shell for a Bash call.
+  from_agent: boolean;
+  uid?: number;
+  start_ns: number;
+  last_ns: number;
+  // process_ids are every process the command started, shell plumbing included.
+  process_ids: number[];
+  roots: ProcessNode[];
+  tool_call?: ToolCallMatch;
+}
+
+// SessionCommandsResponse is one page of a session's commands, in the order they started.
+export interface SessionCommandsResponse {
+  commands: SessionCommand[];
+  next_cursor?: string;
+  total_matched: number;
+  // inferred and services name the page's processes moved under the process that asked launchd for them.
+  inferred: number[];
+  services: number[];
+  // truncated is set when the session had more processes than the server reads; tool_calls_truncated, more tool calls.
   truncated: boolean;
+  tool_calls_truncated: boolean;
+}
+
+// AgentSessionTotals is a session's totals, counted by the server over the whole session (issue #1422).
+export interface AgentSessionTotals {
+  commands: number;
+  processes: number;
+  alerts: { total: number; by_severity: Record<string, number> };
+  tool_calls: { total: number; by_tool: { tool: string; count: number }[] };
 }
 
 // AgentSessionLineage is a session's place among the sessions forked from each other on its host (issue #1347): the session it was

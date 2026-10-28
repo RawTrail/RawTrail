@@ -44,6 +44,7 @@ func matched(c visibilityapi.AgentToolCall) *ToolCallMatch {
 func TestJoinToolCalls(t *testing.T) {
 	t.Parallel()
 
+	// spec:web-ui/tool-calls-beside-their-processes/repeated-identical-commands-pair-in-order
 	t.Run("repeated identical commands pair in order, as the edr-dev session ran ls, pwd, ls", func(t *testing.T) {
 		t.Parallel()
 		calls := []visibilityapi.AgentToolCall{call("toolu_a", "ls", 1_000*ms), call("toolu_b", "pwd", 2_000*ms), call("toolu_c", "ls", 3_000*ms)}
@@ -51,6 +52,7 @@ func TestJoinToolCalls(t *testing.T) {
 		assert.Equal(t, map[string]*ToolCallMatch{"g1": matched(calls[0]), "g2": matched(calls[1]), "g3": matched(calls[2])}, got)
 	})
 
+	// spec:web-ui/tool-calls-beside-their-processes/another-user-s-transcript-cannot-label-a-session
 	t.Run("a call pairs only with a command its transcript's owner ran", func(t *testing.T) {
 		t.Parallel()
 		genuine, forged := call("toolu_real", "ls", 1_000*ms), call("toolu_forged", "ls", 1_005*ms)
@@ -59,6 +61,7 @@ func TestJoinToolCalls(t *testing.T) {
 		assert.Empty(t, joined([]Command{command("g", "ls", 1_010*ms)}, forged))
 	})
 
+	// spec:web-ui/tool-calls-beside-their-processes/calls-that-cannot-be-told-apart-are-marked-ambiguous
 	t.Run("tied calls label only as many commands as they hold, and are marked ambiguous", func(t *testing.T) {
 		t.Parallel()
 		calls := []visibilityapi.AgentToolCall{call("toolu_a", "ls", 1_000*ms), call("toolu_b", "ls", 1_000*ms)}

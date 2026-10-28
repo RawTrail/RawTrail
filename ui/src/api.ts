@@ -11,7 +11,7 @@ import type {
   ActivityResponse,
   AgentSessionLineage,
   AgentSessionResult,
-  AgentToolCallsResponse,
+  AgentSessionTotals,
   Alert,
   AlertDetail,
   ApplicationControlPolicy,
@@ -28,6 +28,7 @@ import type {
   ProcessSearchResult,
   ReachableAddress,
   ReachableSet,
+  SessionCommandsResponse,
   TreeResponse,
 } from "./types";
 import {
@@ -174,6 +175,13 @@ export function attachCsrfHeader(
 // whitelist is deliberately narrow: leading slash, then only URL-path +
 // query-string characters we actually use.
 const API_PATH_RE = /^\/[A-Za-z0-9/?=&%:_.@~-]*$/;
+
+// queryString serializes a query for assertSafeAPIPath. URLSearchParams writes a space as "+" and leaves "*" literal, both outside the
+// whitelist, so a search such as `git status` or `rm build*` would be refused before it is sent; they are escaped as %20 and %2A, which
+// the server decodes back. A literal "+" in a value is already %2B.
+function queryString(query: URLSearchParams): string {
+  return query.toString().replace(/[+*]/g, (c) => (c === "+" ? "%20" : "%2A"));
+}
 
 function assertSafeAPIPath(path: string): void {
   if (!API_PATH_RE.test(path) || path.includes("..")) {
@@ -363,7 +371,7 @@ export async function getProcessTree(
 // names is in the tree the view can open it from.
 export async function getSessionTree(hostId: string, sessionId: string, limit = 5000): Promise<TreeResponse> {
   const query = new URLSearchParams({ scope: "session", session: sessionId, flatten: "1", limit: String(limit) });
-  return fetchJSON<TreeResponse>(`/hosts/${encodeURIComponent(hostId)}/tree?${query.toString()}`);
+  return fetchJSON<TreeResponse>(`/hosts/${encodeURIComponent(hostId)}/tree?${queryString(query)}`);
 }
 
 // ActivityScopeQuery names what an activity read totals: one process or its subtree by row id, or an agent session.
@@ -379,13 +387,35 @@ export async function getActivity(hostId: string, scope: ActivityScopeQuery): Pr
   } else {
     query.set("process", String(scope.process));
   }
-  return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${query.toString()}`);
+  return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${queryString(query)}`);
 }
 
-// getAgentToolCalls reads the tool calls an AI agent session recorded in its transcript (issue #1288), oldest first.
-export async function getAgentToolCalls(hostId: string, sessionId: string): Promise<AgentToolCallsResponse> {
-  return fetchJSON<AgentToolCallsResponse>(
-    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/tool-calls`,
+// SessionCommandsQuery pages a session's commands: the previous page's cursor, a search, and the page size.
+export interface SessionCommandsQuery {
+  cursor?: string;
+  q?: string;
+  limit?: number;
+}
+
+// getSessionCommands reads one page of the commands an AI agent session ran, as the server groups them and pairs each with the tool
+// call the agent reported for it (issue #1423).
+export async function getSessionCommands(
+  hostId: string, sessionId: string, page: SessionCommandsQuery = {},
+): Promise<SessionCommandsResponse> {
+  const query = new URLSearchParams();
+  if (page.cursor) query.set("cursor", page.cursor);
+  if (page.q) query.set("q", page.q);
+  if (page.limit !== undefined) query.set("limit", String(page.limit));
+  const qs = queryString(query);
+  return fetchJSON<SessionCommandsResponse>(
+    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/commands${qs ? `?${qs}` : ""}`,
+  );
+}
+
+// getAgentSessionTotals reads a session's totals, counted by the server over the whole session (issue #1422).
+export async function getAgentSessionTotals(hostId: string, sessionId: string): Promise<AgentSessionTotals> {
+  return fetchJSON<AgentSessionTotals>(
+    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/summary`,
   );
 }
 
@@ -425,7 +455,7 @@ export async function getProcessDetail(
     params.set("pidversion", String(pidVersion));
   }
   return fetchJSON<ProcessDetail>(
-    `/hosts/${encodeURIComponent(hostId)}/processes/${String(pid)}?${params.toString()}`
+    `/hosts/${encodeURIComponent(hostId)}/processes/${String(pid)}?${queryString(params)}`
   );
 }
 
@@ -463,7 +493,7 @@ export async function searchProcesses(filter: ProcessSearchFilter, cursor?: stri
   set("ancestor", filter.ancestor);
   set("args", filter.args);
   set("cursor", cursor);
-  const qs = query.toString();
+  const qs = queryString(query);
   const suffix = qs ? `?${qs}` : "";
   const res = await fetchJSON<ProcessSearchResult>(`/search/processes${suffix}`);
   // A zero-match page marshals a nil Go slice as JSON null; normalize to [] so list consumers never read .length of null. The
@@ -488,7 +518,7 @@ export async function listAgentSessions(filter: AgentSessionFilter, cursor?: str
   for (const [key, value] of Object.entries({ ...filter, cursor })) {
     if (value) query.set(key, value);
   }
-  const qs = query.toString();
+  const qs = queryString(query);
   return fetchJSON<AgentSessionResult>(`/agent-sessions${qs ? `?${qs}` : ""}`);
 }
 
@@ -519,7 +549,7 @@ export async function searchEvents(mode: EventSearchMode, filter: EventSearchFil
   set("from", filter.from);
   set("to", filter.to);
   set("cursor", cursor);
-  const qs = query.toString();
+  const qs = queryString(query);
   const suffix = qs ? `?${qs}` : "";
   const res = await fetchJSON<EventSearchResult>(`/search/${mode}${suffix}`);
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Go marshals a nil slice as JSON null (a non-nil empty slice would be []) (the type models events as non-null)
@@ -554,7 +584,7 @@ export async function getHostTimeline(hostID: string, filter: HostTimelineFilter
     query.set("pin", String(filter.chainPin));
   }
   set("cursor", cursor);
-  const qs = query.toString();
+  const qs = queryString(query);
   const suffix = qs ? `?${qs}` : "";
   const res = await fetchJSON<HostTimelineResult>(`/hosts/${encodeURIComponent(hostID)}/timeline${suffix}`);
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Go marshals a nil slice as JSON null (a non-nil empty slice would be []) (the type models events as non-null)
@@ -590,7 +620,7 @@ export async function listAlerts(params?: {
   if (params?.agent_process) query.set("agent_process", String(params.agent_process));
   if (params?.served_session) query.set("served_session", params.served_session);
   if (params?.limit) query.set("limit", String(params.limit));
-  const qs = query.toString();
+  const qs = queryString(query);
   const suffix = qs ? `?${qs}` : "";
   return fetchJSON<Alert[]>(`/alerts${suffix}`);
 }

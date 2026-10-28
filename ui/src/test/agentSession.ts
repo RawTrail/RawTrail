@@ -1,6 +1,8 @@
 // A real AI agent session's process forest, for the session view's tests (issue #1284).
 
-import type { ProcessNode } from "../types";
+import type { ProcessLink, ProcessNode, SessionCommand, SessionCommandsResponse } from "../types";
+import { applyLaunchLinks } from "../components/launchLinks";
+import { commandLine, toolCommand } from "../components/Sessions/toolCommand";
 
 export const SESSION = "169b5bb1-29b5-41da-9a54-92cd72599ad9";
 export const MS = 1_000_000;
@@ -71,4 +73,42 @@ export function realSession(): ProcessNode[] {
       ], { previous_exec_id: 2298448 }),
     ]),
   ];
+}
+
+// sessionCommands is the server's commands response for a session's forest (issue #1423), as test fixtures need it: what launchd
+// started moved under its launcher, then one command per leader of a tool-call group, with any root whose creator was not read joining
+// the latest command its key names. The server's grouping is tested in Go; this only builds realistic responses for the view.
+export function sessionCommands(
+  roots: readonly ProcessNode[], links?: readonly ProcessLink[], over: Partial<SessionCommandsResponse> = {},
+): SessionCommandsResponse {
+  const logical = applyLaunchLinks(roots, links);
+  const commands: SessionCommand[] = [];
+  const latestByKey = new Map<number, SessionCommand>();
+  const sorted = [...logical.roots].sort((a, b) => a.fork_time_ns - b.fork_time_ns || a.id - b.id);
+  for (const root of sorted) {
+    const key = root.tool_call_group;
+    let command = key === undefined || root.pid === key ? undefined : latestByKey.get(key);
+    if (command === undefined) {
+      const agentCommand = toolCommand(root.args);
+      command = {
+        key: `row:${String(root.id)}`, command: agentCommand ?? commandLine(root.path, root.args), from_agent: agentCommand !== null,
+        uid: root.uid, start_ns: root.fork_time_ns, last_ns: root.fork_time_ns, process_ids: [], roots: [],
+      };
+      commands.push(command);
+      if (key !== undefined) latestByKey.set(key, command);
+    }
+    const into = command;
+    const visit = (n: ProcessNode) => {
+      into.process_ids.push(n.id);
+      const observedExit = n.exit_reason === "event" || n.exit_reason === "reexec" ? n.exit_time_ns : undefined;
+      into.last_ns = Math.max(into.last_ns, observedExit ?? n.exec_time_ns ?? n.fork_time_ns);
+      for (const child of n.children ?? []) visit(child);
+    };
+    visit(root);
+    into.roots.push(root);
+  }
+  return {
+    commands, total_matched: commands.length, inferred: [...logical.inferred], services: [...logical.services], truncated: false,
+    tool_calls_truncated: false, ...over,
+  };
 }
