@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rawtrail/rawtrail/server/httpserver"
+	"github.com/rawtrail/rawtrail/server/testdb"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
+	visibilitybootstrap "github.com/rawtrail/rawtrail/server/visibility/bootstrap"
 	chstore "github.com/rawtrail/rawtrail/server/visibility/internal/clickhouse"
 )
 
@@ -72,4 +74,50 @@ func TestApplyEventRetention_AltersOnlyOnChange(t *testing.T) {
 	changed, err = chstore.ApplyEventRetention(ctx, chDB, 30)
 	require.NoError(t, err)
 	assert.False(t, changed, "the value just applied is recognized, so the read of the TTL matches what the ALTER wrote")
+}
+
+// A retention the archive cannot take fails the startup that applies it, rather than leaving the archive on a window nobody set.
+func TestApplyEventRetention_Failures(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name    string
+		replace string // the statement that stands in for the events table; empty drops it
+		wantErr string
+	}{
+		{name: "no events table", wantErr: "read events table definition"},
+		{
+			name:    "an events table without the ingest date the TTL is over",
+			replace: "CREATE TABLE events (event_id String) ENGINE = MergeTree ORDER BY event_id",
+			wantErr: "set events TTL",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, chDB := openTestArchiveWithRetention(t, 7)
+			_, err := chDB.ExecContext(ctx, "DROP TABLE events")
+			require.NoError(t, err)
+			if tc.replace != "" {
+				_, err = chDB.ExecContext(ctx, tc.replace)
+				require.NoError(t, err)
+			}
+
+			_, err = chstore.ApplyEventRetention(ctx, chDB, 30)
+			require.ErrorContains(t, err, tc.wantErr)
+
+			// The migrations are recorded as applied, so a restart reaches the retention step and fails there.
+			vis, err := visibilitybootstrap.New(visibilitybootstrap.Deps{DB: testdb.Open(t), ClickHouseDB: chDB, EventRetentionDays: 30})
+			require.NoError(t, err)
+			require.ErrorContains(t, vis.ApplySchema(ctx), "visibility: event retention")
+		})
+	}
+
+	t.Run("an unreachable archive", func(t *testing.T) {
+		t.Parallel()
+		_, chDB := openTestArchiveWithRetention(t, 7)
+		vis, err := visibilitybootstrap.New(visibilitybootstrap.Deps{DB: testdb.Open(t), ClickHouseDB: chDB, EventRetentionDays: 30})
+		require.NoError(t, err)
+		require.NoError(t, chDB.Close())
+		require.Error(t, vis.ApplySchema(ctx), "the archive's migrations fail before retention is reached")
+	})
 }
