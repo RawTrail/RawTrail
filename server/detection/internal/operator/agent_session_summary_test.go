@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -113,17 +114,18 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 		},
 		tools: []visibilityapi.ToolCallCount{{ToolName: "Read", Count: 4}, {ToolName: "Bash", Count: 2}},
 	}
-	reads := 0
+	// Counted from the server's goroutine and read by the test, so atomically.
+	var reads atomic.Int64
 	tree := summaryTree(false)
 	counted := func(ctx context.Context, host string, scope api.TreeScope, limit int, flatten bool, pin int64) (api.ProcessTreeResult, error) {
-		reads++
+		reads.Add(1)
 		return tree(ctx, host, scope, limit, flatten, pin)
 	}
 	srv := newSummaryServer(t, fakeService{buildScopedTree: counted}, allowAllAuthZ{}, summarySession(), totals)
 
 	status, got := getSummary(t, srv)
 	require.Equal(t, http.StatusOK, status)
-	assert.Equal(t, 1, reads, "one read of the session's processes gives its commands and its activity scope")
+	assert.Equal(t, int64(1), reads.Load(), "one read of the session's processes gives its commands and its activity scope")
 	assert.Equal(t, agentSessionSummaryResponse{
 		Commands:  2,
 		Processes: 3,

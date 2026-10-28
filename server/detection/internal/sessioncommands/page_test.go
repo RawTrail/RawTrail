@@ -78,8 +78,8 @@ func TestPageOf(t *testing.T) {
 	}
 }
 
-// Reading every page in turn lists every command once, in order, whatever the page size, and a command that starts after the last
-// page was read does not shift the earlier pages.
+// Reading every page in turn lists every command once, in order, whatever the page size, and commands the live session starts
+// between reads, after the ones already read, are listed after them.
 //
 // spec:server-rest-api/agent-session-commands/commands-page-in-the-order-they-started
 func TestPageOf_Property(t *testing.T) {
@@ -87,17 +87,21 @@ func TestPageOf_Property(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		n := rapid.IntRange(0, 30).Draw(t, "commands")
 		var roots []api.ProcessNode
+		add := func(id int64, at int64) {
+			pid := 1000 + int(id)
+			roots = append(roots, keyed(proc(id, pid, at, "/bin/zsh", []string{"/bin/zsh", "-c", "eval 'ls'"}), pid))
+		}
 		for i := range n {
 			// Shared start times, as calls of one turn can have, are ordered by row.
-			at := int64(rapid.IntRange(1, 10).Draw(t, "at"))
-			roots = append(roots, keyed(proc(int64(i+1), 1000+i, at, "/bin/zsh", []string{"/bin/zsh", "-c", "eval 'ls'"}), 1000+i))
+			add(int64(i+1), int64(rapid.IntRange(1, 10).Draw(t, "at")))
 		}
-		all := Build(roots)
 		limit := rapid.IntRange(1, 7).Draw(t, "limit")
+		growth := rapid.IntRange(0, 5).Draw(t, "growth")
 		var read []string
 		token := ""
-		for range n + 1 {
-			page, err := PageOf(all, token, limit)
+		nextID, nextAt := int64(n+1), int64(11)
+		for range n + growth + 1 {
+			page, err := PageOf(Build(roots), token, limit)
 			require.NoError(t, err)
 			for _, c := range page.Commands {
 				read = append(read, c.Key)
@@ -106,9 +110,14 @@ func TestPageOf_Property(t *testing.T) {
 				break
 			}
 			token = page.NextCursor
+			// The session runs on while the client pages it: a command starts after every one so far, behind the cursor.
+			if growth > 0 {
+				add(nextID, nextAt)
+				nextID, nextAt, growth = nextID+1, nextAt+1, growth-1
+			}
 		}
 		var want []string
-		for _, c := range all {
+		for _, c := range Build(roots) {
 			want = append(want, c.Key)
 		}
 		require.Equal(t, want, read)
