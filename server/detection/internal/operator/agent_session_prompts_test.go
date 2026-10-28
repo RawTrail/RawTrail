@@ -59,6 +59,7 @@ func TestAgentSessionPrompts_Lists(t *testing.T) {
 	resp := doGet(t, srv, promptsPath+"?q=+fix+&cursor=c1&limit=10")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"), "prompt text is never cached")
 	var got struct {
 		Prompts []struct {
 			PromptID string `json:"prompt_id"`

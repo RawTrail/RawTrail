@@ -285,7 +285,8 @@ func (h *Handler) handleAgentSessionPrompts(w http.ResponseWriter, r *http.Reque
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
-	h.writeJSON(w, r, page)
+	// Prompt text is what a person typed, so no browser or proxy keeps a copy of it.
+	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, page)
 }
 
 // maxAuditTargetID is the length of audit_events.target_id, which records the resource a gate was asked for.
