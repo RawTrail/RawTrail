@@ -122,6 +122,18 @@ export async function queryClickHouse<T = Record<string, unknown>>(sql: string):
     .map((line) => JSON.parse(line) as T);
 }
 
+// insertClickHouse inserts rows into a table of the dev ClickHouse event archive, for a spec that seeds more activity than a fake agent
+// can post in its time budget (issue #1452). Rows go as JSONEachRow, one object per line.
+export async function insertClickHouse(table: string, rows: readonly Record<string, unknown>[]): Promise<void> {
+  const res = await fetch(CLICKHOUSE_HTTP, {
+    method: "POST",
+    body: `INSERT INTO ${table} FORMAT JSONEachRow\n${rows.map((r) => JSON.stringify(r)).join("\n")}`,
+  });
+  if (!res.ok) {
+    throw new Error(`clickhouse insert failed (${res.status}): ${await res.text()}`);
+  }
+}
+
 // Wipe every operator-side table so the next test starts from a known
 // shape. Leaves the schema in place (faster than DROP DATABASE +
 // re-bootstrap) and PRESERVES the seeded admin user + its

@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
-import { getAgentSessionLineage, getAgentSessionTotals, getSessionCommands, getSessionTree, listAgentSessions, listAlerts } from "../../api";
+import {
+  getAgentSessionLineage, getAgentSessionTotals, getSessionCommands, getSessionTree, listAgentSessions, listAlerts, searchSessionProcesses,
+} from "../../api";
 import type {
   AgentSessionLineage, AgentSessionSummary, AgentSessionTotals, Alert, ProcessNode, SessionCommand, ToolCallMatch, TreeResponse,
 } from "../../types";
@@ -333,7 +335,7 @@ export function SessionView() {
             <Input
               type="search"
               aria-label="Search this session"
-              placeholder={view === "processes" ? "Search processes" : "Search commands"}
+              placeholder={view === "commands" ? "Search commands" : `Search ${view}`}
               value={query}
               onChange={(e) => { setQuery(e.target.value); }}
             />
@@ -375,7 +377,10 @@ export function SessionView() {
                 expandAll={(current?.totals?.commands ?? commands.total) <= AUTO_EXPAND_GROUPS}
               />
             )}
-            {view === "processes" && (
+            {view === "processes" && searched !== "" && (
+              <ProcessSearchBody hostId={hostId} sessionId={sessionId} query={searched} />
+            )}
+            {view === "processes" && searched === "" && (
               <ProcessesBody
                 read={current}
                 forest={forest}
@@ -391,6 +396,7 @@ export function SessionView() {
                 label="Session activity"
                 hostId={hostId}
                 scope={{ kind: "session", session: sessionId }}
+                search={searched}
                 onProcess={(id) => {
                   // The agent is not among the roots, and its own edits are what the Files tab lists most (issue #1287).
                   const node = tree ? findNodeByDbId([...(tree.agents ?? []), ...tree.roots], id) : null;
@@ -536,6 +542,45 @@ function SessionBody({ groups, commands, expandAll }: {
         </Button>
       )}
     </>
+  );
+}
+
+// ProcessSearchBody lists the processes a search found across the whole session (issue #1452), each alone and in fork order, from the
+// server and a page at a time: the tree a match sits in may lie on a page not yet read, so the loaded tree cannot answer it.
+function ProcessSearchBody({ hostId, sessionId, query }: {
+  readonly hostId: string;
+  readonly sessionId: string;
+  readonly query: string;
+}) {
+  const key = `${hostId}/${sessionId}\n${query}`;
+  const [cut, setCut] = useState<{ key: string; truncated: boolean } | null>(null);
+  // The key on screen, read when a page lands so a slower page for a search since replaced cannot report its cut as this one's.
+  const activeKey = useRef(key);
+  useEffect(() => { activeKey.current = key; }, [key]);
+  const fetchPage = useCallback(async (cursor: string): Promise<CursorPage<SessionRow>> => {
+    const page = await searchSessionProcesses(hostId, sessionId, { cursor, q: query, limit: COMMANDS_PAGE });
+    if (activeKey.current === key) setCut({ key, truncated: page.truncated });
+    return { rows: page.processes.map((node) => ({ node, children: [] })), nextCursor: page.next_cursor, total: page.total_matched };
+  }, [hostId, sessionId, query, key]);
+  const found = useCursorList(key, fetchPage);
+  if (found.error && found.rows.length === 0) return <EmptyState>Error: {found.error}</EmptyState>;
+  if (found.rows.length === 0) return <EmptyState>{found.loading ? "Searching..." : "No process in this session matches."}</EmptyState>;
+  return (
+    <div className="session-view__processes">
+      <p className="session-view__processes-summary">{plural(found.total, "process matches", "processes match")}</p>
+      {cut?.key === key && cut.truncated && (
+        <p className="session-view__notice" role="status">
+          This session ran more processes than the server reads, so a match among the later ones is not found.
+        </p>
+      )}
+      <ProcessRows rows={found.rows} />
+      {found.error && <p className="session-view__notice" role="alert">The next processes could not be loaded: {found.error}</p>}
+      {found.hasMore && (
+        <Button variant="text-link" disabled={found.loading} onClick={found.loadMore}>
+          {`Load more matches (${(found.total - found.rows.length).toLocaleString()} more)`}
+        </Button>
+      )}
+    </div>
   );
 }
 

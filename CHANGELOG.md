@@ -12,7 +12,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 ### Added
 
 - **Event retention is a setting.** `EDR_EVENT_RETENTION_DAYS` (default 30) sets how long raw events are kept; the server applies it at startup. Shortening it deletes older events. Use the same value on every server and ingest replica.
-- **Long agent sessions open quickly and show everything they did.** A session's commands load a page at a time with the rest on request, a search in them runs on the server, and the header counts the whole session's commands and processes. Processes and each Activity list show the rest of a long session on request, instead of stopping at their first page.
+- **Long agent sessions open quickly and show everything they did.** A session's commands, processes and each Activity list load a page at a time with the rest on request, a search in any of them covers the whole session, and the header counts the whole session's commands and processes.
 - **An alertable count of service accounts about to expire.** The `edr.service_accounts.expiring` metric reports the active service accounts whose credential expires within 14 days, the same accounts the console flags. Alert when it is above zero and rotate the credential before the date.
 
 ### Fixed

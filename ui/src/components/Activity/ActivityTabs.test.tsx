@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
 import { ActivityTabs } from "./ActivityTabs";
 import * as api from "../../api";
@@ -282,10 +282,10 @@ describe("ActivityTabs paging", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Showing the first 1 row");
     fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
     expect(await screen.findByText("b.example")).toBeVisible();
-    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "c1");
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "c1", "");
     fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
     expect(await screen.findByText("c.example")).toBeVisible();
-    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "c2");
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "c2", "");
     expect(screen.getByText("a.example")).toBeVisible();
     expect(screen.getByText("b.example")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Load more rows" })).toBeNull();
@@ -303,6 +303,27 @@ describe("ActivityTabs paging", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
     expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Load more rows" })).toBeVisible();
+  });
+
+  // spec:web-ui/the-session-view-searches-its-processes-and-activity-on-the-server/an-activity-search-reads-the-class-from-the-server
+  it("lists a class's rows the server finds for a search, in place of the rollup's, and pages them", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({
+      dns: { events: 3, distinct: 3, truncated: false, rows: [dnsRow("a.example", 1), dnsRow("ab.example", 2)] },
+    }));
+    // The open class (Network) is searched first; DNS is read once it is opened.
+    const page = vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, cls, cursor) => Promise.resolve(cls !== "dns"
+      ? { rows: [] }
+      : cursor === "" ? { rows: [dnsRow("b.example", 3)], next_cursor: "q2" } : { rows: [dnsRow("bb.example", 4)] }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} search="b." />);
+    await waitFor(() => { expect(page).toHaveBeenCalledWith("H1", { kind: "session", session: "s1" }, "network", "", "b."); });
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    expect(await screen.findByText("b.example")).toBeVisible();
+    expect(screen.queryByText("a.example")).toBeNull();
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "", "b.");
+    expect(screen.getByRole("button", { name: /^DNS/ })).toHaveTextContent("3", { normalizeWhitespace: true });
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("bb.example")).toBeVisible();
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "q2", "b.");
   });
 
   it("drops a page read for a scope the operator has since left", async () => {

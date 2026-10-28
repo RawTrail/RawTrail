@@ -199,6 +199,47 @@ describe("SessionView commands from the server", () => {
     expect(screen.queryByRole("button", { name: "Load more processes" })).toBeNull();
   });
 
+  // spec:web-ui/the-session-view-searches-its-processes-and-activity-on-the-server/a-processes-search-finds-a-process-not-yet-loaded
+  it("lists the processes the server's search found, a process past the loaded pages included", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ returned: 16, total_matched: 17, truncated: true, next_cursor: "p2" }));
+    const late = proc(2298999, 80999, 900, "/usr/bin/git", ["git", "status"], [], { parent_process_id: 2298322 });
+    const early = proc(2298998, 80998, 800, "/usr/bin/git", ["git", "log"]);
+    const search = vi.spyOn(api, "searchSessionProcesses").mockImplementation((_h, _s, page) => Promise.resolve(page?.cursor === "s2"
+      ? { processes: [late], total_matched: 2, truncated: false }
+      : { processes: [early], next_cursor: "s2", total_matched: 2, truncated: true }));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: " git " } });
+    expect(await screen.findByText("2 processes match")).toBeVisible();
+    expect(search).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ q: "git", cursor: "" }));
+    expect(screen.getByText(/a match among the later ones is not found/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more processes" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Load more matches (1 more)" }));
+    await waitFor(() => { expect(screen.getAllByRole("button", { name: "git" })).toHaveLength(2); });
+    expect(screen.queryByRole("button", { name: /Load more matches/ })).toBeNull();
+  });
+
+  it("sends the session view's search to Activity", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getActivity").mockResolvedValue({
+      scope: { processes: 1, applied: 1, unmatched: 0, truncated: false }, processes: [],
+      files: { events: 0, distinct: 0, truncated: false, rows: [] },
+      network: { events: 0, distinct: 0, truncated: false, rows: [] },
+      dns: { events: 0, distinct: 0, truncated: false, rows: [] },
+    } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
+    const page = vi.spyOn(api, "getActivityPage").mockResolvedValue({ rows: [] });
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
+    const box = screen.getByRole("searchbox", { name: "Search this session" });
+    expect(box).toHaveAttribute("placeholder", "Search activity");
+    fireEvent.change(box, { target: { value: " example.com " } });
+    await waitFor(() => {
+      expect(page).toHaveBeenCalledWith("H1", { kind: "session", session: SESSION }, "network", "", "example.com");
+    });
+  });
+
   it("keeps the current session's next page loading when the previous session's lands", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     let landPrevious: (res: TreeResponse) => void = () => undefined;
