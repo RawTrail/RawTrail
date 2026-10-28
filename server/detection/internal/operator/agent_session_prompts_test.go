@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -103,4 +104,21 @@ func TestAgentSessionPrompts_Failures(t *testing.T) {
 			assert.Equal(t, tc.want, resp.StatusCode)
 		})
 	}
+}
+
+// The gate's resource names the session for its audit row, whose target column holds 255 characters: a name that fits is kept as
+// "<host>/<session>", and a longer one is recorded as its hash, so the row is written and the read is audited.
+func TestPromptResourceID_FitsTheAuditColumn(t *testing.T) {
+	t.Parallel()
+	host := strings.Repeat("h", 36)
+	fits := strings.Repeat("s", maxAuditTargetID-len(host)-1)
+	assert.Equal(t, host+"/"+fits, promptResourceID(host, fits), "a name of exactly 255 characters is kept")
+
+	long := strings.Repeat("s", 256)
+	hashed := promptResourceID(host, long)
+	assert.LessOrEqual(t, len(hashed), maxAuditTargetID)
+	assert.True(t, strings.HasPrefix(hashed, "sha256:"), hashed)
+	assert.Equal(t, hashed, promptResourceID(host, long), "the same session is named the same way every read")
+	assert.NotEqual(t, hashed, promptResourceID(host, long+"x"), "and another session another way")
+	assert.LessOrEqual(t, len(promptResourceID(strings.Repeat("h", 255), long)), maxAuditTargetID, "the longest ids the store holds")
 }

@@ -620,7 +620,7 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 // AgentPrompts mirrors the ClickHouse store: one session's agent_prompt events after the cursor, oldest first, kept by a search of
 // their text regardless of case.
 func (m *MemArchive) AgentPrompts(_ context.Context, filter api.AgentPromptFilter) (api.AgentPromptPage, error) {
-	var after clickhouse.PromptCursor
+	var after api.EventCursor
 	if filter.Cursor != "" {
 		var err error
 		if after, err = clickhouse.DecodePromptCursor(filter.Cursor); err != nil {
@@ -645,7 +645,7 @@ func (m *MemArchive) AgentPrompts(_ context.Context, filter api.AgentPromptFilte
 		if filter.Search != "" && !strings.Contains(strings.ToLower(p.Text), strings.ToLower(filter.Search)) {
 			continue
 		}
-		if filter.Cursor != "" && cmp.Or(cmp.Compare(e.TimestampNs, after.AtNs), cmp.Compare(e.EventID, after.EventID)) <= 0 {
+		if filter.Cursor != "" && cmp.Or(cmp.Compare(e.TimestampNs, after.TimestampNs), cmp.Compare(e.EventID, after.EventID)) <= 0 {
 			continue
 		}
 		found = append(found, listed{e.EventID, p.AgentPrompt})
@@ -658,7 +658,7 @@ func (m *MemArchive) AgentPrompts(_ context.Context, filter api.AgentPromptFilte
 	for i, f := range found {
 		if i == filter.Limit {
 			last := found[i-1]
-			page.NextCursor = clickhouse.EncodePromptCursor(clickhouse.PromptCursor{AtNs: last.prompt.AtNs, EventID: last.eventID})
+			page.NextCursor = api.EncodeEventCursor(api.EventCursor{TimestampNs: last.prompt.AtNs, EventID: last.eventID})
 			break
 		}
 		page.Prompts = append(page.Prompts, f.prompt)

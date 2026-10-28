@@ -2,6 +2,8 @@ package operator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
@@ -265,7 +267,7 @@ func (h *Handler) handleAgentSessionPrompts(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	res := identityapi.Resource{Type: "agent_session", ID: session.HostID + "/" + session.AgentSessionID}
+	res := identityapi.Resource{Type: "agent_session", ID: promptResourceID(session.HostID, session.AgentSessionID)}
 	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionAgentPromptRead, res) {
 		return
 	}
@@ -284,6 +286,21 @@ func (h *Handler) handleAgentSessionPrompts(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	h.writeJSON(w, r, page)
+}
+
+// maxAuditTargetID is the length of audit_events.target_id, which records the resource a gate was asked for.
+const maxAuditTargetID = 255
+
+// promptResourceID names a session for the prompt-read gate, and so for its audit row, as "<host>/<session>". A host and session id
+// can together run past the audit column, and a row that does not fit is not written, so a longer name is recorded as the SHA-256
+// of it instead: bounded, and still one session's alone.
+func promptResourceID(hostID, sessionID string) string {
+	name := hostID + "/" + sessionID
+	if len(name) <= maxAuditTargetID {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // buildSessionCommands reads a session's processes and shapes them into its commands, with what launchd started for each moved under
