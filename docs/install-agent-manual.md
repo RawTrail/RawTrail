@@ -96,7 +96,8 @@ EDR_ENROLL_SECRET=paste-the-enroll-secret-here
 # `sha256:` prefix and/or `:` separators).
 # EDR_SERVER_FINGERPRINT=sha256:AA:BB:CC:DD:EE:FF:...
 # Optional: set to 0 to keep the prompts users type to AI coding agents on
-# the Mac. See "AI agent prompts" below.
+# the Mac (1 or unset sends them; any other value stops the agent from
+# starting). See "AI agent prompts" below.
 # EDR_CAPTURE_PROMPTS=0
 EOF
 sudo chmod 0600 /etc/rawtrail.conf
@@ -106,7 +107,7 @@ Replace `https://edr.example.com` with your server URL and `paste-the-enroll-sec
 
 ### AI agent prompts
 
-When someone on the Mac works with an AI coding agent such as Claude Code, the agent reads the session transcript the coding agent keeps and sends the server the prompts the person typed, beside the commands run for each. Recognizable credentials in a prompt (cloud and API keys, tokens, private keys, values named as passwords or secrets) are replaced with a placeholder before it leaves the Mac, and a prompt is cut to 16 KiB. The redaction catches credentials by their known shape, so a prompt can still hold other sensitive text. If your privacy obligations rule out holding prompts, set `EDR_CAPTURE_PROMPTS=0` before installing; the commands and tool calls are still sent.
+When someone on the Mac works with an AI coding agent such as Claude Code, the agent reads the session transcript the coding agent keeps and sends the server the prompts the person typed, beside the commands run for each. Recognizable credentials in a prompt (cloud and API keys, tokens, bearer and basic authorization values, passwords in URLs, private keys, values named as passwords, secrets or credentials) are replaced with a placeholder before it leaves the Mac, and a prompt is cut to 16 KiB. The redaction catches credentials by their known shape, so a prompt can still hold other sensitive text. If your privacy obligations rule out holding prompts, set `EDR_CAPTURE_PROMPTS=0` before installing; the commands and tool calls are still sent.
 
 ## Step 4: install the pkg
 

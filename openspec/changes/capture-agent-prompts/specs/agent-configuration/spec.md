@@ -31,3 +31,9 @@ The agent SHALL treat its upload batch size, upload interval, queue prune age, n
 - **WHEN** the agent reads its AI agents' transcripts
 - **THEN** it sends their tool calls and no prompt
 - **AND** a host that sets nothing sends both
+
+#### Scenario: A prompt capture value other than 0 or 1 is refused
+
+- **GIVEN** a host whose conf file or environment sets `EDR_CAPTURE_PROMPTS` to anything but `0`, `1` or nothing, such as `false`
+- **WHEN** the agent loads its configuration
+- **THEN** it fails to start, naming the setting, rather than leaving capture on

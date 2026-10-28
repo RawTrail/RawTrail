@@ -19,6 +19,9 @@ type secretPattern struct {
 	value int
 }
 
+// secretWords are the words a name holds when its value is a secret: DB_PASSWORD, GITHUB_TOKEN, CLIENT_CREDENTIALS, PRIVATE_KEY.
+const secretWords = `password|passwd|secret|token|api[_-]?key|credentials?|private[_-]?key|auth[_-]?config`
+
 var secretPatterns = []secretPattern{
 	{kind: "private-key", re: regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`)},
 	{kind: "aws-access-key", re: regexp.MustCompile(`\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b`)},
@@ -30,12 +33,18 @@ var secretPatterns = []secretPattern{
 	{kind: "google-api-key", re: regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}`)},
 	{kind: "stripe-key", re: regexp.MustCompile(`\b[rs]k_live_[0-9A-Za-z]{20,}\b`)},
 	{kind: "jwt", re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)},
+	// An opaque bearer token, and an Authorization header's basic credentials. Basic is matched only in the header: a bare "basic"
+	// is a word of prose. The scheme stays, so the prompt still says how it authenticated.
+	{kind: "bearer-token", re: regexp.MustCompile(`(?i)\bbearer\s+([A-Za-z0-9._~+/=-]{16,})`), value: 1},
+	{kind: "basic-credentials", re: regexp.MustCompile(`(?i)\bauthorization:\s*basic\s+([A-Za-z0-9+/=]{8,})`), value: 1},
+	// A password in a URL's userinfo. The scheme, user and host stay.
+	{kind: "url-credentials", re: regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:([^\s/@]+)@`), value: 1},
 	// A value given a secret's name: `password=...`, `AWS_SECRET_ACCESS_KEY: ...`, `"api_key": "..."`. The name stays, so the prompt
 	// still says what was set. A quoted value is the secret through its closing quote, so a passphrase with spaces is redacted whole;
 	// an unquoted one runs to the first space or delimiter.
 	{
 		kind: "secret",
-		re: regexp.MustCompile(`(?i)\b[A-Z0-9_]*(?:password|passwd|secret|token|api[_-]?key)[A-Z0-9_]*["']?\s*[:=]\s*` +
+		re: regexp.MustCompile(`(?i)\b[A-Z0-9_]*(?:` + secretWords + `)[A-Z0-9_]*["']?\s*[:=]\s*` +
 			`(?:"([^"\n]+)"|'([^'\n]+)'|([^\s"',;]{8,}))`),
 		value: 1,
 	},

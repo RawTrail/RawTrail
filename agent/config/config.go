@@ -136,7 +136,15 @@ func loadFrom(getenv func(string) string) (*Config, error) {
 	optional(&c.QueueDBPath, "EDR_QUEUE_DB_PATH", getenv)
 	optional(&c.XPCService, "EDR_XPC_SERVICE", getenv)
 	optional(&c.NetXPCService, "EDR_NET_XPC_SERVICE", getenv)
-	c.CapturePrompts = getenv("EDR_CAPTURE_PROMPTS") != "0"
+	// Only 0 turns capture off, so any other value is refused rather than read: an operator who wrote "false" meant off, and would
+	// otherwise send every prompt.
+	switch v := strings.TrimSpace(getenv("EDR_CAPTURE_PROMPTS")); v {
+	case "", "1":
+		c.CapturePrompts = true
+	case "0":
+	default:
+		errs = append(errs, fmt.Errorf("EDR_CAPTURE_PROMPTS=%q must be 0 (off) or 1 (on)", v))
+	}
 
 	// 0 disables the agent-side process-tree reconciliation loop entirely (issue #6 client half): useful for narrow QA where synthetic
 	// exits would distort what a clean ESF feed looks like. Negative values are rejected.
