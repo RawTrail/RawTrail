@@ -368,7 +368,8 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, pos 
 		stats.Unreadable++
 		return nil
 	}
-	if line.Turn != "" {
+	// A user entry of another session neither names this session's turn nor carries a prompt of it.
+	if line.Turn != "" && line.TurnSession == src.session {
 		pos.turn = line.Turn
 	}
 	if prompt := line.Prompt; prompt != nil && r.prompts {

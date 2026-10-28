@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -195,6 +196,8 @@ type Line struct {
 	Calls  []ToolCall
 	Prompt *Prompt
 	Turn   string
+	// TurnSession is the session the user entry that names Turn belongs to, so a reader takes the turn only from its own session.
+	TurnSession string
 }
 
 // ParseLine returns what one transcript line records: one tool call per tool_use block of an assistant turn, or the prompt of a user
@@ -211,7 +214,7 @@ func ParseLine(raw []byte) (Line, error) {
 		return Line{Calls: calls}, err
 	case "user":
 		prompt, err := parsePrompt(line)
-		return Line{Prompt: prompt, Turn: line.PromptID}, err
+		return Line{Prompt: prompt, Turn: line.PromptID, TurnSession: line.SessionID}, err
 	}
 	return Line{}, nil
 }
@@ -249,10 +252,10 @@ func parseCalls(line transcriptLine) ([]ToolCall, error) {
 }
 
 // parsePrompt reads the prompt of a user turn a person typed: its origin is human, it is not one the agent wrote itself, and its
-// content is the text as typed. A tool's result, the agent's own notifications, a compacted history and an older agent that records
-// no origin are not prompts.
+// content is the text as typed. A tool's result, the agent's own notifications, a compacted history, a subagent's instructions (a
+// sidechain, which the agent writes) and an older agent that records no origin are not prompts.
 func parsePrompt(line transcriptLine) (*Prompt, error) {
-	if line.Origin.Kind != "human" || line.IsMeta || len(line.Message.Content) == 0 || line.Message.Content[0] != '"' {
+	if line.Origin.Kind != "human" || line.IsMeta || line.IsSidechain || len(line.Message.Content) == 0 || line.Message.Content[0] != '"' {
 		return nil, nil
 	}
 	var typed string
@@ -271,9 +274,16 @@ func parsePrompt(line transcriptLine) (*Prompt, error) {
 	}, nil
 }
 
-// slashCommand reads a slash command the user typed, which the transcript records as tags (<command-name>/x</command-name> and its
-// <command-args>), as "/x args". Any other text is returned as it is.
+// commandEnvelope is how the transcript records a slash command the user typed: nothing but its <command-message>, <command-name>
+// and <command-args> tags. Text that only mentions the tags is a prompt like any other.
+var commandEnvelope = regexp.MustCompile(`^(?:\s*<command-(?:message|name|args)>[\s\S]*?</command-(?:message|name|args)>)+\s*$`)
+
+// slashCommand reads a slash command the user typed, recorded as its tags (<command-name>/x</command-name> and its
+// <command-args>), as "/x args". Any other text, the tags inside a prompt included, is returned as it is.
 func slashCommand(typed string) string {
+	if !commandEnvelope.MatchString(typed) {
+		return typed
+	}
 	name, ok := between(typed, "<command-name>", "</command-name>")
 	if !ok {
 		return typed

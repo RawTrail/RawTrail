@@ -60,6 +60,7 @@ var payloadFixtures = map[string]string{
 	"file_delete":         `{"pid":101,"path":"/etc/sudoers.d/admins"}`,
 	"file_activity":       `{"pid":101,"pidversion":5445,"operation":"modify","path":"/Users/dev/repo/main.go"}`,
 	"agent_tool_call":     `{"agent_session_id":"47abb2a1","tool_use_id":"toolu_01","tool_name":"Bash","command":"ls","uid":501}`,
+	"agent_prompt":        `{"agent_session_id":"47abb2a1","prompt_id":"p-1","text":"run the tests","length":13,"uid":501}`,
 	"network_connect":     `{"pid":101,"protocol":"tcp","direction":"outbound","remote_address":"93.184.216.34","remote_port":443}`,
 	"dns_query":           `{"pid":101,"query_name":"example.com","query_type":"A"}`,
 	"snapshot_heartbeat":  `{"pid":101}`,

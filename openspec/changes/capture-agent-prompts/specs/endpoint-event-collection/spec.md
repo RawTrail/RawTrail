@@ -52,7 +52,7 @@ Unless prompt capture is off, the agent SHALL report each prompt a person typed 
 
 #### Scenario: Only what a person typed is a prompt
 
-- **GIVEN** a transcript holding a skill's instructions the agent wrote, a background task's notification, a compacted history, a tool's result, and a turn from an agent that records no origin
+- **GIVEN** a transcript holding a skill's instructions the agent wrote, a background task's notification, a compacted history, a subagent's instructions, a tool's result, and a turn from an agent that records no origin
 - **WHEN** the agent reads it
 - **THEN** none of them is reported as a prompt
 

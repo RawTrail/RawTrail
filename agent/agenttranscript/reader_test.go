@@ -509,3 +509,25 @@ func TestReader_CallsTakeTheirTurn(t *testing.T) {
 	}
 	assert.Equal(t, map[string]any{"toolu_01": "p-1", "toolu_02": "p-1", "toolu_03": "p-2"}, turns)
 }
+
+// A user entry of another session in the transcript does not name this session's turn, with prompt capture on or off: the next call
+// keeps the turn its own session named.
+func TestReader_AForeignUserEntryLeavesTheTurn(t *testing.T) {
+	t.Parallel()
+	for _, capture := range []bool{true, false} {
+		q := &recordingQueue{}
+		r, path := newTestReader(t, q, "H1")
+		r.prompts = capture
+		foreign := strings.Replace(strings.Replace(userLine(`"not yours"`, typed), "47abb2a1-d231-4304-8cb1-52f4460fcd11",
+			"99999999-0000-4000-8000-000000000000", 1), `"promptId":"p-1"`, `"promptId":"p-foreign"`, 1)
+		appendTo(t, path, userLine(`"fix it"`, typed)+"\n"+foreign+"\n"+bashLine("toolu_01", "ls"))
+		r.RunOnce(context.Background())
+		var turn any
+		for _, e := range q.events {
+			if payload, _ := e["payload"].(map[string]any); e["event_type"] == EventType {
+				turn = payload["prompt_id"]
+			}
+		}
+		assert.Equal(t, "p-1", turn, "capture=%v", capture)
+	}
+}
