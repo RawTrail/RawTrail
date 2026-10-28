@@ -228,7 +228,10 @@ export function SessionView() {
     if (activeCommandsKey.current === commandsKey) {
       setCommandsMeta({ key: commandsKey, truncated: page.truncated, toolCallsTruncated: page.tool_calls_truncated });
     }
-    const within = (ids: number[], command: SessionCommand) => ids.filter((id) => command.process_ids.includes(id));
+    const within = (ids: number[], command: SessionCommand) => {
+      const own = new Set(command.process_ids);
+      return ids.filter((id) => own.has(id));
+    };
     return {
       rows: page.commands.map((c) => ({ ...c, inferred: within(page.inferred, c), services: within(page.services, c) })),
       nextCursor: page.next_cursor,
@@ -454,7 +457,7 @@ function SessionNotices({ read, meta, view }: {
           This session ran more processes than the server reads, so its later commands are not listed.
         </p>
       )}
-      {meta?.toolCallsTruncated && (
+      {view === "commands" && meta?.toolCallsTruncated && (
         <p className="session-view__notice" role="status">
           The agent reported more tool calls than are read, so some commands may show without the tool call the agent reported for
           them.

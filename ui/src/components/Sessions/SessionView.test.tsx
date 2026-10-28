@@ -300,6 +300,9 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionCommands").mockResolvedValue(sessionCommands(manyCalls(1), undefined, { tool_calls_truncated: true }));
     renderView();
     expect(await screen.findByText(/reported more tool calls than are read/)).toBeVisible();
+    // The cut is the commands' own, so the Processes view does not repeat it.
+    fireEvent.click(screen.getByRole("button", { name: "Processes" }));
+    expect(screen.queryByText(/reported more tool calls than are read/)).toBeNull();
   });
 
   it("names how many identical calls a command could be when the server lists only the first", async () => {

@@ -10,6 +10,7 @@ import {
   getSessionTree,
   searchEvents,
   getHostTimeline,
+  getSessionCommands,
   setForbiddenHandler,
   setUnauthorizedHandler,
   Unauthorized401Error,
@@ -603,5 +604,25 @@ describe("session filters", () => {
     await listAlerts({ host_id: "host-a", agent_session: "s1", limit: 1000 });
     const [target] = fetchMock.mock.calls[0] as [URL];
     expect(Object.fromEntries(new URL(target.toString()).searchParams)).toEqual({ host_id: "host-a", agent_session: "s1", limit: "1000" });
+  });
+});
+
+describe("free-text queries", () => {
+  // URLSearchParams writes a space as "+" and leaves "*" literal, and assertSafeAPIPath refuses both, so a multi-word or wildcard
+  // search used to fail before it was sent ("unsafe API path").
+  it("sends a session commands search with a space and a wildcard, decoded back to what was typed", async () => {
+    const fetchMock = stubFetch({ commands: [], inferred: [], services: [], total_matched: 0, truncated: false, tool_calls_truncated: false });
+    await getSessionCommands("host-a", "s1", { q: "rm -rf build* && git status", limit: 50 });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host-a\/agent-sessions\/s1\/commands$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: "rm -rf build* && git status", limit: "50" });
+  });
+
+  it("sends a host timeline text search with a space and a literal plus", async () => {
+    const fetchMock = stubFetch({ events: [], total_matched: 0 });
+    await getHostTimeline("hostA", { from: "1000", to: "2000", text: "c++ build" });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    expect(new URL(target.toString()).searchParams.get("text")).toBe("c++ build");
   });
 });
