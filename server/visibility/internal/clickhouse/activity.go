@@ -103,8 +103,7 @@ func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter api.Act
 // is its path, a connection's its destination (address, port and protocol), a query's its name.
 func (s *Store) activityTotals(ctx context.Context, scope string, args []any) (api.ActivitySummary, error) {
 	out := api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}
-	var operations []string
-	var counts []int64
+	operations, counts := []string{}, []int64{}
 	// The operations are one map, read as its keys and values from the row that computes it once.
 	row := s.db.QueryRowContext(ctx, `
 		SELECT operations.1, operations.2, files, paths, connections, destinations, queries, names

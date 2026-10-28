@@ -661,7 +661,7 @@ paths:
                 type: object
                 required: [processes, alerts, tool_calls, activity, scope]
                 properties:
-                  processes: {type: integer, format: int64, description: The session's retained processes.}
+                  processes: {type: integer, format: int64, description: "The session's retained processes."}
                   alerts:
                     type: object
                     required: [total, by_severity]
@@ -694,7 +694,7 @@ paths:
                         required: [events, distinct, by_operation]
                         properties:
                           events: {type: integer, format: int64, description: "File events, a folded one counting as the operations it stands for."}
-                          distinct: {type: integer, format: int64, description: Distinct paths.}
+                          distinct: {type: integer, format: int64, description: "Distinct paths."}
                           by_operation:
                             type: object
                             description: "Events by operation: an agent's create, modify, rename or delete, or a watched path's event type."
@@ -704,22 +704,22 @@ paths:
                         required: [events, distinct]
                         properties:
                           events: {type: integer, format: int64, description: "Connections, a coalesced flow counting as the connections it stands for."}
-                          distinct: {type: integer, format: int64, description: Distinct destinations by address, port and protocol.}
+                          distinct: {type: integer, format: int64, description: "Distinct destinations by address, port and protocol."}
                       dns:
                         type: object
                         required: [events, distinct]
                         properties:
                           events: {type: integer, format: int64}
-                          distinct: {type: integer, format: int64, description: Distinct names.}
+                          distinct: {type: integer, format: int64, description: "Distinct names."}
                   scope:
                     type: object
                     required: [applied, processes, unmatched, truncated]
                     description: How far the activity's scope reached, as the activity rollup reports it.
                     properties:
-                      applied: {type: boolean, description: False when no process of the session carries a generation, so no activity is counted.}
-                      processes: {type: integer, description: The processes the activity was counted over.}
-                      unmatched: {type: integer, description: Those of them with no generation, whose events cannot be counted.}
-                      truncated: {type: boolean, description: True when the session had more processes than the activity is counted over.}
+                      applied: {type: boolean, description: "False when no process of the session carries a generation, so no activity is counted."}
+                      processes: {type: integer, description: "The processes the activity was counted over."}
+                      unmatched: {type: integer, description: "Those of them with no generation, whose events cannot be counted."}
+                      truncated: {type: boolean, description: "True when the session had more processes than the activity is counted over."}
         "404":
           description: "`not_found`: no such session on the host."
           content:
