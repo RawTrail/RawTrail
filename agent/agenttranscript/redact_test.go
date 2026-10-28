@@ -51,6 +51,8 @@ func TestRedact(t *testing.T) {
 			`CLIENT_CREDENTIALS=[REDACTED:secret] PRIVATE_KEY="[REDACTED:secret]" DOCKER_AUTH_CONFIG='[REDACTED:secret]'`},
 		{"prose about secrets is kept", "rotate the token and update the password policy", "rotate the token and update the password policy"},
 		{"a short value is not taken for a secret", "token=abc", "token=abc"},
+		{"a short unquoted named value is sent as typed, as the install doc says", "DB_PASSWORD=hunter2", "DB_PASSWORD=hunter2"},
+		{"a short quoted named value is redacted", `DB_PASSWORD="hunter2"`, `DB_PASSWORD="[REDACTED:secret]"`},
 		{"nothing to redact", "fix the failing auth test", "fix the failing auth test"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
