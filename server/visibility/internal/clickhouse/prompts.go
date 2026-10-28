@@ -58,7 +58,6 @@ func (s *Store) AgentPrompts(ctx context.Context, filter api.AgentPromptFilter) 
 	return page, nil
 }
 
-// EncodePromptCursor is the opaque token of a prompt's place.
 // DecodePromptCursor reads a prompt page's cursor, the event search's own (timestamp_ns, event_id) token, and is an
 // api.ErrInvalidPromptCursor for anything else. Exported for the in-memory archive, so the two read one cursor.
 func DecodePromptCursor(token string) (api.EventCursor, error) {
