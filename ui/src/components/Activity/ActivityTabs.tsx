@@ -53,8 +53,9 @@ interface Props {
   readonly label: string;
   readonly hostId: string;
   readonly scope: ActivityScopeQuery;
-  // onProcess, when set, makes each row's process a button that selects it (the session view); otherwise it is plain text.
-  readonly onProcess?: (processId: number) => void;
+  // onProcess, when set, makes each row's process a button that selects it (the session view); otherwise it is plain text. It is
+  // handed the process and the moment of the row's first event, which together name the process to read when it is not loaded.
+  readonly onProcess?: (process: ActivityResponse["processes"][number], atNs: number) => void;
   // search, when set, lists each class's rows the server finds for it (issue #1452) in place of the rollup's list; the totals stay
   // the scope's.
   readonly search?: string;
@@ -144,7 +145,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
     const label = `${executableName(process.path)} (${String(row.pid)})`;
     if (!onProcess) return label;
     return (
-      <button type="button" className="activity-tabs__process" onClick={() => { onProcess(process.id); }}>
+      <button type="button" className="activity-tabs__process" onClick={() => { onProcess(process, row.first_ns); }}>
         {label}
       </button>
     );
@@ -241,7 +242,8 @@ function LoadMore({ cls, first, extra, onMore }: {
   return (
     <>
       {extra?.failed && <p className="activity-tabs__note" role="status">The next rows could not be loaded.</p>}
-      {cursor && (
+      {/* A search's first page is read from the empty cursor, so a failed first read is offered again from it. */}
+      {cursor !== undefined && (cursor !== "" || extra?.failed === true) && (
         <Button variant="text-link" disabled={extra?.loading === true} onClick={() => { onMore(cls, cursor); }}>
           Load more rows
         </Button>

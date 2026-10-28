@@ -187,7 +187,8 @@ describe("ActivityTabs", () => {
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
     expect(await screen.findByText("pid 43017")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "dig (43027)" }));
-    expect(onProcess).toHaveBeenCalledWith(10);
+    // The process and its row's first event, which together name the process to read when the view has not loaded it.
+    expect(onProcess).toHaveBeenCalledWith(expect.objectContaining({ id: 10, pid: 43027 }), expect.any(Number));
   });
 
   it("names the generation a row belongs to, not another process that reused its pid", async () => {
@@ -324,6 +325,22 @@ describe("ActivityTabs paging", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
     expect(await screen.findByText("bb.example")).toBeVisible();
     expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "q2", "b.");
+  });
+
+  it("offers a search's failed first page again", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { events: 1, distinct: 1, truncated: false, rows: [] } }));
+    let dnsAttempts = 0;
+    vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, cls) => {
+      if (cls !== "dns") return Promise.resolve({ rows: [] });
+      dnsAttempts++;
+      return dnsAttempts === 1 ? Promise.reject(new Error("down")) : Promise.resolve({ rows: [dnsRow("b.example", 3)] });
+    });
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} search="b." />);
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("b.example")).toBeVisible();
+    expect(dnsAttempts).toBe(2);
   });
 
   it("drops a page read for a scope the operator has since left", async () => {

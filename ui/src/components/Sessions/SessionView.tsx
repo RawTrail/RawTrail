@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
 import {
-  getAgentSessionLineage, getAgentSessionTotals, getSessionCommands, getSessionTree, listAgentSessions, listAlerts, searchSessionProcesses,
+  getAgentSessionLineage, getAgentSessionTotals, getProcessDetail, getSessionCommands, getSessionTree, listAgentSessions, listAlerts, searchSessionProcesses,
 } from "../../api";
 import type {
   AgentSessionLineage, AgentSessionSummary, AgentSessionTotals, Alert, ProcessNode, SessionCommand, ToolCallMatch, TreeResponse,
@@ -397,10 +397,17 @@ export function SessionView() {
                 hostId={hostId}
                 scope={{ kind: "session", session: sessionId }}
                 search={searched}
-                onProcess={(id) => {
+                onProcess={(process, atNs) => {
                   // The agent is not among the roots, and its own edits are what the Files tab lists most (issue #1287).
-                  const node = tree ? findNodeByDbId([...(tree.agents ?? []), ...tree.roots], id) : null;
-                  if (node) rowsContext.onSelect(node);
+                  const node = tree ? findNodeByDbId([...(tree.agents ?? []), ...tree.roots], process.id) : null;
+                  if (node) {
+                    rowsContext.onSelect(node);
+                    return;
+                  }
+                  // A row can name a process on a tree page not yet read, which a search reaches (issue #1452): read that process.
+                  void getProcessDetail(hostId, process.pid, atNs, process.pidversion)
+                    .then((detail) => { rowsContext.onSelect(detail.process); })
+                    .catch(() => undefined);
                 }}
               />
             )}
@@ -564,16 +571,23 @@ function ProcessSearchBody({ hostId, sessionId, query }: {
   }, [hostId, sessionId, query, key]);
   const found = useCursorList(key, fetchPage);
   if (found.error && found.rows.length === 0) return <EmptyState>Error: {found.error}</EmptyState>;
-  if (found.rows.length === 0) return <EmptyState>{found.loading ? "Searching..." : "No process in this session matches."}</EmptyState>;
+  const partial = cut?.key === key && cut.truncated;
+  const notice = partial && (
+    <p className="session-view__notice" role="status">
+      This session ran more processes than the server reads, so a match among the later ones is not found.
+    </p>
+  );
+  if (found.rows.length === 0) {
+    if (found.loading) return <EmptyState>Searching...</EmptyState>;
+    // A cut read cannot say that nothing matches, only that nothing it read does.
+    return <>{notice}<EmptyState>{partial ? "No process the server read matches." : "No process in this session matches."}</EmptyState></>;
+  }
   return (
     <div className="session-view__processes">
       <p className="session-view__processes-summary">{plural(found.total, "process matches", "processes match")}</p>
-      {cut?.key === key && cut.truncated && (
-        <p className="session-view__notice" role="status">
-          This session ran more processes than the server reads, so a match among the later ones is not found.
-        </p>
-      )}
-      <ProcessRows rows={found.rows} />
+      {notice}
+      {/* The server pages the matches, so every match read is listed: no second cap behind Load more. */}
+      <ProcessRows rows={found.rows} cap={Infinity} />
       {found.error && <p className="session-view__notice" role="alert">The next processes could not be loaded: {found.error}</p>}
       {found.hasMore && (
         <Button variant="text-link" disabled={found.loading} onClick={found.loadMore}>
@@ -718,9 +732,9 @@ function AgentCall({ match }: { readonly match: ToolCallMatch }) {
 
 // ProcessRows lists rows up to ROW_CAP, then offers the rest. A row holding a search hit or an alert is listed past the cap, since
 // the command opened, or the search expanded it, to show that row.
-function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
+function ProcessRows({ rows, cap = ROW_CAP }: { readonly rows: SessionRow[]; readonly cap?: number }) {
   const { hits, alertsByProcess } = useSessionRows();
-  const [shown, setShown] = useState(ROW_CAP);
+  const [shown, setShown] = useState(cap);
   const listed = rows.filter((r, i) => i < shown || containsHit(r, hits) || containsProcess(r, alertsByProcess));
   const rest = rows.length - listed.length;
   return (
