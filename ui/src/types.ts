@@ -230,6 +230,14 @@ export interface ActivityClass<Row> {
   distinct: number;
   truncated: boolean;
   rows: Row[];
+  // next_cursor reads the rows past a cut list (issue #1424).
+  next_cursor?: string;
+}
+
+// ActivityPage is one page of one class's rows past a cut list, with the cursor of the next page (issue #1424).
+export interface ActivityPage<Row> {
+  rows: Row[];
+  next_cursor?: string;
 }
 
 // ActivityScope says how far an activity read's scope reached. When applied is false the activity is empty, never the host's.
@@ -487,8 +495,12 @@ export interface TreeResponse {
   // agents are a session read's AI agent processes (issue #1334): the agent carries no session marker, so it is not among the roots,
   // and each root it created names it by parent_process_id. Absent for other reads, and when the agent was not seen.
   agents?: ProcessNode[];
+  // links_truncated is set when what the read added through its links was cut at its bound; a later page does not read them again.
+  links_truncated?: boolean;
   // agent_own_truncated is set when an agent's own processes, the children of an agents node (issue #1361), were cut at their bound.
   agent_own_truncated?: boolean;
+  // next_cursor reads a cut session or story read's next page (issue #1424); absent on the last page and for any other read.
+  next_cursor?: string;
 }
 
 export interface Alert {

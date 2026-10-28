@@ -156,6 +156,8 @@ func TestLaunchLinks_WindowRead(t *testing.T) {
 }
 
 // A launched program whose story is larger than a read adds is cut, and the read says so.
+//
+// spec:server-rest-api/a-tree-read-reports-its-links-cut/a-launched-program-cut-is-told-apart-from-paging
 func TestLaunchLinks_LaunchedStoryCutIsReported(t *testing.T) {
 	t.Parallel()
 	store, db := openProcessStore(t)
@@ -171,6 +173,8 @@ func TestLaunchLinks_LaunchedStoryCutIsReported(t *testing.T) {
 	res, err := graph.NewQuery(store).BuildScopedTree(t.Context(), host, api.TreeScope{AgentSessionID: launchSession}, 2000, true, 0)
 	require.NoError(t, err)
 	assert.True(t, res.Truncated, "the launched job's descendants were cut")
+	assert.True(t, res.LinksTruncated, "and the cut is the link's, which a later page does not read again")
+	assert.Nil(t, res.Next, "the scope itself was read whole")
 	assert.Equal(t, 1, forestIDs(res.Roots)[seed.sleep])
 }
 
