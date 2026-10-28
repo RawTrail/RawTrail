@@ -42,14 +42,24 @@ type toolCallTotals struct {
 	ByTool []visibilityapi.ToolCallCount `json:"by_tool"`
 }
 
-// sessionSummary counts a session's totals. Activity is read over the scope the session's activity rollup reads, so the two agree.
+// sessionSummary counts a session's totals. One read of the session's processes gives its commands and the scope its activity is
+// counted over, the scope the session's activity rollup reads, so the two agree.
 func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionSummary) (agentSessionSummaryResponse, error) {
 	hostID, sessionID := session.HostID, session.AgentSessionID
 	counts, err := h.sessionTotals.AgentSessionCounts(ctx, hostID, sessionID)
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}
-	filter, scope, _, err := h.activityFilter(ctx, hostID, activityScopeRequest{tree: api.TreeScope{AgentSessionID: sessionID}})
+	tree, err := h.readSession(ctx, session)
+	if err != nil {
+		return agentSessionSummaryResponse{}, err
+	}
+	_, commands := commandsOf(tree)
+	roots, agents, err := h.withSessionAgents(ctx, hostID, sessionID, tree)
+	if err != nil {
+		return agentSessionSummaryResponse{}, err
+	}
+	filter, scope, _, err := h.filterOf(ctx, hostID, sessionID, roots, agents, tree.Truncated)
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}
@@ -58,10 +68,6 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 		return agentSessionSummaryResponse{}, err
 	}
 	tools, err := h.sessionTotals.AgentToolCallCounts(ctx, sessionToolCalls(session))
-	if err != nil {
-		return agentSessionSummaryResponse{}, err
-	}
-	_, commands, _, err := h.buildSessionCommands(ctx, session)
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}

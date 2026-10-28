@@ -255,13 +255,24 @@ func (h *Handler) sessionCommands(
 func (h *Handler) buildSessionCommands(
 	ctx context.Context, session *api.AgentSessionSummary,
 ) (sessioncommands.LogicalForest, []sessioncommands.Command, bool, error) {
-	scope := api.TreeScope{AgentSessionID: session.AgentSessionID}
-	tree, err := h.svc.BuildScopedTree(ctx, session.HostID, scope, processTreeMaxLimit, true, 0)
+	tree, err := h.readSession(ctx, session)
 	if err != nil {
 		return sessioncommands.LogicalForest{}, nil, false, err
 	}
+	logical, commands := commandsOf(tree)
+	return logical, commands, tree.Truncated, nil
+}
+
+// readSession reads a session's processes as the activity rollup reads a session scope: as a flat forest, up to the chain cap.
+func (h *Handler) readSession(ctx context.Context, session *api.AgentSessionSummary) (api.ProcessTreeResult, error) {
+	scope := api.TreeScope{AgentSessionID: session.AgentSessionID}
+	return h.svc.BuildScopedTree(ctx, session.HostID, scope, maxTimelineChain, true, 0)
+}
+
+// commandsOf shapes a session's process read into its commands, with what launchd started for each moved under it.
+func commandsOf(tree api.ProcessTreeResult) (sessioncommands.LogicalForest, []sessioncommands.Command) {
 	logical := sessioncommands.ApplyLaunchLinks(tree.Roots, tree.Links)
-	return logical, sessioncommands.Build(logical.Roots), tree.Truncated, nil
+	return logical, sessioncommands.Build(logical.Roots)
 }
 
 // sessionToolCalls selects the tool calls of a session: those it recorded within its span widened by toolCallMargin, up to

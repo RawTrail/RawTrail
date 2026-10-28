@@ -702,7 +702,8 @@ paths:
                           properties:
                             kind: {type: string, enum: [matched, ambiguous]}
                             call: {type: object, description: "The paired call, as the tool-calls endpoint lists it, when `matched`."}
-                            candidates: {type: array, items: {type: object}, description: "The tied calls, when `ambiguous`."}
+                            candidates: {type: array, items: {type: object}, description: "The first 10 of the tied calls, when `ambiguous`."}
+                            candidate_count: {type: integer, description: "How many calls are tied, when `ambiguous`."}
                   next_cursor: {type: string, description: Absent on the last page.}
                   total_matched: {type: integer, description: The commands the query matched across every page.}
                   inferred:

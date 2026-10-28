@@ -63,8 +63,58 @@ func TestJoinToolCalls(t *testing.T) {
 		t.Parallel()
 		calls := []visibilityapi.AgentToolCall{call("toolu_a", "ls", 1_000*ms), call("toolu_b", "ls", 1_000*ms)}
 		got := joined([]Command{command("g1", "ls", 1_010*ms), command("g2", "ls", 1_012*ms), command("g3", "ls", 9_000*ms)}, calls...)
-		ambiguous := &ToolCallMatch{Kind: MatchAmbiguous, Candidates: calls}
+		ambiguous := &ToolCallMatch{Kind: MatchAmbiguous, Candidates: calls, CandidateCount: 2}
 		assert.Equal(t, map[string]*ToolCallMatch{"g1": ambiguous, "g2": ambiguous}, got)
+	})
+
+	t.Run("a call is claimed by its id and owner, so another owner's call with the same id still pairs", func(t *testing.T) {
+		t.Parallel()
+		mine, theirs := call("toolu_a", "ls", 1_000*ms), call("toolu_a", "ls", 1_000*ms)
+		theirs.UID = 502
+		other := command("g2", "ls", 1_020*ms)
+		other.UID = new(502)
+		got := joined([]Command{command("g1", "ls", 1_010*ms), other}, mine, theirs)
+		assert.Equal(t, map[string]*ToolCallMatch{"g1": matched(mine), "g2": matched(theirs)}, got)
+	})
+
+	t.Run("a large tie lists its first calls, counts them all, and is shared by the commands offered it", func(t *testing.T) {
+		t.Parallel()
+		var calls []visibilityapi.AgentToolCall
+		var commands []Command
+		for i := range 25 {
+			calls = append(calls, call(fmt.Sprintf("toolu_%02d", i), "ls", 1_000*ms))
+			commands = append(commands, command(fmt.Sprintf("g%02d", i), "ls", 1_010*ms+int64(i)*ms))
+		}
+		commands = append(commands, command("late", "ls", 1_100*ms))
+		got := joined(commands, calls...)
+		require.Len(t, got, 25, "the tie is claimed whole once 25 commands took it")
+		first := got["g00"]
+		assert.Equal(t, MatchAmbiguous, first.Kind)
+		assert.Equal(t, 25, first.CandidateCount)
+		assert.Equal(t, calls[:maxListedCandidates], first.Candidates)
+		assert.Same(t, first, got["g24"], "one match, shared")
+	})
+
+	t.Run("a whole call and a cut call of one turn are tied", func(t *testing.T) {
+		t.Parallel()
+		long := "cat <<'EOF'\n" + strings.Repeat("x", 20) + "\nEOF"
+		whole, cut := call("toolu_whole", long, 1_000*ms), call("toolu_cut", long[:10], 1_000*ms)
+		cut.Truncated = true
+		got := joined([]Command{command("g", long, 1_010*ms)}, whole, cut)
+		assert.Equal(t, MatchAmbiguous, got["g"].Kind)
+		assert.Equal(t, 2, got["g"].CandidateCount)
+	})
+
+	t.Run("between a whole call and a cut call made at different times, the nearer pairs", func(t *testing.T) {
+		t.Parallel()
+		long := "cat <<'EOF'\n" + strings.Repeat("x", 20) + "\nEOF"
+		early, late := call("toolu_early", long, 1_000*ms), call("toolu_late", long[:10], 2_000*ms)
+		late.Truncated = true
+		assert.Equal(t, map[string]*ToolCallMatch{"g": matched(late)}, joined([]Command{command("g", long, 2_010*ms)}, early, late))
+		earlyCut, lateWhole := call("toolu_early", long[:10], 1_000*ms), call("toolu_late", long, 2_000*ms)
+		earlyCut.Truncated = true
+		assert.Equal(t, map[string]*ToolCallMatch{"g": matched(lateWhole)},
+			joined([]Command{command("g", long, 2_010*ms)}, earlyCut, lateWhole))
 	})
 
 	t.Run("a call pairs with one command at most", func(t *testing.T) {

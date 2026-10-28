@@ -11,8 +11,8 @@ import (
 )
 
 // Search keeps the commands a query finds, case-insensitively: in the command the agent ran, or in the path or command line of any
-// of its processes. The wrapper shell that ran an agent's command is not searched apart from the command it ran, since its script is
-// the same boilerplate for every call. An empty query keeps every command.
+// of its processes. The script of the wrapper shell that ran an agent's command is not searched apart from the command it ran, since
+// it is the same boilerplate for every call; the wrapper's path is. An empty query keeps every command.
 func Search(commands []Command, rawQuery string) []Command {
 	query := strings.ToLower(strings.TrimSpace(rawQuery))
 	if query == "" {
@@ -34,11 +34,12 @@ func processMatches(c Command, query string) bool {
 	found := false
 	for _, root := range c.Roots {
 		walk(root, func(p api.ProcessNode) {
-			if found || (c.FromAgent && p.ID == c.RootID) {
+			if found {
 				return
 			}
-			line := strings.ToLower(CommandLine(p.Path, args(p)))
-			found = strings.Contains(line, query) || strings.Contains(strings.ToLower(p.Path), query)
+			wrapper := c.FromAgent && p.ID == c.RootID
+			found = strings.Contains(strings.ToLower(p.Path), query) ||
+				(!wrapper && strings.Contains(strings.ToLower(CommandLine(p.Path, args(p))), query))
 		})
 	}
 	return found

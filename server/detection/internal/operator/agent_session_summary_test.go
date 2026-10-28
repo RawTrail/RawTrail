@@ -113,10 +113,17 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 		},
 		tools: []visibilityapi.ToolCallCount{{ToolName: "Read", Count: 4}, {ToolName: "Bash", Count: 2}},
 	}
-	srv := newSummaryServer(t, fakeService{buildScopedTree: summaryTree(false)}, allowAllAuthZ{}, summarySession(), totals)
+	reads := 0
+	tree := summaryTree(false)
+	counted := func(ctx context.Context, host string, scope api.TreeScope, limit int, flatten bool, pin int64) (api.ProcessTreeResult, error) {
+		reads++
+		return tree(ctx, host, scope, limit, flatten, pin)
+	}
+	srv := newSummaryServer(t, fakeService{buildScopedTree: counted}, allowAllAuthZ{}, summarySession(), totals)
 
 	status, got := getSummary(t, srv)
 	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, 1, reads, "one read of the session's processes gives its commands and its activity scope")
 	assert.Equal(t, agentSessionSummaryResponse{
 		Commands:  2,
 		Processes: 3,

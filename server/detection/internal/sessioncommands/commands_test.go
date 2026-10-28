@@ -143,6 +143,20 @@ func TestBuild_Roots(t *testing.T) {
 		assert.Nil(t, commands[0].UID)
 	})
 
+	t.Run("a call that execs keeps its shell's re-exec in its command", func(t *testing.T) {
+		t.Parallel()
+		shell := keyed(proc(1, 500, 100, "/bin/zsh", []string{"/bin/zsh", "-c", "eval 'exec /bin/ls'"}), 500)
+		shell.ExitReason = new(api.ExitReasonReExec)
+		// The re-exec keeps the shell's pid, fork time, creator and group, so it arrives as a root leading the same group.
+		ls := keyed(proc(2, 500, 100, "/bin/ls", []string{"/bin/ls"}), 500)
+		ls.PreviousExecID = new(int64(1))
+		// A later call whose leader reuses the pid is still a command of its own.
+		reused := keyed(proc(3, 500, 900, "/bin/zsh", []string{"/bin/zsh", "-c", "eval 'pwd'"}), 500)
+		commands := Build([]api.ProcessNode{reused, ls, shell})
+		assert.Equal(t, []string{"exec /bin/ls", "pwd"}, labels(commands))
+		assert.Equal(t, []int64{1, 2}, commands[0].ProcessIDs)
+	})
+
 	t.Run("an empty session has no commands", func(t *testing.T) {
 		t.Parallel()
 		assert.Equal(t, []Command{}, Build(nil))

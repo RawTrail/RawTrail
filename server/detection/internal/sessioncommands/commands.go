@@ -160,16 +160,21 @@ func walk(p api.ProcessNode, visit func(api.ProcessNode)) {
 // Build groups the session's forest by command, in the order the commands started. Each command's leader (the shell that leads the
 // process group keying it) starts a command. A root whose creator was not read joins the latest command its key names that started
 // before it, so a command stays one even when part of its tree arrived without its parent. The key is a process-group id, which a
-// long session can reuse, so a later leader with the same key starts a command of its own rather than joining the earlier one.
+// long session can reuse, so a later leader with the same key starts a command of its own rather than joining the earlier one. A
+// root that re-execs another root (a call's `exec`, which keeps the shell's pid, fork time and creator) joins that root's command.
 func Build(roots []api.ProcessNode) []Command {
 	sorted := slices.Clone(roots)
 	slices.SortStableFunc(sorted, byForkTime)
 	commands := []Command{}
 	latestByKey := map[int]int{}
+	commandOfRoot := map[int64]int{}
 	for _, root := range sorted {
 		key := root.ToolCallGroup
 		at, joined := -1, false
-		if key != nil && root.PID != *key {
+		if root.PreviousExecID != nil {
+			at, joined = commandOfRoot[*root.PreviousExecID]
+		}
+		if !joined && key != nil && root.PID != *key {
 			at, joined = latestByKey[*key]
 		}
 		if !joined {
@@ -187,6 +192,7 @@ func Build(roots []api.ProcessNode) []Command {
 				latestByKey[*key] = at
 			}
 		}
+		commandOfRoot[root.ID] = at
 		into := &commands[at]
 		walk(root, func(p api.ProcessNode) {
 			into.ProcessIDs = append(into.ProcessIDs, p.ID)

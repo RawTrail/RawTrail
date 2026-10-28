@@ -3,6 +3,7 @@ package sessioncommands
 import (
 	"cmp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,81 +34,154 @@ const (
 	MatchAmbiguous = "ambiguous"
 )
 
-// ToolCallMatch is the call a command was paired with, or the tied calls it could have been.
+// maxListedCandidates is how many of a tie's calls a match lists. A transcript is its user's to write, so a tie can hold thousands of
+// identical calls; the match lists the first few and counts the rest.
+const maxListedCandidates = 10
+
+// ToolCallMatch is the call a command was paired with, or the tied calls it could have been: the first maxListedCandidates of them,
+// with CandidateCount counting all. Commands offered the same tie share one match.
 type ToolCallMatch struct {
-	Kind       string                        `json:"kind"`
-	Call       *visibilityapi.AgentToolCall  `json:"call,omitempty"`
-	Candidates []visibilityapi.AgentToolCall `json:"candidates,omitempty"`
+	Kind           string                        `json:"kind"`
+	Call           *visibilityapi.AgentToolCall  `json:"call,omitempty"`
+	Candidates     []visibilityapi.AgentToolCall `json:"candidates,omitempty"`
+	CandidateCount int                           `json:"candidate_count,omitempty"`
 }
 
-// runs reports whether a command ran a call's text. A text cut to the agent's limit matches the command that begins with it.
-func runs(call visibilityapi.AgentToolCall, c *Command) bool {
-	if call.Command == "" {
-		return false
+// callKey identifies a call as the archive does: by its tool_use_id and the owner of the transcript it was read from.
+type callKey struct {
+	id  string
+	uid int64
+}
+
+// textKey is a call's owner and the command it ran.
+type textKey struct {
+	uid  int64
+	text string
+}
+
+// callIndex holds a session's Bash calls oldest first, by owner and command for a call recorded whole, and by owner for a call cut
+// to the agent's limit, which matches every command that begins with its text.
+type callIndex struct {
+	whole   map[textKey][]visibilityapi.AgentToolCall
+	cut     map[int64][]visibilityapi.AgentToolCall
+	claimed map[callKey]bool
+}
+
+func newCallIndex(calls []visibilityapi.AgentToolCall) *callIndex {
+	idx := &callIndex{whole: map[textKey][]visibilityapi.AgentToolCall{}, cut: map[int64][]visibilityapi.AgentToolCall{},
+		claimed: map[callKey]bool{}}
+	for _, c := range calls {
+		switch {
+		case c.ToolName != "Bash" || c.Command == "":
+		case c.Truncated:
+			idx.cut[c.UID] = append(idx.cut[c.UID], c)
+		default:
+			k := textKey{c.UID, c.Command}
+			idx.whole[k] = append(idx.whole[k], c)
+		}
 	}
-	if call.Truncated {
+	byTime := func(a, b visibilityapi.AgentToolCall) int { return cmp.Compare(a.CalledAtNs, b.CalledAtNs) }
+	for k := range idx.whole {
+		slices.SortStableFunc(idx.whole[k], byTime)
+	}
+	for k := range idx.cut {
+		slices.SortStableFunc(idx.cut[k], byTime)
+	}
+	return idx
+}
+
+// nearestIn returns the unclaimed calls of a list, oldest first, that were made at the latest time no later than startNs and within
+// the match window, and that time. It walks back from startNs, past claimed calls, and stops at the first time it finds.
+func (idx *callIndex) nearestIn(list []visibilityapi.AgentToolCall, startNs int64, ran func(visibilityapi.AgentToolCall) bool) (
+	[]visibilityapi.AgentToolCall, int64,
+) {
+	// A command no call ran has no list in the index.
+	if len(list) == 0 {
+		return nil, 0
+	}
+	end, _ := slices.BinarySearchFunc(list, startNs+1, func(c visibilityapi.AgentToolCall, t int64) int { return cmp.Compare(c.CalledAtNs, t) })
+	var found []visibilityapi.AgentToolCall
+	at := int64(0)
+	for i := end - 1; i >= 0; i-- {
+		c := list[i]
+		if startNs-c.CalledAtNs > matchWindow.Nanoseconds() || (found != nil && c.CalledAtNs != at) {
+			break
+		}
+		if idx.claimed[callKey{c.ToolUseID, c.UID}] || !ran(c) {
+			continue
+		}
+		found, at = append(found, c), c.CalledAtNs
+	}
+	slices.Reverse(found)
+	return found, at
+}
+
+// nearestCalls returns the unclaimed calls of the command's user that ran its text, before it and within the match window, made at
+// the latest such time: one call, or the tied calls of one turn.
+func (idx *callIndex) nearestCalls(c *Command) []visibilityapi.AgentToolCall {
+	uid := int64(*c.UID)
+	whole, wholeAt := idx.nearestIn(idx.whole[textKey{uid, c.Command}], c.StartNs, func(visibilityapi.AgentToolCall) bool { return true })
+	cut, cutAt := idx.nearestIn(idx.cut[uid], c.StartNs, func(call visibilityapi.AgentToolCall) bool {
 		return strings.HasPrefix(c.Command, call.Command)
+	})
+	switch {
+	case len(cut) == 0 || (len(whole) > 0 && wholeAt > cutAt):
+		return whole
+	case len(whole) == 0 || cutAt > wholeAt:
+		return cut
 	}
-	return c.Command == call.Command
+	return append(whole, cut...)
 }
 
 // JoinToolCalls sets ToolCall on each command an agent's wrapper shell started that a Bash call pairs with. The commands must be in
 // the order they started, as Build returns them.
 func JoinToolCalls(commands []Command, calls []visibilityapi.AgentToolCall) {
-	bash := slices.DeleteFunc(slices.Clone(calls), func(c visibilityapi.AgentToolCall) bool { return c.ToolName != "Bash" })
-	claimed := map[string]bool{}
-	// tieUses counts the commands each set of tied calls has been offered to: a set of n calls ran n commands at most, so it is
-	// claimed whole once n commands have taken it, and a later command with the same text looks past it.
-	tieUses := map[string]int{}
+	idx := newCallIndex(calls)
+	// ties holds each set of tied calls once: the match its commands share, and how many commands have been offered it. A set of n
+	// calls ran n commands at most, so it is claimed whole once n commands have taken it, and a later command looks past it.
+	type tie struct {
+		match *ToolCallMatch
+		uses  int
+	}
+	ties := map[string]*tie{}
 	for i := range commands {
 		c := &commands[i]
 		if !c.FromAgent || c.UID == nil {
 			continue
 		}
-		tied := nearestCalls(c, bash, claimed)
+		tied := idx.nearestCalls(c)
 		switch len(tied) {
 		case 0:
 		case 1:
-			claimed[tied[0].ToolUseID] = true
+			idx.claimed[callKey{tied[0].ToolUseID, tied[0].UID}] = true
 			c.ToolCall = &ToolCallMatch{Kind: MatchMatched, Call: &tied[0]}
 		default:
-			c.ToolCall = &ToolCallMatch{Kind: MatchAmbiguous, Candidates: tied}
-			claimTie(tied, tieUses, claimed)
+			key := tieKey(tied)
+			t := ties[key]
+			if t == nil {
+				t = &tie{match: &ToolCallMatch{Kind: MatchAmbiguous, Candidates: tied[:min(len(tied), maxListedCandidates)],
+					CandidateCount: len(tied)}}
+				ties[key] = t
+			}
+			c.ToolCall = t.match
+			t.uses++
+			if t.uses == len(tied) {
+				for _, call := range tied {
+					idx.claimed[callKey{call.ToolUseID, call.UID}] = true
+				}
+			}
 		}
 	}
 }
 
-// nearestCalls returns the unclaimed calls of the command's user that ran its text, before it and within the match window, made at
-// the latest such time: one call, or the tied calls of one turn.
-func nearestCalls(c *Command, bash []visibilityapi.AgentToolCall, claimed map[string]bool) []visibilityapi.AgentToolCall {
-	var candidates []visibilityapi.AgentToolCall
-	for _, call := range bash {
-		if !claimed[call.ToolUseID] && call.UID == int64(*c.UID) && runs(call, c) && call.CalledAtNs <= c.StartNs &&
-			c.StartNs-call.CalledAtNs <= matchWindow.Nanoseconds() {
-			candidates = append(candidates, call)
-		}
-	}
-	if len(candidates) == 0 {
-		return nil
-	}
-	nearest := slices.MaxFunc(candidates, func(a, b visibilityapi.AgentToolCall) int {
-		return cmp.Compare(a.CalledAtNs, b.CalledAtNs)
-	}).CalledAtNs
-	return slices.DeleteFunc(candidates, func(call visibilityapi.AgentToolCall) bool { return call.CalledAtNs != nearest })
-}
-
-// claimTie counts one more command offered a set of tied calls, and claims the set once it has been offered to as many commands as
-// it holds calls.
-func claimTie(tied []visibilityapi.AgentToolCall, tieUses map[string]int, claimed map[string]bool) {
-	ids := make([]string, 0, len(tied))
+// tieKey names a set of tied calls by their ids and owners.
+func tieKey(tied []visibilityapi.AgentToolCall) string {
+	var b strings.Builder
 	for _, call := range tied {
-		ids = append(ids, call.ToolUseID)
+		b.WriteString(call.ToolUseID)
+		b.WriteByte(0)
+		b.WriteString(strconv.FormatInt(call.UID, 10))
+		b.WriteByte('\n')
 	}
-	tie := strings.Join(ids, "\n")
-	tieUses[tie]++
-	if tieUses[tie] == len(tied) {
-		for _, call := range tied {
-			claimed[call.ToolUseID] = true
-		}
-	}
+	return b.String()
 }

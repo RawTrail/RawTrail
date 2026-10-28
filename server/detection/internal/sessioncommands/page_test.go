@@ -24,6 +24,10 @@ func TestSearch(t *testing.T) {
 		{"a process whose text the command does not hold", "/bin/bash", []string{`/bin/sh -c "sleep 1; echo qa1280-done"`}},
 		// The wrapper's boilerplate is in every call's script; finding it would find every command.
 		{"not the wrapper shell's script", "shell-snapshots", []string{}},
+		{"the wrapper shell's path", "/bin/zsh", []string{
+			"ls /private/tmp | head -3", "(sleep 47 &)", "nohup sleep 48 >/dev/null 2>&1 &", "env -i /bin/echo qa1280",
+			`/bin/sh -c "sleep 1; echo qa1280-done"`,
+		}},
 		{"nothing", "no-such-thing", []string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
