@@ -24,6 +24,10 @@ type fakeToolCallReader struct {
 	lineage   visibilityapi.AgentSessionLineage
 	asked     *lineageAsk
 	err       error
+	// prompts answers AgentPrompts, promptsErr fails it, and promptFilter is the filter it was asked with.
+	prompts      visibilityapi.AgentPromptPage
+	promptsErr   error
+	promptFilter visibilityapi.AgentPromptFilter
 }
 
 // lineageAsk is the lineage read a handler made.
@@ -44,6 +48,11 @@ func (f *fakeToolCallReader) AgentToolCalls(
 ) ([]visibilityapi.AgentToolCall, bool, error) {
 	f.filter = filter
 	return f.calls, f.truncated, f.err
+}
+
+func (f *fakeToolCallReader) AgentPrompts(_ context.Context, filter visibilityapi.AgentPromptFilter) (visibilityapi.AgentPromptPage, error) {
+	f.promptFilter = filter
+	return f.prompts, f.promptsErr
 }
 
 func newToolCallsServer(t *testing.T, lister AgentSessionLister, reader AgentToolCallReader) *httptest.Server {

@@ -981,3 +981,8 @@ func (s *Store) AgentToolCalls(
 ) ([]visibilityapi.AgentToolCall, bool, error) {
 	return s.archive.AgentToolCalls(ctx, filter)
 }
+
+// AgentPrompts reads a page of the prompts a person typed in one session (issue #1426) from the event archive.
+func (s *Store) AgentPrompts(ctx context.Context, filter visibilityapi.AgentPromptFilter) (visibilityapi.AgentPromptPage, error) {
+	return s.archive.AgentPrompts(ctx, filter)
+}

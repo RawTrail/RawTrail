@@ -2,6 +2,7 @@
   "actions": [
     "host.read",
     "process.read",
+    "agent_prompt.read",
     "host.isolate",
     "host.kill_process",
     "host.run_script",

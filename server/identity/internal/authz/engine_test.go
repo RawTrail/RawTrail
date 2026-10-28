@@ -66,6 +66,7 @@ func globalBinding(roleID, _ string) api.RoleBinding {
 // TestAllow_RoleActionMatrix exercises every (role, action) cell the spec names. Failure here means a Rego edit changed the policy
 // matrix in a way the table didn't expect; the matching opa-test suite catches the same bug from the policy side.
 // spec:server-identity-authorization/role-bindings-carry-a-scope-so-future-scoping-is-non-breaking/deployment-wide-binding-grants-the-action
+// spec:server-identity-authorization/reading-ai-agent-prompts-is-its-own-permission/an-analyst-cannot-read-prompts
 func TestAllow_RoleActionMatrix(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -89,6 +90,14 @@ func TestAllow_RoleActionMatrix(t *testing.T) {
 		{"senior_analyst host.kill_process", "senior_analyst", api.ActionHostKillProcess, true},
 		{"senior_analyst alert.resolve", "senior_analyst", api.ActionAlertResolve, true},
 		{"senior_analyst audit.read", "senior_analyst", api.ActionAuditRead, false},
+
+		// agent_prompt.read (issue #1426): admin and senior_analyst, not analyst or auditor, though both hold process read.
+		{"super_admin agent_prompt.read", "super_admin", api.ActionAgentPromptRead, true},
+		{"admin agent_prompt.read", "admin", api.ActionAgentPromptRead, true},
+		{"senior_analyst agent_prompt.read", "senior_analyst", api.ActionAgentPromptRead, true},
+		{"analyst agent_prompt.read", "analyst", api.ActionAgentPromptRead, false},
+		{"auditor agent_prompt.read", "auditor", api.ActionAgentPromptRead, false},
+		{"analyst process.read", "analyst", api.ActionProcessRead, true},
 
 		// analyst: read + comment only.
 		{"analyst alert.read", "analyst", api.ActionAlertRead, true},

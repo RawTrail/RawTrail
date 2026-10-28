@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
@@ -27,12 +28,15 @@ func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage", h.handleAgentSessionLineage)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary", h.handleAgentSessionSummary)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands", h.handleAgentSessionCommands)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/prompts", h.handleAgentSessionPrompts)
 }
 
-// AgentToolCallReader is the read of the tool calls a session recorded (issue #1288), and of the sessions forked from each other that
-// their copied calls show (issue #1347), from the event archive. mysql.Store satisfies it.
+// AgentToolCallReader is the read of what a session's transcript recorded, from the event archive: its tool calls (issue #1288), the
+// sessions forked from each other that their copied calls show (issue #1347), and the prompts the person typed (issue #1426).
+// mysql.Store satisfies it.
 type AgentToolCallReader interface {
 	AgentToolCalls(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.AgentToolCall, bool, error)
+	AgentPrompts(ctx context.Context, filter visibilityapi.AgentPromptFilter) (visibilityapi.AgentPromptPage, error)
 	AgentSessionLineage(ctx context.Context, hostID, sessionID string, ownerUID int64) (visibilityapi.AgentSessionLineage, error)
 }
 
@@ -249,6 +253,37 @@ func (h *Handler) sessionCommands(
 		}
 	}
 	return resp, nil
+}
+
+// handleAgentSessionPrompts serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/prompts: the prompts a person typed in the
+// session, oldest first, a page at a time by ?cursor=, kept by ?q= in their text (issue #1426). Gated on process read for the host
+// like the rest of the session, and on agent_prompt.read for the session as well, which process read does not imply and which is
+// audited on every read.
+func (h *Handler) handleAgentSessionPrompts(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	res := identityapi.Resource{Type: "agent_session", ID: session.HostID + "/" + session.AgentSessionID}
+	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionAgentPromptRead, res) {
+		return
+	}
+	q := r.URL.Query()
+	page, err := h.agentToolCalls.AgentPrompts(ctx, visibilityapi.AgentPromptFilter{
+		HostID: session.HostID, SessionID: session.AgentSessionID, Cursor: q.Get("cursor"), Search: strings.TrimSpace(q.Get("q")),
+		Limit: parseSearchLimit(q),
+	})
+	if err != nil {
+		if errors.Is(err, visibilityapi.ErrInvalidPromptCursor) {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		h.logger.ErrorContext(ctx, "read agent session prompts", "host_id", session.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	h.writeJSON(w, r, page)
 }
 
 // buildSessionCommands reads a session's processes and shapes them into its commands, with what launchd started for each moved under
