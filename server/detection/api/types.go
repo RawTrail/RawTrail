@@ -206,6 +206,13 @@ type AgentSessionSummary struct {
 	OwnerUID *int64 `db:"owner_uid" json:"-"`
 }
 
+// AgentSessionCounts is how many retained processes one AI agent session ran and how many retained alerts (not monitor records)
+// were raised on them, by severity (issue #1422). A severity no alert carries is absent.
+type AgentSessionCounts struct {
+	Processes        int64
+	AlertsBySeverity map[string]int64
+}
+
 // AgentSessionResult is one page of the sessions list, with the cursor for the next page (absent on the last) and the number of
 // sessions the filter matched.
 type AgentSessionResult struct {

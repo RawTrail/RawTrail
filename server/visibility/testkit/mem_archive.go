@@ -515,6 +515,11 @@ func (m *MemArchive) ActivityForGenerations(context.Context, api.ActivityFilter)
 	return api.ActivityRollup{}, errActivityUnsupported
 }
 
+// ActivityTotalsForGenerations is not mirrored in memory; see errActivityUnsupported.
+func (m *MemArchive) ActivityTotalsForGenerations(context.Context, api.ActivityFilter) (api.ActivitySummary, error) {
+	return api.ActivitySummary{}, errActivityUnsupported
+}
+
 // recordedCall is one agent_tool_call event as the archive reads it: the call, its session and origin, and its event.
 type recordedCall struct {
 	api.AgentToolCall
@@ -600,6 +605,32 @@ func (m *MemArchive) AgentSessionLineage(_ context.Context, hostID, sessionID st
 // AgentToolCalls mirrors the ClickHouse store: one session's tool calls, one per tool_use_id and owner at the time it was first
 // recorded, oldest first, cut at the limit, leaving out the copies of another session's.
 func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallFilter) ([]api.AgentToolCall, bool, error) {
+	listed := m.sessionCalls(filter)
+	if len(listed) > filter.Limit {
+		return listed[:filter.Limit], true, nil
+	}
+	return listed, false, nil
+}
+
+// AgentToolCallCounts mirrors the ClickHouse store: the calls AgentToolCalls lists, uncapped, counted by tool, most used first.
+func (m *MemArchive) AgentToolCallCounts(_ context.Context, filter api.AgentToolCallFilter) ([]api.ToolCallCount, error) {
+	byTool := map[string]int64{}
+	for _, c := range m.sessionCalls(filter) {
+		byTool[c.ToolName]++
+	}
+	out := make([]api.ToolCallCount, 0, len(byTool))
+	for tool, n := range byTool {
+		out = append(out, api.ToolCallCount{ToolName: tool, Count: n})
+	}
+	slices.SortFunc(out, func(a, b api.ToolCallCount) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.ToolName, b.ToolName))
+	})
+	return out, nil
+}
+
+// sessionCalls is one session's tool calls in the filter's window, one per tool_use_id and owner at the time it was first recorded,
+// oldest first, leaving out the copies of another session's. The filter's Limit is not applied.
+func (m *MemArchive) sessionCalls(filter api.AgentToolCallFilter) []api.AgentToolCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	type callKey struct {
@@ -625,10 +656,7 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 	slices.SortFunc(listed, func(a, b api.AgentToolCall) int {
 		return cmp.Or(cmp.Compare(a.CalledAtNs, b.CalledAtNs), cmp.Compare(a.ToolUseID, b.ToolUseID), cmp.Compare(a.UID, b.UID))
 	})
-	if len(listed) > filter.Limit {
-		return listed[:filter.Limit], true, nil
-	}
-	return listed, false, nil
+	return listed
 }
 
 // sessionPath is the ClickHouse store's own match of a path Claude Code names after a session, so the two cannot drift.

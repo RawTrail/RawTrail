@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"net/url"
@@ -81,22 +82,12 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusBadRequest, errInvalidScope)
 		return
 	}
-	roots, agents, truncated, err := h.activityScopeProcesses(ctx, hostID, req)
+	filter, scope, matched, err := h.activityFilter(ctx, hostID, req)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "resolve activity scope", "host_id", hostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
-	generations, scope, matched := scopeGenerations(roots, truncated)
-	filter := visibilityapi.ActivityFilter{HostID: hostID, Generations: generations}
-	if req.tree.AgentSessionID != "" {
-		if filter, err = h.boundAgents(ctx, req.tree.AgentSessionID, agents, filter); err != nil {
-			h.logger.ErrorContext(ctx, "bound agent activity", "host_id", hostID, "err", err)
-			h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
-			return
-		}
-	}
-	filter.FromNs = scopeStart(matched)
 	// A scope with no generation to match is answered with nothing, not with the host's whole activity: the totals would claim the
 	// scope touched what other processes did.
 	rollup, err := h.activity.ActivityForGenerations(ctx, filter)
@@ -110,6 +101,27 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 		processes = append(processes, activityProcess{ID: n.ID, PID: n.PID, PIDVersion: *n.PIDVersion, Path: n.Path})
 	}
 	h.writeJSON(w, r, activityResponse{ActivityRollup: rollup, Scope: *scope, Processes: processes})
+}
+
+// activityFilter resolves a scope to the activity filter that selects its events: its processes' generations, each agent process of
+// a session bounded to the span it served the session, from the scope's earliest start. It also returns how far the scope reached
+// and the processes it matched.
+func (h *Handler) activityFilter(
+	ctx context.Context, hostID string, req activityScopeRequest,
+) (visibilityapi.ActivityFilter, *timelineScope, []api.ProcessNode, error) {
+	roots, agents, truncated, err := h.activityScopeProcesses(ctx, hostID, req)
+	if err != nil {
+		return visibilityapi.ActivityFilter{}, nil, nil, err
+	}
+	generations, scope, matched := scopeGenerations(roots, truncated)
+	filter := visibilityapi.ActivityFilter{HostID: hostID, Generations: generations}
+	if req.tree.AgentSessionID != "" {
+		if filter, err = h.boundAgents(ctx, req.tree.AgentSessionID, agents, filter); err != nil {
+			return visibilityapi.ActivityFilter{}, nil, nil, fmt.Errorf("bound agent activity: %w", err)
+		}
+	}
+	filter.FromNs = scopeStart(matched)
+	return filter, scope, matched, nil
 }
 
 // scopeStart is the earliest moment a process of the scope can have an event: the earliest of each one's start and fork. The rollup
