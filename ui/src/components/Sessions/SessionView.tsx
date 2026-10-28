@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
 import { getAgentSessionLineage, getAgentSessionTotals, getSessionCommands, getSessionTree, listAgentSessions, listAlerts } from "../../api";
@@ -144,15 +144,16 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
     getAgentSessionTotals(hostId, sessionId).catch(() => undefined),
     getAgentSessionLineage(hostId, sessionId).catch(() => undefined),
   ]);
-  if (typeof tree === "string") return { key, error: tree };
+  // A failed tree read costs the Processes view only: the commands are read on their own, and still carry the session's alerts.
+  const read = typeof tree === "string" ? { error: tree } : { tree };
   // The session's alerts are those on its stamped processes; the agent's own processes (issue #1361) carry no session marker, so their
   // alerts are read by the agent that ran them, to badge them in the Processes view.
-  const ownAlerts = await Promise.all((tree.agents ?? []).filter((agent) => (agent.children ?? []).length > 0).map((agent) =>
+  const ownAlerts = await Promise.all((read.tree?.agents ?? []).filter((agent) => (agent.children ?? []).length > 0).map((agent) =>
     listAlerts({ host_id: hostId, agent_process: agent.id, served_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null)));
   const lists = [alerts, ...ownAlerts];
   return {
     key,
-    tree,
+    ...read,
     record,
     alerts: lists.flatMap((list) => (list ?? []).slice(0, MAX_SESSION_ALERTS)),
     alertsFailed: lists.includes(null),
@@ -218,9 +219,15 @@ export function SessionView() {
   const searched = useDebounced(query.trim(), SEARCH_DELAY_MS);
   const commandsKey = `${readKey}\n${searched}`;
   const [commandsMeta, setCommandsMeta] = useState<CommandsMeta | null>(null);
+  // The commands key on screen, read when a page lands so a slower page for a key since replaced cannot overwrite the meta of the list
+  // that replaced it.
+  const activeCommandsKey = useRef(commandsKey);
+  useEffect(() => { activeCommandsKey.current = commandsKey; }, [commandsKey]);
   const fetchCommands = useCallback(async (cursor: string): Promise<CursorPage<ListedCommand>> => {
     const page = await getSessionCommands(hostId, sessionId, { cursor, q: searched, limit: COMMANDS_PAGE });
-    setCommandsMeta({ key: commandsKey, truncated: page.truncated, toolCallsTruncated: page.tool_calls_truncated });
+    if (activeCommandsKey.current === commandsKey) {
+      setCommandsMeta({ key: commandsKey, truncated: page.truncated, toolCallsTruncated: page.tool_calls_truncated });
+    }
     const within = (ids: number[], command: SessionCommand) => ids.filter((id) => command.process_ids.includes(id));
     return {
       rows: page.commands.map((c) => ({ ...c, inferred: within(page.inferred, c), services: within(page.services, c) })),
@@ -423,12 +430,12 @@ function SessionNotices({ read, meta, view }: {
   readonly meta: CommandsMeta | null;
   readonly view: SessionLens;
 }) {
-  const tree = read?.tree;
-  if (!tree) return null;
-  const retainedFrom = tree.retained_from_ns;
+  if (!read) return null;
+  const tree = read.tree;
+  const retainedFrom = tree?.retained_from_ns;
   return (
     <>
-      {view === "processes" && tree.truncated && (
+      {view === "processes" && tree?.truncated && (
         <p className="session-view__notice" role="status">
           Showing the first {tree.returned.toLocaleString()} of {tree.total_matched_capped ? "more than " : ""}
           {tree.total_matched.toLocaleString()} processes in this session.
@@ -471,7 +478,8 @@ function SessionBody({ groups, commands, expandAll }: {
   readonly expandAll: boolean;
 }) {
   const { alertsByProcess } = useSessionRows();
-  if (commands.error) return <EmptyState>Error: {commands.error}</EmptyState>;
+  // A failed later page keeps the commands already listed, and the button that retries it.
+  if (commands.error && groups.length === 0) return <EmptyState>Error: {commands.error}</EmptyState>;
   if (groups.length === 0) {
     return <EmptyState>{commands.loading ? "Loading..." : "No processes are recorded for this session."}</EmptyState>;
   }
@@ -491,6 +499,9 @@ function SessionBody({ groups, commands, expandAll }: {
           );
         })}
       </ol>
+      {commands.error && (
+        <p className="session-view__notice" role="alert">The next commands could not be loaded: {commands.error}</p>
+      )}
       {commands.hasMore && (
         <Button variant="text-link" disabled={commands.loading} onClick={commands.loadMore}>
           {`Load more commands (${(commands.total - groups.length).toLocaleString()} more)`}
@@ -573,16 +584,17 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
   readonly defaultOpen: boolean;
 }) {
   const { hits } = useSessionRows();
-  const [open, setOpen] = useState(defaultOpen);
+  // The group follows defaultOpen until the operator opens or closes it, so alerts read after the commands still open their groups.
+  const [toggled, setToggled] = useState<boolean | null>(null);
   const found = hits.byGroup.get(group.key) ?? 0;
-  const expanded = open || found > 0;
+  const expanded = (toggled ?? defaultOpen) || found > 0;
   return (
     <li className="session-view__call">
       <button
         type="button"
         className="session-view__call-header"
         aria-expanded={expanded}
-        onClick={() => { setOpen(!expanded); }}
+        onClick={() => { setToggled(!expanded); }}
       >
         <code className="session-view__command">{group.command}</code>
         <span className="session-view__meta">

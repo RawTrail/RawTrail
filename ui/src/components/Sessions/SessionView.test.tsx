@@ -191,6 +191,75 @@ describe("SessionView commands from the server", () => {
     expect(await screen.findByText("1,234 commands")).toBeVisible();
     expect(screen.getByText("5,678 processes")).toBeVisible();
   });
+
+  it("keeps the current list's cut notice when a replaced list's page lands after it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(3) }));
+    const all = sessionCommands(manyCalls(3));
+    let landFirst: (res: SessionCommandsResponse) => void = () => undefined;
+    vi.spyOn(api, "getSessionCommands").mockImplementation((_h, _s, page) => (page?.q
+      ? Promise.resolve({ ...all, commands: all.commands.slice(1, 2), total_matched: 1, truncated: true })
+      : new Promise((resolve) => { landFirst = resolve; })));
+    renderView();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "step 1" } });
+    const cut = await screen.findByText(/This session ran more processes than the server reads/);
+    expect(cut).toBeVisible();
+    landFirst(all);
+    await waitFor(() => { expect(api.getSessionCommands).toHaveBeenCalledTimes(2); });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getByText(/This session ran more processes than the server reads/)).toBeVisible();
+  });
+
+  it("badges the commands' alerts when the session's tree cannot be read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockRejectedValue(new Error("tree down"));
+    vi.spyOn(api, "getSessionCommands").mockResolvedValue(sessionCommands(realSession()));
+    vi.spyOn(api, "listAlerts").mockResolvedValue([alert({ severity: "critical" })]);
+    renderView();
+    expect(await screen.findByRole("link", { name: "System discovery" })).toBeVisible();
+  });
+
+  it("says the alerts could not be read when the session's tree cannot be read either", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockRejectedValue(new Error("tree down"));
+    vi.spyOn(api, "getSessionCommands").mockResolvedValue(sessionCommands(realSession()));
+    vi.spyOn(api, "listAlerts").mockRejectedValue(new Error("alerts down"));
+    renderView();
+    expect(await screen.findByText("This session's alerts could not be loaded, so none are shown.")).toBeVisible();
+  });
+
+  it("keeps the listed commands and the retry when a later page fails", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(3) }));
+    const all = sessionCommands(manyCalls(3));
+    let pageTwoAttempts = 0;
+    vi.spyOn(api, "getSessionCommands").mockImplementation((_h, _s, page) => {
+      if (page?.cursor !== "c2") return Promise.resolve({ ...all, commands: all.commands.slice(0, 2), next_cursor: "c2" });
+      pageTwoAttempts++;
+      return pageTwoAttempts === 1 ? Promise.reject(new Error("page down")) : Promise.resolve({ ...all, commands: all.commands.slice(2) });
+    });
+    renderView();
+    expect(await screen.findByText("step 1")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load more commands (1 more)" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The next commands could not be loaded: page down");
+    expect(screen.getByText("step 0")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load more commands (1 more)" }));
+    expect(await screen.findByText("step 2")).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("opens the command an alert was raised in when the alerts are read after the commands", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(11) }));
+    let landAlerts: (alerts: Alert[]) => void = () => undefined;
+    vi.spyOn(api, "listAlerts").mockImplementation(() => new Promise((resolve) => { landAlerts = resolve; }));
+    renderView();
+    expect(await screen.findByText("step 6")).toBeVisible();
+    expect(screen.queryAllByRole("button", { expanded: true })).toHaveLength(0);
+    landAlerts([alert({ process_id: 71 })]);
+    await screen.findByRole("link", { name: "System discovery" });
+    expect(screen.getAllByRole("button", { expanded: true }).map((b) => b.querySelector("code")?.textContent)).toEqual(["step 6"]);
+  });
 });
 
 describe("SessionView", () => {
