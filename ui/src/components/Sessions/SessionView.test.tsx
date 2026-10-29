@@ -379,6 +379,27 @@ describe("SessionView commands from the server", () => {
     expect(screen.getByRole("button", { name: "Load more processes" })).toBeVisible();
   });
 
+  // spec:web-ui/agent-session-header-usage/the-header-says-what-the-session-s-messages-used
+  it("says what the session's messages used, flagging bypass mode", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({
+      commands: 2, processes: 4, alerts: { total: 0, by_severity: {} }, tool_calls: { total: 0, by_tool: [] },
+      usage: {
+        models: [{ model: "claude-opus-5-5", messages: 4, input_tokens: 40, output_tokens: 2_000, cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 48_000, thinking_tokens: 300 }],
+        modes: [{ mode: "auto", messages: 1, first_ns: 0, last_ns: 0 },
+          { mode: "bypassPermissions", messages: 3, first_ns: 0, last_ns: 600e9 }],
+      },
+    });
+    renderView();
+    expect(await screen.findByText("claude-opus-5-5")).toBeVisible();
+    expect(screen.getByText("50k tokens")).toHaveAttribute("title", "40 input, 48,000 through the prompt cache, 2,000 output");
+    expect(screen.getByText("Bypass permissions")).toHaveClass("badge--high");
+    expect(screen.getByText("Bypass permissions").closest(".session-view__mode")).toHaveTextContent(/3 replies over 10 min/);
+    expect(screen.getByText(/^Auto/).closest(".session-view__mode")?.querySelector(".badge")).toBeNull();
+  });
+
   // spec:web-ui/agent-session-view-pages-its-commands/the-header-counts-the-whole-session
   it("counts the session's commands and processes from its totals", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
