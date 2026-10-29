@@ -322,19 +322,24 @@ const (
 	toolCalls   = "events FINAL WHERE " + hostPredicate + " AND event_type = 'agent_tool_call'"
 )
 
-// heldBySourcesSQL lists the calls held by the sessions a session's calls name as their source: the origin a copied line was written
-// under, or the parent the session's /fork job names. Its arguments are the host, the host and the session.
-const heldBySourcesSQL = `SELECT ` + callSession + `, ` + callID + `, ` + callUID + ` FROM ` + toolCalls + ` AND ` + callSession + ` IN (
-			SELECT arrayJoin([` + callOrigin + `, ` + callForked + `]) FROM ` + toolCalls + ` AND ` + callSession + ` = ?)`
-
 // notCopiedSQL keeps a session's calls that are not copies of another session's (issues #1347 and #1354). A copy is a call that the
 // session it names holds under the same tool_use_id and owner: the origin its line was written under, or the parent its /fork job
 // names. The origin alone is not enough, since a process that switched sessions (/clear) writes its first session's id on the new
-// session's own calls, and a fork of that session copies them naming that first session too; the job's parent holds them. The held
-// calls looked up are those of the sessions this session's calls name, not the host's whole history. Its arguments are the host, the
-// host and the session, twice.
-const notCopiedSQL = `NOT ((` + callOrigin + ` != '' AND (` + callOrigin + `, ` + callID + `, ` + callUID + `) IN (` + heldBySourcesSQL + `))
-		OR (` + callForked + ` != '' AND (` + callForked + `, ` + callID + `, ` + callUID + `) IN (` + heldBySourcesSQL + `)))`
+// session's own calls, and a fork of that session copies them naming that first session too; the job's parent holds them. Its
+// arguments are the host, the host and the session, twice.
+var notCopiedSQL = notCopied("agent_tool_call", callID)
+
+// notCopied is the copy filter for one event type of a session's transcript, its entries told apart by id: the agent_tool_call
+// event's tool_use_id, or an agent_usage event's message_id (issue #1427), whose lines a fork copies the same way.
+func notCopied(eventType, id string) string {
+	scope := "events FINAL WHERE " + hostPredicate + " AND event_type = '" + eventType + "'"
+	// The entries held by the sessions this session's entries name as their source, not the host's whole history. Its arguments
+	// are the host, the host and the session.
+	held := `SELECT ` + callSession + `, ` + id + `, ` + callUID + ` FROM ` + scope + ` AND ` + callSession + ` IN (
+			SELECT arrayJoin([` + callOrigin + `, ` + callForked + `]) FROM ` + scope + ` AND ` + callSession + ` = ?)`
+	return `NOT ((` + callOrigin + ` != '' AND (` + callOrigin + `, ` + id + `, ` + callUID + `) IN (` + held + `))
+		OR (` + callForked + ` != '' AND (` + callForked + `, ` + id + `, ` + callUID + `) IN (` + held + `)))`
+}
 
 // AgentSessionLineage reads a session's parent and forks (issues #1347 and #1354) from its owner's calls on its host. A session's
 // parent is the one its /fork job names where the agent read it, and otherwise the origin of its latest copied call; the forks are

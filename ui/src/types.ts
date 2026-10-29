@@ -351,6 +351,23 @@ export interface AgentSessionTotals {
   processes: number;
   alerts: { total: number; by_severity: Record<string, number> };
   tool_calls: { total: number; by_tool: { tool: string; count: number }[] };
+  // usage is the tokens the session's messages used by model, and its messages by permission mode (issue #1427).
+  usage?: AgentUsageTotals;
+}
+
+// AgentUsageTotals is what a session's messages used: tokens by model, heaviest output first, and messages by the permission mode in
+// force, first seen first. An empty mode is messages written before the transcript named one.
+export interface AgentUsageTotals {
+  models: {
+    model: string;
+    messages: number;
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+    thinking_tokens: number;
+  }[];
+  modes: { mode: string; messages: number; first_ns: number; last_ns: number }[];
 }
 
 // AgentSessionLineage is a session's place among the sessions forked from each other on its host (issue #1347): the session it was

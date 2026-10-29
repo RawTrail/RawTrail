@@ -31,6 +31,20 @@
     margin: 0 0 0.75rem;
   }
 
+  // What the session's messages used (issue #1427), on its own line below the facts.
+  &__usage {
+    display: flex;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+  }
+
+  &__mode {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.25rem;
+  }
+
   &__notice {
     color: $ui-black-75;
     font-size: 0.85rem;

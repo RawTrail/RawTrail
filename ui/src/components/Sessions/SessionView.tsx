@@ -41,6 +41,7 @@ import {
 import { commandLine } from "./toolCommand";
 import { sessionPath } from "./sessionPath";
 import { mergeTreePages } from "./treePages";
+import { BYPASS_MODE, formatSpan, formatTokens, usageLine, type UsageLine } from "./sessionUsage";
 
 // AUTO_EXPAND_GROUPS is the most commands a session can have and still open with every one expanded. A longer session opens with
 // only the commands an alert was raised in expanded, so the operator starts from what was flagged.
@@ -334,6 +335,7 @@ export function SessionView() {
       )}
       {record?.agent_pid !== undefined && <span>agent pid {record.agent_pid}</span>}
       <span className="session-view__mono" title={sessionId}>Session {sessionId}</span>
+      <SessionUsage usage={usageLine(current?.totals?.usage)} />
     </span>
   );
 
@@ -449,6 +451,26 @@ export function SessionView() {
         </div>
       </SessionRowsContext.Provider>
     </div>
+  );
+}
+
+// SessionUsage says what the session's messages used (issue #1427): its models, its tokens, and the permission modes the agent ran in,
+// each with how many replies and over how long. Bypass mode, in which the agent runs tools without asking, is flagged.
+function SessionUsage({ usage }: { readonly usage: UsageLine | null }) {
+  if (!usage) return null;
+  // The split is written out, not left to a tooltip a keyboard or a touch screen cannot open.
+  const split = `${formatTokens(usage.input)} in, ${formatTokens(usage.cache)} cache, ${formatTokens(usage.output)} out`;
+  return (
+    <span className="session-view__usage">
+      <span>{usage.models.join(", ")}</span>
+      <span>{`${formatTokens(usage.total)} tokens (${split})`}</span>
+      {usage.modes.map((m) => (
+        <span key={m.mode} className="session-view__mode">
+          <Badge variant={m.mode === BYPASS_MODE ? "high" : "neutral"}>{m.label}</Badge>
+          {`${plural(m.messages, "reply", "replies")} in ${formatSpan(m.spanNs)}`}
+        </span>
+      ))}
+    </span>
   );
 }
 

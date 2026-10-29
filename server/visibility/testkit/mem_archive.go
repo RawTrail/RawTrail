@@ -565,7 +565,73 @@ func (c recordedCall) copiedFromOrigin(held map[heldCall]bool) bool {
 
 // copied mirrors the ClickHouse store's notCopiedSQL: a call the session it names holds, its origin or its job's parent, is a copy.
 func (c recordedCall) copied(held map[heldCall]bool) bool {
-	return c.copiedFromOrigin(held) || (c.ForkedFrom != "" && held[heldCall{c.ForkedFrom, c.ToolUseID, c.UID}])
+	return heldBySource(held, c.OriginSessionID, c.ForkedFrom, c.ToolUseID, c.UID)
+}
+
+// heldBySource reports a transcript entry, a call by its tool_use_id or a message by its id, that the session it names as its
+// source holds under the same id and owner: its origin, or its job's parent. That entry is the source session's copy, as the store's
+// notCopied filter has it.
+func heldBySource(held map[heldCall]bool, origin, forkedFrom, id string, uid int64) bool {
+	return (origin != "" && held[heldCall{origin, id, uid}]) || (forkedFrom != "" && held[heldCall{forkedFrom, id, uid}])
+}
+
+// recordedUsage is one agent_usage event as the archive reads it (issue #1427).
+type recordedUsage struct {
+	api.ModelUsage
+	SessionID       string `json:"agent_session_id"`
+	MessageID       string `json:"message_id"`
+	Mode            string `json:"permission_mode"`
+	UID             int64  `json:"uid"`
+	OriginSessionID string `json:"origin_session_id"`
+	ForkedFrom      string `json:"forked_from_session_id"`
+	atNs            int64
+	eventID         string
+}
+
+// AgentUsageTotals mirrors the ClickHouse store: one session's messages once each by id and owner at their first recording, the
+// copies another session holds left out, totalled by model (heaviest output first) and counted by mode (first seen first).
+func (m *MemArchive) AgentUsageTotals(_ context.Context, filter api.AgentToolCallFilter) (api.AgentUsageTotals, error) {
+	m.mu.Lock()
+	var usages []recordedUsage
+	held := map[heldCall]bool{}
+	for _, id := range m.order {
+		e := m.byID[id]
+		var u recordedUsage
+		if e.HostID != filter.HostID || e.EventType != "agent_usage" || json.Unmarshal(e.Payload, &u) != nil {
+			continue
+		}
+		u.atNs, u.eventID = e.TimestampNs, e.EventID
+		usages = append(usages, u)
+		held[heldCall{u.SessionID, u.MessageID, u.UID}] = true
+	}
+	m.mu.Unlock()
+	first := map[heldCall]recordedUsage{}
+	for _, u := range usages {
+		if u.SessionID != filter.SessionID || heldBySource(held, u.OriginSessionID, u.ForkedFrom, u.MessageID, u.UID) {
+			continue
+		}
+		key := heldCall{u.SessionID, u.MessageID, u.UID}
+		if prior, seen := first[key]; !seen || cmp.Or(cmp.Compare(u.atNs, prior.atNs), cmp.Compare(u.eventID, prior.eventID)) < 0 {
+			first[key] = u
+		}
+	}
+	groups := map[[2]string]*clickhouse.UsageGroup{}
+	for _, u := range first {
+		g, ok := groups[[2]string{u.Model, u.Mode}]
+		if !ok {
+			g = &clickhouse.UsageGroup{ModelUsage: api.ModelUsage{Model: u.Model}, Mode: u.Mode, FirstNs: u.atNs, LastNs: u.atNs}
+			groups[[2]string{u.Model, u.Mode}] = g
+		}
+		g.Messages++
+		g.Input, g.Output, g.CacheCreation = g.Input+u.Input, g.Output+u.Output, g.CacheCreation+u.CacheCreation
+		g.CacheRead, g.Thinking = g.CacheRead+u.CacheRead, g.Thinking+u.Thinking
+		g.FirstNs, g.LastNs = min(g.FirstNs, u.atNs), max(g.LastNs, u.atNs)
+	}
+	list := make([]clickhouse.UsageGroup, 0, len(groups))
+	for _, g := range groups {
+		list = append(list, *g)
+	}
+	return clickhouse.FoldUsage(list), nil
 }
 
 // AgentSessionLineage mirrors the ClickHouse store: over the owner's calls, each session's parent is the latest parent its /fork job
