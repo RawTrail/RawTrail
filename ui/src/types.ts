@@ -261,6 +261,43 @@ export interface AgentToolCall {
   called_at_ns: number;
   // uid owns the transcript the call was read from; a call is trusted only for that user's processes.
   uid: number;
+  // prompt_id is the turn the call was made in (issue #1426).
+  prompt_id?: string;
+}
+
+// AgentPrompt is one prompt a person typed to an AI agent (issue #1426), as the agent sent it: redacted and cut at 16 KiB. Its text is
+// empty when the caller lacks agent_prompt.read.
+export interface AgentPrompt {
+  prompt_id: string;
+  text: string;
+  length: number;
+  truncated?: boolean;
+  redacted?: number;
+  source?: string;
+  at_ns: number;
+  uid: number;
+}
+
+// ConversationTurn is one prompt of a session and what the agent did for it (issue #1322). The turn with no prompt_id holds what
+// belongs to no prompt; a turn whose prompt the agent did not capture has no prompt.
+export interface ConversationTurn {
+  prompt_id?: string;
+  uid?: number;
+  at_ns: number;
+  prompt?: AgentPrompt;
+  commands: SessionCommand[];
+  calls: AgentToolCall[];
+}
+
+// SessionConversationResponse is one page of a session's turns. prompts_hidden is set when the caller lacks agent_prompt.read.
+export interface SessionConversationResponse {
+  turns: ConversationTurn[];
+  next_cursor?: string;
+  total_matched: number;
+  prompts_hidden: boolean;
+  truncated: boolean;
+  tool_calls_truncated: boolean;
+  prompts_truncated: boolean;
 }
 
 // ToolCallMatch is the tool call the agent reported for a command (issue #1288), paired by the server (issue #1423): the call, or, for

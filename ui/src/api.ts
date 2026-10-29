@@ -30,6 +30,7 @@ import type {
   ReachableAddress,
   ReachableSet,
   SessionCommandsResponse,
+  SessionConversationResponse,
   SessionProcessesResponse,
   TreeResponse,
 } from "./types";
@@ -427,6 +428,14 @@ export async function getSessionCommands(
   hostId: string, sessionId: string, page: SessionCommandsQuery = {},
 ): Promise<SessionCommandsResponse> {
   return fetchJSON<SessionCommandsResponse>(sessionPagePath(hostId, sessionId, "commands", page));
+}
+
+// getSessionConversation reads a page of a session's turns (issue #1322): each prompt with the commands and tool calls the agent made
+// for it, prompt text only for a caller with agent_prompt.read.
+export async function getSessionConversation(
+  hostId: string, sessionId: string, page: SessionCommandsQuery = {},
+): Promise<SessionConversationResponse> {
+  return fetchJSON<SessionConversationResponse>(sessionPagePath(hostId, sessionId, "conversation", page));
 }
 
 // sessionPagePath is the path of one page of a session's paged list: its cursor, search and page size on the session's leaf.

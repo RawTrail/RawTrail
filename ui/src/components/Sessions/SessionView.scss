@@ -73,6 +73,65 @@
     margin: 0 0 0.25rem;
   }
 
+  // The Conversation view (issue #1322): each turn's prompt, then the commands and calls the agent made for it.
+  &__turns {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  &__turn {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  &__prompt {
+    align-items: baseline;
+    border-left: 3px solid $ui-black-25;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.25rem 0 0.25rem 0.75rem;
+  }
+
+  &__prompt-text {
+    // A prompt keeps the person's line breaks, and a long word breaks rather than widening the page.
+    flex: 1 1 20rem;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  &__turn-calls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 0.75rem;
+  }
+
+  &__turn-call {
+    align-items: baseline;
+    display: flex;
+    gap: 0.5rem;
+    min-width: 0;
+
+    > .session-view__mono {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  &__tool-name {
+    color: $ui-black-75;
+    font-size: 0.8rem;
+  }
+
   &__calls {
     display: flex;
     flex-direction: column;
