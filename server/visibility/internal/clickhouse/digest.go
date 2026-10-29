@@ -162,22 +162,18 @@ func (s *Store) digestDomains(ctx context.Context, scope string, args []any, hos
 // foldDomains sums the names' lookups and connections by registrable domain, most first and then by domain, and keeps the busiest
 // digestDomains of them, reporting whether there were more.
 func foldDomains(names []api.DomainActivity) ([]api.DomainActivity, bool) {
-	byDomain := map[string]*api.DomainActivity{}
+	index := map[string]int{}
 	out := []api.DomainActivity{}
-	order := []string{}
 	for _, n := range names {
 		domain := registrableDomain(n.Domain)
-		d, ok := byDomain[domain]
+		i, ok := index[domain]
 		if !ok {
-			d = &api.DomainActivity{Domain: domain}
-			byDomain[domain] = d
-			order = append(order, domain)
+			i = len(out)
+			index[domain] = i
+			out = append(out, api.DomainActivity{Domain: domain})
 		}
-		d.Lookups += n.Lookups
-		d.Connections += n.Connections
-	}
-	for _, domain := range order {
-		out = append(out, *byDomain[domain])
+		out[i].Lookups += n.Lookups
+		out[i].Connections += n.Connections
 	}
 	slices.SortFunc(out, func(a, b api.DomainActivity) int {
 		return cmp.Or(cmp.Compare(b.Lookups+b.Connections, a.Lookups+a.Connections), cmp.Compare(a.Domain, b.Domain))
@@ -186,7 +182,8 @@ func foldDomains(names []api.DomainActivity) ([]api.DomainActivity, bool) {
 }
 
 // registrableDomain is the domain a name belongs to by the public suffix list, private suffixes included (api.github.com is
-// github.com), or the whole name when it has none: a single label such as localhost, or a public suffix itself.
+// github.com), or the whole name when it has none: an IP address a connection named, a single label such as localhost, or a public
+// suffix itself. The list treats an IP address as its own suffix.
 func registrableDomain(name string) string {
 	if domain, err := publicsuffix.EffectiveTLDPlusOne(name); err == nil {
 		return domain
@@ -231,7 +228,8 @@ func (s *Store) domainsSeenBefore(ctx context.Context, hostID string, startNs in
 
 // digestTimeline counts the scope's events in equal buckets of a span: the filter's, widened to the scope's first and last event so
 // none falls outside it. Each bucket is one nanosecond wider than the span divided by Buckets, so the span's last moment falls in the
-// last bucket. It returns the counts and the span's start and bucket width.
+// last bucket. An event recorded between the two reads falls after the span and is left out. It returns the counts and the span's
+// start and bucket width.
 func (s *Store) digestTimeline(ctx context.Context, scope string, args []any, filter api.DigestFilter) ([]int64, int64, int64, error) {
 	var first, last, events int64
 	err := s.db.QueryRowContext(ctx, `
@@ -249,8 +247,8 @@ func (s *Store) digestTimeline(ctx context.Context, scope string, args []any, fi
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT toInt64(intDiv(minus(timestamp_ns, ?), ?)) AS bucket, toInt64(sum(`+activityWeight+`))
 		FROM events FINAL
-		WHERE event_type IN `+activityAllTypes+` AND `+scope+`
-		GROUP BY bucket`, append([]any{start, width}, args...)...)
+		WHERE event_type IN `+activityAllTypes+` AND `+scope+` AND timestamp_ns BETWEEN ? AND ?
+		GROUP BY bucket`, append(append([]any{start, width}, args...), start, end)...)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("clickhouse digest timeline: %w", err)
 	}
