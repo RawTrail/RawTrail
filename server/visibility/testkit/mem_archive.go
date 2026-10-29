@@ -617,6 +617,55 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 	return listed, false, nil
 }
 
+// AgentPrompts mirrors the ClickHouse store: one session's agent_prompt events after the cursor, oldest first, kept by a search of
+// their text regardless of case.
+func (m *MemArchive) AgentPrompts(_ context.Context, filter api.AgentPromptFilter) (api.AgentPromptPage, error) {
+	var after api.EventCursor
+	if filter.Cursor != "" {
+		var err error
+		if after, err = clickhouse.DecodePromptCursor(filter.Cursor); err != nil {
+			return api.AgentPromptPage{}, err
+		}
+	}
+	type listed struct {
+		eventID string
+		prompt  api.AgentPrompt
+	}
+	var found []listed
+	m.mu.Lock()
+	for _, e := range m.byID {
+		var p struct {
+			api.AgentPrompt
+			SessionID string `json:"agent_session_id"`
+		}
+		if e.HostID != filter.HostID || e.EventType != "agent_prompt" || json.Unmarshal(e.Payload, &p) != nil || p.SessionID != filter.SessionID {
+			continue
+		}
+		p.AtNs = e.TimestampNs
+		if filter.Search != "" && !strings.Contains(strings.ToLower(p.Text), strings.ToLower(filter.Search)) {
+			continue
+		}
+		if filter.Cursor != "" && cmp.Or(cmp.Compare(e.TimestampNs, after.TimestampNs), cmp.Compare(e.EventID, after.EventID)) <= 0 {
+			continue
+		}
+		found = append(found, listed{e.EventID, p.AgentPrompt})
+	}
+	m.mu.Unlock()
+	slices.SortFunc(found, func(a, b listed) int {
+		return cmp.Or(cmp.Compare(a.prompt.AtNs, b.prompt.AtNs), cmp.Compare(a.eventID, b.eventID))
+	})
+	page := api.AgentPromptPage{Prompts: []api.AgentPrompt{}}
+	for i, f := range found {
+		if i == filter.Limit {
+			last := found[i-1]
+			page.NextCursor = api.EncodeEventCursor(api.EventCursor{TimestampNs: last.prompt.AtNs, EventID: last.eventID})
+			break
+		}
+		page.Prompts = append(page.Prompts, f.prompt)
+	}
+	return page, nil
+}
+
 // AgentToolCallCounts mirrors the ClickHouse store: the calls AgentToolCalls lists, uncapped, counted by tool, most used first.
 func (m *MemArchive) AgentToolCallCounts(_ context.Context, filter api.AgentToolCallFilter) ([]api.ToolCallCount, error) {
 	byTool := map[string]int64{}

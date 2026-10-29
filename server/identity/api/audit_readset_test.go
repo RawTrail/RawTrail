@@ -27,6 +27,10 @@ func TestIsReadAction_AdminSurfaceReadsAreDeliberatelyExcluded(t *testing.T) {
 		assert.True(t, IsReadAction(a), "%s is a high-volume operator read and belongs in the sampled set", a)
 	}
 
+	// A prompt can hold anything the person typed, so every read of one is audited (issue #1426).
+	// spec:server-identity-authorization/reading-ai-agent-prompts-is-its-own-permission/every-prompt-read-is-audited
+	assert.False(t, IsReadAction(ActionAgentPromptRead), "agent_prompt.read must audit synchronously and always, never be sampled")
+
 	// A write is never a read, whatever surface it belongs to.
 	for _, a := range []Action{ActionRuleContentWrite, ActionDetectionConfigWrite} {
 		assert.False(t, IsReadAction(a), "%s is a write", a)

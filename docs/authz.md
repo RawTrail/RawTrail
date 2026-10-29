@@ -11,10 +11,12 @@ Five built-in roles ship with the server. Their grants are the source of truth i
 | Role | Reads | Writes / Destructive |
 | --- | --- | --- |
 | `super_admin` | everything | everything (`*` wildcard) |
-| `admin` | host, process, alert, policy, enrollment, user | host.{isolate, kill_process, run_script}, alert lifecycle (acknowledge, resolve, reopen, comment), policy CRUD, enrollment.revoke, user.invite |
-| `senior_analyst` | host, process, alert | host.{isolate, kill_process, run_script}, alert lifecycle (acknowledge, resolve, reopen, comment) |
+| `admin` | host, process, AI agent prompts, alert, policy, enrollment, user | host.{isolate, kill_process, run_script}, alert lifecycle (acknowledge, resolve, reopen, comment), policy CRUD, enrollment.revoke, user.invite |
+| `senior_analyst` | host, process, AI agent prompts, alert | host.{isolate, kill_process, run_script}, alert lifecycle (acknowledge, resolve, reopen, comment) |
 | `analyst` | host, process, alert | alert.comment |
 | `auditor` | host, process, alert, audit | (none) |
+
+Reading the prompts a person typed to an AI agent (`agent_prompt.read`) is its own permission: process read does not grant it, so an `analyst` or `auditor` sees a session's commands and processes but not its prompts. Every prompt read is audited, never sampled.
 
 `super_admin` is the break-glass account's role at first boot. SSO operators provisioned via JIT default to `analyst` (or the default role set in Single sign-on settings); promote them from the Users page in Admin settings (or, as a break-glass alternative, the SQL pattern below). With [group to role mapping](okta-setup.md#map-okta-groups-to-edr-roles) configured, each SSO sign-in instead sets the operator's role from their IdP groups, replacing a role set in the Users page.
 
