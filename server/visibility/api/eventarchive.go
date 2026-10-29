@@ -107,6 +107,11 @@ type EventArchive interface {
 	// an ErrInvalidPromptCursor.
 	AgentPrompts(ctx context.Context, filter AgentPromptFilter) (AgentPromptPage, error)
 
+	// AgentUsageTotals totals the tokens one AI agent session's messages used on one host (issue #1427), by model, and counts its
+	// messages by the permission mode in force, each message once by its id and owner. A message that is a copy of another session's
+	// (see AgentToolCalls) is that session's and is not counted. The filter's window and Limit are ignored.
+	AgentUsageTotals(ctx context.Context, filter AgentToolCallFilter) (AgentUsageTotals, error)
+
 	// AgentToolCallCounts counts the calls AgentToolCalls would list for the filter, uncapped, by tool name (issue #1422), most used
 	// first and then by name. The filter's Limit is ignored.
 	AgentToolCallCounts(ctx context.Context, filter AgentToolCallFilter) ([]ToolCallCount, error)
@@ -390,6 +395,34 @@ type DNSActivityRow struct {
 	ActivityRow
 	QueryName string   `json:"query_name"`
 	Addresses []string `json:"addresses"`
+}
+
+// AgentUsageTotals is what one AI agent session's messages used (issue #1427): its tokens by model, heaviest output first, and its
+// messages by the permission mode in force when each was written, with the span each mode was seen over.
+type AgentUsageTotals struct {
+	Models []ModelUsage `json:"models"`
+	Modes  []ModeUsage  `json:"modes"`
+}
+
+// ModelUsage is the tokens a session's messages written by one model used. Input excludes the tokens written to and read from the
+// prompt cache, which CacheCreation and CacheRead count; Thinking is the part of Output spent thinking.
+type ModelUsage struct {
+	Model         string `json:"model"`
+	Messages      int64  `json:"messages"`
+	Input         int64  `json:"input_tokens"`
+	Output        int64  `json:"output_tokens"`
+	CacheCreation int64  `json:"cache_creation_input_tokens"`
+	CacheRead     int64  `json:"cache_read_input_tokens"`
+	Thinking      int64  `json:"thinking_tokens"`
+}
+
+// ModeUsage is how many of a session's messages were written in one permission mode, as the agent recorded it, and the first and
+// last of them. An empty Mode is messages written before the transcript named any.
+type ModeUsage struct {
+	Mode     string `json:"mode"`
+	Messages int64  `json:"messages"`
+	FirstNs  int64  `json:"first_ns"`
+	LastNs   int64  `json:"last_ns"`
 }
 
 // AgentPromptFilter selects a page of one session's prompts: the session on its host, the previous page's cursor (empty for the

@@ -29,6 +29,9 @@ type fakeSessionTotals struct {
 	counted      []string
 	activityRead *visibilityapi.ActivityFilter
 	toolsRead    *visibilityapi.AgentToolCallFilter
+	usage        visibilityapi.AgentUsageTotals
+	usageErr     error
+	usageRead    *visibilityapi.AgentToolCallFilter
 }
 
 func (f *fakeSessionTotals) AgentSessionCounts(_ context.Context, hostID, sessionID string) (api.AgentSessionCounts, error) {
@@ -48,6 +51,11 @@ func (f *fakeSessionTotals) AgentToolCallCounts(
 ) ([]visibilityapi.ToolCallCount, error) {
 	f.toolsRead = &filter
 	return f.tools, f.toolsErr
+}
+
+func (f *fakeSessionTotals) AgentUsageTotals(_ context.Context, filter visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error) {
+	f.usageRead = &filter
+	return f.usage, f.usageErr
 }
 
 const summaryPath = "/api/hosts/h1/agent-sessions/47abb2a1/summary"
@@ -113,6 +121,10 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 			DNS:     visibilityapi.ClassTotals{Events: 1, Distinct: 1},
 		},
 		tools: []visibilityapi.ToolCallCount{{ToolName: "Read", Count: 4}, {ToolName: "Bash", Count: 2}},
+		usage: visibilityapi.AgentUsageTotals{
+			Models: []visibilityapi.ModelUsage{{Model: "claude-opus-5-5", Messages: 2, Input: 6, Output: 300, CacheRead: 9000}},
+			Modes:  []visibilityapi.ModeUsage{{Mode: "bypassPermissions", Messages: 2, FirstNs: 100, LastNs: 200}},
+		},
 	}
 	// Counted from the server's goroutine and read by the test, so atomically.
 	var reads atomic.Int64
@@ -133,6 +145,7 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 		ToolCalls: toolCallTotals{Total: 6, ByTool: totals.tools},
 		Activity:  totals.activity,
 		Scope:     timelineScope{Applied: true, Processes: 3},
+		Usage:     totals.usage,
 	}, got)
 
 	assert.Equal(t, []string{"h1", "47abb2a1"}, totals.counted)
@@ -144,6 +157,8 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 		HostID: "h1", SessionID: "47abb2a1", Limit: maxToolCalls,
 		FromNs: 10_000_000_000_000 - toolCallMargin.Nanoseconds(), ToNs: 20_000_000_000_000 + toolCallMargin.Nanoseconds(),
 	}, *totals.toolsRead, "the tool calls are counted over the window the session's tool-call read uses")
+	require.NotNil(t, totals.usageRead)
+	assert.Equal(t, *totals.toolsRead, *totals.usageRead, "the tokens are totalled over the session the tool calls are")
 }
 
 // The summary counts the commands its session's commands list lists: two tool calls, the second without a child.
@@ -208,6 +223,7 @@ func TestAgentSessionSummary_Failures(t *testing.T) {
 		{name: "scope fails", az: allowAllAuthZ{}, tree: scopeFails, totals: &fakeSessionTotals{}, want: http.StatusInternalServerError},
 		{name: "activity fails", az: allowAllAuthZ{}, totals: &fakeSessionTotals{activityErr: boom}, want: http.StatusInternalServerError},
 		{name: "tool calls fail", az: allowAllAuthZ{}, totals: &fakeSessionTotals{toolsErr: boom}, want: http.StatusInternalServerError},
+		{name: "usage fails", az: allowAllAuthZ{}, totals: &fakeSessionTotals{usageErr: boom}, want: http.StatusInternalServerError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
