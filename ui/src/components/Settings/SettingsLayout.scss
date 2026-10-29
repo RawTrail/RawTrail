@@ -5,20 +5,24 @@
   flex-direction: column;
   gap: 20px;
 
+  // Six sections outgrow a narrow window: the nav scrolls within itself rather than widening the page. Its rule is an inset shadow
+  // rather than a border, which the active link's own border paints over without a negative margin that a scroller would clip.
   &__nav {
     display: flex;
     gap: 4px;
-    border-bottom: 1px solid $ui-black-10;
+    box-shadow: inset 0 -1px 0 $ui-black-10;
+    overflow-x: auto;
   }
 
   &__link {
+    flex-shrink: 0;
+    white-space: nowrap;
     padding: 8px 14px;
     font-size: 14px;
     font-weight: 600;
     color: $ui-black-50;
     text-decoration: none;
     border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
 
     &:hover {
       color: $ui-black-75;

@@ -6,7 +6,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ### Upgrade notes (action required)
 
-- **The agent now sends the prompts people type to Claude Code.** Each prompt is stored as an event, with recognizable credentials replaced and long text cut at 16 KiB. On upgrade, the agent rereads transcripts changed in the last 10 minutes from their start, so prompts typed shortly before the upgrade are sent too. To keep prompts on the Mac, set `EDR_CAPTURE_PROMPTS=0` in the agent's configuration before upgrading.
+- **The agent now sends the prompts people type to Claude Code.** Each prompt is stored as an event, with recognizable credentials replaced and long text cut at 16 KiB. On upgrade, the agent rereads transcripts changed in the last 10 minutes from their start, so prompts typed shortly before the upgrade are sent too. To keep prompts off every Mac, upgrade the server first and turn off **Capture prompts** in Admin settings > Data collection before upgrading agents: an agent sends no prompts until it has that setting, and the change is audited with a reason. `EDR_CAPTURE_PROMPTS=0` in an agent's configuration keeps prompts on that Mac whatever the setting says.
 - **If you changed the event archive's retention by hand, set `EDR_EVENT_RETENTION_DAYS` to it before upgrading.** Set it on every server and ingest replica. The upgraded server resets the archive to the setting at startup, 30 days when unset, and a shorter window deletes the older events.
 
 ### Added
