@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { AgentSessionDigest, AgentSessionTotals } from "../../types";
+import { formatNs } from "../Search/format";
 import { SessionSummary } from "./SessionSummary";
 
 const MINUTE_NS = 60e9;
@@ -122,6 +123,9 @@ describe("SessionSummary", () => {
     expect(within(timeline).getByRole("img", { name: "Commands started: 2 across the session, busiest bucket 2" })).toBeVisible();
     const events = within(timeline).getByRole("img", { name: "File, network and DNS events: 5 across the session, busiest bucket 4" });
     expect([...events.children].map((bar) => (bar as HTMLElement).style.height)).toEqual(["100%", "0%", "25%"]);
+    // The axis ends where the digest's span does, which reaches past the session's last sighting (42 min) to its last event.
+    expect(within(timeline).getByText(formatNs(60 * MINUTE_NS))).toBeVisible();
+    expect(within(timeline).queryByText(formatNs(42 * MINUTE_NS))).toBeNull();
   });
 
   it("counts its alerts and links to where they are shown, without leading with them", () => {

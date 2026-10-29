@@ -68,7 +68,11 @@ async function seedSession(): Promise<Seeded> {
     event("d2", "dns_query", startNs + 60e9 + 3_000, { ...npm, query_name: "registry.npmjs.org", query_type: "A" }),
     // The host had looked github.com up before the session, from another process.
     event("d0", "dns_query", startNs - 600e9, { pid: 99, pidversion: 1, query_name: "github.com", query_type: "A" }),
-  ]);
+  ]).catch(async (err: unknown) => {
+    // The MySQL rows are written: remove them, since afterEach never sees a session the seed did not return.
+    await removeSession({ hostId, sessionId });
+    throw err;
+  });
   return { hostId, sessionId };
 }
 
@@ -83,17 +87,21 @@ async function removeSession({ hostId }: Seeded): Promise<void> {
 }
 
 test.describe("a session's Summary", () => {
-  let seeded: Seeded;
+  let seeded: Seeded | undefined;
   test.beforeEach(async () => { seeded = await seedSession(); });
-  test.afterEach(async () => { await removeSession(seeded); });
+  test.afterEach(async () => {
+    if (seeded) await removeSession(seeded);
+    seeded = undefined;
+  });
 
   // spec:web-ui/agent-session-summary-tab/the-summary-is-the-first-view
   // spec:web-ui/agent-session-summary-tab/the-summary-describes-the-session
   test("describes what the session was asked, ran, touched and talked to", async ({ page }) => {
     await signInAsAdminViaForgedSession(page);
+    if (!seeded) throw new Error("no session was seeded");
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
     const views = page.getByRole("group", { name: "Session view" });
-    await expect(views.getByRole("button")).toHaveText(["Summary", "Commands", "Processes", "Activity"], { timeout: 20_000 });
+    await expect(views.getByRole("button")).toHaveText(["Summary", "Conversation", "Commands", "Processes", "Activity"], { timeout: 20_000 });
     await views.getByRole("button", { name: "Summary" }).click();
 
     const glance = page.getByRole("region", { name: "At a glance" });

@@ -572,7 +572,7 @@ describe("SessionView commands from the server", () => {
     });
     renderView();
     const views = screen.getByRole("group", { name: "Session view" });
-    expect(within(views).getAllByRole("button").map((b) => b.textContent)).toEqual(["Summary", "Commands", "Processes", "Activity"]);
+    expect(within(views).getAllByRole("button").map((b) => b.textContent)).toEqual(["Summary", "Conversation", "Commands", "Processes", "Activity"]);
     expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(views).getByRole("button", { name: "Summary" }));
     expect(await screen.findByText("3 prompts")).toBeVisible();

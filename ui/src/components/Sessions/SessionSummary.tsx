@@ -40,7 +40,7 @@ export function SessionSummary({ totals, agent, project, firstNs, lastNs, onAler
       <SummaryTouched totals={totals} digest={digest} project={project} />
       <SummaryTalked totals={totals} digest={digest} />
       <SummaryEffort totals={totals} />
-      <SummaryTimeline digest={digest} lastNs={lastNs} />
+      <SummaryTimeline digest={digest} />
       <SummarySection title="Alerts">
         {totals.alerts.total === 0
           ? <p>No alerts were raised in this session.</p>
@@ -193,14 +193,15 @@ function SummaryEffort({ totals }: { readonly totals: AgentSessionTotals }) {
 }
 
 // SummaryTimeline shows when the session was busy: one strip of the commands it started, one of the file, network and DNS events, each
-// over the session's span. Each strip is one hue; its accessible label carries the numbers.
-function SummaryTimeline({ digest, lastNs }: { readonly digest: AgentSessionDigest; readonly lastNs: number | undefined }) {
+// over the digest's span, which reaches from the first thing the session did to the last. Each strip is one hue; its accessible label
+// carries the numbers.
+function SummaryTimeline({ digest }: { readonly digest: AgentSessionDigest }) {
   const strips = [
     { label: "Commands started", counts: digest.command_timeline },
     { label: "File, network and DNS events", counts: digest.timeline },
   ].map((s) => ({ ...s, heights: barHeights(s.counts) })).filter((s) => s.heights.length > 0);
   if (strips.length === 0) return <SummarySection title="Timeline"><p>Nothing was recorded over time.</p></SummarySection>;
-  const endNs = lastNs ?? digest.timeline_start_ns + digest.timeline_bucket_ns * digest.timeline.length;
+  const endNs = digest.timeline_start_ns + digest.timeline_bucket_ns * digest.timeline.length;
   return (
     <SummarySection title="Timeline">
       {strips.map((s) => (
