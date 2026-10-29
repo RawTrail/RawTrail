@@ -1,0 +1,29 @@
+@use "../../styles/var/colors" as *;
+@use "../../styles/var/fonts" as *;
+@use "../../styles/var/global" as *;
+@use "../../styles/var/padding" as *;
+
+// Capped at the shared settings width on the page's own root, as the other settings forms are.
+.agent-settings {
+  max-width: $settings-form-max-width;
+}
+
+.agent-settings__title {
+  font-size: 16px;
+  margin: 0 0 $pad-small;
+}
+
+.agent-settings__statement {
+  margin: 0 0 $pad-small;
+}
+
+.agent-settings__note {
+  font-size: $x-small;
+  color: $ui-black-50;
+  margin: $pad-small 0;
+}
+
+.agent-settings__error {
+  color: $ui-error;
+  margin: $pad-small 0;
+}

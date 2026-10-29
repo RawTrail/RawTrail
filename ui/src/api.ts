@@ -1906,6 +1906,43 @@ export async function replaceWatchedPaths(
   );
 }
 
+// AgentSettings are the fleet-wide switches for what agents collect (issue #1426). Version 0 is the settings no operator has changed.
+export interface AgentSettings {
+  version: number;
+  capture_prompts: boolean;
+  updated_at?: string;
+  updated_by?: string;
+  updated_by_label?: string;
+}
+
+export interface ReplaceAgentSettingsResult {
+  settings: AgentSettings;
+  fanout_hosts: number;
+  fanout_failed: number;
+  fanout_skipped_reason?: string;
+}
+
+// getAgentSettings reads the agent settings. Requires detection_config.read.
+export async function getAgentSettings(): Promise<AgentSettings> {
+  return fetchJSON<AgentSettings>("/v1/detection-config/agent-settings");
+}
+
+// replaceAgentSettings stores the settings, provided they are still at expectedVersion, and pushes them to every enrolled host. Settings
+// changed since are refused with the code detection_config.conflict. Requires detection_config.write and a recent sign-in; wrap it in
+// useReauthRetry.
+export async function replaceAgentSettings(
+  capturePrompts: boolean,
+  reason: string,
+  expectedVersion: number,
+): Promise<ReplaceAgentSettingsResult> {
+  return detectionConfigMutationEndpoint(
+    "PUT",
+    "/v1/detection-config/agent-settings",
+    { capture_prompts: capturePrompts, reason, expected_version: expectedVersion },
+    (res) => res.json() as Promise<ReplaceAgentSettingsResult>,
+  );
+}
+
 export async function upsertDetectionRuleSetting(
   req: UpsertDetectionRuleSettingRequest,
 ): Promise<DetectionRuleSetting> {
