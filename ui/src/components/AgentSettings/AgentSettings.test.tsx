@@ -143,6 +143,15 @@ describe("AgentSettings", () => {
     expect(screen.getByRole("switch", { name: "Capture prompts" })).not.toBeChecked();
   });
 
+  it("offers to try again when the outcome is unknown and the setting cannot be read either", async () => {
+    await renderLoaded();
+    vi.spyOn(api, "replaceAgentSettings").mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.spyOn(api, "getAgentSettings").mockRejectedValue(new Error("network down"));
+    turnOffWithReason("r");
+    expect(await screen.findByText(/^The latest settings could not be loaded: network down/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Load the latest settings" })).toBeVisible();
+  });
+
   it("keeps the page and the offer to try again when the latest settings cannot be loaded", async () => {
     await renderLoaded(makeSettings({ version: 1 }));
     vi.spyOn(api, "replaceAgentSettings").mockRejectedValue(
