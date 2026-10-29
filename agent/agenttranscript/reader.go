@@ -93,16 +93,19 @@ type position struct {
 	messages map[string]struct{}
 }
 
-// sent reports whether the transcript has sent a message's usage, and records it as sent if not.
+// sent reports whether the transcript has sent a message's usage.
 func (p *position) sent(messageID string) bool {
-	if _, ok := p.messages[messageID]; ok {
-		return true
-	}
+	_, ok := p.messages[messageID]
+	return ok
+}
+
+// markSent records that the transcript sent a message's usage. It is called once the queue took the event, so a message the queue
+// refused is sent again when its line is read again.
+func (p *position) markSent(messageID string) {
 	if p.messages == nil {
 		p.messages = map[string]struct{}{}
 	}
 	p.messages[messageID] = struct{}{}
-	return false
 }
 
 // New returns a Reader over the home directories under root (/Users on macOS). capturePrompts sends the prompts the user typed as well
@@ -403,6 +406,7 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, pos 
 		if err := r.enqueue(ctx, body); err != nil {
 			return fmt.Errorf("enqueue usage: %w", err)
 		}
+		pos.markSent(usage.MessageID)
 		stats.Usage++
 	}
 	if prompt := line.Prompt; prompt != nil && r.prompts {

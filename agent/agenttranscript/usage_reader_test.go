@@ -72,3 +72,16 @@ func TestReader_ARereadSendsTheSameUsageRows(t *testing.T) {
 	require.Len(t, rows, 2, "once per read of the transcript")
 	assert.Equal(t, rows[0], rows[1])
 }
+
+// A message the queue refused is sent when its line is read again: it is marked sent only once the queue took it.
+func TestReader_RetriesUsageTheQueueRefused(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{fail: true}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, usageLine("msg_01", "claude-opus-5-5", "")+"\n")
+	r.RunOnce(context.Background())
+	q.fail = false
+	assert.Equal(t, 1, r.RunOnce(context.Background()).Usage)
+	require.Len(t, q.events, 1)
+	assert.Equal(t, UsageEventType, q.events[0]["event_type"])
+}
