@@ -148,21 +148,31 @@ func TestApply_WriteFailureTakesEffectAndIsRetried(t *testing.T) {
 	_, err := s.Apply(Payload{Version: 0, Epoch: 0, CapturePrompts: true})
 	require.NoError(t, err)
 	require.True(t, s.CapturePrompts())
-	// A directory where the temporary file goes cannot be written as one.
+	// A directory holding a file, where the temporary file goes, can be neither removed nor written as one.
 	blocked := filepath.Join(dir, FileName+".tmp")
 	require.NoError(t, os.Mkdir(blocked, 0o700))
-	off := Payload{Version: 1, Epoch: 1, CapturePrompts: false}
+	require.NoError(t, os.WriteFile(filepath.Join(blocked, "x"), nil, 0o600))
+	off := Payload{Version: 2, Epoch: 2, CapturePrompts: false}
 	applied, err := s.Apply(off)
 	require.Error(t, err)
 	assert.True(t, applied)
 	assert.False(t, s.CapturePrompts(), "capture is off even though it could not be recorded")
 	assert.True(t, Open(t.Context(), dir, true, discard()).CapturePrompts(), "the file still holds the settings before")
 
-	require.NoError(t, os.Remove(blocked))
+	// The settings not yet written still order later pushes: a late, older one does not turn capture back on.
+	applied, err = s.Apply(Payload{Version: 1, Epoch: 1, CapturePrompts: true})
+	require.NoError(t, err)
+	assert.False(t, applied)
+	assert.False(t, s.CapturePrompts())
+
+	require.NoError(t, os.RemoveAll(blocked))
 	applied, err = s.Apply(off)
 	require.NoError(t, err)
 	assert.True(t, applied, "the same push is written on its retry")
 	assert.False(t, Open(t.Context(), dir, true, discard()).CapturePrompts())
+	applied, err = s.Apply(off)
+	require.NoError(t, err)
+	assert.False(t, applied, "once written, the same push again is not newer")
 }
 
 // The file is the push's payload: what Apply writes, Open reads back.
