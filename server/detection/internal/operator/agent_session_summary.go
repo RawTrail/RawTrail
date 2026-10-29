@@ -9,11 +9,12 @@ import (
 )
 
 // AgentSessionTotalsReader is the read of a session's totals (issue #1422): its processes and alerts from the process store, and what
-// it touched and the tools it called from the event archive. mysql.Store satisfies it.
+// it touched, the tools it called and the tokens it used (issue #1427) from the event archive. mysql.Store satisfies it.
 type AgentSessionTotalsReader interface {
 	AgentSessionCounts(ctx context.Context, hostID, sessionID string) (api.AgentSessionCounts, error)
 	ActivityTotalsForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivitySummary, error)
 	AgentToolCallCounts(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error)
+	AgentUsageTotals(ctx context.Context, filter visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error)
 }
 
 // SetAgentSessionTotals installs the session totals read. Unset, the summary route answers 503.
@@ -29,6 +30,8 @@ type agentSessionSummaryResponse struct {
 	ToolCalls toolCallTotals                `json:"tool_calls"`
 	Activity  visibilityapi.ActivitySummary `json:"activity"`
 	Scope     timelineScope                 `json:"scope"`
+	// Usage is the tokens the session's messages used, by model, and its messages by permission mode (issue #1427).
+	Usage visibilityapi.AgentUsageTotals `json:"usage"`
 }
 
 // alertTotals counts alerts, not monitor records, in all and by severity.
@@ -72,6 +75,10 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}
+	usage, err := h.sessionTotals.AgentUsageTotals(ctx, sessionToolCalls(session))
+	if err != nil {
+		return agentSessionSummaryResponse{}, err
+	}
 	out := agentSessionSummaryResponse{
 		Commands:  len(commands),
 		Processes: counts.Processes,
@@ -79,6 +86,7 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 		ToolCalls: toolCallTotals{ByTool: tools},
 		Activity:  activity,
 		Scope:     *scope,
+		Usage:     usage,
 	}
 	for _, n := range counts.AlertsBySeverity {
 		out.Alerts.Total += n
