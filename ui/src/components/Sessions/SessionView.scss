@@ -285,7 +285,9 @@
     border-radius: 4px;
     display: inline-flex;
     margin-bottom: 0.75rem;
-    overflow: hidden;
+    // Five views outgrow a phone's width: the switcher scrolls within itself rather than widening the page.
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   &__view {
@@ -293,9 +295,11 @@
     border: 0;
     color: $ui-black-75;
     cursor: pointer;
+    flex-shrink: 0;
     font: inherit;
     font-size: 0.85rem;
     padding: 0.3rem 0.8rem;
+    white-space: nowrap;
 
     &[aria-pressed="true"] {
       background: $ui-black-10;

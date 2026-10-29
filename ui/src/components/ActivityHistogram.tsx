@@ -3,10 +3,7 @@ import "./ActivityHistogram.scss";
 import { getActivityHistogram } from "../api";
 import type { ActivityHistogram as Histogram } from "../types";
 import { NANOSECONDS_PER_MILLISECOND } from "../constants";
-
-// MIN_VISIBLE_BAR_PERCENT keeps a tiny-but-nonzero bucket visible: a 1-count bucket next to a 400-count spike must still read as a
-// clickable mark, not vanish into the baseline.
-const MIN_VISIBLE_BAR_PERCENT = 6;
+import { barHeight } from "./barHeight";
 
 interface ActivityHistogramProps {
   readonly hostId: string;
@@ -79,7 +76,7 @@ export function ActivityHistogram({ hostId, fromNs, toNs, onSelectBucket }: Acti
           >
             <span
               className="activity-histogram__fill"
-              style={{ height: `${String(slot.count === 0 ? 0 : Math.max(MIN_VISIBLE_BAR_PERCENT, (slot.count / max) * 100))}%` }}
+              style={{ height: `${String(barHeight(slot.count, max))}%` }}
             />
           </button>
         );
