@@ -457,8 +457,8 @@ function SessionUsage({ usage }: { readonly usage: UsageLine | null }) {
       <span title={tokensTitle}>{`${formatTokens(usage.total)} tokens`}</span>
       {usage.modes.map((m) => (
         <span key={m.mode} className="session-view__mode">
-          {m.mode === BYPASS_MODE ? <Badge variant="high">{m.label}</Badge> : m.label}
-          {`: ${plural(m.messages, "reply", "replies")} over ${formatSpan(m.spanNs)}`}
+          <Badge variant={m.mode === BYPASS_MODE ? "high" : "neutral"}>{m.label}</Badge>
+          {`${plural(m.messages, "reply", "replies")} in ${formatSpan(m.spanNs)}`}
         </span>
       ))}
     </span>

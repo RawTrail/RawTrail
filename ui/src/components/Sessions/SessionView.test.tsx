@@ -396,8 +396,9 @@ describe("SessionView commands from the server", () => {
     expect(await screen.findByText("claude-opus-5-5")).toBeVisible();
     expect(screen.getByText("50k tokens")).toHaveAttribute("title", "40 input, 48,000 through the prompt cache, 2,000 output");
     expect(screen.getByText("Bypass permissions")).toHaveClass("badge--high");
-    expect(screen.getByText("Bypass permissions").closest(".session-view__mode")).toHaveTextContent(/3 replies over 10 min/);
-    expect(screen.getByText(/^Auto/).closest(".session-view__mode")?.querySelector(".badge")).toBeNull();
+    expect(screen.getByText("Bypass permissions").closest(".session-view__mode")).toHaveTextContent(/3 replies in 10 min/);
+    expect(screen.getByText("Auto")).toHaveClass("badge--neutral");
+    expect(screen.getByText("Auto").closest(".session-view__mode")).toHaveTextContent(/1 reply in under a minute/);
   });
 
   // spec:web-ui/agent-session-view-pages-its-commands/the-header-counts-the-whole-session
