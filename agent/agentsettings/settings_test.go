@@ -157,7 +157,7 @@ func TestApply_WriteFailureTakesEffectAndIsRetried(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, applied)
 	assert.False(t, s.CapturePrompts(), "capture is off even though it could not be recorded")
-	assert.True(t, Open(t.Context(), dir, true, discard()).CapturePrompts(), "the file still holds the settings before")
+	assert.False(t, Open(t.Context(), dir, true, discard()).CapturePrompts(), "a restart does not put the older settings back")
 
 	// The settings not yet written still order later pushes: a late, older one does not turn capture back on.
 	applied, err = s.Apply(Payload{Version: 1, Epoch: 1, CapturePrompts: true})

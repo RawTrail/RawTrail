@@ -78,7 +78,8 @@ func (s *Settings) CapturePrompts() bool {
 // Apply puts a set_agent_settings payload in force when the agent has no settings yet or it is newer than those applied, and reports
 // whether it was. Commands can arrive out of order, so an older one is acknowledged and ignored. Version 0 is the settings no operator
 // has changed. The settings take effect, and order later pushes, even when they cannot be written to the file; that returns an error so
-// the server sends the command again, and the same payload arriving again is then written.
+// the server sends the command again, and the same payload arriving again is then written. Until then the file is removed, so a
+// restart does not put the older settings back.
 func (s *Settings) Apply(p Payload) (bool, error) {
 	if p.Version < 0 {
 		return false, fmt.Errorf("invalid version %d", p.Version)
@@ -92,6 +93,11 @@ func (s *Settings) Apply(p Payload) (bool, error) {
 	s.capture.Store(s.local && p.CapturePrompts)
 	err := s.write(p)
 	s.unwritten = err != nil
+	if err != nil {
+		// The file holds older settings, which a restart would put back. Without it a restart captures nothing until the server
+		// sends the settings again.
+		_ = os.Remove(s.path)
+	}
 	return true, err
 }
 
