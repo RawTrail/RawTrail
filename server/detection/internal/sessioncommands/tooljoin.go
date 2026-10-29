@@ -45,6 +45,9 @@ type ToolCallMatch struct {
 	Call           *visibilityapi.AgentToolCall  `json:"call,omitempty"`
 	Candidates     []visibilityapi.AgentToolCall `json:"candidates,omitempty"`
 	CandidateCount int                           `json:"candidate_count,omitempty"`
+	// tied is every call of the tie, of which Candidates lists the first few: the turn a tie places its command in, and the calls
+	// the command stands for, are read from all of them (issue #1322).
+	tied []visibilityapi.AgentToolCall
 }
 
 // callKey identifies a call as the archive does: by its tool_use_id and the owner of the transcript it was read from.
@@ -160,7 +163,7 @@ func JoinToolCalls(commands []Command, calls []visibilityapi.AgentToolCall) {
 			t := ties[key]
 			if t == nil {
 				t = &tie{match: &ToolCallMatch{Kind: MatchAmbiguous, Candidates: tied[:min(len(tied), maxListedCandidates)],
-					CandidateCount: len(tied)}}
+					CandidateCount: len(tied), tied: tied}}
 				ties[key] = t
 			}
 			c.ToolCall = t.match

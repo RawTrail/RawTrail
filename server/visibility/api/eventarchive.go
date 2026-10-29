@@ -459,6 +459,9 @@ type AgentToolCall struct {
 	Sidechain  bool  `json:"sidechain,omitempty"`
 	Truncated  bool  `json:"truncated,omitempty"`
 	CalledAtNs int64 `json:"called_at_ns"`
+	// PromptID is the turn the call was made in (issue #1426), which the prompt that began it names too; empty for a call the agent
+	// read before any turn.
+	PromptID string `json:"prompt_id,omitempty"`
 	// UID is the uid of the transcript the call was read from. A transcript is its user's to write, so a call is trusted only for the
 	// processes of the user who owns it.
 	UID int64 `json:"uid"`

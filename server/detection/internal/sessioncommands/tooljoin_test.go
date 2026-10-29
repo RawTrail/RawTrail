@@ -66,7 +66,7 @@ func TestJoinToolCalls(t *testing.T) {
 		t.Parallel()
 		calls := []visibilityapi.AgentToolCall{call("toolu_a", "ls", 1_000*ms), call("toolu_b", "ls", 1_000*ms)}
 		got := joined([]Command{command("g1", "ls", 1_010*ms), command("g2", "ls", 1_012*ms), command("g3", "ls", 9_000*ms)}, calls...)
-		ambiguous := &ToolCallMatch{Kind: MatchAmbiguous, Candidates: calls, CandidateCount: 2}
+		ambiguous := &ToolCallMatch{Kind: MatchAmbiguous, Candidates: calls, CandidateCount: 2, tied: calls}
 		assert.Equal(t, map[string]*ToolCallMatch{"g1": ambiguous, "g2": ambiguous}, got)
 	})
 

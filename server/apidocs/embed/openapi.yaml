@@ -945,6 +945,85 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/agent-sessions/{session_id}/conversation:
+    get:
+      tags: [Hosts]
+      summary: An AI agent session as its turns
+      description: >-
+        The session as the person and the agent took turns, oldest first, a page at a time. Each turn has the prompt that began it,
+        the commands the agent ran for it (as the commands endpoint lists them, placed by the tool call each pairs with), and the
+        tool calls that ran no command: file reads and edits, web fetches, MCP tools. A command no call pairs with, and a call read
+        before any turn, are listed in a last turn with no `prompt_id`. A prompt's text is listed only for a caller that also holds
+        `agent_prompt.read`; without it `prompts_hidden` is set, each prompt is listed without its text, and `q` does not search the
+        text. A turn whose prompt the agent did not capture has no `prompt`.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+        - name: q
+          in: query
+          description: Keep the turns whose prompt text, a command, or a call's command or path holds this, case-insensitively.
+          schema: {type: string}
+        - name: cursor
+          in: query
+          description: The previous page's `next_cursor`.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Turns per page.
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the session's turns
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [turns, total_matched, prompts_hidden, truncated, tool_calls_truncated, prompts_truncated]
+                properties:
+                  turns:
+                    type: array
+                    items:
+                      type: object
+                      required: [at_ns, commands, calls]
+                      properties:
+                        prompt_id: {type: string, description: "The turn; absent on the turn of what belongs to no prompt."}
+                        uid: {type: integer, description: "The owner of the transcript the turn was read from. Another user's prompt or call naming the same turn is a turn of its own."}
+                        at_ns: {type: integer, format: int64, description: "The prompt's time, or the turn's first item's when it has none."}
+                        prompt: {type: object, description: "The prompt as the prompts endpoint lists it, its text left out when prompts are hidden."}
+                        commands:
+                          type: array
+                          description: The commands of the turn, as the commands endpoint lists them.
+                          items: {type: object}
+                        calls:
+                          type: array
+                          description: The tool calls of the turn that ran no command, as the tool-calls endpoint lists them.
+                          items: {type: object}
+                  next_cursor: {type: string, description: Absent on the last page.}
+                  total_matched: {type: integer, description: The turns the query matched across every page.}
+                  prompts_hidden: {type: boolean, description: True when the caller lacks `agent_prompt.read`.}
+                  truncated: {type: boolean, description: "True when the session had more processes than the 20,000 that are read."}
+                  tool_calls_truncated: {type: boolean, description: True when the session recorded more tool calls than are read.}
+                  prompts_truncated: {type: boolean, description: "True when the session had more than the 5,000 prompts that are read."}
+        "400":
+          description: "`invalid_cursor`: the cursor does not decode."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/hosts/{host_id}/agent-sessions/{session_id}/summary:
     get:
       tags: [Hosts]

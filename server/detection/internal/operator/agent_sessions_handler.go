@@ -32,6 +32,7 @@ func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands", h.handleAgentSessionCommands)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/processes", h.handleAgentSessionProcesses)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/prompts", h.handleAgentSessionPrompts)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/conversation", h.handleAgentSessionConversation)
 }
 
 // AgentToolCallReader is the read of what a session's transcript recorded, from the event archive: its tool calls (issue #1288), the
@@ -330,6 +331,112 @@ func (h *Handler) handleAgentSessionPrompts(w http.ResponseWriter, r *http.Reque
 	}
 	// Prompt text is what a person typed, so no browser or proxy keeps a copy of it.
 	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, page)
+}
+
+// maxConversationPrompts bounds the prompts a conversation reads, as maxToolCalls bounds its calls; promptsPage is the page it reads
+// them by.
+const (
+	maxConversationPrompts = 5000
+	promptsPage            = 200
+)
+
+// agentConversationResponse is one page of a session's turns (issue #1322). PromptsHidden reports that the caller lacks
+// agent_prompt.read, so each prompt is listed without its text; the cut flags say which of the session's reads stopped short.
+type agentConversationResponse struct {
+	sessioncommands.ConversationPage
+	PromptsHidden      bool `json:"prompts_hidden"`
+	Truncated          bool `json:"truncated"`
+	ToolCallsTruncated bool `json:"tool_calls_truncated"`
+	PromptsTruncated   bool `json:"prompts_truncated"`
+}
+
+// handleAgentSessionConversation serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/conversation: the session as its
+// turns, each prompt with the commands and tool calls the agent made for it, a page at a time by ?cursor=, kept by ?q= (issue
+// #1322). Gated on process read for the host. A prompt's text is listed only for a caller that also holds agent_prompt.read; without
+// it the turns still show, their prompts without text, and a search does not reach the text.
+func (h *Handler) handleAgentSessionConversation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	res := identityapi.Resource{Type: "agent_session", ID: promptResourceID(session.HostID, session.AgentSessionID)}
+	decision, err := h.authz.Allow(ctx, identityapi.ActionAgentPromptRead, res)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "authz", "err", err, "action", string(identityapi.ActionAgentPromptRead))
+		h.writeError(ctx, w, http.StatusServiceUnavailable, "authz_unavailable")
+		return
+	}
+	resp, err := h.sessionConversation(ctx, session, !decision.Allow)
+	if err == nil {
+		q := r.URL.Query()
+		turns := sessioncommands.SearchConversation(resp.turns, q.Get("q"))
+		resp.ConversationPage, err = sessioncommands.ConversationPageOf(turns, q.Get("cursor"), parseSearchLimit(q))
+	}
+	if err != nil {
+		if errors.Is(err, api.ErrInvalidCursor) {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		h.logger.ErrorContext(ctx, "read agent session conversation", "host_id", session.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	// The turns can hold prompt text, so no browser or proxy keeps a copy of them.
+	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, resp.agentConversationResponse)
+}
+
+// sessionConversation reads a session's commands, tool calls and prompts and groups them into its turns, with each prompt's text
+// removed when hide is set.
+func (h *Handler) sessionConversation(ctx context.Context, session *api.AgentSessionSummary, hide bool) (conversation, error) {
+	_, commands, truncated, err := h.buildSessionCommands(ctx, session)
+	if err != nil {
+		return conversation{}, err
+	}
+	calls, callsCut, err := h.agentToolCalls.AgentToolCalls(ctx, sessionToolCalls(session))
+	if err != nil {
+		return conversation{}, err
+	}
+	sessioncommands.JoinToolCalls(commands, calls)
+	prompts, promptsCut, err := h.sessionPrompts(ctx, session)
+	if err != nil {
+		return conversation{}, err
+	}
+	if hide {
+		for i := range prompts {
+			prompts[i].Text = ""
+		}
+	}
+	return conversation{
+		turns: sessioncommands.BuildConversation(commands, calls, prompts),
+		agentConversationResponse: agentConversationResponse{
+			PromptsHidden: hide, Truncated: truncated, ToolCallsTruncated: callsCut, PromptsTruncated: promptsCut,
+		},
+	}, nil
+}
+
+// conversation is a session's turns before they are searched and paged, with the response's flags.
+type conversation struct {
+	agentConversationResponse
+	turns []sessioncommands.Turn
+}
+
+// sessionPrompts reads a session's prompts, oldest first, up to maxConversationPrompts, and reports whether there were more.
+func (h *Handler) sessionPrompts(ctx context.Context, session *api.AgentSessionSummary) ([]visibilityapi.AgentPrompt, bool, error) {
+	var prompts []visibilityapi.AgentPrompt
+	filter := visibilityapi.AgentPromptFilter{HostID: session.HostID, SessionID: session.AgentSessionID, Limit: promptsPage}
+	for len(prompts) < maxConversationPrompts {
+		page, err := h.agentToolCalls.AgentPrompts(ctx, filter)
+		if err != nil {
+			return nil, false, err
+		}
+		prompts = append(prompts, page.Prompts...)
+		if page.NextCursor == "" {
+			return prompts, false, nil
+		}
+		filter.Cursor = page.NextCursor
+	}
+	return prompts[:maxConversationPrompts], true, nil
 }
 
 // maxAuditTargetID is the length of audit_events.target_id, which records the resource a gate was asked for.
