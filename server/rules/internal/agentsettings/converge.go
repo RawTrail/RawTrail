@@ -39,11 +39,12 @@ func (c *Converger) Loop(ctx context.Context, interval time.Duration) {
 	catchup.Loop(ctx, subject, c.Converge, interval, c.sweep.Logger)
 }
 
-// Converge queues the current settings for every enrolled host that needs them and returns how many hosts it queued them for. Nothing
-// is queued while the settings have never been changed, since every agent starts from the defaults.
+// Converge queues the current settings for every enrolled host that needs them and returns how many hosts it queued them for. Settings
+// no operator has changed are sent too: an agent with no settings of its own captures no prompts until it has the fleet's, so that a
+// fleet that turned capture off never has it turned on by an agent that does not know yet.
 func (c *Converger) Converge(ctx context.Context) (int, error) {
 	settings, err := c.store.Get(ctx)
-	if err != nil || settings.Version == 0 {
+	if err != nil {
 		return 0, err
 	}
 	return c.sweep.Converge(ctx, settings.Version, commandPayload(settings), func(payload []byte) bool {
@@ -56,5 +57,5 @@ func (c *Converger) Converge(ctx context.Context) (int, error) {
 func carries(payload []byte, settings api.AgentSettings) bool {
 	var queued api.SetAgentSettingsPayload
 	return json.Unmarshal(payload, &queued) == nil &&
-		queued.Version == settings.Version && queued.Epoch == settings.UpdatedAt.UnixMicro()
+		queued.Version == settings.Version && queued.Epoch == epoch(settings)
 }

@@ -22,11 +22,17 @@ func TestCarries(t *testing.T) {
 		payload string
 		want    bool
 	}{
-		{"the current settings", `{"version":3,"epoch":` + epoch(updated) + `,"capture_prompts":false}`, true},
-		{"an older version", `{"version":2,"epoch":` + epoch(updated) + `,"capture_prompts":false}`, false},
+		{"the current settings", `{"version":3,"epoch":` + microsJSON(updated) + `,"capture_prompts":false}`, true},
+		{"an older version", `{"version":2,"epoch":` + microsJSON(updated) + `,"capture_prompts":false}`, false},
 		{"the same version from before a restore", `{"version":3,"epoch":1,"capture_prompts":false}`, false},
 		{"a payload it cannot read", `{`, false},
 	}
+	t.Run("the defaults, which have no update time", func(t *testing.T) {
+		t.Parallel()
+		defaults := api.DefaultAgentSettings()
+		assert.True(t, carries([]byte(`{"version":0,"epoch":0,"capture_prompts":true}`), defaults))
+		assert.False(t, carries([]byte(`{"version":0,"epoch":7,"capture_prompts":true}`), defaults))
+	})
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -35,7 +41,7 @@ func TestCarries(t *testing.T) {
 	}
 }
 
-func epoch(at time.Time) string {
+func microsJSON(at time.Time) string {
 	b, _ := json.Marshal(at.UnixMicro())
 	return string(b)
 }

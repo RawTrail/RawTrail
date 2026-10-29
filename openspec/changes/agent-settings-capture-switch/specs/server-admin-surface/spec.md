@@ -31,7 +31,7 @@ The server SHALL hold one versioned agent-settings document whose `capture_promp
 
 ### Requirement: Hosts that miss the agent-settings push get them
 
-The server SHALL periodically queue the current agent settings for each enrolled host whose latest `set_agent_settings` command does not carry them, by the same rules as the watched-path catch-up. It SHALL queue nothing while the settings have never been changed.
+The server SHALL periodically queue the current agent settings for each enrolled host whose latest `set_agent_settings` command does not carry them, by the same rules as the watched-path catch-up. Settings no operator has changed SHALL be sent too, as version 0 with epoch 0, since an agent captures no prompts until it has the fleet's settings.
 
 #### Scenario: A host enrolled after a change is sent the settings
 
@@ -39,8 +39,8 @@ The server SHALL periodically queue the current agent settings for each enrolled
 - **WHEN** the catch-up runs
 - **THEN** a `set_agent_settings` command carrying the current settings is queued for that host, and for no host that already has them
 
-#### Scenario: Unchanged settings are not sent
+#### Scenario: A host is sent the settings before any change
 
-- **GIVEN** settings no operator has changed
+- **GIVEN** settings no operator has changed and a host never sent them
 - **WHEN** the catch-up runs
-- **THEN** no command is queued
+- **THEN** a `set_agent_settings` command carrying version 0, epoch 0 and `capture_prompts` true is queued for that host

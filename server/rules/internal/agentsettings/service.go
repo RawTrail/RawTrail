@@ -78,13 +78,21 @@ func (s *Service) Replace(
 	return result, nil
 }
 
-// commandPayload is the set_agent_settings payload for stored settings. The push and the catch-up both build it here. The settings
-// must have been changed at least once, so they carry their update time. Marshalling a struct of integers and a boolean cannot fail.
+// commandPayload is the set_agent_settings payload for stored settings. The push and the catch-up both build it here. Marshalling a
+// struct of integers and a boolean cannot fail.
 func commandPayload(settings api.AgentSettings) []byte {
 	payload, _ := json.Marshal(api.SetAgentSettingsPayload{
-		Version: settings.Version, Epoch: settings.UpdatedAt.UnixMicro(), CapturePrompts: settings.CapturePrompts,
+		Version: settings.Version, Epoch: epoch(settings), CapturePrompts: settings.CapturePrompts,
 	})
 	return payload
+}
+
+// epoch is the settings' update time in Unix microseconds, or 0 for the settings no operator has changed, which have none.
+func epoch(settings api.AgentSettings) int64 {
+	if settings.UpdatedAt == nil {
+		return 0
+	}
+	return settings.UpdatedAt.UnixMicro()
 }
 
 // auditEntry encodes a replacement's audit row: the reason, the previous and new settings, and, when withCounts, how the push went.

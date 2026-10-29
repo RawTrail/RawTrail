@@ -196,7 +196,7 @@ func TestAgentSettingsREST_RefusesAChangeToSettingsThatMovedOn(t *testing.T) {
 }
 
 // spec:server-admin-surface/hosts-that-miss-the-agent-settings-push-get-them/a-host-enrolled-after-a-change-is-sent-the-settings
-// spec:server-admin-surface/hosts-that-miss-the-agent-settings-push-get-them/unchanged-settings-are-not-sent
+// spec:server-admin-surface/hosts-that-miss-the-agent-settings-push-get-them/a-host-is-sent-the-settings-before-any-change
 func TestAgentSettingsConverge_QueuesTheSettingsForHostsThatMissedThem(t *testing.T) {
 	t.Parallel()
 	r := newAppControlRig(t, []string{"host-a"})
@@ -208,9 +208,15 @@ func TestAgentSettingsConverge_QueuesTheSettingsForHostsThatMissedThem(t *testin
 	converger := agentsettings.NewConverger(agentsettings.NewStore(r.db), history.insert,
 		func(context.Context) ([]rulesapi.HostEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
 
+	// Before any change, every host is sent the defaults, since an agent with no settings of its own captures nothing.
 	queued, err := converger.Converge(t.Context())
 	require.NoError(t, err)
-	assert.Zero(t, queued, "nothing is sent while the settings have never been changed")
+	assert.Equal(t, 2, queued)
+	assert.ElementsMatch(t, []string{"host-a", "late-host"}, history.takeQueued())
+	assert.JSONEq(t, `{"version":0,"epoch":0,"capture_prompts":true}`, string(history.latest["late-host"].Payload))
+	queued, err = converger.Converge(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, queued, "hosts whose defaults are pending are not sent them again")
 
 	put := r.putAgentSettings(t, map[string]any{"capture_prompts": false, "reason": "r"})
 	put.Body.Close()

@@ -27,7 +27,7 @@ func DefaultAgentSettings() AgentSettings {
 
 // SetAgentSettingsPayload is the set_agent_settings payload. Commands can arrive out of order, so the agent applies one only when its
 // (Epoch, Version) is ahead of the last it applied. Epoch is the settings' update time in microseconds, which keeps moving forward
-// when a database restore sends Version backwards.
+// when a database restore sends Version backwards; it is 0, with Version 0, for the settings no operator has changed.
 type SetAgentSettingsPayload struct {
 	Version        int64 `json:"version"`
 	Epoch          int64 `json:"epoch"`
