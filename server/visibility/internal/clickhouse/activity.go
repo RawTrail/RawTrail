@@ -239,12 +239,13 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 	where, args := toolCallScope(filter)
 	// One argMin over the whole record, so every field comes from the first recording, as the time does.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, first.1, first.2, first.3, first.4, toBool(first.5), toBool(first.6), at, uid
+		SELECT id, first.1, first.2, first.3, first.4, toBool(first.5), toBool(first.6), at, uid, first.7
 		FROM (
 			SELECT JSONExtractString(payload, 'tool_use_id') AS id, JSONExtractInt(payload, 'uid') AS uid,
 				argMin((JSONExtractString(payload, 'tool_name'), JSONExtractString(payload, 'command'),
 					JSONExtractString(payload, 'description'), JSONExtractString(payload, 'file_path'),
-					JSONExtractBool(payload, 'sidechain'), JSONExtractBool(payload, 'truncated')), (timestamp_ns, event_id)) AS first,
+					JSONExtractBool(payload, 'sidechain'), JSONExtractBool(payload, 'truncated'),
+					JSONExtractString(payload, 'prompt_id')), (timestamp_ns, event_id)) AS first,
 				min(timestamp_ns) AS at
 			FROM events FINAL
 			WHERE `+where+`
@@ -256,7 +257,8 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 		return nil, false, fmt.Errorf("clickhouse agent tool calls: %w", err)
 	}
 	return scanActivity(rows, filter.Limit, func(c *api.AgentToolCall) []any {
-		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID}
+		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID,
+			&c.PromptID}
 	})
 }
 
