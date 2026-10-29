@@ -66,7 +66,11 @@ async function seedSession(): Promise<Seeded> {
       file_path: "/Users/qa/conversation/package.json", prompt_id: "turn-1" }),
     event("call-test", "agent_tool_call", turnAt(1) - 1_000_000_000, { tool_use_id: "toolu_e2e_test", tool_name: "Bash", command: STEPS[1],
       prompt_id: "turn-2" }),
-  ]);
+  ]).catch(async (err: unknown) => {
+    // The MySQL rows are written: remove them, since afterEach never sees a session the seed did not return.
+    await removeSession({ hostId, sessionId });
+    throw err;
+  });
   return { hostId, sessionId };
 }
 
@@ -82,13 +86,17 @@ async function removeSession({ hostId }: Seeded): Promise<void> {
 
 test.describe("the conversation view", () => {
   test.setTimeout(90_000);
-  let seeded: Seeded;
+  let seeded: Seeded | undefined;
   test.beforeEach(async () => { seeded = await seedSession(); });
-  test.afterEach(async () => { await removeSession(seeded); });
+  test.afterEach(async () => {
+    if (seeded) await removeSession(seeded);
+    seeded = undefined;
+  });
 
   // spec:web-ui/agent-session-conversation-view/each-prompt-shows-what-the-agent-did-for-it
   test("lists each prompt with the commands and tool calls the agent made for it", async ({ page }) => {
     await signInAsAdminViaForgedSession(page);
+    if (!seeded) throw new Error("no session was seeded");
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
     await page.getByRole("button", { name: "Conversation", exact: true }).click();
 
