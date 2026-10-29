@@ -37,12 +37,18 @@ func processMatches(c Command, query string) bool {
 			if found {
 				return
 			}
-			wrapper := c.FromAgent && p.ID == c.RootID
-			found = strings.Contains(strings.ToLower(p.Path), query) ||
-				(!wrapper && strings.Contains(strings.ToLower(CommandLine(p.Path, args(p))), query))
+			found = matchesProcess(p, query, c.FromAgent && p.ID == c.RootID)
 		})
 	}
 	return found
+}
+
+// matchesProcess reports whether a process's path, or its command line unless pathOnly, holds the lowercased query.
+func matchesProcess(p api.ProcessNode, query string, pathOnly bool) bool {
+	if strings.Contains(strings.ToLower(p.Path), query) {
+		return true
+	}
+	return !pathOnly && strings.Contains(strings.ToLower(CommandLine(p.Path, args(p))), query)
 }
 
 // cursor is the keyset position of a commands page: the start and root row of the last command of the previous page, which together

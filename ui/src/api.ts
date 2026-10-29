@@ -30,6 +30,7 @@ import type {
   ReachableAddress,
   ReachableSet,
   SessionCommandsResponse,
+  SessionProcessesResponse,
   TreeResponse,
 } from "./types";
 import {
@@ -404,10 +405,12 @@ export type ActivityClassName = "files" | "network" | "dns";
 // getActivityPage reads the page of one class of a scope's activity after a cursor the rollup or the previous page handed out
 // (issue #1424).
 export async function getActivityPage<Row>(
-  hostId: string, scope: ActivityScopeQuery, cls: ActivityClassName, cursor: string,
+  hostId: string, scope: ActivityScopeQuery, cls: ActivityClassName, cursor: string, q = "",
 ): Promise<ActivityPage<Row>> {
   const query = activityScopeParams(scope);
   query.set("cursor", cursor);
+  // q keeps the rows whose artifact holds it (issue #1452); a cursor continues the search it was handed out for.
+  if (q) query.set("q", q);
   return fetchJSON<ActivityPage<Row>>(`/hosts/${encodeURIComponent(hostId)}/activity/${cls}?${queryString(query)}`);
 }
 
@@ -423,14 +426,25 @@ export interface SessionCommandsQuery {
 export async function getSessionCommands(
   hostId: string, sessionId: string, page: SessionCommandsQuery = {},
 ): Promise<SessionCommandsResponse> {
+  return fetchJSON<SessionCommandsResponse>(sessionPagePath(hostId, sessionId, "commands", page));
+}
+
+// sessionPagePath is the path of one page of a session's paged list: its cursor, search and page size on the session's leaf.
+function sessionPagePath(hostId: string, sessionId: string, leaf: string, page: SessionCommandsQuery): string {
   const query = new URLSearchParams();
   if (page.cursor) query.set("cursor", page.cursor);
   if (page.q) query.set("q", page.q);
   if (page.limit !== undefined) query.set("limit", String(page.limit));
   const qs = queryString(query);
-  return fetchJSON<SessionCommandsResponse>(
-    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/commands${qs ? `?${qs}` : ""}`,
-  );
+  return `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/${leaf}${qs ? `?${qs}` : ""}`;
+}
+
+// searchSessionProcesses reads the processes of a session whose path or command line holds q, over the whole session, each listed
+// without its children in fork order, a page at a time (issue #1452).
+export async function searchSessionProcesses(
+  hostId: string, sessionId: string, page: SessionCommandsQuery = {},
+): Promise<SessionProcessesResponse> {
+  return fetchJSON<SessionProcessesResponse>(sessionPagePath(hostId, sessionId, "processes", page));
 }
 
 // getAgentSessionTotals reads a session's totals, counted by the server over the whole session (issue #1422).

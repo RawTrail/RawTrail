@@ -30,6 +30,7 @@ func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage", h.handleAgentSessionLineage)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary", h.handleAgentSessionSummary)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands", h.handleAgentSessionCommands)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/processes", h.handleAgentSessionProcesses)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/prompts", h.handleAgentSessionPrompts)
 }
 
@@ -255,6 +256,48 @@ func (h *Handler) sessionCommands(
 		}
 	}
 	return resp, nil
+}
+
+// agentProcessesResponse is one page of the processes a search found in a session, in fork order, each listed alone. Truncated
+// reports that the session had more processes than its read lists, so a match past them is not found.
+type agentProcessesResponse struct {
+	Processes    []api.ProcessNode `json:"processes"`
+	NextCursor   string            `json:"next_cursor,omitempty"`
+	TotalMatched int               `json:"total_matched"`
+	Truncated    bool              `json:"truncated"`
+}
+
+// handleAgentSessionProcesses serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/processes: the processes of a session whose
+// path or command line holds ?q=, over the whole session read, a page at a time by ?cursor= (issue #1452). Gated on process read
+// for the host, like the session's processes.
+func (h *Handler) handleAgentSessionProcesses(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	var after api.TreePosition
+	if token := q.Get("cursor"); token != "" {
+		var err error
+		if after, err = decodeTreeCursor(token); err != nil {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+	}
+	tree, err := h.readSession(ctx, session)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "read agent session processes", "host_id", session.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	found := sessioncommands.SearchProcesses(tree.Roots, q.Get("q"))
+	page, next := sessioncommands.ProcessPageOf(found, after, parseSearchLimit(q))
+	resp := agentProcessesResponse{Processes: page, TotalMatched: len(found), Truncated: tree.Truncated}
+	if next != nil {
+		resp.NextCursor = encodeTreeCursor(*next)
+	}
+	h.writeJSON(w, r, resp)
 }
 
 // handleAgentSessionPrompts serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/prompts: the prompts a person typed in the
