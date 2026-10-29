@@ -394,7 +394,7 @@ describe("SessionView commands from the server", () => {
     });
     renderView();
     expect(await screen.findByText("claude-opus-5-5")).toBeVisible();
-    expect(screen.getByText("50k tokens")).toHaveAttribute("title", "40 input, 48,000 through the prompt cache, 2,000 output");
+    expect(screen.getByText("50k tokens (40 in, 48k cache, 2k out)")).toBeVisible();
     expect(screen.getByText("Bypass permissions")).toHaveClass("badge--high");
     expect(screen.getByText("Bypass permissions").closest(".session-view__mode")).toHaveTextContent(/3 replies in 10 min/);
     expect(screen.getByText("Auto")).toHaveClass("badge--neutral");

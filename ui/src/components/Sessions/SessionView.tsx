@@ -449,12 +449,12 @@ export function SessionView() {
 // each with how many replies and over how long. Bypass mode, in which the agent runs tools without asking, is flagged.
 function SessionUsage({ usage }: { readonly usage: UsageLine | null }) {
   if (!usage) return null;
-  const tokensTitle = `${usage.input.toLocaleString()} input, ${usage.cache.toLocaleString()} through the prompt cache, ` +
-    `${usage.output.toLocaleString()} output`;
+  // The split is written out, not left to a tooltip a keyboard or a touch screen cannot open.
+  const split = `${formatTokens(usage.input)} in, ${formatTokens(usage.cache)} cache, ${formatTokens(usage.output)} out`;
   return (
     <span className="session-view__usage">
       <span>{usage.models.join(", ")}</span>
-      <span title={tokensTitle}>{`${formatTokens(usage.total)} tokens`}</span>
+      <span>{`${formatTokens(usage.total)} tokens (${split})`}</span>
       {usage.modes.map((m) => (
         <span key={m.mode} className="session-view__mode">
           <Badge variant={m.mode === BYPASS_MODE ? "high" : "neutral"}>{m.label}</Badge>
