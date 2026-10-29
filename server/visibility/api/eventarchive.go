@@ -338,7 +338,8 @@ type FileTotals struct {
 }
 
 // DigestFilter selects the scope an ActivityDigest describes. Project is the directory the scope worked in, empty when unknown. The
-// timeline splits [StartNs, EndNs] into Buckets equal buckets; StartNs is also when the scope began, for marking first-time domains.
+// timeline splits [StartNs, EndNs], widened to the scope's events, into Buckets equal buckets; StartNs is also when the scope
+// began, for marking first-time domains.
 type DigestFilter struct {
 	ActivityFilter
 	Project string
@@ -350,7 +351,8 @@ type DigestFilter struct {
 // ActivityDigest is what a scope touched, in the shape a summary reads it (issue #1429). Directories lists the directories with the
 // most file events, most first, and DirectoriesTruncated reports that more had events. OutsideProject counts the distinct paths
 // outside the project. Domains lists the domains with the most lookups and connections, most first. Timeline counts the scope's
-// file, network and DNS events in each bucket of the filter's span, a coalesced event counting as the occurrences it stands for.
+// file, network and DNS events in equal buckets, from TimelineStartNs, TimelineBucketNs wide, a coalesced event counting as the
+// occurrences it stands for. The buckets split the filter's span widened to the scope's first and last event, so every event is on it.
 type ActivityDigest struct {
 	Directories          []DirectoryActivity `json:"directories"`
 	DirectoriesTruncated bool                `json:"directories_truncated"`
@@ -358,6 +360,8 @@ type ActivityDigest struct {
 	Domains              []DomainActivity    `json:"domains"`
 	DomainsTruncated     bool                `json:"domains_truncated"`
 	Timeline             []int64             `json:"timeline"`
+	TimelineStartNs      int64               `json:"timeline_start_ns"`
+	TimelineBucketNs     int64               `json:"timeline_bucket_ns"`
 }
 
 // DirectoryActivity is the file events under one directory, keyed by operation as FileTotals.ByOperation is, and the distinct paths
@@ -368,7 +372,8 @@ type DirectoryActivity struct {
 	ByOperation map[string]int64 `json:"by_operation"`
 }
 
-// DomainActivity is one domain's lookups and connections, by its registrable domain (api.github.com and github.com are github.com).
+// DomainActivity is one domain's lookups and connections, by its registrable domain under the public suffix list (api.github.com
+// and github.com are github.com).
 // A connection counts only when the agent named the host it connected to. New marks a domain the host had not looked up before the
 // scope began.
 type DomainActivity struct {

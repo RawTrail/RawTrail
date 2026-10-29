@@ -1147,8 +1147,9 @@ paths:
                   digest:
                     type: object
                     description: >-
-                      The session described for its Summary, over the scope `activity` is counted over. Its timelines split the
-                      session's span, from `timeline_start_ns`, into 48 buckets `timeline_bucket_ns` wide.
+                      The session described for its Summary, over the scope `activity` is counted over. Its timelines split a span
+                      holding every one of the session's commands and events, from `timeline_start_ns`, into 48 buckets
+                      `timeline_bucket_ns` wide.
                     required: [prompts, programs, directories, directories_truncated, outside_project, domains, domains_truncated, timeline, command_timeline, timeline_start_ns, timeline_bucket_ns]
                     properties:
                       prompts: {type: integer, format: int64, description: "The prompts the session was sent, counted without reading their text."}
@@ -1179,8 +1180,8 @@ paths:
                       domains:
                         type: array
                         description: >-
-                          The fifty registrable domains (api.github.com counts as github.com) with the most lookups and connections,
-                          most first. A connection counts only when the agent named the host it connected to.
+                          The fifty registrable domains by the public suffix list (api.github.com counts as github.com) with the most
+                          lookups and connections, most first. A connection counts only when the agent named the host it connected to.
                         items:
                           type: object
                           required: [domain, lookups, connections, new]

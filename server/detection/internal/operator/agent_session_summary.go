@@ -116,17 +116,14 @@ func (h *Handler) sessionDigest(
 	if err != nil {
 		return sessionDigest{}, err
 	}
-	filter := digestFilter(session, scope)
-	activity, err := h.sessionTotals.ActivityDigest(ctx, filter)
+	activity, err := h.sessionTotals.ActivityDigest(ctx, digestFilter(session, scope, commands))
 	if err != nil {
 		return sessionDigest{}, err
 	}
 	return sessionDigest{
-		Prompts:          prompts,
-		Programs:         topPrograms(commands),
-		ActivityDigest:   activity,
-		CommandTimeline:  commandTimeline(commands, filter),
-		TimelineStartNs:  filter.StartNs,
-		TimelineBucketNs: bucketWidth(filter),
+		Prompts:         prompts,
+		Programs:        topPrograms(commands),
+		ActivityDigest:  activity,
+		CommandTimeline: commandTimeline(commands, activity),
 	}, nil
 }

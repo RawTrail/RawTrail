@@ -46,13 +46,16 @@ func TestEventArchive_ActivityDigest(t *testing.T) {
 		lookup("d1", 5, 300, "api.github.com"),
 		lookup("d2", 6, 300, "registry.npmjs.org."),
 		lookup("d3", 7, 300, "Example.COM"),
+		// Two schools under the public suffix k12.ak.us are two domains: the host's lookup of one before does not make the other old.
+		lookup("d4", 8, 300, "www.lincoln.k12.ak.us"),
+		lookup("h2", -600, 999, "juneau.k12.ak.us"),
 		activityEvent("n1", "h1", "network_connect", at(80), `{"pid":300,"pidversion":3,"protocol":"tcp","remote_address":"140.82.1.1",`+
 			`"remote_port":443,"remote_hostname":"api.github.com","coalesced_count":2}`),
 		// A connection the agent could not name counts in the timeline, not under a domain.
 		activityEvent("n2", "h1", "network_connect", at(81), `{"pid":300,"pidversion":3,"protocol":"tcp","remote_address":"10.0.0.1",`+
 			`"remote_port":22}`),
-		// The host looked github.com up before the session, from another process: not new.
-		lookup("h1", -600, 999, "github.com"),
+		// The host looked a name under github.com up before the session, from another process: github.com is not new.
+		lookup("h1", -600, 999, "gist.github.com"),
 		// Another generation's events are not the session's.
 		activityEvent("x1", "h1", "file_activity", at(3), `{"pid":300,"pidversion":9,"operation":"create","path":"/q/other.go"}`),
 		activityEvent("x2", "h1", "dns_query", at(4), `{"pid":300,"pidversion":9,"query_name":"other.org"}`),
@@ -66,7 +69,7 @@ func TestEventArchive_ActivityDigest(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var err error
 		got, err = arch.ActivityDigest(ctx, filter)
-		return err == nil && len(got.Domains) == 3
+		return err == nil && len(got.Domains) == 4
 	}, 5*time.Second, 100*time.Millisecond)
 
 	assert.Equal(t, visibilityapi.ActivityDigest{
@@ -80,20 +83,37 @@ func TestEventArchive_ActivityDigest(t *testing.T) {
 		Domains: []visibilityapi.DomainActivity{
 			{Domain: "github.com", Lookups: 1, Connections: 2},
 			{Domain: "example.com", Lookups: 1, New: true},
+			{Domain: "lincoln.k12.ak.us", Lookups: 1, New: true},
 			{Domain: "npmjs.org", Lookups: 1, New: true},
 		},
-		// Buckets 99s/4 wide: the writes and lookups of the first 25 seconds, the README and the folded project, /etc/hosts, then the
-		// two connections.
-		Timeline: []int64{3 + 1 + 10 + 3, 2, 1, 2 + 1},
+		// The span widens from [0s, 99s] to the scope's first and last events, [-5s, 150s], in buckets 38.75s wide: the writes, lookups
+		// and README of the first 38 seconds, the folded project and /etc/hosts, the two connections, and the last write.
+		Timeline:         []int64{1 + 3 + 1 + 10 + 4 + 1, 1 + 1, 2 + 1, 1},
+		TimelineStartNs:  at(-5),
+		TimelineBucketNs: (at(150)-at(-5))/4 + 1,
 	}, got)
 
 	t.Run("a scope with no generation describes nothing", func(t *testing.T) {
 		t.Parallel()
-		empty, err := arch.ActivityDigest(ctx, visibilityapi.DigestFilter{ActivityFilter: visibilityapi.ActivityFilter{HostID: "h1"}})
+		empty, err := arch.ActivityDigest(ctx, visibilityapi.DigestFilter{
+			ActivityFilter: visibilityapi.ActivityFilter{HostID: "h1"}, StartNs: 100, EndNs: 199, Buckets: 2,
+		})
 		require.NoError(t, err)
 		assert.Equal(t, visibilityapi.ActivityDigest{
-			Directories: []visibilityapi.DirectoryActivity{}, Domains: []visibilityapi.DomainActivity{}, Timeline: []int64{},
-		}, empty)
+			Directories: []visibilityapi.DirectoryActivity{}, Domains: []visibilityapi.DomainActivity{}, Timeline: []int64{0, 0},
+			TimelineStartNs: 100, TimelineBucketNs: 50,
+		}, empty, "over the filter's own span")
+	})
+
+	t.Run("a scope with no events has a timeline over the filter's span", func(t *testing.T) {
+		t.Parallel()
+		quiet, err := arch.ActivityDigest(ctx, visibilityapi.DigestFilter{
+			ActivityFilter: visibilityapi.ActivityFilter{HostID: "h1", Generations: []visibilityapi.ProcessGeneration{{PID: 777, PIDVersion: 1}}},
+			StartNs:        at(0), EndNs: at(99), Buckets: 4,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []int64{0, 0, 0, 0}, quiet.Timeline)
+		assert.Equal(t, [2]int64{at(0), (at(99)-at(0))/4 + 1}, [2]int64{quiet.TimelineStartNs, quiet.TimelineBucketNs})
 	})
 
 	t.Run("without a project nothing is outside it", func(t *testing.T) {

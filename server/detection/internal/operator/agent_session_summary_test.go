@@ -40,8 +40,15 @@ type fakeSessionTotals struct {
 	promptsRead  []string
 }
 
+// ActivityDigest answers the digest set, or, when none is, an empty one over the filter's span, as the archive reports a span always.
 func (f *fakeSessionTotals) ActivityDigest(_ context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
 	f.digestRead = &filter
+	if f.digest.TimelineBucketNs == 0 {
+		return visibilityapi.ActivityDigest{
+			Timeline: make([]int64, filter.Buckets), TimelineStartNs: filter.StartNs,
+			TimelineBucketNs: (filter.EndNs-filter.StartNs)/int64(filter.Buckets) + 1,
+		}, f.digestErr
+	}
 	return f.digest, f.digestErr
 }
 
@@ -151,6 +158,8 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 			OutsideProject: 1,
 			Domains:        []visibilityapi.DomainActivity{{Domain: "github.com", Lookups: 1, Connections: 2, New: true}},
 			Timeline:       make([]int64, digestBuckets),
+			// The commands' processes carry no times, so they start at zero, and the span reaches back to them.
+			TimelineStartNs: 0, TimelineBucketNs: 20_000_000_000_000/digestBuckets + 1,
 		},
 	}
 	// Counted from the server's goroutine and read by the test, so atomically.
@@ -174,12 +183,10 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 		Scope:     timelineScope{Applied: true, Processes: 3},
 		Usage:     totals.usage,
 		Digest: sessionDigest{
-			Prompts:          4,
-			Programs:         []programCount{{Program: "pb", Count: 1}, {Program: "pc", Count: 1}, {Program: "pd", Count: 1}},
-			ActivityDigest:   totals.digest,
-			CommandTimeline:  make([]int64, digestBuckets),
-			TimelineStartNs:  10_000_000_000_000,
-			TimelineBucketNs: 10_000_000_000_000/digestBuckets + 1,
+			Prompts:         4,
+			Programs:        []programCount{{Program: "pb", Count: 1}, {Program: "pc", Count: 1}, {Program: "pd", Count: 1}},
+			ActivityDigest:  totals.digest,
+			CommandTimeline: append([]int64{2}, make([]int64, digestBuckets-1)...),
 		},
 	}, got)
 
@@ -197,7 +204,7 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 	assert.Equal(t, []string{"h1", "47abb2a1"}, totals.promptsRead)
 	require.NotNil(t, totals.digestRead)
 	assert.Equal(t, visibilityapi.DigestFilter{
-		ActivityFilter: *totals.activityRead, Project: summaryProject, StartNs: 10_000_000_000_000, EndNs: 20_000_000_000_000, Buckets: digestBuckets,
+		ActivityFilter: *totals.activityRead, Project: summaryProject, StartNs: 0, EndNs: 20_000_000_000_000, Buckets: digestBuckets,
 	}, *totals.digestRead, "the digest describes the scope the activity is counted over, across the session's span")
 }
 

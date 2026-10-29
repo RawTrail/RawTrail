@@ -1,31 +1,34 @@
 package clickhouse
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
+	"golang.org/x/net/publicsuffix"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
-// The digest's list sizes (issue #1429): a summary names the busiest directories and domains, not all of them.
+// The digest's list sizes (issue #1429): a summary names the busiest directories and domains, not all of them. Domains are folded
+// from the busiest digestNames names.
 const (
 	digestDirectories = 20
 	digestDomains     = 50
+	digestNames       = 10_000
 )
 
 // Digest SQL fragments. A file row's directory is its path up to the last slash, the root for a file directly under it, and a rolled-up
-// row's own path. A domain is the registrable domain of a lookup's name or of the host a connection named, lowercased and without
-// a trailing dot, or the whole name when it has none (localhost).
+// row's own path. A name is a lookup's name or the host a connection named, lowercased and without a trailing dot.
 const (
 	digestPath      = "JSONExtractString(payload, 'path')"
 	digestDirectory = "if(JSONExtractBool(payload, 'rolled_up'), " + digestPath + ", substring(" + digestPath + ", 1, greatest(minus(length(" +
 		digestPath + "), position(reverse(" + digestPath + "), '/')), 1)))"
 	digestName = "lower(replaceRegexpOne(if(event_type = 'dns_query', JSONExtractString(payload, 'query_name'), " +
 		"JSONExtractString(payload, 'remote_hostname')), '\\\\.$', ''))"
-	digestDomain = "if(cutToFirstSignificantSubdomain(name) = '', name, cutToFirstSignificantSubdomain(name))"
 )
 
 // ActivityDigest reads the filter's scope as a summary describes it: its busiest directories, its paths outside the project, its
@@ -33,6 +36,7 @@ const (
 func (s *Store) ActivityDigest(ctx context.Context, filter api.DigestFilter) (api.ActivityDigest, error) {
 	out := api.ActivityDigest{
 		Directories: []api.DirectoryActivity{}, Domains: []api.DomainActivity{}, Timeline: make([]int64, filter.Buckets),
+		TimelineStartNs: filter.StartNs, TimelineBucketNs: (filter.EndNs-filter.StartNs)/int64(filter.Buckets) + 1,
 	}
 	if len(filter.Generations) == 0 && len(filter.Spans) == 0 {
 		return out, nil
@@ -55,7 +59,7 @@ func (s *Store) ActivityDigest(ctx context.Context, filter api.DigestFilter) (ap
 		return err
 	})
 	g.Go(func() (err error) {
-		out.Timeline, err = s.digestTimeline(gctx, scope, args, filter)
+		out.Timeline, out.TimelineStartNs, out.TimelineBucketNs, err = s.digestTimeline(gctx, scope, args, filter)
 		return err
 	})
 	if err := g.Wait(); err != nil {
@@ -117,29 +121,33 @@ func (s *Store) digestOutsideProject(ctx context.Context, scope string, args []a
 	return n, nil
 }
 
-// digestDomains groups the scope's lookups and named connections by domain, most first, and marks the domains the host had not looked
-// up before startNs.
+// digestDomains groups the scope's lookups and named connections by registrable domain, most first, and marks the domains the host had
+// not looked up before startNs. The names are read busiest first, up to digestNames of them, and folded by the public suffix list.
 func (s *Store) digestDomains(ctx context.Context, scope string, args []any, hostID string, startNs int64) ([]api.DomainActivity, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT domain, toInt64(sumIf(weight, event_type = 'dns_query')) AS lookups,
+		SELECT name, toInt64(sumIf(weight, event_type = 'dns_query')) AS lookups,
 			toInt64(sumIf(weight, event_type = 'network_connect')) AS connections
 		FROM (
-			SELECT event_type, `+digestName+` AS name, `+digestDomain+` AS domain, `+activityWeight+` AS weight
+			SELECT event_type, `+digestName+` AS name, `+activityWeight+` AS weight
 			FROM events FINAL
 			WHERE `+flowTypesPredicate+` AND `+scope+`
 		)
-		WHERE domain != ''
-		GROUP BY domain
-		ORDER BY lookups + connections DESC, domain
-		LIMIT ?`, append(args, digestDomains+1)...)
+		WHERE name != ''
+		GROUP BY name
+		ORDER BY lookups + connections DESC, name
+		LIMIT ?`, append(args, digestNames+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse digest domains: %w", err)
 	}
-	domains, truncated, err := scanActivity(rows, digestDomains, func(r *api.DomainActivity) []any {
+	names, cut, err := scanActivity(rows, digestNames, func(r *api.DomainActivity) []any {
 		return []any{&r.Domain, &r.Lookups, &r.Connections}
 	})
-	if err != nil || len(domains) == 0 {
-		return []api.DomainActivity{}, truncated, err
+	if err != nil {
+		return nil, false, err
+	}
+	domains, truncated := foldDomains(names)
+	if len(domains) == 0 {
+		return domains, cut || truncated, nil
 	}
 	seen, err := s.domainsSeenBefore(ctx, hostID, startNs, domains)
 	if err != nil {
@@ -148,36 +156,72 @@ func (s *Store) digestDomains(ctx context.Context, scope string, args []any, hos
 	for i := range domains {
 		domains[i].New = !seen[domains[i].Domain]
 	}
-	return domains, truncated, nil
+	return domains, cut || truncated, nil
 }
 
-// domainsSeenBefore reports which of the domains the host looked up before startNs, in the history the archive retains.
+// foldDomains sums the names' lookups and connections by registrable domain, most first and then by domain, and keeps the busiest
+// digestDomains of them, reporting whether there were more.
+func foldDomains(names []api.DomainActivity) ([]api.DomainActivity, bool) {
+	byDomain := map[string]*api.DomainActivity{}
+	out := []api.DomainActivity{}
+	order := []string{}
+	for _, n := range names {
+		domain := registrableDomain(n.Domain)
+		d, ok := byDomain[domain]
+		if !ok {
+			d = &api.DomainActivity{Domain: domain}
+			byDomain[domain] = d
+			order = append(order, domain)
+		}
+		d.Lookups += n.Lookups
+		d.Connections += n.Connections
+	}
+	for _, domain := range order {
+		out = append(out, *byDomain[domain])
+	}
+	slices.SortFunc(out, func(a, b api.DomainActivity) int {
+		return cmp.Or(cmp.Compare(b.Lookups+b.Connections, a.Lookups+a.Connections), cmp.Compare(a.Domain, b.Domain))
+	})
+	return out[:min(len(out), digestDomains)], len(out) > digestDomains
+}
+
+// registrableDomain is the domain a name belongs to by the public suffix list, private suffixes included (api.github.com is
+// github.com), or the whole name when it has none: a single label such as localhost, or a public suffix itself.
+func registrableDomain(name string) string {
+	if domain, err := publicsuffix.EffectiveTLDPlusOne(name); err == nil {
+		return domain
+	}
+	return name
+}
+
+// domainsSeenBefore reports which of the domains the host looked up before startNs, in the history the archive retains: a name is
+// read when it is a domain or under one, and counts for the domain it belongs to by the public suffix list.
 func (s *Store) domainsSeenBefore(ctx context.Context, hostID string, startNs int64, domains []api.DomainActivity) (map[string]bool, error) {
-	marks := make([]string, len(domains))
+	arms := make([]string, len(domains))
 	args := []any{hostID, startNs}
 	for i, d := range domains {
-		marks[i] = "?"
-		args = append(args, d.Domain)
+		arms[i] = "name = ? OR endsWith(name, ?)"
+		args = append(args, d.Domain, "."+d.Domain)
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT domain
+		SELECT DISTINCT name
 		FROM (
-			SELECT `+digestName+` AS name, `+digestDomain+` AS domain
+			SELECT `+digestName+` AS name
 			FROM events
 			WHERE `+hostPredicate+` AND event_type = 'dns_query' AND timestamp_ns < ?
 		)
-		WHERE domain IN (`+strings.Join(marks, ", ")+`)`, args...)
+		WHERE `+strings.Join(arms, " OR "), args...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse digest domains seen: %w", err)
 	}
 	defer rows.Close()
 	seen := map[string]bool{}
 	for rows.Next() {
-		var domain string
-		if err := rows.Scan(&domain); err != nil {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			return nil, fmt.Errorf("scan digest domain seen: %w", err)
 		}
-		seen[domain] = true
+		seen[registrableDomain(name)] = true
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate digest domains seen: %w", err)
@@ -185,31 +229,44 @@ func (s *Store) domainsSeenBefore(ctx context.Context, hostID string, startNs in
 	return seen, nil
 }
 
-// digestTimeline counts the scope's events in each of the filter's buckets. Each bucket is one nanosecond wider than the span divided
-// by Buckets, so the span's last moment falls in the last bucket; an event outside the span is not counted.
-func (s *Store) digestTimeline(ctx context.Context, scope string, args []any, filter api.DigestFilter) ([]int64, error) {
-	width := (filter.EndNs-filter.StartNs)/int64(filter.Buckets) + 1
+// digestTimeline counts the scope's events in equal buckets of a span: the filter's, widened to the scope's first and last event so
+// none falls outside it. Each bucket is one nanosecond wider than the span divided by Buckets, so the span's last moment falls in the
+// last bucket. It returns the counts and the span's start and bucket width.
+func (s *Store) digestTimeline(ctx context.Context, scope string, args []any, filter api.DigestFilter) ([]int64, int64, int64, error) {
+	var first, last, events int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT toInt64(min(timestamp_ns)), toInt64(max(timestamp_ns)), toInt64(count())
+		FROM events FINAL
+		WHERE event_type IN `+activityAllTypes+` AND `+scope, args...).Scan(&first, &last, &events)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("clickhouse digest timeline span: %w", err)
+	}
+	start, end := filter.StartNs, filter.EndNs
+	if events > 0 {
+		start, end = min(start, first), max(end, last)
+	}
+	width := (end-start)/int64(filter.Buckets) + 1
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT toInt64(intDiv(minus(timestamp_ns, ?), ?)) AS bucket, toInt64(sum(`+activityWeight+`))
 		FROM events FINAL
-		WHERE event_type IN `+activityAllTypes+` AND `+scope+` AND timestamp_ns >= ? AND timestamp_ns <= ?
-		GROUP BY bucket`, append(append([]any{filter.StartNs, width}, args...), filter.StartNs, filter.EndNs)...)
+		WHERE event_type IN `+activityAllTypes+` AND `+scope+`
+		GROUP BY bucket`, append([]any{start, width}, args...)...)
 	if err != nil {
-		return nil, fmt.Errorf("clickhouse digest timeline: %w", err)
+		return nil, 0, 0, fmt.Errorf("clickhouse digest timeline: %w", err)
 	}
 	defer rows.Close()
 	timeline := make([]int64, filter.Buckets)
 	for rows.Next() {
 		var bucket, n int64
 		if err := rows.Scan(&bucket, &n); err != nil {
-			return nil, fmt.Errorf("scan digest timeline: %w", err)
+			return nil, 0, 0, fmt.Errorf("scan digest timeline: %w", err)
 		}
 		timeline[bucket] = n
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate digest timeline: %w", err)
+		return nil, 0, 0, fmt.Errorf("iterate digest timeline: %w", err)
 	}
-	return timeline, nil
+	return timeline, start, width, nil
 }
 
 // AgentPromptCount counts one session's prompts, as AgentPrompts lists them with no search.

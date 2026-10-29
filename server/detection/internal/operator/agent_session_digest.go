@@ -24,9 +24,7 @@ type sessionDigest struct {
 	Prompts  int64          `json:"prompts"`
 	Programs []programCount `json:"programs"`
 	visibilityapi.ActivityDigest
-	CommandTimeline  []int64 `json:"command_timeline"`
-	TimelineStartNs  int64   `json:"timeline_start_ns"`
-	TimelineBucketNs int64   `json:"timeline_bucket_ns"`
+	CommandTimeline []int64 `json:"command_timeline"`
 }
 
 // programCount is how many processes of one program the session's commands ran.
@@ -36,10 +34,18 @@ type programCount struct {
 }
 
 // digestFilter selects what the session's digest describes: its activity scope, its project, and its span split into the
-// timeline's buckets.
-func digestFilter(session *api.AgentSessionSummary, scope visibilityapi.ActivityFilter) visibilityapi.DigestFilter {
+// timeline's buckets. The span runs from the session's first sighting, or its first command's start when that is earlier, to its last
+// sighting, or its last command's last activity when that is later: a session is sighted at its marked execs, which a command's
+// fork precedes and its writes follow. The archive widens it further to the scope's own events.
+func digestFilter(
+	session *api.AgentSessionSummary, scope visibilityapi.ActivityFilter, commands []sessioncommands.Command,
+) visibilityapi.DigestFilter {
 	filter := visibilityapi.DigestFilter{
 		ActivityFilter: scope, StartNs: session.FirstSeenNs, EndNs: session.LastSeenNs, Buckets: digestBuckets,
+	}
+	for _, c := range commands {
+		filter.StartNs = min(filter.StartNs, c.StartNs)
+		filter.EndNs = max(filter.EndNs, c.LastNs)
 	}
 	if session.CWD != nil {
 		filter.Project = *session.CWD
@@ -47,21 +53,11 @@ func digestFilter(session *api.AgentSessionSummary, scope visibilityapi.Activity
 	return filter
 }
 
-// bucketWidth is how wide each of the filter's buckets is, as the archive splits the span: the span's last moment falls in the
-// last bucket.
-func bucketWidth(filter visibilityapi.DigestFilter) int64 {
-	return (filter.EndNs-filter.StartNs)/int64(filter.Buckets) + 1
-}
-
-// commandTimeline counts the commands that started in each of the filter's buckets. A command that started outside the session's
-// span is not counted.
-func commandTimeline(commands []sessioncommands.Command, filter visibilityapi.DigestFilter) []int64 {
-	width := bucketWidth(filter)
-	timeline := make([]int64, filter.Buckets)
+// commandTimeline counts the commands that started in each bucket of the archive's timeline, which spans every command's start.
+func commandTimeline(commands []sessioncommands.Command, activity visibilityapi.ActivityDigest) []int64 {
+	timeline := make([]int64, len(activity.Timeline))
 	for _, c := range commands {
-		if c.StartNs >= filter.StartNs && c.StartNs <= filter.EndNs {
-			timeline[(c.StartNs-filter.StartNs)/width]++
-		}
+		timeline[(c.StartNs-activity.TimelineStartNs)/activity.TimelineBucketNs]++
 	}
 	return timeline
 }

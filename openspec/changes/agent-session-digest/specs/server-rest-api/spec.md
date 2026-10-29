@@ -8,7 +8,7 @@ The agent session summary SHALL carry `digest`, over the scope its activity tota
 
 - **GIVEN** a session that was sent prompts, wrote files in and outside its project, and looked up and connected to domains, one of which the host had looked up before
 - **WHEN** a client reads its summary
-- **THEN** `digest` counts its prompts, groups its file events by directory with the paths outside its project counted, and groups its lookups and named connections by registrable domain, marking every domain but the one seen before as new
+- **THEN** `digest` counts its prompts, groups its file events by directory with the paths outside its project counted, and groups its lookups and named connections by registrable domain under the public suffix list, marking every domain but the one seen before as new
 
 #### Scenario: The digest names the programs the commands ran
 
@@ -18,6 +18,6 @@ The agent session summary SHALL carry `digest`, over the scope its activity tota
 
 #### Scenario: The digest carries a timeline of the session
 
-- **GIVEN** a session with events and commands across its span
+- **GIVEN** a session whose first command forked before its first sighting, and whose events continued after its last
 - **WHEN** a client reads its summary
-- **THEN** `digest.timeline` and `digest.command_timeline` count them in equal buckets of the span, the span's last moment in the last bucket, and nothing outside it
+- **THEN** `digest.timeline` and `digest.command_timeline` count every event and command in equal buckets of a span widened to hold them all, from `timeline_start_ns`, `timeline_bucket_ns` wide

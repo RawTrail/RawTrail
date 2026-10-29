@@ -78,10 +78,27 @@ func TestTopPrograms_NamesTheBusiestOnly(t *testing.T) {
 	assert.Equal(t, "pa", got[1].Program, "ties are by name")
 }
 
+// A session is sighted at its marked execs: its first command forks before the first, and its last command runs past the last. The
+// digest's span reaches both.
+//
 // spec:server-rest-api/agent-session-digest/the-digest-carries-a-timeline-of-the-session
+func TestDigestFilter_SpansTheCommands(t *testing.T) {
+	t.Parallel()
+	project := "/Users/dev/app"
+	session := &api.AgentSessionSummary{FirstSeenNs: 1000, LastSeenNs: 2000, CWD: &project}
+	scope := visibilityapi.ActivityFilter{HostID: "h1"}
+	commands := []sessioncommands.Command{{StartNs: 990, LastNs: 1500}, {StartNs: 1900, LastNs: 2600}}
+	assert.Equal(t, visibilityapi.DigestFilter{ActivityFilter: scope, Project: project, StartNs: 990, EndNs: 2600, Buckets: digestBuckets},
+		digestFilter(session, scope, commands))
+	inside := []sessioncommands.Command{{StartNs: 1100, LastNs: 1200}}
+	got := digestFilter(&api.AgentSessionSummary{FirstSeenNs: 1000, LastSeenNs: 2000}, scope, inside)
+	assert.Equal(t, [2]int64{1000, 2000}, [2]int64{got.StartNs, got.EndNs}, "commands inside the sightings leave the span alone")
+	assert.Empty(t, got.Project, "a session with no project names none")
+}
+
 func TestCommandTimeline(t *testing.T) {
 	t.Parallel()
-	filter := visibilityapi.DigestFilter{StartNs: 1000, EndNs: 1099, Buckets: 4}
+	activity := visibilityapi.ActivityDigest{Timeline: make([]int64, 4), TimelineStartNs: 1000, TimelineBucketNs: 25}
 	at := func(ns ...int64) []sessioncommands.Command {
 		out := make([]sessioncommands.Command, len(ns))
 		for i, n := range ns {
@@ -89,41 +106,40 @@ func TestCommandTimeline(t *testing.T) {
 		}
 		return out
 	}
-	assert.Equal(t, int64(25), bucketWidth(filter))
-	assert.Equal(t, []int64{2, 0, 1, 1}, commandTimeline(at(1000, 1024, 1050, 1099), filter), "the span's ends fall in the end buckets")
-	assert.Equal(t, []int64{0, 0, 0, 0}, commandTimeline(at(999, 1100), filter), "a command outside the span is not counted")
+	assert.Equal(t, []int64{2, 0, 1, 1}, commandTimeline(at(1000, 1024, 1050, 1099), activity), "the span's ends fall in the end buckets")
 }
 
-// Whatever the span and the commands, each command inside the span is counted once, in the bucket whose interval holds it, and the
-// buckets together cover the span; none outside the span is counted. The bucket is found by scanning the intervals, not by the
+// Whatever the sightings and the commands, the digest's span holds every command, and over buckets split as the archive splits it
+// each command is counted once, in the bucket whose interval holds it. The bucket is found by scanning the intervals, not by the
 // division the code uses.
 func TestCommandTimeline_CountsEachCommandInItsBucket(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
-		start := rapid.Int64Range(0, 1<<40).Draw(t, "start")
-		filter := visibilityapi.DigestFilter{
-			StartNs: start, EndNs: start + rapid.Int64Range(0, 1<<40).Draw(t, "span"), Buckets: rapid.IntRange(1, 100).Draw(t, "buckets"),
-		}
-		starts := rapid.SliceOf(rapid.Int64Range(filter.StartNs-1000, filter.EndNs+1000)).Draw(t, "starts")
+		first := rapid.Int64Range(1<<20, 1<<40).Draw(t, "first")
+		session := &api.AgentSessionSummary{FirstSeenNs: first, LastSeenNs: first + rapid.Int64Range(0, 1<<40).Draw(t, "sighted")}
+		starts := rapid.SliceOf(rapid.Int64Range(session.FirstSeenNs-1<<20, session.LastSeenNs+1<<20)).Draw(t, "starts")
 		commands := make([]sessioncommands.Command, len(starts))
-		want := make([]int64, filter.Buckets)
-		width := bucketWidth(filter)
 		for i, s := range starts {
-			commands[i].StartNs = s
-			if s < filter.StartNs || s > filter.EndNs {
-				continue
-			}
+			commands[i] = sessioncommands.Command{StartNs: s, LastNs: s + rapid.Int64Range(0, 1<<20).Draw(t, "ran")}
+		}
+		filter := digestFilter(session, visibilityapi.ActivityFilter{}, commands)
+		buckets := rapid.IntRange(1, 100).Draw(t, "buckets")
+		activity := visibilityapi.ActivityDigest{
+			Timeline: make([]int64, buckets), TimelineStartNs: filter.StartNs, TimelineBucketNs: (filter.EndNs-filter.StartNs)/int64(buckets) + 1,
+		}
+		want := make([]int64, buckets)
+		for _, c := range commands {
 			bucket := -1
-			for b := range filter.Buckets {
-				if lo := filter.StartNs + int64(b)*width; s >= lo && s < lo+width {
+			for b := range buckets {
+				if lo := activity.TimelineStartNs + int64(b)*activity.TimelineBucketNs; c.StartNs >= lo && c.StartNs < lo+activity.TimelineBucketNs {
 					bucket = b
 				}
 			}
 			if bucket < 0 {
-				t.Fatalf("no bucket holds the command at %d", s)
+				t.Fatalf("no bucket of the span [%d, %d] holds the command at %d", filter.StartNs, filter.EndNs, c.StartNs)
 			}
 			want[bucket]++
 		}
-		assert.Equal(t, want, commandTimeline(commands, filter))
+		assert.Equal(t, want, commandTimeline(commands, activity))
 	})
 }
