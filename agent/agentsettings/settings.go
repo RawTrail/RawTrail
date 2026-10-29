@@ -101,7 +101,7 @@ func (s *Settings) write(p Payload) error {
 	b, _ := json.Marshal(p)
 	tmp := s.path + ".tmp"
 	_ = os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // the agent's own state directory, from its configuration.
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // the agent's own state directory.
 	if err != nil {
 		return fmt.Errorf("write agent settings: %w", err)
 	}
