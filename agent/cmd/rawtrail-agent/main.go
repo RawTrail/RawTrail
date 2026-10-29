@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/rawtrail/rawtrail/agent/agentsettings"
 	"github.com/rawtrail/rawtrail/agent/appbundle"
 	"github.com/rawtrail/rawtrail/agent/coalesce"
 	"github.com/rawtrail/rawtrail/agent/codesign"
@@ -181,6 +182,9 @@ func run() error {
 		return err
 	}
 	defer func() { _ = commandLedger.Close() }()
+	// The fleet's agent settings (issue #1426), kept beside the ledger. Opened before the sensors so the transcript reader starts on the
+	// settings last applied rather than on the defaults.
+	settings := agentsettings.Open(ctx, filepath.Dir(cfg.QueueDBPath), cfg.CapturePrompts, logger)
 	// The Recorder is the single OTel write surface; the queue uses it for QueueDropped, the uploader uses it for
 	// EventsDroppedTooLarge, and the queue-depth observable gauge reads q.Depth() on every collection cycle. metrics.New
 	// returns a no-op-safe Recorder when OTEL_EXPORTER_OTLP_ENDPOINT is unset.
@@ -237,6 +241,7 @@ func run() error {
 		esfDispatcher: esfDispatcher,
 		neDispatcher:  neDispatcher,
 		containment:   containmentMgr,
+		settings:      settings,
 		hostID:        hostID,
 		hostIDFn:      tokenProvider.HostID,
 	})
@@ -276,6 +281,7 @@ func run() error {
 		// same command at once now that the poll no longer waits on the stream indefinitely (issue #711).
 		inFlight:       commander.NewInFlight(),
 		containmentMgr: containmentMgr,
+		agentSettings:  settings,
 		serverDial:     serverDial,
 		logger:         logger,
 	}
@@ -465,6 +471,8 @@ type commandDeps struct {
 	inFlight *commander.InFlight
 	// containment applies set_network_containment on both transports; nil where the host cannot contain.
 	containment commander.NetworkContainment
+	// agentSettings applies set_agent_settings on both transports.
+	agentSettings commander.AgentSettings
 	// containmentMgr and serverDial route the control channel through the containment lifeline.
 	containmentMgr *containment.Manager
 	serverDial     dialFunc
@@ -493,8 +501,9 @@ func startCommander(ctx context.Context, hostID, serverURL string, transport htt
 		// Shared live generation map so a kill_process is pinned to the operator-selected process generation (issue #627).
 		Generation: deps.generation,
 		// Shared executing-command set so the floor poll and the push path cannot both run one command (issue #711).
-		InFlight:    deps.inFlight,
-		Containment: deps.containment,
+		InFlight:      deps.inFlight,
+		Containment:   deps.containment,
+		AgentSettings: deps.agentSettings,
 	}, &http.Client{Transport: transport, Timeout: 10 * time.Second}, deps.logger)
 	go func() {
 		if err := cmdr.Run(ctx); err != nil && ctx.Err() == nil {
@@ -554,6 +563,7 @@ func startControlClient(ctx context.Context, cfg *config.Config, hostID string, 
 		Generation:        deps.generation,
 		InFlight:          deps.inFlight,
 		Containment:       deps.containment,
+		AgentSettings:     deps.agentSettings,
 		OnConnectedChange: deps.streamConnected.Store,
 		Logger:            logger,
 	})

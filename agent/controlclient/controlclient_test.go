@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"path/filepath"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/rawtrail/rawtrail/agent/agentsettings"
 	"github.com/rawtrail/rawtrail/agent/commandledger"
 	"github.com/rawtrail/rawtrail/agent/controlclient"
 	"github.com/rawtrail/rawtrail/internal/control"
@@ -258,6 +260,18 @@ func TestControlClient(t *testing.T) {
 		_, _ = startClientWithClock(t, fake, &recordingSender{}, 0, nil, func(c *controlclient.Config) { c.Containment = applied })
 		require.Eventually(t, func() bool { return len(fake.recorded()) >= 2 }, 2*time.Second, 10*time.Millisecond)
 		assert.Equal(t, []string{`{"version":1,"contained":true}`}, applied.payloads())
+		assert.Equal(t, "completed", fake.recorded()[1].GetStatus())
+	})
+
+	t.Run("a pushed agent-settings command runs through the configured settings", func(t *testing.T) {
+		t.Parallel()
+		fake := &fakeGateway{push: []*control.Command{
+			{Id: 32, HostId: "host-a", CommandType: "set_agent_settings", Payload: []byte(`{"version":1,"epoch":5,"capture_prompts":false}`)},
+		}}
+		settings := agentsettings.Open(t.Context(), t.TempDir(), true, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		_, _ = startClientWithClock(t, fake, &recordingSender{}, 0, nil, func(c *controlclient.Config) { c.AgentSettings = settings })
+		require.Eventually(t, func() bool { return len(fake.recorded()) >= 2 }, 2*time.Second, 10*time.Millisecond)
+		assert.False(t, settings.CapturePrompts())
 		assert.Equal(t, "completed", fake.recorded()[1].GetStatus())
 	})
 

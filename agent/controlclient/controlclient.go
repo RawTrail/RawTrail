@@ -56,6 +56,8 @@ type Config struct {
 	Generation *procgen.Registry
 	// Containment applies set_network_containment commands, shared with the poll path. Nil reports them failed.
 	Containment commander.NetworkContainment
+	// AgentSettings applies set_agent_settings commands, shared with the poll path. Nil reports them failed.
+	AgentSettings commander.AgentSettings
 	// InFlight is the process-wide executing-command set, shared with the commander so the push path and the bounded-floor poll path
 	// cannot both execute one command (issue #711).
 	InFlight *commander.InFlight
@@ -124,6 +126,7 @@ func New(cfg Config) *Client {
 	executor.SetGeneration(cfg.Generation)
 	executor.SetInFlight(cfg.InFlight)
 	executor.SetContainment(cfg.Containment)
+	executor.SetAgentSettings(cfg.AgentSettings)
 	return &Client{
 		cfg:             cfg,
 		executor:        executor,
