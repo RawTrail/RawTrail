@@ -18,6 +18,11 @@ describe("groupDomains", () => {
     ]);
   });
 
+  it("puts a name under a known domain with it", () => {
+    const groups = groupDomains([domain("objects.githubusercontent.com"), domain("notgithub.com")]);
+    expect(groups.map((g) => [g.label, g.domains.map((d) => d.domain)])).toEqual([["Git hosts", ["objects.githubusercontent.com"]], ["Everything else", ["notgithub.com"]]]);
+  });
+
   it("leaves out an organization no domain belongs to", () => {
     expect(groupDomains([domain("pypi.org")]).map((g) => g.label)).toEqual(["Package registries"]);
     expect(groupDomains([])).toEqual([]);

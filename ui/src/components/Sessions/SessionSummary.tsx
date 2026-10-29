@@ -111,9 +111,10 @@ function SummaryTouched({ totals, digest, project }: {
     return <SummarySection title="What it touched"><p>No file activity was recorded.</p></SummarySection>;
   }
   const operations = fileOperations(files.by_operation).map((o) => `${o.count.toLocaleString()} ${o.label}`);
+  const across = `${plural(files.events, "file event", "file events")} across ${plural(files.distinct, "path", "paths")}`;
   return (
     <SummarySection title="What it touched">
-      <p>{`${plural(files.distinct, "file", "files")}: ${operations.join(", ")}.`}</p>
+      <p>{`${across}: ${operations.join(", ")}.`}</p>
       {project && (
         <p>
           {digest.outside_project === 0
@@ -155,7 +156,7 @@ function SummaryTalked({ totals, digest }: { readonly totals: AgentSessionTotals
             {group.domains.map((d) => (
               <li key={d.domain}>
                 <span className="session-summary__mono">{d.domain}</span>
-                {d.new && <Badge variant="neutral">First time on this host</Badge>}
+                {d.new && <Badge variant="neutral">New to this host</Badge>}
                 <span className="session-summary__count">
                   {[d.lookups > 0 && plural(d.lookups, "lookup", "lookups"), d.connections > 0 && plural(d.connections, "connection",
                     "connections")].filter(Boolean).join(", ")}

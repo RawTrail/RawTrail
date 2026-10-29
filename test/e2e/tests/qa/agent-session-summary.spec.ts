@@ -104,7 +104,7 @@ test.describe("a session's Summary", () => {
     await expect(programs).toHaveText(["git1", "npm1"]);
 
     const touched = page.getByRole("region", { name: "What it touched" });
-    await expect(touched.getByText("3 files: 2 created, 1 modified.")).toBeVisible();
+    await expect(touched.getByText("3 file events across 3 paths: 2 created, 1 modified.")).toBeVisible();
     await expect(touched.getByText("1 path outside this project.")).toBeVisible();
     await expect(touched.getByRole("list", { name: "File events by directory" }).getByRole("listitem"))
       .toHaveText(["./src2", "/tmp/npm-cache1"]);
@@ -112,8 +112,8 @@ test.describe("a session's Summary", () => {
     const talked = page.getByRole("region", { name: "Where it talked to" });
     await expect(talked.getByText("2 DNS lookups, 1 connection, 1 domain this host had not looked up before.")).toBeVisible();
     await expect(talked.getByRole("list", { name: "Git hosts" })).toContainText("github.com1 lookup, 1 connection");
-    await expect(talked.getByRole("list", { name: "Git hosts" }).getByText("First time on this host")).toHaveCount(0);
-    await expect(talked.getByRole("list", { name: "Package registries" }).getByText("First time on this host")).toBeVisible();
+    await expect(talked.getByRole("list", { name: "Git hosts" }).getByText("New to this host")).toHaveCount(0);
+    await expect(talked.getByRole("list", { name: "Package registries" }).getByText("New to this host")).toBeVisible();
 
     await expect(page.getByRole("region", { name: "Timeline" }).getByRole("img", { name: /^Commands started: 2 across the session/ }))
       .toBeVisible();

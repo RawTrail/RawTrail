@@ -88,7 +88,7 @@ describe("SessionSummary", () => {
   it("says what it did to files, by directory relative to the project, and what it touched outside it", () => {
     renderSummary(busy());
     const touched = section("What it touched");
-    expect(within(touched).getByText("5 files: 2 created, 6 modified, 1 deleted.")).toBeVisible();
+    expect(within(touched).getByText("9 file events across 5 paths: 2 created, 6 modified, 1 deleted.")).toBeVisible();
     expect(within(touched).getByText("1 path outside this project.")).toBeVisible();
     expect(within(within(touched).getByRole("list", { name: "File events by directory" })).getAllByRole("listitem")
       .map((li) => li.textContent)).toEqual(["./src6", "/etc2"]);
@@ -104,8 +104,8 @@ describe("SessionSummary", () => {
     expect(within(within(talked).getByRole("list", { name: "Git hosts" })).getByRole("listitem"))
       .toHaveTextContent("github.com2 lookups, 3 connections");
     const fresh = within(within(talked).getByRole("list", { name: "Everything else" })).getByRole("listitem");
-    expect(within(fresh).getByText("First time on this host")).toBeVisible();
-    expect(within(within(talked).getByRole("list", { name: "Git hosts" })).queryByText("First time on this host")).toBeNull();
+    expect(within(fresh).getByText("New to this host")).toBeVisible();
+    expect(within(within(talked).getByRole("list", { name: "Git hosts" })).queryByText("New to this host")).toBeNull();
   });
 
   it("says what it took in tokens and how long it ran in each mode, bypass flagged", () => {

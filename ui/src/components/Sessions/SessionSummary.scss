@@ -61,6 +61,10 @@
     }
   }
 
+  .badge {
+    white-space: nowrap;
+  }
+
   &__count {
     color: $ui-black-75;
     margin-left: auto;
@@ -79,6 +83,7 @@
   // Thin baseline-anchored bars, 2px apart, as the host page's activity strip draws them.
   &__bars {
     align-items: flex-end;
+    border-bottom: 1px solid $ui-black-10;
     display: flex;
     gap: 2px;
     height: 40px;

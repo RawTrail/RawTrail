@@ -22,12 +22,13 @@ export interface DomainGroup {
 }
 
 // groupDomains groups the digest's domains by organization, in the organizations' order with everything else last, each group's
-// domains in the digest's order (busiest first). An organization none of the domains belongs to is left out.
+// domains in the digest's order (busiest first). A domain under a known one belongs with it: the server keeps a name whose registrable
+// part is a public suffix whole, as it does objects.githubusercontent.com. An organization none of the domains belongs to is left out.
 export function groupDomains(domains: readonly DomainActivity[]): DomainGroup[] {
   const groups = [...ORGANIZATIONS.map((o) => ({ label: o.label, domains: [] as DomainActivity[] })),
     { label: EVERYTHING_ELSE, domains: [] as DomainActivity[] }];
   for (const d of domains) {
-    const at = ORGANIZATIONS.findIndex((o) => o.domains.includes(d.domain));
+    const at = ORGANIZATIONS.findIndex((o) => o.domains.some((known) => d.domain === known || d.domain.endsWith(`.${known}`)));
     groups[at === -1 ? ORGANIZATIONS.length : at].domains.push(d);
   }
   return groups.filter((g) => g.domains.length > 0);
