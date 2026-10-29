@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
@@ -15,6 +16,9 @@ import (
 // PromptID holds what belongs to no prompt: a command no call pairs with, or a call the agent read before any turn.
 type Turn struct {
 	PromptID string `json:"prompt_id,omitempty"`
+	// UID is the owner of the transcript the turn was read from. A transcript is its user's to write, so another user's prompt or
+	// call that names the same turn is a turn of its own.
+	UID int64 `json:"uid,omitempty"`
 	// AtNs is the prompt's time, or the turn's first command or call when its prompt was not captured.
 	AtNs int64 `json:"at_ns"`
 	// Prompt is the prompt that began the turn, when the agent captured it.
@@ -26,24 +30,34 @@ type Turn struct {
 // outside reports whether the turn holds what belongs to no prompt.
 func (t Turn) outside() bool { return t.PromptID == "" }
 
-// sortKey orders the turns: by time, the turn of no prompt last whatever its time, since it gathers what came at any point.
+// sortKey orders the turns: by time and then turn and owner, the turn of no prompt last whatever its time, since it gathers what came
+// at any point.
 func (t Turn) sortKey() (int64, string) {
 	if t.outside() {
 		return math.MaxInt64, ""
 	}
-	return t.AtNs, t.PromptID
+	return t.AtNs, t.PromptID + "\x00" + strconv.FormatInt(t.UID, 10)
+}
+
+// turnKey is a turn as its owner wrote it: the turn's id and the transcript owner's uid.
+type turnKey struct {
+	promptID string
+	uid      int64
 }
 
 // BuildConversation groups a session's commands, tool calls and prompts into its turns, oldest first. A command is the turn of the
 // call it pairs with, or of the calls it ties with when they share one; any other command belongs to no prompt. A call that a
 // command stands for is not listed again.
 func BuildConversation(commands []Command, calls []visibilityapi.AgentToolCall, prompts []visibilityapi.AgentPrompt) []Turn {
-	turns := map[string]*Turn{}
-	turnOf := func(promptID string, atNs int64) *Turn {
-		t, ok := turns[promptID]
+	turns := map[turnKey]*Turn{}
+	turnOf := func(key turnKey, atNs int64) *Turn {
+		if key.promptID == "" {
+			key = turnKey{} // what belongs to no prompt is one turn, whoever's it is
+		}
+		t, ok := turns[key]
 		if !ok {
-			t = &Turn{PromptID: promptID, AtNs: atNs, Commands: []Command{}, Calls: []visibilityapi.AgentToolCall{}}
-			turns[promptID] = t
+			t = &Turn{PromptID: key.promptID, UID: key.uid, AtNs: atNs, Commands: []Command{}, Calls: []visibilityapi.AgentToolCall{}}
+			turns[key] = t
 		}
 		if t.Prompt == nil && atNs < t.AtNs {
 			t.AtNs = atNs
@@ -51,24 +65,24 @@ func BuildConversation(commands []Command, calls []visibilityapi.AgentToolCall, 
 		return t
 	}
 	for _, p := range prompts {
-		t := turnOf(p.PromptID, p.AtNs)
+		t := turnOf(turnKey{p.PromptID, p.UID}, p.AtNs)
 		t.Prompt, t.AtNs = &p, p.AtNs
 	}
 	covered := map[callKey]bool{}
 	for _, c := range commands {
-		promptID := ""
+		key := turnKey{}
 		if c.ToolCall != nil {
-			promptID = matchTurn(*c.ToolCall, covered)
+			key = matchTurn(*c.ToolCall, covered)
 		}
-		t := turnOf(promptID, c.StartNs)
+		t := turnOf(key, c.StartNs)
 		t.Commands = append(t.Commands, c)
 	}
 	for _, call := range calls {
-		if covered[callKey{call.ToolUseID, call.UID}] {
-			continue
+		// A call its command stands for still dates its turn, which may have begun with it.
+		t := turnOf(turnKey{call.PromptID, call.UID}, call.CalledAtNs)
+		if !covered[callKey{call.ToolUseID, call.UID}] {
+			t.Calls = append(t.Calls, call)
 		}
-		t := turnOf(call.PromptID, call.CalledAtNs)
-		t.Calls = append(t.Calls, call)
 	}
 	out := make([]Turn, 0, len(turns))
 	for _, t := range turns {
@@ -83,19 +97,20 @@ func BuildConversation(commands []Command, calls []visibilityapi.AgentToolCall, 
 }
 
 // matchTurn is the turn a command's call match places it in, marking the calls it stands for as covered: the matched call's turn, or
-// the turn every tied candidate shares. Candidates of different turns leave the command in no prompt's.
-func matchTurn(m ToolCallMatch, covered map[callKey]bool) string {
+// the turn every call of the tie shares, all of them and not only those it lists. Calls of different turns leave the command in no
+// prompt's.
+func matchTurn(m ToolCallMatch, covered map[callKey]bool) turnKey {
 	if m.Call != nil {
 		covered[callKey{m.Call.ToolUseID, m.Call.UID}] = true
-		return m.Call.PromptID
+		return turnKey{m.Call.PromptID, m.Call.UID}
 	}
-	shared := ""
-	for i, c := range m.Candidates {
+	var shared turnKey
+	for i, c := range m.tied {
 		covered[callKey{c.ToolUseID, c.UID}] = true
 		if i == 0 {
-			shared = c.PromptID
-		} else if c.PromptID != shared {
-			shared = ""
+			shared = turnKey{c.PromptID, c.UID}
+		} else if (turnKey{c.PromptID, c.UID}) != shared {
+			shared = turnKey{}
 		}
 	}
 	return shared

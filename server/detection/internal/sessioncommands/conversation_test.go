@@ -14,6 +14,12 @@ func turnCall(id, tool, promptID string, at int64) visibilityapi.AgentToolCall {
 	return visibilityapi.AgentToolCall{ToolUseID: id, ToolName: tool, PromptID: promptID, CalledAtNs: at, UID: 501, Command: id}
 }
 
+// tie is the match JoinToolCalls gives a command whose calls tie: the first few listed, every one held.
+func tie(calls []visibilityapi.AgentToolCall) *ToolCallMatch {
+	return &ToolCallMatch{Kind: MatchAmbiguous, Candidates: calls[:min(len(calls), maxListedCandidates)], CandidateCount: len(calls),
+		tied: calls}
+}
+
 func conversationCommand(label string, start int64, m *ToolCallMatch) Command {
 	return Command{Key: "row:" + label, Command: label, StartNs: start, ToolCall: m}
 }
@@ -42,13 +48,14 @@ func TestBuildConversation(t *testing.T) {
 	commands := []Command{
 		conversationCommand("ls", 111, matched(bashLs)),
 		conversationCommand("git status", 211, matched(bashGit)),
-		conversationCommand("make", 232, &ToolCallMatch{Kind: MatchAmbiguous, Candidates: []visibilityapi.AgentToolCall{tiedA, tiedB}}),
-		conversationCommand("split", 322, &ToolCallMatch{Kind: MatchAmbiguous, Candidates: []visibilityapi.AgentToolCall{splitA, splitB}}),
+		conversationCommand("make", 232, tie([]visibilityapi.AgentToolCall{tiedA, tiedB})),
+		conversationCommand("split", 322, tie([]visibilityapi.AgentToolCall{splitA, splitB})),
 		conversationCommand("daemon", 400, nil),
 		conversationCommand("late", 341, matched(bashLate)),
 	}
 	calls := []visibilityapi.AgentToolCall{bashLs, bashGit, edit, tiedA, tiedB, splitA, splitB, early, uncaptured, bashLate}
-	prompts := []visibilityapi.AgentPrompt{{PromptID: "p2", Text: "check git", AtNs: 200}, {PromptID: "p1", Text: "list", AtNs: 100}}
+	prompts := []visibilityapi.AgentPrompt{{PromptID: "p2", Text: "check git", AtNs: 200, UID: 501}, {PromptID: "p1", Text: "list", AtNs: 100,
+		UID: 501}}
 
 	turns := BuildConversation(commands, calls, prompts)
 	require.Equal(t, []string{"p1", "p2", "p3", ""}, turnIDs(turns), "by time, what belongs to no prompt last")
@@ -123,4 +130,52 @@ func TestConversationPageOf_ReadsEveryTurnOnce(t *testing.T) {
 	})
 	_, err := ConversationPageOf([]Turn{}, "!!", 2)
 	assert.Error(t, err)
+}
+
+// A tie is read whole: past the calls it lists, a call of another turn leaves the command in no prompt's, and every call the command
+// stands for, listed or not, is not listed again.
+func TestBuildConversation_ReadsAWholeTie(t *testing.T) {
+	t.Parallel()
+	var calls []visibilityapi.AgentToolCall
+	for i := range maxListedCandidates {
+		calls = append(calls, turnCall("toolu_"+string(rune('a'+i)), "Bash", "p1", int64(100+i)))
+	}
+	late := turnCall("toolu_late", "Bash", "p2", 200)
+	calls = append(calls, late)
+	turns := BuildConversation([]Command{conversationCommand("make", 300, tie(calls))}, calls, nil)
+	require.Equal(t, []string{"p1", "p2", ""}, turnIDs(turns), "each call still dates its turn")
+	assert.Equal(t, []string{"make"}, labels(turns[2].Commands), "a tie across turns belongs to no prompt's")
+	for _, turn := range turns {
+		assert.Empty(t, turn.Calls, "no call of the tie is listed again, the unlisted one included")
+	}
+}
+
+// Another user's prompt and call that name the same turn are a turn of their own: a transcript is its user's to write.
+//
+// spec:server-rest-api/agent-session-conversation/another-owner-s-turn-is-a-turn-of-its-own
+func TestBuildConversation_KeepsOwnersApart(t *testing.T) {
+	t.Parallel()
+	mine := turnCall("toolu_mine", "Bash", "p1", 110)
+	theirs := turnCall("toolu_theirs", "Read", "p1", 120)
+	theirs.UID = 502
+	turns := BuildConversation([]Command{conversationCommand("ls", 111, matched(mine))}, []visibilityapi.AgentToolCall{mine, theirs},
+		[]visibilityapi.AgentPrompt{{PromptID: "p1", Text: "mine", AtNs: 100, UID: 501}, {PromptID: "p1", Text: "forged", AtNs: 105,
+			UID: 502}})
+	require.Len(t, turns, 2)
+	assert.Equal(t, "mine", turns[0].Prompt.Text)
+	assert.Equal(t, []string{"ls"}, labels(turns[0].Commands))
+	assert.Equal(t, int64(502), turns[1].UID)
+	assert.Equal(t, "forged", turns[1].Prompt.Text)
+	assert.Equal(t, []visibilityapi.AgentToolCall{theirs}, turns[1].Calls)
+	assert.Empty(t, turns[1].Commands, "the forged prompt takes none of my commands")
+}
+
+// An uncaptured turn begins at its first call, though a command stands for that call and starts later.
+func TestBuildConversation_DatesATurnByItsCoveredCall(t *testing.T) {
+	t.Parallel()
+	early := turnCall("toolu_early", "Bash", "p1", 100)
+	turns := BuildConversation([]Command{conversationCommand("ls", 300, matched(early))}, []visibilityapi.AgentToolCall{early},
+		[]visibilityapi.AgentPrompt{{PromptID: "p2", Text: "later", AtNs: 200, UID: 501}})
+	assert.Equal(t, []string{"p1", "p2"}, turnIDs(turns), "p1 began at its call, before p2's prompt")
+	assert.Equal(t, int64(100), turns[0].AtNs)
 }

@@ -994,6 +994,7 @@ paths:
                       required: [at_ns, commands, calls]
                       properties:
                         prompt_id: {type: string, description: "The turn; absent on the turn of what belongs to no prompt."}
+                        uid: {type: integer, description: "The owner of the transcript the turn was read from. Another user's prompt or call naming the same turn is a turn of its own."}
                         at_ns: {type: integer, format: int64, description: "The prompt's time, or the turn's first item's when it has none."}
                         prompt: {type: object, description: "The prompt as the prompts endpoint lists it, its text left out when prompts are hidden."}
                         commands:

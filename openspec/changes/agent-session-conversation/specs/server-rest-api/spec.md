@@ -16,6 +16,12 @@
 - **WHEN** a client reads the conversation
 - **THEN** both are listed in the last turn, which has no prompt
 
+#### Scenario: Another owner's turn is a turn of its own
+
+- **GIVEN** a prompt and a call another user's transcript wrote, naming the same turn as this session's
+- **WHEN** a client reads the conversation
+- **THEN** they form a turn of their own, apart from the session owner's, and take none of its commands
+
 #### Scenario: Turns page in order
 
 - **WHEN** a client follows `next_cursor` to the end

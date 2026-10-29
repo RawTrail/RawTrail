@@ -38,7 +38,7 @@ func conversationReader() *fakeToolCallReader {
 	for i := range reader.calls {
 		reader.calls[i].PromptID = "p1"
 	}
-	reader.prompts = visibilityapi.AgentPromptPage{Prompts: []visibilityapi.AgentPrompt{{PromptID: "p1", Text: "list and check", AtNs: 800}}}
+	reader.prompts = visibilityapi.AgentPromptPage{Prompts: []visibilityapi.AgentPrompt{{PromptID: "p1", Text: "list and check", AtNs: 800, UID: 501}}}
 	return reader
 }
 
