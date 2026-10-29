@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   DetectionConfigApiError,
   getAgentSettings,
+  ReauthRequiredError,
   replaceAgentSettings,
   type AgentSettings as AgentSettingsResponse,
   type ReplaceAgentSettingsResult,
@@ -85,6 +86,11 @@ export function AgentSettings() {
         }
         if (err instanceof DetectionConfigApiError) {
           setSaveError(`Not changed: ${err.message}`);
+          return;
+        }
+        // The server refused the change for want of a fresh sign-in, and the operator did not sign in again.
+        if (err instanceof ReauthRequiredError) {
+          setSaveError("Not changed: confirm your identity to change this setting.");
           return;
         }
         // No answer from the server, or one this page could not read, says nothing about whether the change was stored.

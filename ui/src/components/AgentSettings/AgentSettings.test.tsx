@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AgentSettings } from "./AgentSettings";
 import { PermissionsProvider } from "../../permissions";
 import { PermissionAction } from "../../permissions-core";
@@ -128,6 +128,20 @@ describe("AgentSettings", () => {
     turnOffWithReason("r");
     expect(await screen.findByRole("alert")).toHaveTextContent("Not changed: capture_prompts is required");
     expect(screen.queryByRole("button", { name: "Load the latest settings" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Capture prompts" })).toBeChecked();
+  });
+
+  it("says the setting is unchanged when the operator does not confirm their identity", async () => {
+    const read = vi.spyOn(api, "getAgentSettings");
+    await renderLoaded();
+    vi.spyOn(api, "replaceAgentSettings").mockRejectedValue(
+      new api.ReauthRequiredError({ authMethod: "oidc", reauthURL: "https://idp.example/reauth" }),
+    );
+    turnOffWithReason("r");
+    const identity = await screen.findByRole("dialog", { name: "Confirm your identity" });
+    fireEvent.click(within(identity).getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByText("Not changed: confirm your identity to change this setting.")).toBeVisible();
+    expect(read).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("switch", { name: "Capture prompts" })).toBeChecked();
   });
 
