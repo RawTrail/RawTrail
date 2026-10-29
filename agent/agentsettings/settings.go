@@ -1,7 +1,7 @@
 // Package agentsettings holds the fleet-wide agent settings the server pushes with set_agent_settings (issue #1426): today whether the
-// prompts people type to AI agents are captured. The last settings applied are kept in a file beside the event queue, so a restart
-// honours them at once rather than capturing until the server's catch-up reaches the host, which it does not do for a host it has
-// already sent them to.
+// prompts people type to AI agents are captured. An agent captures nothing until it has the fleet's settings, so a fleet that turned
+// capture off never has prompts sent by an agent that has not heard yet; the server sends them to every host, unchanged ones
+// included. The last settings applied are kept in a file beside the event queue, so a restart honours them at once.
 package agentsettings
 
 import (
@@ -39,29 +39,30 @@ type Settings struct {
 	// local is the agent's own EDR_CAPTURE_PROMPTS. When it is off the server cannot turn capture on.
 	local bool
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// known is whether the agent has the fleet's settings, from the file or a push; applied is what they are.
+	known   bool
 	applied Payload
 	capture atomic.Bool
 }
 
-// Open reads the settings last applied from dir. No file is a host the server has never sent settings to, which runs on the defaults:
-// prompts are captured. A file that cannot be read or decoded turns capture off until the next push, since it may have recorded an
-// administrator turning it off.
+// Open reads the settings last applied from dir. With none, as on a new install or the first start of an agent that applies settings,
+// prompts are not captured until the server sends the fleet's. A file that cannot be read or decoded is treated the same way, since it
+// may have recorded an administrator turning capture off.
 func Open(ctx context.Context, dir string, localCapture bool, logger *slog.Logger) *Settings {
 	s := &Settings{path: filepath.Join(dir, FileName), local: localCapture}
-	capture := true
+	capture := false
 	b, err := os.ReadFile(s.path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
 		logger.WarnContext(ctx, "agent settings: cannot read the settings file; prompt capture is off until the server sends them",
 			"path", s.path, "err", err)
-		capture = false
 	case json.Unmarshal(b, &s.applied) != nil:
 		logger.WarnContext(ctx, "agent settings: the settings file is damaged; prompt capture is off until the server sends them", "path", s.path)
-		s.applied, capture = Payload{}, false
+		s.applied = Payload{}
 	default:
-		capture = s.applied.CapturePrompts
+		s.known, capture = true, s.applied.CapturePrompts
 	}
 	s.capture.Store(localCapture && capture)
 	return s
@@ -72,24 +73,25 @@ func (s *Settings) CapturePrompts() bool {
 	return s.capture.Load()
 }
 
-// Apply puts a set_agent_settings payload in force when it is newer than the settings applied, and reports whether it was. Commands
-// can arrive out of order, so an older one is acknowledged and ignored. The settings take effect even when they cannot be written to
+// Apply puts a set_agent_settings payload in force when the agent has no settings yet or it is newer than those applied, and reports
+// whether it was. Commands can arrive out of order, so an older one is acknowledged and ignored. Version 0 is the settings no operator
+// has changed. The settings take effect even when they cannot be written to
 // the file, which returns an error so the command is retried; the settings applied are then left as they were, so the retry writes
 // them.
 func (s *Settings) Apply(p Payload) (bool, error) {
-	if p.Version <= 0 {
+	if p.Version < 0 {
 		return false, fmt.Errorf("invalid version %d", p.Version)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !p.newer(s.applied) {
+	if s.known && !p.newer(s.applied) {
 		return false, nil
 	}
 	s.capture.Store(s.local && p.CapturePrompts)
 	if err := s.write(p); err != nil {
 		return true, err
 	}
-	s.applied = p
+	s.known, s.applied = true, p
 	return true, nil
 }
 

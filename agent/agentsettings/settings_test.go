@@ -21,6 +21,7 @@ func writeFile(t *testing.T, dir, body string) {
 }
 
 // spec:endpoint-event-collection/prompt-capture-follows-the-fleet-agent-settings/a-restart-keeps-the-settings-last-applied
+// spec:endpoint-event-collection/prompt-capture-follows-the-fleet-agent-settings/a-new-agent-waits-for-the-fleet-settings
 func TestOpen(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -29,12 +30,13 @@ func TestOpen(t *testing.T) {
 		local bool
 		want  bool
 	}{
-		{"a host never sent settings captures", "", true, true},
+		// A new install, or the first start of an agent that applies settings, waits for the fleet's.
+		{"a host never sent settings", "", true, false},
 		{"settings that turned capture off", `{"version":2,"epoch":5,"capture_prompts":false}`, true, false},
 		{"settings that turned capture on", `{"version":3,"epoch":6,"capture_prompts":true}`, true, true},
 		// The file may have recorded capture turned off, so a damaged one keeps prompts on the Mac until the next push.
 		{"a damaged file", `{"version":`, true, false},
-		{"EDR_CAPTURE_PROMPTS=0 with no file", "", false, false},
+
 		{"EDR_CAPTURE_PROMPTS=0 under settings that capture", `{"version":3,"epoch":6,"capture_prompts":true}`, false, false},
 	}
 	for _, tc := range cases {
@@ -47,6 +49,18 @@ func TestOpen(t *testing.T) {
 			assert.Equal(t, tc.want, Open(t.Context(), dir, tc.local, discard()).CapturePrompts())
 		})
 	}
+
+	t.Run("a push of the defaults to a host with none", func(t *testing.T) {
+		t.Parallel()
+		s := Open(t.Context(), t.TempDir(), true, discard())
+		applied, err := s.Apply(Payload{Version: 0, Epoch: 0, CapturePrompts: true})
+		require.NoError(t, err)
+		assert.True(t, applied, "the first settings are applied whatever their version")
+		assert.True(t, s.CapturePrompts())
+		applied, err = s.Apply(Payload{Version: 0, Epoch: 0, CapturePrompts: false})
+		require.NoError(t, err)
+		assert.False(t, applied, "the same version again is not newer")
+	})
 
 	t.Run("an unreadable file", func(t *testing.T) {
 		t.Parallel()
@@ -80,10 +94,13 @@ func TestApply(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			s := Open(t.Context(), dir, true, discard())
+			_, err := s.Apply(Payload{Version: 0, Epoch: 0, CapturePrompts: true})
+			require.NoError(t, err)
+			require.True(t, s.CapturePrompts())
 			applied, err := s.Apply(tc.first)
 			require.NoError(t, err)
 			require.True(t, applied)
-			require.False(t, s.CapturePrompts(), "the first push turned capture off at once")
+			require.False(t, s.CapturePrompts(), "the push turned capture off at once")
 
 			applied, err = s.Apply(tc.then)
 			require.NoError(t, err)
@@ -92,6 +109,18 @@ func TestApply(t *testing.T) {
 			assert.Equal(t, tc.wantCapture, Open(t.Context(), dir, true, discard()).CapturePrompts(), "a restart reads what is in force")
 		})
 	}
+}
+
+// The settings read at start order later pushes as the ones applied before the restart did: a late, older push does not undo them.
+func TestApply_AfterARestart(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, dir, `{"version":3,"epoch":6,"capture_prompts":false}`)
+	s := Open(t.Context(), dir, true, discard())
+	applied, err := s.Apply(Payload{Version: 2, Epoch: 4, CapturePrompts: true})
+	require.NoError(t, err)
+	assert.False(t, applied)
+	assert.False(t, s.CapturePrompts())
 }
 
 func TestApply_LocalOffWins(t *testing.T) {
@@ -103,12 +132,12 @@ func TestApply_LocalOffWins(t *testing.T) {
 	assert.False(t, s.CapturePrompts(), "the server cannot turn on what EDR_CAPTURE_PROMPTS=0 turned off")
 }
 
-func TestApply_RefusesAPayloadWithoutAVersion(t *testing.T) {
+func TestApply_RefusesANegativeVersion(t *testing.T) {
 	t.Parallel()
 	s := Open(t.Context(), t.TempDir(), true, discard())
-	_, err := s.Apply(Payload{Epoch: 1, CapturePrompts: false})
+	_, err := s.Apply(Payload{Version: -1, Epoch: 1, CapturePrompts: true})
 	require.Error(t, err)
-	assert.True(t, s.CapturePrompts(), "nothing changed")
+	assert.False(t, s.CapturePrompts(), "nothing changed")
 }
 
 // A push that cannot be written still takes effect, and is reported as an error so the server sends it again; the retry then writes it.
@@ -116,6 +145,9 @@ func TestApply_WriteFailureTakesEffectAndIsRetried(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	s := Open(t.Context(), dir, true, discard())
+	_, err := s.Apply(Payload{Version: 0, Epoch: 0, CapturePrompts: true})
+	require.NoError(t, err)
+	require.True(t, s.CapturePrompts())
 	// A directory where the temporary file goes cannot be written as one.
 	blocked := filepath.Join(dir, FileName+".tmp")
 	require.NoError(t, os.Mkdir(blocked, 0o700))
@@ -124,6 +156,7 @@ func TestApply_WriteFailureTakesEffectAndIsRetried(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, applied)
 	assert.False(t, s.CapturePrompts(), "capture is off even though it could not be recorded")
+	assert.True(t, Open(t.Context(), dir, true, discard()).CapturePrompts(), "the file still holds the settings before")
 
 	require.NoError(t, os.Remove(blocked))
 	applied, err = s.Apply(off)
