@@ -15,6 +15,7 @@ import (
 	"github.com/rawtrail/rawtrail/server/auditoutbox"
 	"github.com/rawtrail/rawtrail/server/rules/api"
 	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
+	"github.com/rawtrail/rawtrail/server/rules/internal/hostpush"
 )
 
 // Store reads and replaces the single watched_path_set row.
@@ -115,25 +116,7 @@ func (s *Store) Replace(
 	if err != nil {
 		return api.WatchedPathSet{}, api.WatchedPathSet{}, 0, fmt.Errorf("encode watched paths: %w", err)
 	}
-	_, _, err = s.set.Replace(ctx, encoded, actor, expectedVersion, ErrVersionConflict,
-		func(ctx context.Context, tx *sqlx.Tx, beforeRow, afterRow versionedset.Row) error {
-			if previous, err = decode(beforeRow); err != nil {
-				return err
-			}
-			if next, err = decode(afterRow); err != nil {
-				return err
-			}
-			entry, aerr := audit(previous, next)
-			if aerr != nil {
-				return aerr
-			}
-			auditID, aerr = s.outbox.EnqueueHeld(ctx, tx, entry, auditHold)
-			return aerr
-		})
-	if err != nil {
-		return api.WatchedPathSet{}, api.WatchedPathSet{}, 0, err
-	}
-	return previous, next, auditID, nil
+	return hostpush.ReplaceAudited(ctx, s.set, s.outbox, encoded, actor, expectedVersion, ErrVersionConflict, auditHold, decode, audit)
 }
 
 // auditHold is how long a replacement's audit entry waits for the push's host counts. The push is one host listing and one batched

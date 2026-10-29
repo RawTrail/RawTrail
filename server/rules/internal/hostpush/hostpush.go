@@ -1,6 +1,6 @@
 // Package hostpush pushes a fleet-wide, versioned document to every enrolled host as one command type, and catches up the hosts a push
-// missed. The watched-path set (issue #998) and the agent settings (issue #1426) are its documents: each owns its storage, its payload
-// and its audit row, and shares how they reach hosts.
+// missed. A document, such as the watched-path set (issue #998), owns its storage, its payload and its audit row, and shares how they
+// reach hosts.
 package hostpush
 
 import (
@@ -9,6 +9,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+
+	"github.com/rawtrail/rawtrail/internal/versionedset"
 	"github.com/rawtrail/rawtrail/server/auditoutbox"
 	"github.com/rawtrail/rawtrail/server/catchup"
 	"github.com/rawtrail/rawtrail/server/rules/api"
@@ -153,4 +156,35 @@ func Needs(cmd api.HostCommand, e api.HostEnrollment, carries func(payload []byt
 		Status:      cmd.Status,
 		CompletedAt: completedAt,
 	}, e.EnrolledAt, now)
+}
+
+// ReplaceAudited stores encoded as a document's new row and returns the document it replaced and the new one, decoded. A non-nil
+// expectedVersion makes it conditional, failing with conflict when the stored row is at any other version.
+//
+// The audit entry audit builds from the two is written in the same transaction, held for hold so the caller can add the push's host
+// counts (Pusher.CompleteAudit) before it is delivered. ReplaceAudited returns the entry's id for that.
+func ReplaceAudited[T any](
+	ctx context.Context, set *versionedset.Store, outbox *auditoutbox.Store, encoded []byte, actor string, expectedVersion *int64,
+	conflict error, hold time.Duration, decode func(versionedset.Row) (T, error), audit func(previous, next T) (auditoutbox.Entry, error),
+) (previous, next T, auditID int64, err error) {
+	_, _, err = set.Replace(ctx, encoded, actor, expectedVersion, conflict,
+		func(ctx context.Context, tx *sqlx.Tx, beforeRow, afterRow versionedset.Row) error {
+			if previous, err = decode(beforeRow); err != nil {
+				return err
+			}
+			if next, err = decode(afterRow); err != nil {
+				return err
+			}
+			entry, aerr := audit(previous, next)
+			if aerr != nil {
+				return aerr
+			}
+			auditID, aerr = outbox.EnqueueHeld(ctx, tx, entry, hold)
+			return aerr
+		})
+	if err != nil {
+		var zero T
+		return zero, zero, 0, err
+	}
+	return previous, next, auditID, nil
 }
