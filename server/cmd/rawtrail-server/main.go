@@ -649,20 +649,20 @@ func openRules(
 	}
 
 	rulesCtx, err := rulesbootstrap.New(ctx, rulesbootstrap.Deps{
-		DB:                        db,
-		Logger:                    logger,
-		Corpus:                    ruleContentCtx.Corpus(),
-		RuleAuthor:                ruleAuthor,
-		RulePacks:                 rulePacks,
-		AuditOutbox:               ruleContentCtx.AuditOutbox(),
-		Audit:                     identityCtx.AuditRecorder(),
-		AuthZ:                     identityCtx.AuthZ(),
-		PrincipalLabel:            identityCtx.Service().PrincipalLabel,
-		CommandBatchInserter:      responseCtx.Service().InsertBatch,
-		HostLister:                hostListerFromDetection(detectionCtx.Service()),
-		EnrolledHostLister:        endpointCtx.Service().ActiveHostIDs,
-		WatchedPathEnrollments:    activeEnrollmentsFromEndpoint(endpointCtx.Service()),
-		WatchedPathLatestCommands: latestCommandsFromResponse(responseCtx.Service()),
+		DB:                   db,
+		Logger:               logger,
+		Corpus:               ruleContentCtx.Corpus(),
+		RuleAuthor:           ruleAuthor,
+		RulePacks:            rulePacks,
+		AuditOutbox:          ruleContentCtx.AuditOutbox(),
+		Audit:                identityCtx.AuditRecorder(),
+		AuthZ:                identityCtx.AuthZ(),
+		PrincipalLabel:       identityCtx.Service().PrincipalLabel,
+		CommandBatchInserter: responseCtx.Service().InsertBatch,
+		HostLister:           hostListerFromDetection(detectionCtx.Service()),
+		EnrolledHostLister:   endpointCtx.Service().ActiveHostIDs,
+		HostEnrollments:      activeEnrollmentsFromEndpoint(endpointCtx.Service()),
+		HostLatestCommands:   latestCommandsFromResponse(responseCtx.Service()),
 	})
 	if err != nil {
 		logger.ErrorContext(ctx, "open rules", "err", err)
@@ -677,9 +677,9 @@ func openRules(
 
 // activeEnrollmentsFromEndpoint adapts the endpoint context's active enrollments to the shape the watched-path catch-up reads. In
 // cmd/main for the same reason as hostListerFromDetection: the projection is wiring.
-func activeEnrollmentsFromEndpoint(svc endpointapi.Service) rulesapi.WatchedPathEnrollmentLister {
-	return projectActiveEnrollments(svc, func(e endpointapi.ActiveEnrollment) rulesapi.WatchedPathEnrollment {
-		return rulesapi.WatchedPathEnrollment{HostID: e.HostID, EnrolledAt: e.EnrolledAt}
+func activeEnrollmentsFromEndpoint(svc endpointapi.Service) rulesapi.HostEnrollmentLister {
+	return projectActiveEnrollments(svc, func(e endpointapi.ActiveEnrollment) rulesapi.HostEnrollment {
+		return rulesapi.HostEnrollment{HostID: e.HostID, EnrolledAt: e.EnrolledAt}
 	})
 }
 
@@ -723,15 +723,15 @@ func containmentEnrollmentsFromEndpoint(svc endpointapi.Service) responseapi.Act
 }
 
 // latestCommandsFromResponse adapts the response context's LatestOfType to the watched-path catch-up's shape.
-func latestCommandsFromResponse(svc responseapi.Service) rulesapi.WatchedPathCommandLister {
-	return func(ctx context.Context, commandType string, hostIDs []string) (map[string]rulesapi.WatchedPathCommand, error) {
+func latestCommandsFromResponse(svc responseapi.Service) rulesapi.HostCommandLister {
+	return func(ctx context.Context, commandType string, hostIDs []string) (map[string]rulesapi.HostCommand, error) {
 		latest, err := svc.LatestOfType(ctx, commandType, hostIDs)
 		if err != nil {
 			return nil, err
 		}
-		out := make(map[string]rulesapi.WatchedPathCommand, len(latest))
+		out := make(map[string]rulesapi.HostCommand, len(latest))
 		for hostID, c := range latest {
-			cmd := rulesapi.WatchedPathCommand{Payload: c.Payload, Status: c.Status.Catchup(), CreatedAt: c.CreatedAt}
+			cmd := rulesapi.HostCommand{Payload: c.Payload, Status: c.Status.Catchup(), CreatedAt: c.CreatedAt}
 			if c.CompletedAt != nil {
 				cmd.CompletedAt = *c.CompletedAt
 			}

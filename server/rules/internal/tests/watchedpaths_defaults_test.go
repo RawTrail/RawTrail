@@ -194,10 +194,10 @@ func TestWatchedPathDefaults_ReplicasRacingAddThemOnce(t *testing.T) {
 func TestWatchedPathDefaults_TheConvergeLoopEnsuresThem(t *testing.T) {
 	t.Parallel()
 	r := newDefaultsRig(t)
-	history := &fakeCommandHistory{latest: map[string]rulesapi.WatchedPathCommand{}}
-	enrolled := []rulesapi.WatchedPathEnrollment{{HostID: "host-a", EnrolledAt: time.Now().Add(-time.Hour)}}
+	history := &fakeCommandHistory{latest: map[string]rulesapi.HostCommand{}}
+	enrolled := []rulesapi.HostEnrollment{{HostID: "host-a", EnrolledAt: time.Now().Add(-time.Hour)}}
 	converger := watchedpaths.NewConverger(r.store, history.insert,
-		func(context.Context) ([]rulesapi.WatchedPathEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
+		func(context.Context) ([]rulesapi.HostEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
 	converger.SetEnsureDefaults(r.svc.EnsureDefaults)
 
 	_, err := converger.Converge(t.Context())
