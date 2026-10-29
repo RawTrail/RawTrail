@@ -11,6 +11,7 @@ import { formatRelativeISO } from "../../time";
 import { Button } from "../ui/Button";
 import { Input, Select } from "../ui/Input";
 import { Table, EmptyState } from "../ui/Table";
+import { PushNotice } from "./PushNotice";
 import { ReasonModal } from "./ReasonModal";
 import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
@@ -320,7 +321,7 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
           )}
         </div>
       )}
-      {saved !== null && <SavedNotice result={saved} />}
+      {saved !== null && <PushNotice version={saved.set.version} counts={saved} noun="set" />}
       {reasonOpen && (
         <ReasonModal
           title="Save watched paths?"
@@ -335,26 +336,5 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
         />
       )}
     </>
-  );
-}
-
-// SavedNotice says how far a saved set's push reached. A push skipped because the host list could not be read is called out, since
-// "sent to 0 hosts" would read as a deployment with no hosts.
-function SavedNotice({ result }: { readonly result: ReplaceWatchedPathsResult }) {
-  if (result.fanout_skipped_reason !== undefined) {
-    return (
-      <div className="detection-config__error" role="alert">
-        Saved as version {result.set.version}, but not sent: the enrolled hosts could not be listed. Hosts receive the set within minutes
-        once they can be.
-      </div>
-    );
-  }
-  const queued = result.fanout_hosts - result.fanout_failed;
-  return (
-    <p className="detection-config__note" role="status">
-      Saved as version {result.set.version}. Queued for {queued} of {result.fanout_hosts} enrolled{" "}
-      {result.fanout_hosts === 1 ? "host" : "hosts"}
-      {result.fanout_failed > 0 ? "; the rest receive it within minutes." : "."}
-    </p>
   );
 }

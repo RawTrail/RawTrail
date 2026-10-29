@@ -16,6 +16,7 @@ import { RuleEditor } from "./components/RuleEditor";
 import { MonitorRecords } from "./components/MonitorRecords";
 import { SSOSettings } from "./components/SSOSettings/SSOSettings";
 import { Webhooks } from "./components/Webhooks/Webhooks";
+import { AgentSettings } from "./components/AgentSettings/AgentSettings";
 import { ReachableAddresses } from "./components/Containment/ReachableAddresses";
 import { ServiceAccounts } from "./components/ServiceAccounts/ServiceAccounts";
 import { Users } from "./components/Users/Users";
@@ -245,6 +246,14 @@ export function AuthedApp() {
             element={(
               <RequirePermission action={PermissionAction.ContainmentConfigRead} surface="Containment settings">
                 <SettingsLayout><ReachableAddresses /></SettingsLayout>
+              </RequirePermission>
+            )}
+          />
+          <Route
+            path="/admin/settings/data-collection"
+            element={(
+              <RequirePermission action={PermissionAction.DetectionConfigRead} surface="Data collection settings">
+                <SettingsLayout><AgentSettings /></SettingsLayout>
               </RequirePermission>
             )}
           />
