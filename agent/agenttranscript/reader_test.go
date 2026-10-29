@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -25,6 +26,9 @@ type recordingQueue struct {
 	events []map[string]any
 	fail   bool
 }
+
+// capturing is the prompt switch of a reader whose prompts are captured.
+func capturing() bool { return true }
 
 func (q *recordingQueue) enqueue(_ context.Context, body []byte) error {
 	if q.fail {
@@ -65,7 +69,7 @@ func newTestReader(t *testing.T, q *recordingQueue, hostID string) (*Reader, str
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	path := filepath.Join(dir, "47abb2a1-d231-4304-8cb1-52f4460fcd11.jsonl")
 	require.NoError(t, os.WriteFile(path, nil, 0o600))
-	r := New(root, func() string { return hostID }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), true)
+	r := New(root, func() string { return hostID }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), capturing)
 	return r, path
 }
 
@@ -176,7 +180,7 @@ func TestReader_StaysInsideTheHome(t *testing.T) {
 			}
 			require.NoError(t, os.Symlink(target, at))
 			q := &recordingQueue{}
-			r := New(root, func() string { return "H1" }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), true)
+			r := New(root, func() string { return "H1" }, q.enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), capturing)
 			assert.Equal(t, PassStats{}, r.RunOnce(context.Background()))
 			assert.Empty(t, q.events)
 		})
@@ -221,7 +225,7 @@ func TestReader_EventIDsAreStable(t *testing.T) {
 	r, path := newTestReader(t, q, "H1")
 	appendTo(t, path, bashLine("toolu_01", "ls")+bashLine("toolu_02", "pwd"))
 	r.RunOnce(context.Background())
-	restarted := New(r.root, r.hostID, q.enqueue, r.logger, true)
+	restarted := New(r.root, r.hostID, q.enqueue, r.logger, capturing)
 	restarted.RunOnce(context.Background())
 	require.Len(t, q.events, 4)
 	assert.Equal(t, q.events[0]["event_id"], q.events[2]["event_id"])
@@ -263,7 +267,7 @@ func TestReader_AFIFOForADirectoryDoesNotBlock(t *testing.T) {
 			at := filepath.Join(root, "dev", fifo)
 			require.NoError(t, os.MkdirAll(filepath.Dir(at), 0o700))
 			require.NoError(t, syscall.Mkfifo(at, 0o600))
-			r := New(root, func() string { return "H1" }, (&recordingQueue{}).enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), true)
+			r := New(root, func() string { return "H1" }, (&recordingQueue{}).enqueue, slog.New(slog.NewTextHandler(io.Discard, nil)), capturing)
 			done := make(chan struct{})
 			go func() { r.RunOnce(context.Background()); close(done) }()
 			select {
@@ -479,10 +483,28 @@ func TestReader_Prompts(t *testing.T) {
 		t.Parallel()
 		q := &recordingQueue{}
 		r, path := newTestReader(t, q, "H1")
-		r.prompts = false
+		r.prompts = func() bool { return false }
 		appendTo(t, path, lines)
 		assert.Equal(t, PassStats{Calls: 1}, r.RunOnce(ctx), "no prompt is read, and so none is passed over")
 		assert.Equal(t, []string{"toolu_01"}, q.toolUseIDs())
+	})
+
+	// The fleet's agent settings can turn capture off while the agent runs: the next line read follows the switch, with no restart.
+	//
+	// spec:endpoint-event-collection/prompt-capture-follows-the-fleet-agent-settings/turning-capture-off-takes-effect-without-a-restart
+	t.Run("turned off between passes", func(t *testing.T) {
+		t.Parallel()
+		q := &recordingQueue{}
+		r, path := newTestReader(t, q, "H1")
+		var capture atomic.Bool
+		capture.Store(true)
+		r.prompts = capture.Load
+		appendTo(t, path, userLine(`"first"`, typed)+"\n")
+		assert.Equal(t, PassStats{Prompts: 1}, r.RunOnce(ctx))
+		capture.Store(false)
+		appendTo(t, path, strings.Replace(userLine(`"second"`, typed), `"promptId":"p-1"`, `"promptId":"p-2"`, 1)+"\n")
+		assert.Equal(t, PassStats{}, r.RunOnce(ctx), "the prompt typed after capture was turned off is not sent")
+		assert.Len(t, q.events, 1)
 	})
 }
 
@@ -517,7 +539,7 @@ func TestReader_AForeignUserEntryLeavesTheTurn(t *testing.T) {
 	for _, capture := range []bool{true, false} {
 		q := &recordingQueue{}
 		r, path := newTestReader(t, q, "H1")
-		r.prompts = capture
+		r.prompts = func() bool { return capture }
 		foreign := strings.Replace(strings.Replace(userLine(`"not yours"`, typed), "47abb2a1-d231-4304-8cb1-52f4460fcd11",
 			"99999999-0000-4000-8000-000000000000", 1), `"promptId":"p-1"`, `"promptId":"p-foreign"`, 1)
 		appendTo(t, path, userLine(`"fix it"`, typed)+"\n"+foreign+"\n"+bashLine("toolu_01", "ls"))

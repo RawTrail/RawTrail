@@ -73,8 +73,9 @@ type Config struct {
 	LogLevel                 string
 	LogFormat                string
 	AllowInsecure            bool
-	// CapturePrompts is whether the prompts the user types to an AI agent are read from its transcripts and sent, redacted (issue
-	// #1426). On unless EDR_CAPTURE_PROMPTS is 0.
+	// CapturePrompts is whether this Mac allows the prompts the user types to an AI agent to be read from its transcripts and sent,
+	// redacted (issue #1426). On unless EDR_CAPTURE_PROMPTS is 0, which the fleet's agent settings cannot override; when on, those
+	// settings decide (agent/agentsettings).
 	CapturePrompts bool
 	// Proxy is the outbound proxy every connection to the server goes through, or the zero value for a direct connection.
 	Proxy ProxyConfig

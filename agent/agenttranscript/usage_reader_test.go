@@ -20,7 +20,7 @@ func TestReader_SendsEachMessagesUsageOnce(t *testing.T) {
 	for _, capture := range []bool{true, false} {
 		q := &recordingQueue{}
 		r, path := newTestReader(t, q, "H1")
-		r.prompts = capture
+		r.prompts = func() bool { return capture }
 		mode := `{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"47abb2a1-d231-4304-8cb1-52f4460fcd11"}`
 		foreignMode := `{"type":"permission-mode","permissionMode":"plan","sessionId":"99999999-0000-4000-8000-000000000000"}`
 		// Two entries of one streamed message, then a second message.
@@ -61,7 +61,7 @@ func TestReader_ARereadSendsTheSameUsageRows(t *testing.T) {
 	appendTo(t, path, usageLine("msg_01", "claude-opus-5-5", "")+"\n"+
 		strings.Replace(usageLine("msg_01", "claude-opus-5-5", ""), "09:31:00.500Z", "09:31:02.000Z", 1)+"\n")
 	r.RunOnce(context.Background())
-	restarted := New(r.root, r.hostID, q.enqueue, r.logger, true)
+	restarted := New(r.root, r.hostID, q.enqueue, r.logger, capturing)
 	restarted.RunOnce(context.Background())
 	var rows []string
 	for _, e := range q.events {

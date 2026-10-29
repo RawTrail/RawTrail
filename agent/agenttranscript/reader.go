@@ -69,8 +69,9 @@ type Reader struct {
 	now     func() time.Time
 	logger  *slog.Logger
 	files   map[string]*position
-	// prompts is whether the prompts the user typed are read and sent, as well as the tool calls (issue #1426).
-	prompts bool
+	// prompts reports whether the prompts the user typed are read and sent, as well as the tool calls (issue #1426). Asked per line,
+	// since the fleet's agent settings can turn capture on or off while the agent runs.
+	prompts func() bool
 }
 
 // position is how far one transcript has been read: the offset of the next unread line, the file it was read from, so a transcript
@@ -108,9 +109,10 @@ func (p *position) markSent(messageID string) {
 	p.messages[messageID] = struct{}{}
 }
 
-// New returns a Reader over the home directories under root (/Users on macOS). capturePrompts sends the prompts the user typed as well
-// as the tool calls.
-func New(root string, hostID func() string, enqueue func(context.Context, []byte) error, logger *slog.Logger, capturePrompts bool) *Reader {
+// New returns a Reader over the home directories under root (/Users on macOS). capturePrompts reports whether the prompts the user typed
+// are sent as well as the tool calls.
+func New(root string, hostID func() string, enqueue func(context.Context, []byte) error, logger *slog.Logger,
+	capturePrompts func() bool) *Reader {
 	return &Reader{root: root, hostID: hostID, enqueue: enqueue, now: time.Now, logger: logger, files: map[string]*position{},
 		prompts: capturePrompts}
 }
@@ -409,7 +411,7 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, pos 
 		pos.markSent(usage.MessageID)
 		stats.Usage++
 	}
-	if prompt := line.Prompt; prompt != nil && r.prompts {
+	if prompt := line.Prompt; prompt != nil && r.prompts() {
 		if prompt.SessionID != src.session {
 			stats.Unreadable++
 			return nil
