@@ -85,6 +85,27 @@ type position struct {
 	// turn is the turn the last user entry read belongs to, which each tool call after it was made in (issue #1426). Measured on 60 real
 	// transcripts, it names the same turn as the call's own result in every one of 46,833 calls.
 	turn string
+	// mode is the permission mode the last entry that names one put in force (issue #1427).
+	mode string
+	// messages are the assistant messages whose usage this transcript has sent (issue #1427). Claude Code writes a streamed message as
+	// several entries, each with the whole message's usage and its own time, so only the first is sent: the archive keeps one row
+	// for an event only when its time matches too, which the first entry's does each time the transcript is read from its start.
+	messages map[string]struct{}
+}
+
+// sent reports whether the transcript has sent a message's usage.
+func (p *position) sent(messageID string) bool {
+	_, ok := p.messages[messageID]
+	return ok
+}
+
+// markSent records that the transcript sent a message's usage. It is called once the queue took the event, so a message the queue
+// refused is sent again when its line is read again.
+func (p *position) markSent(messageID string) {
+	if p.messages == nil {
+		p.messages = map[string]struct{}{}
+	}
+	p.messages[messageID] = struct{}{}
 }
 
 // New returns a Reader over the home directories under root (/Users on macOS). capturePrompts sends the prompts the user typed as well
@@ -98,6 +119,7 @@ func New(root string, hostID func() string, enqueue func(context.Context, []byte
 type PassStats struct {
 	Calls      int
 	Prompts    int
+	Usage      int
 	Unreadable int
 }
 
@@ -371,6 +393,21 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, pos 
 	// A user entry of another session neither names this session's turn nor carries a prompt of it.
 	if line.Turn != "" && line.TurnSession == src.session {
 		pos.turn = line.Turn
+	}
+	if line.Mode != "" && line.ModeSession == src.session {
+		pos.mode = line.Mode
+	}
+	if usage := line.Usage; usage != nil && usage.SessionID == src.session && !pos.sent(usage.MessageID) {
+		usage.OwnerUID, usage.PromptID, usage.PermissionMode, usage.ForkedFromSessionID = src.ownerUID, pos.turn, pos.mode, src.forkedFrom
+		body, err := sensorevent.Marshal(usage.EventID(), hostID, UsageEventType, usage.At.UnixNano(), usage.Payload())
+		if err != nil {
+			return err
+		}
+		if err := r.enqueue(ctx, body); err != nil {
+			return fmt.Errorf("enqueue usage: %w", err)
+		}
+		pos.markSent(usage.MessageID)
+		stats.Usage++
 	}
 	if prompt := line.Prompt; prompt != nil && r.prompts {
 		if prompt.SessionID != src.session {
