@@ -91,6 +91,11 @@ func TestEventArchive_AgentUsageTotalsAreTheSumOfTheMessages(t *testing.T) {
 		got, err := arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: "h1", SessionID: session})
 		require.NoError(rt, err)
 		require.Len(rt, got.Models, 1)
+		var modeMessages int64
+		for _, m := range got.Modes {
+			modeMessages += m.Messages
+		}
+		require.Equal(rt, got.Models[0].Messages, modeMessages, "both breakdowns count the same messages")
 		require.Equal(rt, visibilityapi.ModelUsage{Model: "claude-opus-5-5", Messages: int64(n), Input: wantIn, Output: wantOut,
 			CacheCreation: 10 * int64(n), CacheRead: 100 * int64(n), Thinking: int64(n)}, got.Models[0])
 	})

@@ -610,42 +610,23 @@ func (m *MemArchive) AgentUsageTotals(_ context.Context, filter api.AgentToolCal
 			first[key] = u
 		}
 	}
-	models := map[string]*api.ModelUsage{}
-	modes := map[string]*api.ModeUsage{}
+	groups := map[[2]string]*clickhouse.UsageGroup{}
 	for _, u := range first {
-		mu, ok := models[u.Model]
+		g, ok := groups[[2]string{u.Model, u.Mode}]
 		if !ok {
-			mu = &api.ModelUsage{Model: u.Model}
-			models[u.Model] = mu
+			g = &clickhouse.UsageGroup{ModelUsage: api.ModelUsage{Model: u.Model}, Mode: u.Mode, FirstNs: u.atNs, LastNs: u.atNs}
+			groups[[2]string{u.Model, u.Mode}] = g
 		}
-		mu.Messages++
-		mu.Input += u.Input
-		mu.Output += u.Output
-		mu.CacheCreation += u.CacheCreation
-		mu.CacheRead += u.CacheRead
-		mu.Thinking += u.Thinking
-		md, ok := modes[u.Mode]
-		if !ok {
-			md = &api.ModeUsage{Mode: u.Mode, FirstNs: u.atNs, LastNs: u.atNs}
-			modes[u.Mode] = md
-		}
-		md.Messages++
-		md.FirstNs, md.LastNs = min(md.FirstNs, u.atNs), max(md.LastNs, u.atNs)
+		g.Messages++
+		g.Input, g.Output, g.CacheCreation = g.Input+u.Input, g.Output+u.Output, g.CacheCreation+u.CacheCreation
+		g.CacheRead, g.Thinking = g.CacheRead+u.CacheRead, g.Thinking+u.Thinking
+		g.FirstNs, g.LastNs = min(g.FirstNs, u.atNs), max(g.LastNs, u.atNs)
 	}
-	out := api.AgentUsageTotals{Models: []api.ModelUsage{}, Modes: []api.ModeUsage{}}
-	for _, mu := range models {
-		out.Models = append(out.Models, *mu)
+	list := make([]clickhouse.UsageGroup, 0, len(groups))
+	for _, g := range groups {
+		list = append(list, *g)
 	}
-	for _, md := range modes {
-		out.Modes = append(out.Modes, *md)
-	}
-	slices.SortFunc(out.Models, func(a, b api.ModelUsage) int {
-		return cmp.Or(cmp.Compare(b.Output, a.Output), cmp.Compare(a.Model, b.Model))
-	})
-	slices.SortFunc(out.Modes, func(a, b api.ModeUsage) int {
-		return cmp.Or(cmp.Compare(a.FirstNs, b.FirstNs), cmp.Compare(a.Mode, b.Mode))
-	})
-	return out, nil
+	return clickhouse.FoldUsage(list), nil
 }
 
 // AgentSessionLineage mirrors the ClickHouse store: over the owner's calls, each session's parent is the latest parent its /fork job

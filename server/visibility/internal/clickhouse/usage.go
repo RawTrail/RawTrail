@@ -1,9 +1,11 @@
 package clickhouse
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
@@ -15,7 +17,8 @@ const usageMessageID = "JSONExtractString(payload, 'message_id')"
 var notCopiedUsageSQL = notCopied("agent_usage", usageMessageID)
 
 // AgentUsageTotals totals one session's message usage by model and counts its messages by permission mode (issue #1427), each
-// message once by its id and owner and the copies of another session's left out. Both reads are over the same messages.
+// message once by its id and owner and the copies of another session's left out. One read groups the messages by model and mode,
+// and both breakdowns are folded from it, so they describe the same messages however the archive changes meanwhile.
 func (s *Store) AgentUsageTotals(ctx context.Context, filter api.AgentToolCallFilter) (api.AgentUsageTotals, error) {
 	// messages is one row per message and owner, at its first recording: a re-read transcript sends the same message again.
 	messages := `
@@ -27,34 +30,68 @@ func (s *Store) AgentUsageTotals(ctx context.Context, filter api.AgentToolCallFi
 		FROM events FINAL
 		WHERE ` + hostPredicate + ` AND event_type = 'agent_usage' AND ` + callSession + ` = ? AND ` + notCopiedUsageSQL + `
 		GROUP BY id, uid`
-	args := []any{filter.HostID, filter.SessionID, filter.HostID, filter.HostID, filter.SessionID, filter.HostID, filter.HostID,
-		filter.SessionID}
-	var out api.AgentUsageTotals
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT m.1 AS model, count(), sum(m.2), sum(m.3), sum(m.4), sum(m.5), sum(m.6)
+		SELECT m.1 AS model, m.7 AS mode, count(), sum(m.2), sum(m.3), sum(m.4), sum(m.5), sum(m.6), min(at), max(at)
 		FROM (`+messages+`)
-		GROUP BY model
-		ORDER BY sum(m.3) DESC, model`, args...)
+		GROUP BY model, mode`, filter.HostID, filter.SessionID, filter.HostID, filter.HostID, filter.SessionID, filter.HostID,
+		filter.HostID, filter.SessionID)
 	if err != nil {
-		return api.AgentUsageTotals{}, fmt.Errorf("clickhouse agent usage by model: %w", err)
+		return api.AgentUsageTotals{}, fmt.Errorf("clickhouse agent usage: %w", err)
 	}
-	if out.Models, _, err = scanActivity(rows, math.MaxInt, func(u *api.ModelUsage) []any {
-		return []any{&u.Model, &u.Messages, &u.Input, &u.Output, &u.CacheCreation, &u.CacheRead, &u.Thinking}
-	}); err != nil {
+	groups, _, err := scanActivity(rows, math.MaxInt, func(g *UsageGroup) []any {
+		return []any{&g.Model, &g.Mode, &g.Messages, &g.Input, &g.Output, &g.CacheCreation, &g.CacheRead, &g.Thinking, &g.FirstNs,
+			&g.LastNs}
+	})
+	if err != nil {
 		return api.AgentUsageTotals{}, err
 	}
-	rows, err = s.db.QueryContext(ctx, `
-		SELECT m.7 AS mode, count(), min(at), max(at)
-		FROM (`+messages+`)
-		GROUP BY mode
-		ORDER BY min(at), mode`, args...)
-	if err != nil {
-		return api.AgentUsageTotals{}, fmt.Errorf("clickhouse agent usage by mode: %w", err)
+	return FoldUsage(groups), nil
+}
+
+// UsageGroup is a session's messages of one model written in one permission mode: their count, tokens, and first and last time.
+type UsageGroup struct {
+	api.ModelUsage
+	Mode            string
+	FirstNs, LastNs int64
+}
+
+// FoldUsage folds a session's message groups into its totals by model, heaviest output first, and its messages by mode, first seen
+// first. Exported for the in-memory archive, so the two fold one way.
+func FoldUsage(groups []UsageGroup) api.AgentUsageTotals {
+	models := map[string]*api.ModelUsage{}
+	modes := map[string]*api.ModeUsage{}
+	for _, g := range groups {
+		mu, ok := models[g.Model]
+		if !ok {
+			mu = &api.ModelUsage{Model: g.Model}
+			models[g.Model] = mu
+		}
+		mu.Messages += g.Messages
+		mu.Input += g.Input
+		mu.Output += g.Output
+		mu.CacheCreation += g.CacheCreation
+		mu.CacheRead += g.CacheRead
+		mu.Thinking += g.Thinking
+		md, ok := modes[g.Mode]
+		if !ok {
+			md = &api.ModeUsage{Mode: g.Mode, FirstNs: g.FirstNs, LastNs: g.LastNs}
+			modes[g.Mode] = md
+		}
+		md.Messages += g.Messages
+		md.FirstNs, md.LastNs = min(md.FirstNs, g.FirstNs), max(md.LastNs, g.LastNs)
 	}
-	if out.Modes, _, err = scanActivity(rows, math.MaxInt, func(u *api.ModeUsage) []any {
-		return []any{&u.Mode, &u.Messages, &u.FirstNs, &u.LastNs}
-	}); err != nil {
-		return api.AgentUsageTotals{}, err
+	out := api.AgentUsageTotals{Models: []api.ModelUsage{}, Modes: []api.ModeUsage{}}
+	for _, mu := range models {
+		out.Models = append(out.Models, *mu)
 	}
-	return out, nil
+	for _, md := range modes {
+		out.Modes = append(out.Modes, *md)
+	}
+	slices.SortFunc(out.Models, func(a, b api.ModelUsage) int {
+		return cmp.Or(cmp.Compare(b.Output, a.Output), cmp.Compare(a.Model, b.Model))
+	})
+	slices.SortFunc(out.Modes, func(a, b api.ModeUsage) int {
+		return cmp.Or(cmp.Compare(a.FirstNs, b.FirstNs), cmp.Compare(a.Mode, b.Mode))
+	})
+	return out
 }
