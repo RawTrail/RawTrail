@@ -89,6 +89,14 @@ func (f *fakeEventArchive) ActivityPage(context.Context, api.ActivityFilter, str
 	return visibilityapi.ActivityPage{}, nil
 }
 
+func (f *fakeEventArchive) ActivityDigest(context.Context, visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
+	return visibilityapi.ActivityDigest{}, nil
+}
+
+func (f *fakeEventArchive) AgentPromptCount(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
 func (f *fakeEventArchive) AgentToolCallCounts(context.Context, visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error) {
 	return nil, nil
 }

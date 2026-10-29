@@ -5,16 +5,19 @@ import (
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
 	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/internal/sessioncommands"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // AgentSessionTotalsReader is the read of a session's totals (issue #1422): its processes and alerts from the process store, and what
-// it touched, the tools it called and the tokens it used (issue #1427) from the event archive. mysql.Store satisfies it.
+// it touched, the tools it called, the tokens it used (issue #1427) and its digest (issue #1429) from the event archive. mysql.Store satisfies it.
 type AgentSessionTotalsReader interface {
 	AgentSessionCounts(ctx context.Context, hostID, sessionID string) (api.AgentSessionCounts, error)
 	ActivityTotalsForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivitySummary, error)
 	AgentToolCallCounts(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error)
 	AgentUsageTotals(ctx context.Context, filter visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error)
+	ActivityDigest(ctx context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error)
+	AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error)
 }
 
 // SetAgentSessionTotals installs the session totals read. Unset, the summary route answers 503.
@@ -32,6 +35,8 @@ type agentSessionSummaryResponse struct {
 	Scope     timelineScope                 `json:"scope"`
 	// Usage is the tokens the session's messages used, by model, and its messages by permission mode (issue #1427).
 	Usage visibilityapi.AgentUsageTotals `json:"usage"`
+	// Digest describes the session for its Summary (issue #1429), over the same scope as Activity.
+	Digest sessionDigest `json:"digest"`
 }
 
 // alertTotals counts alerts, not monitor records, in all and by severity.
@@ -79,6 +84,10 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}
+	digest, err := h.sessionDigest(ctx, session, commands, filter)
+	if err != nil {
+		return agentSessionSummaryResponse{}, err
+	}
 	out := agentSessionSummaryResponse{
 		Commands:  len(commands),
 		Processes: counts.Processes,
@@ -87,6 +96,7 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 		Activity:  activity,
 		Scope:     *scope,
 		Usage:     usage,
+		Digest:    digest,
 	}
 	for _, n := range counts.AlertsBySeverity {
 		out.Alerts.Total += n
@@ -95,4 +105,25 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 		out.ToolCalls.Total += c.Count
 	}
 	return out, nil
+}
+
+// sessionDigest describes the session for its Summary: its prompts and digest from the event archive, and its programs and command
+// timeline from the commands the summary counted.
+func (h *Handler) sessionDigest(
+	ctx context.Context, session *api.AgentSessionSummary, commands []sessioncommands.Command, scope visibilityapi.ActivityFilter,
+) (sessionDigest, error) {
+	prompts, err := h.sessionTotals.AgentPromptCount(ctx, session.HostID, session.AgentSessionID)
+	if err != nil {
+		return sessionDigest{}, err
+	}
+	activity, err := h.sessionTotals.ActivityDigest(ctx, digestFilter(session, scope, commands))
+	if err != nil {
+		return sessionDigest{}, err
+	}
+	return sessionDigest{
+		Prompts:         prompts,
+		Programs:        topPrograms(commands),
+		ActivityDigest:  activity,
+		CommandTimeline: commandTimeline(commands, activity),
+	}, nil
 }

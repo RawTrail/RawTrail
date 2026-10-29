@@ -956,6 +956,16 @@ func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter visibil
 	return s.archive.ActivityTotalsForGenerations(ctx, filter)
 }
 
+// ActivityDigest delegates a session's activity digest (issue #1429) to the visibility EventArchive.
+func (s *Store) ActivityDigest(ctx context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
+	return s.archive.ActivityDigest(ctx, filter)
+}
+
+// AgentPromptCount delegates the count of a session's prompts (issue #1429) to the visibility EventArchive.
+func (s *Store) AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error) {
+	return s.archive.AgentPromptCount(ctx, hostID, sessionID)
+}
+
 // AgentToolCallCounts delegates a session's tool calls counted by tool (issue #1422) to the visibility EventArchive.
 func (s *Store) AgentToolCallCounts(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error) {
 	return s.archive.AgentToolCallCounts(ctx, filter)

@@ -53,5 +53,9 @@ func TestMemArchive_AgentPrompts(t *testing.T) {
 	assert.Equal(t, api.AgentPrompt{PromptID: "turn-2", Text: "Deploy it", Length: 9, AtNs: 20, UID: 501}, found.Prompts[0])
 
 	_, err = arch.AgentPrompts(ctx, api.AgentPromptFilter{HostID: "h1", SessionID: "s1", Cursor: "!!", Limit: 2})
-	assert.ErrorIs(t, err, api.ErrInvalidPromptCursor)
+	require.ErrorIs(t, err, api.ErrInvalidPromptCursor)
+
+	n, err := arch.AgentPromptCount(ctx, "h1", "s1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), n, "the count is the session's prompts on its host, as TestEventArchive_AgentPromptCount has it")
 }

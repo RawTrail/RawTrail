@@ -87,6 +87,11 @@ type EventArchive interface {
 	// operation, for a summary that names how much a scope touched but none of what.
 	ActivityTotalsForGenerations(ctx context.Context, filter ActivityFilter) (ActivitySummary, error)
 
+	// ActivityDigest describes what a scope touched for a summary of it (issue #1429): its file events by directory, how many paths it
+	// touched outside its project, the domains it looked up or connected to, each marked when the host had not looked it up before
+	// the scope began, and its events counted in equal buckets of the filter's span.
+	ActivityDigest(ctx context.Context, filter DigestFilter) (ActivityDigest, error)
+
 	// ActivityPage lists one class of the rollup's rows (issue #1424), filter.Limit of them, from after the row a cursor names, or
 	// from the first when the cursor is empty: the page that follows the rollup's own list, or one after it. The rows are in the
 	// rollup's order. A cursor of another class, or one that does not decode, is ErrInvalidActivityCursor.
@@ -106,6 +111,9 @@ type EventArchive interface {
 	// after the filter's cursor, keeping those whose text holds the filter's search when it has one. A cursor that does not decode is
 	// an ErrInvalidPromptCursor.
 	AgentPrompts(ctx context.Context, filter AgentPromptFilter) (AgentPromptPage, error)
+
+	// AgentPromptCount counts the prompts AgentPrompts lists for one AI agent session on one host, with no search (issue #1429).
+	AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error)
 
 	// AgentUsageTotals totals the tokens one AI agent session's messages used on one host (issue #1427), by model, and counts its
 	// messages by the permission mode in force, each message once by its id and owner. A message that is a copy of another session's
@@ -327,6 +335,52 @@ type ActivitySummary struct {
 type FileTotals struct {
 	ClassTotals
 	ByOperation map[string]int64 `json:"by_operation"`
+}
+
+// DigestFilter selects the scope an ActivityDigest describes. Project is the directory the scope worked in, empty when unknown. The
+// timeline splits [StartNs, EndNs], widened to the scope's events, into Buckets equal buckets; StartNs is also when the scope
+// began, for marking first-time domains.
+type DigestFilter struct {
+	ActivityFilter
+	Project string
+	StartNs int64
+	EndNs   int64
+	Buckets int
+}
+
+// ActivityDigest is what a scope touched, in the shape a summary reads it (issue #1429). Directories lists the directories with the
+// most file events, most first, and DirectoriesTruncated reports that more had events. OutsideProject counts the distinct paths
+// outside the project. Domains lists the domains with the most lookups and connections, most first. Timeline counts the scope's
+// file, network and DNS events in equal buckets, from TimelineStartNs, TimelineBucketNs wide, a coalesced event counting as the
+// occurrences it stands for. The buckets split the filter's span widened to the scope's first and last event, so every event is on it.
+type ActivityDigest struct {
+	Directories          []DirectoryActivity `json:"directories"`
+	DirectoriesTruncated bool                `json:"directories_truncated"`
+	OutsideProject       int64               `json:"outside_project"`
+	Domains              []DomainActivity    `json:"domains"`
+	DomainsTruncated     bool                `json:"domains_truncated"`
+	Timeline             []int64             `json:"timeline"`
+	TimelineStartNs      int64               `json:"timeline_start_ns"`
+	TimelineBucketNs     int64               `json:"timeline_bucket_ns"`
+}
+
+// DirectoryActivity is the file events under one directory, keyed by operation as FileTotals.ByOperation is, and the distinct paths
+// they touched. A rolled-up row's directory is its own path.
+type DirectoryActivity struct {
+	Directory   string           `json:"directory"`
+	Paths       int64            `json:"paths"`
+	ByOperation map[string]int64 `json:"by_operation"`
+}
+
+// DomainActivity is one domain's lookups and connections, by its registrable domain under the public suffix list (api.github.com
+// and github.com are github.com).
+// A connection counts only when the agent named the host it connected to. New marks a domain the host had not looked up before the
+// scope began.
+type DomainActivity struct {
+	Domain      string `json:"domain"`
+	Lookups     int64  `json:"lookups"`
+	Connections int64  `json:"connections"`
+	New         bool   `json:"new"`
 }
 
 // ToolCallCount is how many calls of one tool an AI agent session recorded.
