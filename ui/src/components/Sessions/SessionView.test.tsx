@@ -5,7 +5,9 @@ import { MemoryRouter, Routes, Route, Link } from "react-router";
 import { SessionView } from "./SessionView";
 import * as api from "../../api";
 import { proc, realSession, SESSION, sessionCommands } from "../../test/agentSession";
-import type { AgentSessionSummary, AgentToolCall, Alert, ProcessNode, SessionCommandsResponse, TreeResponse } from "../../types";
+import type {
+  AgentSessionSummary, AgentToolCall, Alert, ProcessNode, SessionCommandsResponse, SessionConversationResponse, TreeResponse,
+} from "../../types";
 
 function tree(over: Partial<TreeResponse> = {}): TreeResponse {
   return { roots: realSession(), returned: 16, total_matched: 16, total_matched_capped: false, truncated: false, ...over };
@@ -143,6 +145,162 @@ function manyCalls(n: number): ProcessNode[] {
     ["/bin/zsh", "-c", `eval 'step ${String(i)}'`],
     [proc(10 * (i + 1) + 1, 2000 + i, 100 * (i + 1) + 1, "/bin/echo", ["echo", String(i)])], { tool_call_group: 1000 + i }));
 }
+
+// The Conversation view lists the session as its turns, from the server (issue #1322).
+describe("SessionView conversation", () => {
+  const conversation = (over: Partial<SessionConversationResponse> = {}): SessionConversationResponse => {
+    const commands = sessionCommands(manyCalls(2)).commands;
+    return {
+      turns: [
+        { prompt_id: "p1", uid: 501, at_ns: 50, prompt: { prompt_id: "p1", text: "run both steps", length: 14, at_ns: 50, uid: 501 },
+          commands: [commands[0]], calls: [{ tool_use_id: "toolu_read", tool_name: "Read", file_path: "/repo/README.md", called_at_ns: 60,
+            uid: 501, prompt_id: "p1" }] },
+        { prompt_id: "p2", uid: 501, at_ns: 150, commands: [], calls: [{ tool_use_id: "toolu_web", tool_name: "WebFetch",
+          command: "https://example.com", called_at_ns: 160, uid: 501, prompt_id: "p2" }] },
+        { at_ns: 300, commands: [commands[1]], calls: [] },
+      ],
+      total_matched: 3, prompts_hidden: false, truncated: false, tool_calls_truncated: false, prompts_truncated: false, ...over,
+    };
+  };
+  const openConversation = async () => {
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Conversation" }));
+  };
+
+  // spec:web-ui/agent-session-conversation-view/each-prompt-shows-what-the-agent-did-for-it
+  it("lists each prompt with its commands and calls, and what belongs to no prompt last", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    const read = vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    await openConversation();
+    const first = (await screen.findByText("run both steps")).closest(".session-view__turn");
+    if (!(first instanceof HTMLElement)) throw new Error("no turn");
+    expect(within(first).getByText("Reported by agent")).toBeVisible();
+    expect(within(first).getByText("step 0")).toBeVisible();
+    expect(within(first).getByText("/repo/README.md")).toBeVisible();
+    expect(within(first).getByText("Read")).toBeVisible();
+    const uncaptured = screen.getByText("Prompt not captured").closest(".session-view__turn");
+    if (!(uncaptured instanceof HTMLElement)) throw new Error("no turn");
+    expect(within(uncaptured).getByText("https://example.com")).toBeVisible();
+    expect(within(uncaptured).queryByText("Reported by agent")).toBeNull();
+    const outside = screen.getByText("Outside any prompt").closest(".session-view__turn");
+    if (!(outside instanceof HTMLElement)) throw new Error("no turn");
+    expect(within(outside).getByText("step 1")).toBeVisible();
+    expect(within(outside).queryByText("Reported by agent")).toBeNull();
+    expect(read).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ cursor: "", q: "" }));
+  });
+
+  // spec:web-ui/agent-session-conversation-view/a-prompt-the-operator-may-not-read-is-shown-as-hidden
+  it("says a prompt is hidden when the operator may not read prompts", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    const hidden = conversation({ prompts_hidden: true });
+    hidden.turns[0].prompt = { prompt_id: "p1", text: "", length: 14, at_ns: 50, uid: 501 };
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(hidden);
+    await openConversation();
+    expect(await screen.findByText(/Prompt hidden: you need permission to read prompts/)).toBeVisible();
+    expect(screen.getByText("Prompt not captured")).toBeVisible();
+  });
+
+  it("asks the server for the turns a search finds, and reads the next page on request", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    const all = conversation();
+    const read = vi.spyOn(api, "getSessionConversation").mockImplementation((_h, _s, page) => Promise.resolve(page?.q
+      ? { ...all, turns: all.turns.slice(1, 2), total_matched: 1 }
+      : page?.cursor === "t2" ? { ...all, turns: all.turns.slice(1) } : { ...all, turns: all.turns.slice(0, 1), next_cursor: "t2" }));
+    await openConversation();
+    expect(await screen.findByText("run both steps")).toBeVisible();
+    expect(screen.queryByText("Outside any prompt")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Load more turns (2 more)" }));
+    expect(await screen.findByText("Outside any prompt")).toBeVisible();
+    const box = screen.getByRole("searchbox", { name: "Search this session" });
+    expect(box).toHaveAttribute("placeholder", "Search conversation");
+    fireEvent.change(box, { target: { value: " example " } });
+    await waitFor(() => { expect(screen.queryByText("run both steps")).toBeNull(); });
+    expect(screen.getByText("https://example.com")).toBeVisible();
+    expect(read).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ q: "example", cursor: "" }));
+  });
+
+  // A turn of a command whose three wc runs are identical: folded when the session's read is whole.
+  const foldable = (): SessionConversationResponse => {
+    const children = Array.from({ length: 3 }, (_, i) =>
+      proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"], [], { exit_code: 0 }));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'loop'"], children, { tool_call_group: 1 });
+    return { ...conversation(), turns: [{ prompt_id: "p1", uid: 501, at_ns: 1, commands: sessionCommands([call]).commands, calls: [] }] };
+  };
+
+  it("does not fold identical processes while the session's alerts are unread", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(1) }));
+    vi.spyOn(api, "listAlerts").mockRejectedValue(new Error("alerts down"));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(foldable());
+    await openConversation();
+    fireEvent.click(await screen.findByText("loop"));
+    await waitFor(() => { expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(3); });
+    expect(screen.queryByText("×3")).toBeNull();
+  });
+
+  it("marks and opens what a search finds in the conversation's own commands", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(11) }));
+    const read = conversation();
+    read.turns[0].commands = sessionCommands(manyCalls(11)).commands.slice(5, 6);
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(read);
+    await openConversation();
+    const header = (await screen.findByText("step 5")).closest("button");
+    if (!header) throw new Error("no header");
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "echo" } });
+    await waitFor(() => { expect(screen.getByText("step 5").closest("button")).toHaveAttribute("aria-expanded", "true"); });
+    for (const echo of screen.getAllByRole("button", { name: "echo" })) {
+      expect(echo.closest(".session-view__row")).toHaveClass("session-view__row--hit");
+    }
+  });
+
+  it("keeps the turns already loaded when the session's alerts land after them", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    // Every alert read waits, so the session read completes only when they all land.
+    const pending: ((alerts: Alert[]) => void)[] = [];
+    vi.spyOn(api, "listAlerts").mockImplementation(() => new Promise((resolve) => { pending.push(resolve); }));
+    const all = conversation();
+    const read = vi.spyOn(api, "getSessionConversation").mockImplementation((_h, _s, page) => Promise.resolve(page?.cursor === "t2"
+      ? { ...all, turns: all.turns.slice(1) } : { ...all, turns: all.turns.slice(0, 1), next_cursor: "t2" }));
+    await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more turns (2 more)" }));
+    expect(await screen.findByText("Outside any prompt")).toBeVisible();
+    const calls = read.mock.calls.length;
+    expect(pending.length).toBeGreaterThan(0);
+    for (const land of pending) land([alert({ process_id: 11 })]);
+    // The alert on step 0's wrapper is badged once the session read lands: the turns were reshaped, not read again.
+    expect(await screen.findByRole("link", { name: "System discovery" })).toBeVisible();
+    expect(screen.getByText("Outside any prompt")).toBeVisible();
+    expect(read).toHaveBeenCalledTimes(calls);
+  });
+
+  it("says a cut search found nothing among what the server read, with the cut notice", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getSessionConversation").mockImplementation((_h, _s, page) => Promise.resolve(page?.q
+      ? { ...conversation(), turns: [], total_matched: 0, tool_calls_truncated: true } : conversation()));
+    await openConversation();
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search this session" }), { target: { value: "deploy" } });
+    expect(await screen.findByText("No turn the server read matches.")).toBeVisible();
+    expect(screen.getByText(/holds more than the server reads/)).toBeVisible();
+  });
+
+  it("says when the session holds more than the server reads, and when nothing is recorded", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValueOnce(conversation({ prompts_truncated: true }))
+      .mockResolvedValue({ ...conversation(), turns: [], total_matched: 0 });
+    await openConversation();
+    expect(await screen.findByText(/holds more than the server reads/)).toBeVisible();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "nothing" } });
+    expect(await screen.findByText("No turn of this session matches.")).toBeVisible();
+  });
+});
 
 // The session's commands are read from the server a page at a time, searched there, and counted from its totals (issue #1425).
 describe("SessionView commands from the server", () => {

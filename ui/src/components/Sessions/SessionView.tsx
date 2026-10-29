@@ -2,10 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
 import {
-  getAgentSessionLineage, getAgentSessionTotals, getProcessDetail, getSessionCommands, getSessionTree, listAgentSessions, listAlerts, searchSessionProcesses,
+  getAgentSessionLineage, getAgentSessionTotals, getProcessDetail, getSessionCommands, getSessionConversation, getSessionTree, listAgentSessions, listAlerts, searchSessionProcesses,
 } from "../../api";
 import type {
-  AgentSessionLineage, AgentSessionSummary, AgentSessionTotals, Alert, ProcessNode, SessionCommand, ToolCallMatch, TreeResponse,
+  AgentSessionLineage, AgentSessionSummary, AgentSessionTotals, AgentToolCall, Alert, ConversationTurn, ProcessNode, SessionCommand,
+  ToolCallMatch, TreeResponse,
 } from "../../types";
 import { useCursorList, type CursorPage } from "../Search/useCursorList";
 import { PageHeader } from "../ui/PageHeader";
@@ -49,9 +50,11 @@ const AUTO_EXPAND_GROUPS = 10;
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
 
-// SESSION_LENSES are the session's three views, in order: what it ran as commands, every process as one tree, and what it touched.
-type SessionLens = "commands" | "processes" | "activity";
+// SESSION_LENSES are the session's views, in order: its turns, each prompt with what the agent did for it (issue #1322); what it ran
+// as commands; every process as one tree; and what it touched.
+type SessionLens = "conversation" | "commands" | "processes" | "activity";
 const SESSION_LENSES: readonly { lens: SessionLens; label: string }[] = [
+  { lens: "conversation", label: "Conversation" },
   { lens: "commands", label: "Commands" },
   { lens: "processes", label: "Processes" },
   { lens: "activity", label: "Activity" },
@@ -268,16 +271,19 @@ export function SessionView() {
   }, [current?.alerts]);
   // What launchd started for a command's open or launchctl is listed under it, marked inferred (issue #1286).
   const logical = useMemo(() => (tree ? applyLaunchLinks(tree.roots, tree.links) : null), [tree]);
+  // The session's read is incomplete while its record or alerts are unread or cut, or retention removed its early processes. Folding
+  // is then off in every view, since an identical-looking row may hide what the view never saw.
+  const sessionIncomplete = current === null || current.alertsFailed === true || current.alertsTruncated === true
+    || beganBeforeRetention(current);
   const groups = useMemo(
     () => {
-      const incomplete = meta?.truncated === true || current === null || current.alertsFailed === true
-        || current.alertsTruncated === true || beganBeforeRetention(current);
+      const incomplete = meta?.truncated === true || sessionIncomplete;
       const keep = new Set(alertsByProcess.keys());
       return commands.rows.map((c) => shapeCommand(c, {
         verbose, keep, incomplete, inferred: new Set(c.inferred), services: new Set(c.services),
       }));
     },
-    [commands.rows, meta, verbose, alertsByProcess, current],
+    [commands.rows, meta, verbose, alertsByProcess, sessionIncomplete],
   );
   const forest = useMemo(
     () => (tree && logical
@@ -379,6 +385,9 @@ export function SessionView() {
                 </button>
               ))}
             </div>
+            {view === "conversation" && (
+              <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} incomplete={sessionIncomplete} />
+            )}
             {view === "commands" && (
               <SessionBody
                 groups={groups}
@@ -703,6 +712,145 @@ function processesSummary(forest: readonly SessionRow[], agent: string, cut: boo
 // highestSeverity is the most severe of the alerts' severities, for the group's badge.
 function highestSeverity(alerts: readonly Alert[]): string {
   return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
+}
+
+// ListedTurn is a turn as the Conversation view lists it: its commands shaped as the Commands view shapes them.
+interface ListedTurn {
+  turn: ConversationTurn;
+  groups: Command[];
+}
+
+// ConversationMeta is what a conversation page says about the whole read, kept with the key it was read for.
+interface ConversationMeta {
+  key: string;
+  promptsHidden: boolean;
+  processesCut: boolean;
+  cut: boolean;
+}
+
+// ConversationBody lists the session as its turns (issue #1322), a page at a time from the server: each prompt the person typed, the
+// commands the agent ran for it and the tool calls it made that ran none, and last what belongs to no prompt. A search asks the
+// server, over prompt text the operator may read, commands and calls. The pages are read as the server sends them and shaped here, so
+// alerts read later reshape the turns already loaded rather than reading them again.
+function ConversationBody({ hostId, sessionId, query, incomplete }: {
+  readonly hostId: string;
+  readonly sessionId: string;
+  readonly query: string;
+  // incomplete is the session view's own: its record or alerts are unread or cut, or retention removed early processes.
+  readonly incomplete: boolean;
+}) {
+  const rows = useSessionRows();
+  const key = `${hostId}/${sessionId}\n${query}`;
+  const [meta, setMeta] = useState<ConversationMeta | null>(null);
+  // The key on screen, read when a page lands so a slower page for a search since replaced cannot report its flags as this one's.
+  const activeKey = useRef(key);
+  useEffect(() => { activeKey.current = key; }, [key]);
+  const fetchPage = useCallback(async (cursor: string): Promise<CursorPage<ConversationTurn>> => {
+    const page = await getSessionConversation(hostId, sessionId, { cursor, q: query, limit: COMMANDS_PAGE });
+    if (activeKey.current === key) {
+      setMeta({ key, promptsHidden: page.prompts_hidden, processesCut: page.truncated,
+        cut: page.truncated || page.tool_calls_truncated || page.prompts_truncated });
+    }
+    return { rows: page.turns, nextCursor: page.next_cursor, total: page.total_matched };
+  }, [hostId, sessionId, query, key]);
+  const turns = useCursorList(key, fetchPage);
+  const current = meta?.key === key ? meta : null;
+  const listed = useMemo<ListedTurn[]>(() => {
+    const shape = { verbose: false, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
+    return turns.rows.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(c, shape)) }));
+  }, [turns.rows, rows.alertsByProcess, incomplete, current?.processesCut]);
+  // The search's hits are found in these groups, so a matching row is marked and listed past the cap, and its command opens.
+  const scoped = useMemo<SessionRows>(
+    () => ({ ...rows, hits: searchCommands(listed.flatMap((t) => t.groups), query) }),
+    [rows, listed, query],
+  );
+  if (turns.error && turns.rows.length === 0) return <EmptyState>Error: {turns.error}</EmptyState>;
+  const cutNotice = current?.cut === true && (
+    <p className="session-view__notice" role="status">
+      This session holds more than the server reads, so some of its prompts, commands or tool calls are not listed.
+    </p>
+  );
+  if (turns.rows.length === 0) {
+    if (turns.loading) return <EmptyState>Loading...</EmptyState>;
+    // A cut read cannot say that nothing matches, only that nothing it read does.
+    const none = query ? (current?.cut === true ? "No turn the server read matches." : "No turn of this session matches.")
+      : "No prompts are recorded for this session.";
+    return <>{cutNotice}<EmptyState>{none}</EmptyState></>;
+  }
+  return (
+    <SessionRowsContext.Provider value={scoped}>
+      {cutNotice}
+      <ol className="session-view__turns">
+        {listed.map(({ turn, groups }) => (
+          <TurnEntry key={`${turn.prompt_id ?? ""}/${String(turn.uid ?? "")}`} turn={turn} groups={groups}
+            promptsHidden={current?.promptsHidden === true} />
+        ))}
+      </ol>
+      {turns.error && <p className="session-view__notice" role="alert">The next turns could not be loaded: {turns.error}</p>}
+      {turns.hasMore && (
+        <Button variant="text-link" disabled={turns.loading} onClick={turns.loadMore}>
+          {`Load more turns (${(turns.total - turns.rows.length).toLocaleString()} more)`}
+        </Button>
+      )}
+    </SessionRowsContext.Provider>
+  );
+}
+
+// TurnEntry is one turn: the prompt the person typed, labelled as the agent's report since the transcript is the user's to write,
+// then the commands the agent ran for it and the tool calls that ran none.
+function TurnEntry({ turn, groups, promptsHidden }: {
+  readonly turn: ConversationTurn;
+  readonly groups: Command[];
+  readonly promptsHidden: boolean;
+}) {
+  const { alertsByProcess } = useSessionRows();
+  return (
+    <li className="session-view__turn">
+      <div className="session-view__prompt">
+        {turn.prompt_id === undefined ? (
+          <span className="session-view__prompt-text">Outside any prompt</span>
+        ) : (
+          <>
+            {/* Only a prompt the agent captured is its report; an uncaptured one says so instead. */}
+            {turn.prompt && <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>}
+            <span className="session-view__prompt-text">{promptText(turn, promptsHidden)}</span>
+          </>
+        )}
+        <span className="session-view__meta">{formatNs(turn.at_ns)}</span>
+      </div>
+      {groups.length > 0 && (
+        <ol className="session-view__calls">
+          {groups.map((group) => {
+            const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
+            return <CommandGroup key={group.key} group={group} match={group.toolCall} alerts={alerts} defaultOpen={alerts.length > 0} />;
+          })}
+        </ol>
+      )}
+      {turn.calls.length > 0 && (
+        <ul className="session-view__turn-calls">
+          {turn.calls.map((call) => <TurnCall key={`${call.tool_use_id}/${String(call.uid)}`} call={call} />)}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+// promptText is what a turn shows for its prompt: the text, or why there is none.
+function promptText(turn: ConversationTurn, promptsHidden: boolean): string {
+  if (!turn.prompt) return "Prompt not captured";
+  if (promptsHidden) return "Prompt hidden: you need permission to read prompts";
+  return turn.prompt.text;
+}
+
+// TurnCall is a tool call of a turn that ran no command: a file read or edit, a web fetch, an MCP tool.
+function TurnCall({ call }: { readonly call: AgentToolCall }) {
+  return (
+    <li className="session-view__turn-call">
+      <code className="session-view__tool-name">{call.tool_name}</code>
+      <span className="session-view__mono">{call.file_path ?? call.command ?? ""}</span>
+      <span className="session-view__meta">{formatNs(call.called_at_ns)}</span>
+    </li>
+  );
 }
 
 // CommandGroup is one command. A search that finds something in it opens it, whatever the operator last chose.

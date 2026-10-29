@@ -12,6 +12,7 @@ import {
   getHostTimeline,
   getSessionCommands,
   searchSessionProcesses,
+  getSessionConversation,
   getActivityPage,
   setForbiddenHandler,
   setUnauthorizedHandler,
@@ -628,6 +629,16 @@ describe("free-text queries", () => {
     const url = new URL(target.toString());
     expect(url.pathname).toMatch(/\/hosts\/host%20a\/agent-sessions\/s1\/processes$/);
     expect(Object.fromEntries(url.searchParams)).toEqual({ q: "git status", cursor: "c2", limit: "50" });
+  });
+
+  it("reads a session's conversation from the session's path, with its search and cursor", async () => {
+    const fetchMock = stubFetch({ turns: [], total_matched: 0, prompts_hidden: false, truncated: false, tool_calls_truncated: false,
+      prompts_truncated: false });
+    await getSessionConversation("host-a", "s1", { q: "deploy it", cursor: "c2", limit: 50 });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host-a\/agent-sessions\/s1\/conversation$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: "deploy it", cursor: "c2", limit: "50" });
   });
 
   it("sends an activity class's search with its cursor", async () => {

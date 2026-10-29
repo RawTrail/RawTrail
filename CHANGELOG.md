@@ -11,6 +11,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ### Added
 
+- **A Conversation view of each AI agent session.** It lists each prompt the person typed with the commands and tool calls the agent made for it, and what belongs to no prompt last. Operators without permission to read prompts see the turns with each prompt hidden.
 - **An AI agent session's header shows its models, tokens and permission modes.** Each mode the agent ran in is listed with how many replies and for how long, and bypass permissions is flagged.
 - **The agent reports an AI agent session's token usage and permission mode.** Each reply's model and tokens are sent, with the permission mode in force, whatever the prompt-capture setting; no prompt or reply text is included.
 - **Read the prompts typed to an AI agent, behind their own permission.** The prompts of a session are served by the server to operators who hold the new `agent_prompt.read` permission: admins and senior analysts. Analysts and auditors do not have it, and every read is audited.
