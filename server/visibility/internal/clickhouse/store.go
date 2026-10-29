@@ -306,7 +306,9 @@ func (s *Store) TelemetryActivityForHosts(
 // EventsByIDs returns the full envelopes for the given event_ids, ordered by (timestamp_ns, event_id). Alert evidence capture snapshots
 // a finding's triggering events into alert_event_payloads with it (ADR-0015), so the evidence outlives the archive's retention window.
 // FINAL collapses ReplacingMergeTree duplicates; IDs with no surviving event are simply absent from the result, keeping capture
-// best-effort. Empty input returns no rows without a query.
+// best-effort. Empty input returns no rows without a query. ClickHouse ignores skip indexes under FINAL by default, so the query turns
+// them back on: every version of a row carries its event_id, so the bloom filter on event_id keeps all of them for FINAL to collapse,
+// and the read touches the granules holding the ids rather than the whole table (issue #1461).
 func (s *Store) EventsByIDs(ctx context.Context, eventIDs []string) ([]api.Event, error) {
 	if len(eventIDs) == 0 {
 		return nil, nil
@@ -316,7 +318,7 @@ func (s *Store) EventsByIDs(ctx context.Context, eventIDs []string) ([]api.Event
 		args[i] = id
 	}
 	query := "SELECT event_id, host_id, timestamp_ns, ingested_at_ns, event_type, platform, payload FROM events FINAL WHERE event_id IN (" +
-		placeholders(len(eventIDs)) + ") ORDER BY timestamp_ns, event_id"
+		placeholders(len(eventIDs)) + ") ORDER BY timestamp_ns, event_id SETTINGS use_skip_indexes_if_final = 1"
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse events by ids: %w", err)
