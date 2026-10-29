@@ -222,6 +222,74 @@ describe("SessionView conversation", () => {
     expect(read).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ q: "example", cursor: "" }));
   });
 
+  // A turn of a command whose three wc runs are identical: folded when the session's read is whole.
+  const foldable = (): SessionConversationResponse => {
+    const children = Array.from({ length: 3 }, (_, i) =>
+      proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", "-l", "f"], [], { exit_code: 0 }));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'loop'"], children, { tool_call_group: 1 });
+    return { ...conversation(), turns: [{ prompt_id: "p1", uid: 501, at_ns: 1, commands: sessionCommands([call]).commands, calls: [] }] };
+  };
+
+  it("does not fold identical processes while the session's alerts are unread", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(1) }));
+    vi.spyOn(api, "listAlerts").mockRejectedValue(new Error("alerts down"));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(foldable());
+    await openConversation();
+    fireEvent.click(await screen.findByText("loop"));
+    await waitFor(() => { expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(3); });
+    expect(screen.queryByText("×3")).toBeNull();
+  });
+
+  it("marks and opens what a search finds in the conversation's own commands", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(11) }));
+    const read = conversation();
+    read.turns[0].commands = sessionCommands(manyCalls(11)).commands.slice(5, 6);
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(read);
+    await openConversation();
+    const header = (await screen.findByText("step 5")).closest("button");
+    if (!header) throw new Error("no header");
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "echo" } });
+    await waitFor(() => { expect(screen.getByText("step 5").closest("button")).toHaveAttribute("aria-expanded", "true"); });
+    for (const echo of screen.getAllByRole("button", { name: "echo" })) {
+      expect(echo.closest(".session-view__row")).toHaveClass("session-view__row--hit");
+    }
+  });
+
+  it("keeps the turns already loaded when the session's alerts land after them", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    // Every alert read waits, so the session read completes only when they all land.
+    const pending: ((alerts: Alert[]) => void)[] = [];
+    vi.spyOn(api, "listAlerts").mockImplementation(() => new Promise((resolve) => { pending.push(resolve); }));
+    const all = conversation();
+    const read = vi.spyOn(api, "getSessionConversation").mockImplementation((_h, _s, page) => Promise.resolve(page?.cursor === "t2"
+      ? { ...all, turns: all.turns.slice(1) } : { ...all, turns: all.turns.slice(0, 1), next_cursor: "t2" }));
+    await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Load more turns (2 more)" }));
+    expect(await screen.findByText("Outside any prompt")).toBeVisible();
+    const calls = read.mock.calls.length;
+    expect(pending.length).toBeGreaterThan(0);
+    for (const land of pending) land([alert({ process_id: 11 })]);
+    // The alert on step 0's wrapper is badged once the session read lands: the turns were reshaped, not read again.
+    expect(await screen.findByRole("link", { name: "System discovery" })).toBeVisible();
+    expect(screen.getByText("Outside any prompt")).toBeVisible();
+    expect(read).toHaveBeenCalledTimes(calls);
+  });
+
+  it("says a cut search found nothing among what the server read, with the cut notice", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getSessionConversation").mockImplementation((_h, _s, page) => Promise.resolve(page?.q
+      ? { ...conversation(), turns: [], total_matched: 0, tool_calls_truncated: true } : conversation()));
+    await openConversation();
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search this session" }), { target: { value: "deploy" } });
+    expect(await screen.findByText("No turn the server read matches.")).toBeVisible();
+    expect(screen.getByText(/holds more than the server reads/)).toBeVisible();
+  });
+
   it("says when the session holds more than the server reads, and when nothing is recorded", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));

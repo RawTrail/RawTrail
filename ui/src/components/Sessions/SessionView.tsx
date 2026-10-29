@@ -270,16 +270,19 @@ export function SessionView() {
   }, [current?.alerts]);
   // What launchd started for a command's open or launchctl is listed under it, marked inferred (issue #1286).
   const logical = useMemo(() => (tree ? applyLaunchLinks(tree.roots, tree.links) : null), [tree]);
+  // The session's read is incomplete while its record or alerts are unread or cut, or retention removed its early processes. Folding
+  // is then off in every view, since an identical-looking row may hide what the view never saw.
+  const sessionIncomplete = current === null || current.alertsFailed === true || current.alertsTruncated === true
+    || beganBeforeRetention(current);
   const groups = useMemo(
     () => {
-      const incomplete = meta?.truncated === true || current === null || current.alertsFailed === true
-        || current.alertsTruncated === true || beganBeforeRetention(current);
+      const incomplete = meta?.truncated === true || sessionIncomplete;
       const keep = new Set(alertsByProcess.keys());
       return commands.rows.map((c) => shapeCommand(c, {
         verbose, keep, incomplete, inferred: new Set(c.inferred), services: new Set(c.services),
       }));
     },
-    [commands.rows, meta, verbose, alertsByProcess, current],
+    [commands.rows, meta, verbose, alertsByProcess, sessionIncomplete],
   );
   const forest = useMemo(
     () => (tree && logical
@@ -380,7 +383,9 @@ export function SessionView() {
                 </button>
               ))}
             </div>
-            {view === "conversation" && <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} />}
+            {view === "conversation" && (
+              <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} incomplete={sessionIncomplete} />
+            )}
             {view === "commands" && (
               <SessionBody
                 groups={groups}
@@ -697,50 +702,64 @@ interface ListedTurn {
 interface ConversationMeta {
   key: string;
   promptsHidden: boolean;
+  processesCut: boolean;
   cut: boolean;
 }
 
 // ConversationBody lists the session as its turns (issue #1322), a page at a time from the server: each prompt the person typed, the
 // commands the agent ran for it and the tool calls it made that ran none, and last what belongs to no prompt. A search asks the
-// server, over prompt text the operator may read, commands and calls.
-function ConversationBody({ hostId, sessionId, query }: {
+// server, over prompt text the operator may read, commands and calls. The pages are read as the server sends them and shaped here, so
+// alerts read later reshape the turns already loaded rather than reading them again.
+function ConversationBody({ hostId, sessionId, query, incomplete }: {
   readonly hostId: string;
   readonly sessionId: string;
   readonly query: string;
+  // incomplete is the session view's own: its record or alerts are unread or cut, or retention removed early processes.
+  readonly incomplete: boolean;
 }) {
-  const { alertsByProcess } = useSessionRows();
+  const rows = useSessionRows();
   const key = `${hostId}/${sessionId}\n${query}`;
   const [meta, setMeta] = useState<ConversationMeta | null>(null);
   // The key on screen, read when a page lands so a slower page for a search since replaced cannot report its flags as this one's.
   const activeKey = useRef(key);
   useEffect(() => { activeKey.current = key; }, [key]);
-  const fetchPage = useCallback(async (cursor: string): Promise<CursorPage<ListedTurn>> => {
+  const fetchPage = useCallback(async (cursor: string): Promise<CursorPage<ConversationTurn>> => {
     const page = await getSessionConversation(hostId, sessionId, { cursor, q: query, limit: COMMANDS_PAGE });
     if (activeKey.current === key) {
-      setMeta({ key, promptsHidden: page.prompts_hidden, cut: page.truncated || page.tool_calls_truncated || page.prompts_truncated });
+      setMeta({ key, promptsHidden: page.prompts_hidden, processesCut: page.truncated,
+        cut: page.truncated || page.tool_calls_truncated || page.prompts_truncated });
     }
-    const shape = { verbose: false, keep: new Set(alertsByProcess.keys()), incomplete: page.truncated };
-    return {
-      rows: page.turns.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(c, shape)) })),
-      nextCursor: page.next_cursor,
-      total: page.total_matched,
-    };
-  }, [hostId, sessionId, query, key, alertsByProcess]);
+    return { rows: page.turns, nextCursor: page.next_cursor, total: page.total_matched };
+  }, [hostId, sessionId, query, key]);
   const turns = useCursorList(key, fetchPage);
   const current = meta?.key === key ? meta : null;
+  const listed = useMemo<ListedTurn[]>(() => {
+    const shape = { verbose: false, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
+    return turns.rows.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(c, shape)) }));
+  }, [turns.rows, rows.alertsByProcess, incomplete, current?.processesCut]);
+  // The search's hits are found in these groups, so a matching row is marked and listed past the cap, and its command opens.
+  const scoped = useMemo<SessionRows>(
+    () => ({ ...rows, hits: searchCommands(listed.flatMap((t) => t.groups), query) }),
+    [rows, listed, query],
+  );
   if (turns.error && turns.rows.length === 0) return <EmptyState>Error: {turns.error}</EmptyState>;
+  const cutNotice = current?.cut === true && (
+    <p className="session-view__notice" role="status">
+      This session holds more than the server reads, so some of its prompts, commands or tool calls are not listed.
+    </p>
+  );
   if (turns.rows.length === 0) {
-    return <EmptyState>{turns.loading ? "Loading..." : query ? "No turn of this session matches." : "No prompts are recorded for this session."}</EmptyState>;
+    if (turns.loading) return <EmptyState>Loading...</EmptyState>;
+    // A cut read cannot say that nothing matches, only that nothing it read does.
+    const none = query ? (current?.cut === true ? "No turn the server read matches." : "No turn of this session matches.")
+      : "No prompts are recorded for this session.";
+    return <>{cutNotice}<EmptyState>{none}</EmptyState></>;
   }
   return (
-    <>
-      {current?.cut && (
-        <p className="session-view__notice" role="status">
-          This session holds more than the server reads, so some of its prompts, commands or tool calls are not listed.
-        </p>
-      )}
+    <SessionRowsContext.Provider value={scoped}>
+      {cutNotice}
       <ol className="session-view__turns">
-        {turns.rows.map(({ turn, groups }) => (
+        {listed.map(({ turn, groups }) => (
           <TurnEntry key={`${turn.prompt_id ?? ""}/${String(turn.uid ?? "")}`} turn={turn} groups={groups}
             promptsHidden={current?.promptsHidden === true} />
         ))}
@@ -751,7 +770,7 @@ function ConversationBody({ hostId, sessionId, query }: {
           {`Load more turns (${(turns.total - turns.rows.length).toLocaleString()} more)`}
         </Button>
       )}
-    </>
+    </SessionRowsContext.Provider>
   );
 }
 
