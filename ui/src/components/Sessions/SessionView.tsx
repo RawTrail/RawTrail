@@ -42,6 +42,7 @@ import { commandLine } from "./toolCommand";
 import { sessionPath } from "./sessionPath";
 import { mergeTreePages } from "./treePages";
 import { BYPASS_MODE, formatSpan, formatTokens, usageLine, type UsageLine } from "./sessionUsage";
+import { SessionSummary } from "./SessionSummary";
 
 // AUTO_EXPAND_GROUPS is the most commands a session can have and still open with every one expanded. A longer session opens with
 // only the commands an alert was raised in expanded, so the operator starts from what was flagged.
@@ -50,10 +51,11 @@ const AUTO_EXPAND_GROUPS = 10;
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
 
-// SESSION_LENSES are the session's views, in order: its turns, each prompt with what the agent did for it (issue #1322); what it ran
-// as commands; every process as one tree; and what it touched.
-type SessionLens = "conversation" | "commands" | "processes" | "activity";
+// SESSION_LENSES are the session's views, in order: the session at a glance; its turns, each prompt with what the agent did for it
+// (issue #1322); what it ran as commands; every process as one tree; and what it touched.
+type SessionLens = "summary" | "conversation" | "commands" | "processes" | "activity";
 const SESSION_LENSES: readonly { lens: SessionLens; label: string }[] = [
+  { lens: "summary", label: "Summary" },
   { lens: "conversation", label: "Conversation" },
   { lens: "commands", label: "Commands" },
   { lens: "processes", label: "Processes" },
@@ -206,8 +208,8 @@ export function SessionView() {
   // work reads first, and their count says how many are one click away.
   const [showOwn, setShowOwn] = useState(false);
   const [query, setQuery] = useState("");
-  // view picks what the session's main column shows: its commands, every process it ran as one tree (issue #1335), or the totals of
-  // what it touched (issue #1285).
+  // view picks what the session's main column shows: its summary (issue #1429), its turns (issue #1322), its commands, every process it
+  // ran as one tree (issue #1335), or the totals of what it touched (issue #1285).
   const [view, setView] = useState<SessionLens>("commands");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
@@ -347,13 +349,16 @@ export function SessionView() {
         subtitle={subtitle}
         actions={(
           <div className="session-view__actions">
-            <Input
-              type="search"
-              aria-label="Search this session"
-              placeholder={view === "commands" ? "Search commands" : `Search ${view}`}
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); }}
-            />
+            {/* The Summary has nothing to search; the box keeps its space so the header does not move between views. */}
+            <span style={view === "summary" ? { visibility: "hidden" } : undefined}>
+              <Input
+                type="search"
+                aria-label="Search this session"
+                placeholder={view === "commands" ? "Search commands" : `Search ${view}`}
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); }}
+              />
+            </span>
             {/* The plumbing toggle belongs to Commands alone: Processes lists every process already. It keeps its space in every view,
                 hidden rather than removed, so the header wraps alike in all three and the view switcher below never moves. */}
             <span style={view === "commands" ? undefined : { visibility: "hidden" }}>
@@ -385,6 +390,16 @@ export function SessionView() {
                 </button>
               ))}
             </div>
+            {view === "summary" && current && (
+              <SessionSummary
+                totals={current.totals}
+                agent={title}
+                project={project}
+                firstNs={firstNs}
+                lastNs={lastNs}
+                onAlerts={() => { setView("commands"); }}
+              />
+            )}
             {view === "conversation" && (
               <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} incomplete={sessionIncomplete} />
             )}

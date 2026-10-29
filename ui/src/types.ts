@@ -353,6 +353,37 @@ export interface AgentSessionTotals {
   tool_calls: { total: number; by_tool: { tool: string; count: number }[] };
   // usage is the tokens the session's messages used by model, and its messages by permission mode (issue #1427).
   usage?: AgentUsageTotals;
+  activity?: {
+    files: { events: number; distinct: number; by_operation: Record<string, number> };
+    network: { events: number; distinct: number };
+    dns: { events: number; distinct: number };
+  };
+  // digest describes the session for its Summary (issue #1429).
+  digest?: AgentSessionDigest;
+}
+
+// AgentSessionDigest is a session described for its Summary: its prompts, the programs its commands ran most, its busiest
+// directories and domains, and its timelines, which split its span from timeline_start_ns into buckets timeline_bucket_ns wide.
+export interface AgentSessionDigest {
+  prompts: number;
+  programs: { program: string; count: number }[];
+  directories: { directory: string; paths: number; by_operation: Record<string, number> }[];
+  directories_truncated: boolean;
+  outside_project: number;
+  domains: DomainActivity[];
+  domains_truncated: boolean;
+  timeline: number[];
+  command_timeline: number[];
+  timeline_start_ns: number;
+  timeline_bucket_ns: number;
+}
+
+// DomainActivity is one registrable domain's lookups and named connections; new marks one the host had not looked up before.
+export interface DomainActivity {
+  domain: string;
+  lookups: number;
+  connections: number;
+  new: boolean;
 }
 
 // AgentUsageTotals is what a session's messages used: tokens by model, heaviest output first, and messages by the permission mode in

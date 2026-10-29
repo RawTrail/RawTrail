@@ -333,6 +333,7 @@ seed_oidc 1
     tests/qa/agent-sessions.spec.ts \
     tests/qa/agent-session-paging.spec.ts \
     tests/qa/agent-session-conversation.spec.ts \
+    tests/qa/agent-session-summary.spec.ts \
     --workers=1
 )
 stop_server
