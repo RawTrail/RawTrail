@@ -120,13 +120,41 @@ describe("AgentSettings", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("says why a change failed", async () => {
+  it("says why the server refused a change", async () => {
     await renderLoaded();
-    vi.spyOn(api, "replaceAgentSettings").mockRejectedValue(new Error("server unavailable"));
+    vi.spyOn(api, "replaceAgentSettings").mockRejectedValue(
+      new api.DetectionConfigApiError("detection_config.invalid_input", "capture_prompts is required", 400),
+    );
     turnOffWithReason("r");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Not changed: server unavailable");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Not changed: capture_prompts is required");
     expect(screen.queryByRole("button", { name: "Load the latest settings" })).toBeNull();
     expect(screen.getByRole("switch", { name: "Capture prompts" })).toBeChecked();
+  });
+
+  // A change whose answer never arrived may still have been stored, so the page reads the setting again rather than say it did not.
+  it("shows what the server holds when a change's outcome is unknown", async () => {
+    await renderLoaded(makeSettings({ version: 1 }));
+    vi.spyOn(api, "replaceAgentSettings").mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.spyOn(api, "getAgentSettings").mockResolvedValue(makeSettings({ version: 2, capture_prompts: false }));
+    turnOffWithReason("r");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Not confirmed: Failed to fetch. The setting shown is what the server holds now.",
+    );
+    expect(screen.getByRole("switch", { name: "Capture prompts" })).not.toBeChecked();
+  });
+
+  it("keeps the page and the offer to try again when the latest settings cannot be loaded", async () => {
+    await renderLoaded(makeSettings({ version: 1 }));
+    vi.spyOn(api, "replaceAgentSettings").mockRejectedValue(
+      new api.DetectionConfigApiError("detection_config.conflict", "the agent settings were changed since they were read", 409),
+    );
+    turnOffWithReason("r");
+    await screen.findByRole("button", { name: "Load the latest settings" });
+    vi.spyOn(api, "getAgentSettings").mockRejectedValue(new Error("network down"));
+    fireEvent.click(screen.getByRole("button", { name: "Load the latest settings" }));
+    expect(await screen.findByText(/^The latest settings could not be loaded: network down/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Load the latest settings" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Capture prompts" })).toBeVisible();
   });
 
   it("shows the setting but cannot change it without detection_config.write", async () => {

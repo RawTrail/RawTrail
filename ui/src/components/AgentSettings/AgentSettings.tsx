@@ -39,18 +39,28 @@ export function AgentSettings() {
   const [conflict, setConflict] = useState(false);
   const [saved, setSaved] = useState<ReplaceAgentSettingsResult | null>(null);
 
-  const load = useCallback(() => {
+  useEffect(() => {
+    getAgentSettings()
+      .then(setStored)
+      .catch((err: unknown) => {
+        setLoadError(errorText(err));
+      });
+  }, []);
+
+  // loadLatest reads the settings again after a change the server refused as out of date, or one whose outcome is unknown, and then
+  // says note. A read that fails keeps the page and the offer to try again, since the settings shown may be out of date.
+  const loadLatest = (note: string | null) => {
     getAgentSettings()
       .then((settings) => {
         setStored(settings);
-        setSaveError(null);
         setConflict(false);
+        setSaveError(note);
       })
       .catch((err: unknown) => {
-        setLoadError(err instanceof Error ? err.message : String(err));
+        setConflict(true);
+        setSaveError(`The latest settings could not be loaded: ${errorText(err)}`);
       });
-  }, []);
-  useEffect(load, [load]);
+  };
 
   if (loadError !== null) {
     return <p className="agent-settings__error" role="alert">The agent settings could not be loaded: {loadError}</p>;
@@ -73,7 +83,12 @@ export function AgentSettings() {
           setSaveError("Not changed: someone changed the agent settings after this page loaded them. Load the latest, then make your change again.");
           return;
         }
-        setSaveError(`Not changed: ${err instanceof Error ? err.message : String(err)}`);
+        if (err instanceof DetectionConfigApiError) {
+          setSaveError(`Not changed: ${err.message}`);
+          return;
+        }
+        // No answer from the server, or one this page could not read, says nothing about whether the change was stored.
+        loadLatest(`Not confirmed: ${errorText(err)}. The setting shown is what the server holds now.`);
       })
       .finally(() => {
         setSaving(false);
@@ -114,7 +129,7 @@ export function AgentSettings() {
         <div className="agent-settings__error" role="alert">
           {saveError}
           {conflict && (
-            <Button variant="text-link" onClick={load}>
+            <Button variant="text-link" onClick={() => { loadLatest(null); }}>
               Load the latest settings
             </Button>
           )}
@@ -140,4 +155,8 @@ export function AgentSettings() {
       )}
     </section>
   );
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
