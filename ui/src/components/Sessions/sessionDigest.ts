@@ -37,7 +37,8 @@ export function groupDomains(domains: readonly DomainActivity[]): DomainGroup[] 
 // directoryLabel names a directory as the Summary lists it: relative to the session's project when it is the project or under it,
 // as recorded otherwise.
 export function directoryLabel(directory: string, project: string | undefined): string {
-  const root = project?.replace(/\/+$/, "");
+  let root = project ?? "";
+  while (root.endsWith("/")) root = root.slice(0, -1);
   if (!root) return directory;
   if (directory === root) return ".";
   return directory.startsWith(`${root}/`) ? `./${directory.slice(root.length + 1)}` : directory;
@@ -51,6 +52,7 @@ const FILE_OPERATIONS: readonly { label: string; keys: readonly string[] }[] = [
   { label: "renamed", keys: ["rename", "file_rename"] },
   { label: "deleted", keys: ["delete", "file_delete"] },
   { label: "opened", keys: ["open"] },
+  { label: "connected", keys: ["connect"] },
 ];
 
 export interface OperationCount {

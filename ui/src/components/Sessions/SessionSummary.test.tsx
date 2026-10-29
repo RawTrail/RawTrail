@@ -92,7 +92,7 @@ describe("SessionSummary", () => {
     expect(within(touched).getByText("9 file events across 5 paths: 2 created, 6 modified, 1 deleted.")).toBeVisible();
     expect(within(touched).getByText("1 path outside this project.")).toBeVisible();
     expect(within(within(touched).getByRole("list", { name: "File events by directory" })).getAllByRole("listitem")
-      .map((li) => li.textContent)).toEqual(["./src6", "/etc2"]);
+      .map((li) => li.textContent)).toEqual(["./src6 modified", "/etc2 created"]);
     expect(within(touched).getByText("The busiest directories are listed.")).toBeVisible();
   });
 
@@ -120,8 +120,11 @@ describe("SessionSummary", () => {
   it("draws its commands and events over the session's span", () => {
     renderSummary(busy());
     const timeline = section("Timeline");
-    expect(within(timeline).getByRole("img", { name: "Commands started: 2 across the session, busiest bucket 2" })).toBeVisible();
-    const events = within(timeline).getByRole("img", { name: "File, network and DNS events: 5 across the session, busiest bucket 4" });
+    const commands = `Commands started: 2 across the session, busiest bucket 2 from ${formatNs(20 * MINUTE_NS)}`;
+    expect(within(timeline).getByRole("img", { name: commands })).toBeVisible();
+    const events = within(timeline).getByRole("img", {
+      name: `File, network and DNS events: 5 across the session, busiest bucket 4 from ${formatNs(0)}`,
+    });
     expect([...events.children].map((bar) => (bar as HTMLElement).style.height)).toEqual(["100%", "0%", "25%"]);
     // The axis ends where the digest's span does, which reaches past the session's last sighting (42 min) to its last event.
     expect(within(timeline).getByText(formatNs(60 * MINUTE_NS))).toBeVisible();
@@ -155,6 +158,30 @@ describe("SessionSummary", () => {
     const inside = busy();
     renderSummary({ ...inside, digest: { ...digest(), ...inside.digest, outside_project: 0 } });
     expect(within(section("What it touched")).getByText("Nothing outside this project.")).toBeVisible();
+  });
+
+  it("counts a socket it connected to and qualifies new domains when the list is cut", () => {
+    const cut = busy();
+    renderSummary({
+      ...cut,
+      activity: {
+        network: { events: 3, distinct: 2 }, dns: { events: 4, distinct: 3 }, files: { events: 1, distinct: 1, by_operation: { connect: 1 } },
+      },
+      digest: { ...digest(), ...cut.digest, domains_truncated: true },
+    });
+    expect(within(section("What it touched")).getByText("1 file event across 1 path: 1 connected.")).toBeVisible();
+    expect(within(section("Where it talked to"))
+      .getByText("4 DNS lookups, 3 connections, 1 listed domain this host had not looked up before.")).toBeVisible();
+  });
+
+  it("says when the activity reflects only part of the session", () => {
+    renderSummary({ ...busy(), scope: { applied: true, processes: 4, unmatched: 0, truncated: true } });
+    expect(screen.getByRole("status")).toHaveTextContent("This scope has more processes than are read, so its activity is partial.");
+  });
+
+  it("says nothing about scope when the activity reflects the whole session", () => {
+    renderSummary({ ...busy(), scope: { applied: true, processes: 4, unmatched: 0, truncated: false } });
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("says when the summary could not be read", () => {

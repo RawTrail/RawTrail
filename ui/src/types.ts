@@ -358,6 +358,8 @@ export interface AgentSessionTotals {
     network: { events: number; distinct: number };
     dns: { events: number; distinct: number };
   };
+  // scope says how far the activity and digest reach into the session's processes.
+  scope?: ActivityScope;
   // digest describes the session for its Summary (issue #1429).
   digest?: AgentSessionDigest;
 }

@@ -572,13 +572,17 @@ describe("SessionView commands from the server", () => {
     });
     renderView();
     const views = screen.getByRole("group", { name: "Session view" });
-    expect(within(views).getAllByRole("button").map((b) => b.textContent)).toEqual(["Summary", "Conversation", "Commands", "Processes", "Activity"]);
+    expect(within(views).getAllByRole("button").map((b) => b.textContent))
+      .toEqual(["Summary", "Conversation", "Commands", "Processes", "Activity"]);
     expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");
+    // A search left over from Commands would hide the commands the alerts link leads to, so following it clears the search.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "nothing alerted" } });
     fireEvent.click(within(views).getByRole("button", { name: "Summary" }));
     expect(await screen.findByText("3 prompts")).toBeVisible();
     expect(screen.getByLabelText("Search this session")).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "See them in Commands" }));
     expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("searchbox", { name: "Search this session" })).toHaveValue("");
   });
 
   // spec:web-ui/agent-session-view-pages-its-commands/the-header-counts-the-whole-session

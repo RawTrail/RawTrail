@@ -61,7 +61,7 @@ async function seedSession(): Promise<Seeded> {
     event("p2", "agent_prompt", startNs + 59e9, { agent_session_id: sessionId, prompt_id: "turn-2", text: "install" }),
     event("f1", "file_activity", startNs + 2_000, { ...git, operation: "modify", path: `${PROJECT}/src/main.go` }),
     event("f2", "file_activity", startNs + 3_000, { ...git, operation: "create", path: `${PROJECT}/src/new.go` }),
-    event("f3", "file_activity", startNs + 60e9 + 2_000, { ...npm, operation: "create", path: "/tmp/npm-cache/entry" }),
+    event("f3", "file_activity", startNs + 60e9 + 2_000, { ...npm, operation: "create", path: "/Users/qa/.npm/_cacache/entry" }),
     event("d1", "dns_query", startNs + 4_000, { ...git, query_name: "api.github.com", query_type: "A" }),
     event("n1", "network_connect", startNs + 5_000, { ...git, protocol: "tcp", remote_address: "140.82.1.1", remote_port: 443,
       remote_hostname: "api.github.com" }),
@@ -115,7 +115,7 @@ test.describe("a session's Summary", () => {
     await expect(touched.getByText("3 file events across 3 paths: 2 created, 1 modified.")).toBeVisible();
     await expect(touched.getByText("1 path outside this project.")).toBeVisible();
     await expect(touched.getByRole("list", { name: "File events by directory" }).getByRole("listitem"))
-      .toHaveText(["./src2", "/tmp/npm-cache1"]);
+      .toHaveText(["./src1 created, 1 modified", "/Users/qa/.npm/_cacache1 created"]);
 
     const talked = page.getByRole("region", { name: "Where it talked to" });
     await expect(talked.getByText("2 DNS lookups, 1 connection, 1 domain this host had not looked up before.")).toBeVisible();

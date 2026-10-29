@@ -397,7 +397,7 @@ export function SessionView() {
                 project={project}
                 firstNs={firstNs}
                 lastNs={lastNs}
-                onAlerts={() => { setView("commands"); }}
+                onAlerts={() => { setQuery(""); setView("commands"); }}
               />
             )}
             {view === "conversation" && (

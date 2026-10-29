@@ -4,6 +4,7 @@ import type { AgentSessionDigest, AgentSessionTotals } from "../../types";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/Table";
+import { scopeNote } from "../Activity/activityScope";
 import { formatNs, plural } from "../Search/format";
 import { BYPASS_MODE, formatSpan, formatTokens, usageLine } from "./sessionUsage";
 import { barHeights, directoryLabel, fileOperations, groupDomains } from "./sessionDigest";
@@ -25,8 +26,10 @@ interface SessionSummaryProps {
 export function SessionSummary({ totals, agent, project, firstNs, lastNs, onAlerts }: SessionSummaryProps) {
   const digest = totals?.digest;
   if (!totals || !digest) return <EmptyState>The session&apos;s summary could not be read.</EmptyState>;
+  const partial = totals.scope && scopeNote(totals.scope);
   return (
     <div className="session-summary">
+      {partial && <p className="session-summary__note" role="status">{partial}</p>}
       <SummarySection title="At a glance">
         <ul className="session-summary__facts">
           <li>{agent}</li>
@@ -66,7 +69,7 @@ function SummarySection({ title, children }: { readonly title: string; readonly 
 }
 
 // CountList lists named counts, most first as the server ordered them.
-function CountList({ label, rows }: { readonly label: string; readonly rows: readonly { name: string; count: number }[] }) {
+function CountList({ label, rows }: { readonly label: string; readonly rows: readonly { name: string; count: number | string }[] }) {
   return (
     <ul className="session-summary__counts" aria-label={label}>
       {rows.map((r) => (
@@ -110,11 +113,11 @@ function SummaryTouched({ totals, digest, project }: {
   if (!files || files.events === 0) {
     return <SummarySection title="What it touched"><p>No file activity was recorded.</p></SummarySection>;
   }
-  const operations = fileOperations(files.by_operation).map((o) => `${o.count.toLocaleString()} ${o.label}`);
+  const operations = operationsText(files.by_operation);
   const across = `${plural(files.events, "file event", "file events")} across ${plural(files.distinct, "path", "paths")}`;
   return (
     <SummarySection title="What it touched">
-      <p>{`${across}: ${operations.join(", ")}.`}</p>
+      <p>{`${across}: ${operations}.`}</p>
       {project && (
         <p>
           {digest.outside_project === 0
@@ -124,15 +127,15 @@ function SummaryTouched({ totals, digest, project }: {
       )}
       <CountList
         label="File events by directory"
-        rows={digest.directories.map((d) => ({ name: directoryLabel(d.directory, project), count: sumOf(d.by_operation) }))}
+        rows={digest.directories.map((d) => ({ name: directoryLabel(d.directory, project), count: operationsText(d.by_operation) }))}
       />
       {digest.directories_truncated && <p className="session-summary__note">The busiest directories are listed.</p>}
     </SummarySection>
   );
 }
 
-function sumOf(counts: Readonly<Record<string, number>>): number {
-  return Object.values(counts).reduce((a, b) => a + b, 0);
+function operationsText(byOperation: Readonly<Record<string, number>>): string {
+  return fileOperations(byOperation).map((o) => `${o.count.toLocaleString()} ${o.label}`).join(", ");
 }
 
 function SummaryTalked({ totals, digest }: { readonly totals: AgentSessionTotals; readonly digest: AgentSessionDigest }) {
@@ -142,11 +145,13 @@ function SummaryTalked({ totals, digest }: { readonly totals: AgentSessionTotals
     return <SummarySection title="Where it talked to"><p>No network activity was recorded.</p></SummarySection>;
   }
   const fresh = digest.domains.filter((d) => d.new).length;
+  // A cut list counts only the new domains it lists, so the sentence says so.
+  const [one, many] = digest.domains_truncated ? ["listed domain", "listed domains"] : ["domain", "domains"];
   return (
     <SummarySection title="Where it talked to">
       <p>
         {`${plural(dns, "DNS lookup", "DNS lookups")}, ${plural(network, "connection", "connections")}`}
-        {fresh > 0 && `, ${plural(fresh, "domain", "domains")} this host had not looked up before`}
+        {fresh > 0 && `, ${plural(fresh, one, many)} this host had not looked up before`}
         .
       </p>
       {groupDomains(digest.domains).map((group) => (
@@ -192,6 +197,15 @@ function SummaryEffort({ totals }: { readonly totals: AgentSessionTotals }) {
   );
 }
 
+// stripLabel is a strip's accessible name: its total, and its busiest bucket's count and when that bucket began, so a reader who cannot
+// see the bars still learns when the session was busy.
+function stripLabel(label: string, counts: readonly number[], digest: AgentSessionDigest): string {
+  const busiest = Math.max(...counts);
+  const at = digest.timeline_start_ns + digest.timeline_bucket_ns * counts.indexOf(busiest);
+  return `${label}: ${counts.reduce((a, b) => a + b, 0).toLocaleString()} across the session, busiest bucket ${busiest.toLocaleString()} `
+    + `from ${formatNs(at)}`;
+}
+
 // SummaryTimeline shows when the session was busy: one strip of the commands it started, one of the file, network and DNS events, each
 // over the digest's span, which reaches from the first thing the session did to the last. Each strip is one hue; its accessible label
 // carries the numbers.
@@ -210,8 +224,7 @@ function SummaryTimeline({ digest }: { readonly digest: AgentSessionDigest }) {
           <div
             className="session-summary__bars"
             role="img"
-            aria-label={`${s.label}: ${s.counts.reduce((a, b) => a + b, 0).toLocaleString()} across the session, busiest bucket `
-              + Math.max(...s.counts).toLocaleString()}
+            aria-label={stripLabel(s.label, s.counts, digest)}
           >
             {s.heights.map((h, i) => (
               // A bucket is a position on the strip: its index is its identity.
