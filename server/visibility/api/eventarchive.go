@@ -102,6 +102,11 @@ type EventArchive interface {
 	// is a copy of another session's (see AgentSessionLineage) is not listed: it is that session's.
 	AgentToolCalls(ctx context.Context, filter AgentToolCallFilter) ([]AgentToolCall, bool, error)
 
+	// AgentPrompts lists the prompts a person typed in one AI agent session on one host (issue #1426), oldest first, a page at a time
+	// after the filter's cursor, keeping those whose text holds the filter's search when it has one. A cursor that does not decode is
+	// an ErrInvalidPromptCursor.
+	AgentPrompts(ctx context.Context, filter AgentPromptFilter) (AgentPromptPage, error)
+
 	// AgentToolCallCounts counts the calls AgentToolCalls would list for the filter, uncapped, by tool name (issue #1422), most used
 	// first and then by name. The filter's Limit is ignored.
 	AgentToolCallCounts(ctx context.Context, filter AgentToolCallFilter) ([]ToolCallCount, error)
@@ -226,6 +231,9 @@ var ErrEventsTruncated = errors.New("visibility: event read exceeded its row cap
 // ErrInvalidActivityCursor is returned by ActivityPage when its cursor does not decode or names another class. The operator handler
 // maps it to 400.
 var ErrInvalidActivityCursor = errors.New("visibility: invalid activity cursor")
+
+// ErrInvalidPromptCursor is AgentPrompts' answer to a cursor that does not decode.
+var ErrInvalidPromptCursor = errors.New("visibility: invalid prompt cursor")
 
 // Activity classes, as ActivityPage names them.
 const (
@@ -382,6 +390,37 @@ type DNSActivityRow struct {
 	ActivityRow
 	QueryName string   `json:"query_name"`
 	Addresses []string `json:"addresses"`
+}
+
+// AgentPromptFilter selects a page of one session's prompts: the session on its host, the previous page's cursor (empty for the
+// first), a search the text must hold (empty for none), and the page size.
+type AgentPromptFilter struct {
+	HostID    string
+	SessionID string
+	Cursor    string
+	Search    string
+	Limit     int
+}
+
+// AgentPrompt is one prompt a person typed, as the agent sent it (issue #1426): redacted and cut at 16 KiB before it left the host.
+// Length is the prompt's length as typed, Redacted how many credentials were replaced, and Source how it was entered (typed,
+// queued, an accepted suggestion). PromptID names the turn, which the session's tool calls made in it name too.
+type AgentPrompt struct {
+	PromptID  string `json:"prompt_id"`
+	Text      string `json:"text"`
+	Length    int64  `json:"length"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Redacted  int64  `json:"redacted,omitempty"`
+	Source    string `json:"source,omitempty"`
+	AtNs      int64  `json:"at_ns"`
+	// UID is the uid of the transcript the prompt was read from.
+	UID int64 `json:"uid"`
+}
+
+// AgentPromptPage is one page of a session's prompts and the cursor for the next, empty on the last.
+type AgentPromptPage struct {
+	Prompts    []AgentPrompt `json:"prompts"`
+	NextCursor string        `json:"next_cursor,omitempty"`
 }
 
 // AgentToolCallFilter selects one session's tool calls on one host. FromNs/ToNs bound the time the agent recorded each call, zero

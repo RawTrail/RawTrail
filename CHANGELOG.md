@@ -12,6 +12,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 ### Added
 
 - **The agent reports an AI agent session's token usage and permission mode.** Each reply's model and tokens are sent, with the permission mode in force, whatever the prompt-capture setting; no prompt or reply text is included.
+- **Read the prompts typed to an AI agent, behind their own permission.** The prompts of a session are served by the server to operators who hold the new `agent_prompt.read` permission: admins and senior analysts. Analysts and auditors do not have it, and every read is audited.
 - **Event retention is a setting.** `EDR_EVENT_RETENTION_DAYS` (default 30) sets how long raw events are kept; the server applies it at startup. Shortening it deletes older events. Use the same value on every server and ingest replica.
 - **Long agent sessions open quickly.** A session's commands, processes and each Activity list load a page at a time with the rest on request, a search in any of them runs on the server over the session's first 20,000 processes (the view says when a session has more), and the header counts the whole session's commands and processes.
 - **An alertable count of service accounts about to expire.** The `edr.service_accounts.expiring` metric reports the active service accounts whose credential expires within 14 days, the same accounts the console flags. Alert when it is above zero and rotate the credential before the date.

@@ -35,6 +35,10 @@ const (
 	ActionHostRead    Action = "host.read"
 	ActionProcessRead Action = "process.read"
 
+	// ActionAgentPromptRead reads the prompts a person typed to an AI agent (issue #1426). It is apart from process read, which does
+	// not imply it, since a prompt can say anything the person typed; and it is not a sampled read, so every read is audited.
+	ActionAgentPromptRead Action = "agent_prompt.read"
+
 	// Host destructive actions. The reauth window gates these on
 	// actor.session_fresh.
 	ActionHostIsolate     Action = "host.isolate"
@@ -132,7 +136,7 @@ const (
 // otherwise.
 func RegisteredActions() []Action {
 	return []Action{
-		ActionHostRead, ActionProcessRead,
+		ActionHostRead, ActionProcessRead, ActionAgentPromptRead,
 		ActionHostIsolate, ActionHostKillProcess, ActionHostRunScript,
 		ActionAlertRead, ActionAlertComment, ActionAlertAcknowledge,
 		ActionAlertResolve, ActionAlertReopen,
