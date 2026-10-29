@@ -565,7 +565,14 @@ func (c recordedCall) copiedFromOrigin(held map[heldCall]bool) bool {
 
 // copied mirrors the ClickHouse store's notCopiedSQL: a call the session it names holds, its origin or its job's parent, is a copy.
 func (c recordedCall) copied(held map[heldCall]bool) bool {
-	return c.copiedFromOrigin(held) || (c.ForkedFrom != "" && held[heldCall{c.ForkedFrom, c.ToolUseID, c.UID}])
+	return heldBySource(held, c.OriginSessionID, c.ForkedFrom, c.ToolUseID, c.UID)
+}
+
+// heldBySource reports a transcript entry, a call by its tool_use_id or a message by its id, that the session it names as its
+// source holds under the same id and owner: its origin, or its job's parent. That entry is the source session's copy, as the store's
+// notCopied filter has it.
+func heldBySource(held map[heldCall]bool, origin, forkedFrom, id string, uid int64) bool {
+	return (origin != "" && held[heldCall{origin, id, uid}]) || (forkedFrom != "" && held[heldCall{forkedFrom, id, uid}])
 }
 
 // recordedUsage is one agent_usage event as the archive reads it (issue #1427).
@@ -600,9 +607,7 @@ func (m *MemArchive) AgentUsageTotals(_ context.Context, filter api.AgentToolCal
 	m.mu.Unlock()
 	first := map[heldCall]recordedUsage{}
 	for _, u := range usages {
-		copied := (u.OriginSessionID != "" && held[heldCall{u.OriginSessionID, u.MessageID, u.UID}]) ||
-			(u.ForkedFrom != "" && held[heldCall{u.ForkedFrom, u.MessageID, u.UID}])
-		if u.SessionID != filter.SessionID || copied {
+		if u.SessionID != filter.SessionID || heldBySource(held, u.OriginSessionID, u.ForkedFrom, u.MessageID, u.UID) {
 			continue
 		}
 		key := heldCall{u.SessionID, u.MessageID, u.UID}
