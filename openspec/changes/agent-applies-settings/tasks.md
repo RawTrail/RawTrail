@@ -7,4 +7,4 @@
 
 ## 2. QA
 
-- [ ] 2.1 Live macOS VM: turn capture off from the server, confirm a new prompt is not sent and the setting survives an agent restart.
+- [x] 2.1 Live macOS VM (edr-dev, 2026-10-29): with no settings the agent sent a tool call and not the prompt; the catch-up delivered the settings 52 s after enrollment and the next prompt was sent; turning capture off reached the agent in about a second and the next prompt was not sent; after a restart it still sent none.
