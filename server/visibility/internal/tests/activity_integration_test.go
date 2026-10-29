@@ -167,7 +167,7 @@ func TestEventArchive_AgentToolCalls(t *testing.T) {
 			`"tool_name":"Bash","uid":501`+extra+`}`)
 	}
 	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
-		call("c1", "s1", "toolu_a", `,"command":"ls","description":"List files"`, at(1)),
+		call("c1", "s1", "toolu_a", `,"command":"ls","description":"List files","prompt_id":"turn-1"`, at(1)),
 		call("c2", "s1", "toolu_b", `,"command":"pwd","sidechain":true`, at(2)),
 		// The agent restarted and reported toolu_a again, later and from a transcript since edited: the first recording is kept whole.
 		call("c3", "s1", "toolu_a", `,"command":"ls -la","description":"Edited later"`, at(9)),
@@ -188,7 +188,7 @@ func TestEventArchive_AgentToolCalls(t *testing.T) {
 		return err == nil && len(got) == 4
 	}, 5*time.Second, 100*time.Millisecond)
 	assert.Equal(t, []visibilityapi.AgentToolCall{
-		{ToolUseID: "toolu_a", ToolName: "Bash", Command: "ls", Description: "List files", CalledAtNs: at(1), UID: 501},
+		{ToolUseID: "toolu_a", ToolName: "Bash", Command: "ls", Description: "List files", CalledAtNs: at(1), UID: 501, PromptID: "turn-1"},
 		{ToolUseID: "toolu_b", ToolName: "Bash", Command: "pwd", Sidechain: true, CalledAtNs: at(2), UID: 501},
 		{ToolUseID: "toolu_c", ToolName: "Bash", Command: "ls", Truncated: true, CalledAtNs: at(3), UID: 501},
 		{ToolUseID: "toolu_b", ToolName: "Bash", Command: "rm -rf /", CalledAtNs: at(6), UID: 502},
