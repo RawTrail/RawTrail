@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"sort"
@@ -525,6 +526,11 @@ func (m *MemArchive) ActivityTotalsForGenerations(context.Context, api.ActivityF
 	return api.ActivitySummary{}, errActivityUnsupported
 }
 
+// ActivityDigest is not mirrored in memory; see errActivityUnsupported.
+func (m *MemArchive) ActivityDigest(context.Context, api.DigestFilter) (api.ActivityDigest, error) {
+	return api.ActivityDigest{}, errActivityUnsupported
+}
+
 // recordedCall is one agent_tool_call event as the archive reads it: the call, its session and origin, and its event.
 type recordedCall struct {
 	api.AgentToolCall
@@ -681,6 +687,12 @@ func (m *MemArchive) AgentToolCalls(_ context.Context, filter api.AgentToolCallF
 		return listed[:filter.Limit], true, nil
 	}
 	return listed, false, nil
+}
+
+// AgentPromptCount mirrors the ClickHouse store's count: the prompts AgentPrompts lists for the session, all on one page.
+func (m *MemArchive) AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error) {
+	page, err := m.AgentPrompts(ctx, api.AgentPromptFilter{HostID: hostID, SessionID: sessionID, Limit: math.MaxInt})
+	return int64(len(page.Prompts)), err
 }
 
 // AgentPrompts mirrors the ClickHouse store: one session's agent_prompt events after the cursor, oldest first, kept by a search of

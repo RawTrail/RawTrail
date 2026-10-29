@@ -32,6 +32,22 @@ type fakeSessionTotals struct {
 	usage        visibilityapi.AgentUsageTotals
 	usageErr     error
 	usageRead    *visibilityapi.AgentToolCallFilter
+	digest       visibilityapi.ActivityDigest
+	digestErr    error
+	digestRead   *visibilityapi.DigestFilter
+	prompts      int64
+	promptsErr   error
+	promptsRead  []string
+}
+
+func (f *fakeSessionTotals) ActivityDigest(_ context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
+	f.digestRead = &filter
+	return f.digest, f.digestErr
+}
+
+func (f *fakeSessionTotals) AgentPromptCount(_ context.Context, hostID, sessionID string) (int64, error) {
+	f.promptsRead = []string{hostID, sessionID}
+	return f.prompts, f.promptsErr
 }
 
 func (f *fakeSessionTotals) AgentSessionCounts(_ context.Context, hostID, sessionID string) (api.AgentSessionCounts, error) {
@@ -60,10 +76,14 @@ func (f *fakeSessionTotals) AgentUsageTotals(_ context.Context, filter visibilit
 
 const summaryPath = "/api/hosts/h1/agent-sessions/47abb2a1/summary"
 
+// summaryProject is the project the summary tests' session worked in.
+const summaryProject = "/Users/dev/project"
+
 // summarySession is the session the summary tests read: no agent pid, so its scope is its own processes alone.
 func summarySession() *fakeSessionLister {
+	project := summaryProject
 	return &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{
-		{HostID: "h1", AgentSessionID: "47abb2a1", FirstSeenNs: 10_000_000_000_000, LastSeenNs: 20_000_000_000_000},
+		{HostID: "h1", AgentSessionID: "47abb2a1", CWD: &project, FirstSeenNs: 10_000_000_000_000, LastSeenNs: 20_000_000_000_000},
 	}}}
 }
 
@@ -125,6 +145,13 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 			Models: []visibilityapi.ModelUsage{{Model: "claude-opus-5-5", Messages: 2, Input: 6, Output: 300, CacheRead: 9000}},
 			Modes:  []visibilityapi.ModeUsage{{Mode: "bypassPermissions", Messages: 2, FirstNs: 100, LastNs: 200}},
 		},
+		prompts: 4,
+		digest: visibilityapi.ActivityDigest{
+			Directories:    []visibilityapi.DirectoryActivity{{Directory: "/src", Paths: 2, ByOperation: map[string]int64{"modify": 5}}},
+			OutsideProject: 1,
+			Domains:        []visibilityapi.DomainActivity{{Domain: "github.com", Lookups: 1, Connections: 2, New: true}},
+			Timeline:       make([]int64, digestBuckets),
+		},
 	}
 	// Counted from the server's goroutine and read by the test, so atomically.
 	var reads atomic.Int64
@@ -146,6 +173,14 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 		Activity:  totals.activity,
 		Scope:     timelineScope{Applied: true, Processes: 3},
 		Usage:     totals.usage,
+		Digest: sessionDigest{
+			Prompts:          4,
+			Programs:         []programCount{{Program: "pb", Count: 1}, {Program: "pc", Count: 1}, {Program: "pd", Count: 1}},
+			ActivityDigest:   totals.digest,
+			CommandTimeline:  make([]int64, digestBuckets),
+			TimelineStartNs:  10_000_000_000_000,
+			TimelineBucketNs: 10_000_000_000_000/digestBuckets + 1,
+		},
 	}, got)
 
 	assert.Equal(t, []string{"h1", "47abb2a1"}, totals.counted)
@@ -159,6 +194,11 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 	}, *totals.toolsRead, "the tool calls are counted over the window the session's tool-call read uses")
 	require.NotNil(t, totals.usageRead)
 	assert.Equal(t, *totals.toolsRead, *totals.usageRead, "the tokens are totalled over the session the tool calls are")
+	assert.Equal(t, []string{"h1", "47abb2a1"}, totals.promptsRead)
+	require.NotNil(t, totals.digestRead)
+	assert.Equal(t, visibilityapi.DigestFilter{
+		ActivityFilter: *totals.activityRead, Project: summaryProject, StartNs: 10_000_000_000_000, EndNs: 20_000_000_000_000, Buckets: digestBuckets,
+	}, *totals.digestRead, "the digest describes the scope the activity is counted over, across the session's span")
 }
 
 // The summary counts the commands its session's commands list lists: two tool calls, the second without a child.
@@ -224,6 +264,8 @@ func TestAgentSessionSummary_Failures(t *testing.T) {
 		{name: "activity fails", az: allowAllAuthZ{}, totals: &fakeSessionTotals{activityErr: boom}, want: http.StatusInternalServerError},
 		{name: "tool calls fail", az: allowAllAuthZ{}, totals: &fakeSessionTotals{toolsErr: boom}, want: http.StatusInternalServerError},
 		{name: "usage fails", az: allowAllAuthZ{}, totals: &fakeSessionTotals{usageErr: boom}, want: http.StatusInternalServerError},
+		{name: "prompts fail", az: allowAllAuthZ{}, totals: &fakeSessionTotals{promptsErr: boom}, want: http.StatusInternalServerError},
+		{name: "digest fails", az: allowAllAuthZ{}, totals: &fakeSessionTotals{digestErr: boom}, want: http.StatusInternalServerError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

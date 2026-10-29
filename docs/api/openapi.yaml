@@ -1051,7 +1051,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [commands, processes, alerts, tool_calls, activity, scope, usage]
+                required: [commands, processes, alerts, tool_calls, activity, scope, usage, digest]
                 properties:
                   commands: {type: integer, description: "The session's commands, as `GET .../commands` lists them."}
                   processes: {type: integer, format: int64, description: "The session's retained processes."}
@@ -1144,6 +1144,56 @@ paths:
                             messages: {type: integer, format: int64}
                             first_ns: {type: integer, format: int64}
                             last_ns: {type: integer, format: int64}
+                  digest:
+                    type: object
+                    description: >-
+                      The session described for its Summary, over the scope `activity` is counted over. Its timelines split the
+                      session's span, from `timeline_start_ns`, into 48 buckets `timeline_bucket_ns` wide.
+                    required: [prompts, programs, directories, directories_truncated, outside_project, domains, domains_truncated, timeline, command_timeline, timeline_start_ns, timeline_bucket_ns]
+                    properties:
+                      prompts: {type: integer, format: int64, description: "The prompts the session was sent, counted without reading their text."}
+                      programs:
+                        type: array
+                        description: "The ten programs the session's commands ran most, by executable name, most first; the shell wrapping a command the agent ran is not counted."
+                        items:
+                          type: object
+                          required: [program, count]
+                          properties:
+                            program: {type: string}
+                            count: {type: integer}
+                      directories:
+                        type: array
+                        description: The twenty directories with the most file events, most first. A folded row's directory is its own path.
+                        items:
+                          type: object
+                          required: [directory, paths, by_operation]
+                          properties:
+                            directory: {type: string}
+                            paths: {type: integer, format: int64, description: Distinct paths.}
+                            by_operation:
+                              type: object
+                              description: Events by operation, keyed as `activity.files.by_operation` is.
+                              additionalProperties: {type: integer, format: int64}
+                      directories_truncated: {type: boolean, description: More directories had file events than are listed.}
+                      outside_project: {type: integer, format: int64, description: "Distinct paths outside the session's project; 0 when its project is unknown."}
+                      domains:
+                        type: array
+                        description: >-
+                          The fifty registrable domains (api.github.com counts as github.com) with the most lookups and connections,
+                          most first. A connection counts only when the agent named the host it connected to.
+                        items:
+                          type: object
+                          required: [domain, lookups, connections, new]
+                          properties:
+                            domain: {type: string}
+                            lookups: {type: integer, format: int64}
+                            connections: {type: integer, format: int64}
+                            new: {type: boolean, description: "The host had not looked the domain up before the session began, in the history it retains."}
+                      domains_truncated: {type: boolean, description: More domains were seen than are listed.}
+                      timeline: {type: array, items: {type: integer, format: int64}, description: "File, network and DNS events in each bucket."}
+                      command_timeline: {type: array, items: {type: integer, format: int64}, description: Commands that started in each bucket.}
+                      timeline_start_ns: {type: integer, format: int64}
+                      timeline_bucket_ns: {type: integer, format: int64}
         "404":
           description: "`not_found`: no such session on the host."
           content:
