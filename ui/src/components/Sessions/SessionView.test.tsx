@@ -585,6 +585,15 @@ describe("SessionView commands from the server", () => {
     expect(screen.getByRole("searchbox", { name: "Search this session" })).toHaveValue("");
   });
 
+  it("says the Summary is loading until the session is read", () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(api, "getAgentSessionTotals").mockReturnValue(new Promise(() => undefined));
+    renderView();
+    fireEvent.click(within(screen.getByRole("group", { name: "Session view" })).getByRole("button", { name: "Summary" }));
+    expect(screen.getByText("Loading...")).toBeVisible();
+  });
+
   // spec:web-ui/agent-session-view-pages-its-commands/the-header-counts-the-whole-session
   it("counts the session's commands and processes from its totals", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);

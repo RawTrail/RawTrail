@@ -2,6 +2,7 @@
 // organization, what it touched by directory, and its timeline.
 
 import type { DomainActivity } from "../../types";
+import { barHeight } from "../barHeight";
 
 // ORGANIZATIONS names the kinds of destination a Summary groups domains by, in the order it lists them, each with the registrable
 // domains that belong to it. A domain none names is under "Everything else".
@@ -68,14 +69,9 @@ export function fileOperations(byOperation: Readonly<Record<string, number>>): O
     .filter((o) => o.count > 0);
 }
 
-// MIN_VISIBLE_BAR_PERCENT keeps a bucket with anything in it visible beside a spike, as the host page's activity strip does.
-const MIN_VISIBLE_BAR_PERCENT = 6;
-const FULL_PERCENT = 100;
-
-// barHeights is each bucket's bar height in percent of the busiest bucket's: zero for an empty bucket, at least
-// MIN_VISIBLE_BAR_PERCENT for any other. A timeline with nothing in it has no bars.
+// barHeights is each bucket's bar height as barHeight draws it. A timeline with nothing in it has no bars.
 export function barHeights(counts: readonly number[]): number[] {
   const max = Math.max(0, ...counts);
   if (max === 0) return [];
-  return counts.map((n) => (n === 0 ? 0 : Math.max(MIN_VISIBLE_BAR_PERCENT, (n / max) * FULL_PERCENT)));
+  return counts.map((n) => barHeight(n, max));
 }

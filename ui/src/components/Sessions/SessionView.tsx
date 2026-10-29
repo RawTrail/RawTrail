@@ -390,6 +390,7 @@ export function SessionView() {
                 </button>
               ))}
             </div>
+            {view === "summary" && !current && <EmptyState>Loading...</EmptyState>}
             {view === "summary" && current && (
               <SessionSummary
                 totals={current.totals}
