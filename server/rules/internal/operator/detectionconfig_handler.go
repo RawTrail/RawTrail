@@ -134,6 +134,15 @@ func (h *DetectionConfigHandler) resolveCreatedByLabels(ctx context.Context, exc
 	}
 }
 
+// updatedByLabel is the display label for who last changed a document, or "" when nobody has (id is empty), no resolver is wired,
+// or it cannot be resolved.
+func (h *DetectionConfigHandler) updatedByLabel(ctx context.Context, id string) string {
+	if h.principalLabel == nil || id == "" {
+		return ""
+	}
+	return h.resolveLabel(ctx, id)
+}
+
 // resolveLabel resolves one principal id to its display label, or "" when it cannot be resolved. The caller has checked that a
 // resolver is wired and that id is not empty.
 func (h *DetectionConfigHandler) resolveLabel(ctx context.Context, id string) string {

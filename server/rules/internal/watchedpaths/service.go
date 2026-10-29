@@ -13,6 +13,7 @@ import (
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 	"github.com/rawtrail/rawtrail/server/rules/api"
 	"github.com/rawtrail/rawtrail/server/rules/internal/appcontrol"
+	"github.com/rawtrail/rawtrail/server/rules/internal/hostpush"
 )
 
 // ErrReasonRequired is returned for a change without a reason. Every change is audited with its reason, and a blank one would leave
@@ -21,11 +22,10 @@ var ErrReasonRequired = errors.New("watchedpaths: reason is required")
 
 // Service stores the watched-path set and pushes it to hosts.
 type Service struct {
-	store    *Store
-	commands appcontrol.CommandBatchInserter
-	hosts    appcontrol.HostLister
-	drain    *auditoutbox.Drain
-	logger   *slog.Logger
+	store  *Store
+	push   hostpush.Pusher
+	drain  *auditoutbox.Drain
+	logger *slog.Logger
 }
 
 // NewService builds a Service. store, commands and hosts are required. drain delivers the audit entries changes commit; it may be nil
@@ -38,7 +38,10 @@ func NewService(store *Store, commands appcontrol.CommandBatchInserter, hosts ap
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{store: store, commands: commands, hosts: hosts, drain: drain, logger: logger}
+	push := hostpush.Pusher{
+		Subject: "watchedpaths", CommandType: api.CommandTypeSetWatchedPaths, Commands: commands, Hosts: hosts, Logger: logger,
+	}
+	return &Service{store: store, push: push, drain: drain, logger: logger}
 }
 
 // Get returns the stored set.
@@ -49,12 +52,7 @@ func (s *Service) Get(ctx context.Context) (api.WatchedPathSet, error) {
 // ReplaceResult is a replaced set and how its push to hosts went.
 type ReplaceResult struct {
 	Set api.WatchedPathSet `json:"set"`
-	// FanoutHosts is how many enrolled hosts the set was queued for, and FanoutFailed how many of those it could not be queued for.
-	FanoutHosts  int `json:"fanout_hosts"`
-	FanoutFailed int `json:"fanout_failed"`
-	// FanoutSkippedReason says why the set was queued for no host when that was a failure rather than an empty fleet:
-	// appcontrol.FanoutSkipReasonHostLister when the enrolled hosts could not be listed. Empty otherwise.
-	FanoutSkippedReason string `json:"fanout_skipped_reason,omitempty"`
+	hostpush.Counts
 }
 
 // Replace validates paths, stores them as the new set, queues a set_watched_paths command for every enrolled host, and audits the
@@ -81,8 +79,9 @@ func (s *Service) Replace(
 	if err != nil {
 		return ReplaceResult{}, err
 	}
-	result := s.fanout(ctx, set)
-	s.completeAudit(ctx, auditID, actor, reason, previous, result)
+	result := ReplaceResult{Set: set, Counts: s.push.Fanout(ctx, set.Version, commandPayload(set))}
+	entry, err := auditEntry(ctx, actor, reason, previous, result, true)
+	s.push.CompleteAudit(ctx, set.Version, auditID, entry, err, s.store.SealAudit, s.drain)
 	return result, nil
 }
 
@@ -123,31 +122,6 @@ func (s *Service) EnsureDefaults(ctx context.Context) error {
 	return nil
 }
 
-// fanout queues the set for every enrolled host in one batched insert and reports how many hosts it tried, how many it missed, and
-// why it reached none when that was a failure.
-func (s *Service) fanout(ctx context.Context, set api.WatchedPathSet) ReplaceResult {
-	result := ReplaceResult{Set: set}
-	hostIDs, err := s.hosts(ctx)
-	if err != nil {
-		s.logger.WarnContext(ctx, "watchedpaths: host list failed; set not pushed", "version", set.Version, "err", err)
-		result.FanoutSkippedReason = appcontrol.FanoutSkipReasonHostLister
-		return result
-	}
-	if len(hostIDs) == 0 {
-		return result
-	}
-	payload := commandPayload(set)
-	hostIDs = slices.Clone(hostIDs)
-	slices.Sort(hostIDs)
-	inserted, err := s.commands(ctx, hostIDs, api.CommandTypeSetWatchedPaths, payload)
-	result.FanoutHosts, result.FanoutFailed = len(hostIDs), len(hostIDs)-inserted
-	if err != nil {
-		s.logger.WarnContext(ctx, "watchedpaths: queueing the set failed for some hosts",
-			"version", set.Version, "attempted", len(hostIDs), "inserted", inserted, "err", err)
-	}
-	return result
-}
-
 // auditEntry encodes a replacement's audit row: the reason, the previous and new sets, and, when withCounts, how the push went. It
 // carries the request's trace, so the row is attributed to the request that made the change rather than the one that delivers it.
 func auditEntry(
@@ -162,11 +136,7 @@ func auditEntry(
 		"previous_paths":   previous.Paths,
 	}
 	if withCounts {
-		payload["fanout_hosts"] = result.FanoutHosts
-		payload["fanout_failed"] = result.FanoutFailed
-		if result.FanoutSkippedReason != "" {
-			payload["fanout_skipped_reason"] = result.FanoutSkippedReason
-		}
+		result.AuditPayload(payload)
 	}
 	return auditoutbox.Encode(identityapi.AuditEvent{
 		Actor:      actor.Principal,
@@ -176,26 +146,4 @@ func auditEntry(
 		TraceID:    identityapi.TraceIDFromContext(ctx),
 		Payload:    payload,
 	})
-}
-
-// completeAudit adds the push's host counts to the replacement's held audit entry and delivers it. The change and its entry are
-// already committed, so every failure here is logged rather than returned: at worst the row arrives late, or without the counts.
-func (s *Service) completeAudit(
-	ctx context.Context, auditID int64, actor *identityapi.Actor, reason string, previous api.WatchedPathSet, result ReplaceResult,
-) {
-	version := result.Set.Version
-	entry, err := auditEntry(ctx, actor, reason, previous, result, true)
-	sealed := false
-	if err == nil {
-		sealed, err = s.store.SealAudit(ctx, auditID, entry)
-	}
-	switch {
-	case err != nil:
-		s.logger.WarnContext(ctx, "watchedpaths: could not add the push's host counts to the audit entry; it is delivered without "+
-			"them once its hold passes", "version", version, "err", err)
-	case !sealed:
-		s.logger.WarnContext(ctx, "watchedpaths: the push outlasted its audit entry's hold; the row is delivered without host counts",
-			"version", version)
-	}
-	s.drain.DeliverSoon(ctx)
 }

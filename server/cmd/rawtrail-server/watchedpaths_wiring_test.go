@@ -47,7 +47,7 @@ func TestActiveEnrollmentsFromEndpoint_CarriesHostAndEnrollmentTime(t *testing.T
 
 	got, err := list(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, []rulesapi.WatchedPathEnrollment{
+	assert.Equal(t, []rulesapi.HostEnrollment{
 		{HostID: "host-a", EnrolledAt: enrolledAt},
 		{HostID: "host-b", EnrolledAt: enrolledAt.Add(time.Hour)},
 	}, got)
@@ -67,7 +67,7 @@ func TestLatestCommandsFromResponse_CarriesTheFieldsTheCatchUpReads(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, rulesapi.CommandTypeSetWatchedPaths, stub.gotType)
 	assert.Equal(t, []string{"host-a", "host-b"}, stub.gotHosts)
-	assert.Equal(t, map[string]rulesapi.WatchedPathCommand{
+	assert.Equal(t, map[string]rulesapi.HostCommand{
 		"host-a": {Payload: []byte(`{"version":2}`), Status: "failed", CreatedAt: created, CompletedAt: completed},
 		"host-b": {Payload: []byte(`{"version":2}`), Status: "pending", CreatedAt: created},
 	}, got)

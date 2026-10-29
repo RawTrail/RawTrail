@@ -74,11 +74,11 @@ type Deps struct {
 	// context has seen events from, which misses a host enrolled but not yet reporting and includes one whose enrollment is revoked.
 	// Nil leaves the watched-path routes unmounted.
 	EnrolledHostLister appcontrol.HostLister
-	// WatchedPathEnrollments and WatchedPathLatestCommands feed the watched-path catch-up, which queues the current set for hosts
+	// HostEnrollments and HostLatestCommands feed the watched-path catch-up, which queues the current set for hosts
 	// that enrolled after a change, reinstalled, or let their command age out (issue #998). cmd/main adapts the endpoint context's
 	// enrollment list and the response context's LatestOfType. The catch-up runs only when both are set, alongside the routes.
-	WatchedPathEnrollments    api.WatchedPathEnrollmentLister
-	WatchedPathLatestCommands api.WatchedPathCommandLister
+	HostEnrollments    api.HostEnrollmentLister
+	HostLatestCommands api.HostCommandLister
 	// WatchedPathConvergeInterval is how often the catch-up runs. Optional: zero or negative means
 	// watchedpaths.DefaultConvergeInterval.
 	WatchedPathConvergeInterval time.Duration
@@ -130,7 +130,7 @@ type Rules struct {
 	// audit recorder.
 	detectionConfigAuditDrain *auditoutbox.Drain
 	detectionConfigH          *operator.DetectionConfigHandler
-	// watchedPathConverger is nil unless the watched-path catch-up is wired; see Deps.WatchedPathEnrollments.
+	// watchedPathConverger is nil unless the watched-path catch-up is wired; see Deps.HostEnrollments.
 	watchedPathConverger *watchedpaths.Converger
 	// watchedPathConvergeInterval is how often it runs. See Deps.WatchedPathConvergeInterval.
 	watchedPathConvergeInterval time.Duration
@@ -249,9 +249,9 @@ func New(ctx context.Context, deps Deps) (*Rules, error) {
 		watchedPathSvc := watchedpaths.NewService(
 			watchedPathStore, deps.CommandBatchInserter, deps.EnrolledHostLister, detectionConfigAuditDrain, logger)
 		detectionConfigH.SetWatchedPaths(watchedPathSvc)
-		if deps.WatchedPathEnrollments != nil && deps.WatchedPathLatestCommands != nil {
+		if deps.HostEnrollments != nil && deps.HostLatestCommands != nil {
 			watchedPathConverger = watchedpaths.NewConverger(watchedPathStore, deps.CommandBatchInserter,
-				deps.WatchedPathEnrollments, deps.WatchedPathLatestCommands, logger)
+				deps.HostEnrollments, deps.HostLatestCommands, logger)
 			watchedPathConverger.SetEnsureDefaults(watchedPathSvc.EnsureDefaults)
 		}
 	}

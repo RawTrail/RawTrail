@@ -25,7 +25,7 @@ import (
 // fakeCommandHistory stands in for the response context: it records what the catch-up queues and answers LatestOfType from it.
 type fakeCommandHistory struct {
 	mu     sync.Mutex
-	latest map[string]rulesapi.WatchedPathCommand
+	latest map[string]rulesapi.HostCommand
 	queued []string
 }
 
@@ -33,16 +33,16 @@ func (f *fakeCommandHistory) insert(_ context.Context, hostIDs []string, _ strin
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, h := range hostIDs {
-		f.latest[h] = rulesapi.WatchedPathCommand{Payload: payload, Status: catchup.StatusPending, CreatedAt: time.Now()}
+		f.latest[h] = rulesapi.HostCommand{Payload: payload, Status: catchup.StatusPending, CreatedAt: time.Now()}
 		f.queued = append(f.queued, h)
 	}
 	return len(hostIDs), nil
 }
 
-func (f *fakeCommandHistory) list(_ context.Context, _ string, hostIDs []string) (map[string]rulesapi.WatchedPathCommand, error) {
+func (f *fakeCommandHistory) list(_ context.Context, _ string, hostIDs []string) (map[string]rulesapi.HostCommand, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := map[string]rulesapi.WatchedPathCommand{}
+	out := map[string]rulesapi.HostCommand{}
 	for _, h := range hostIDs {
 		if c, ok := f.latest[h]; ok {
 			out[h] = c
@@ -63,13 +63,13 @@ func (f *fakeCommandHistory) takeQueued() []string {
 func TestWatchedPathsConverge_QueuesTheSetForHostsThatMissedIt(t *testing.T) {
 	t.Parallel()
 	r := newAppControlRig(t, []string{"host-a"})
-	history := &fakeCommandHistory{latest: map[string]rulesapi.WatchedPathCommand{}}
-	enrolled := []rulesapi.WatchedPathEnrollment{
+	history := &fakeCommandHistory{latest: map[string]rulesapi.HostCommand{}}
+	enrolled := []rulesapi.HostEnrollment{
 		{HostID: "host-a", EnrolledAt: time.Now().Add(-48 * time.Hour)},
 		{HostID: "late-host", EnrolledAt: time.Now().Add(-time.Hour)},
 	}
 	converger := watchedpaths.NewConverger(watchedpaths.NewStore(r.db), history.insert,
-		func(context.Context) ([]rulesapi.WatchedPathEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
+		func(context.Context) ([]rulesapi.HostEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
 
 	queued, err := converger.Converge(t.Context())
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestWatchedPathsConverge_QueuesTheSetForHostsThatMissedIt(t *testing.T) {
 	require.Equal(t, http.StatusOK, put.StatusCode)
 	// host-a was enrolled at the change and took the push; late-host enrolled afterwards and has nothing.
 	for _, c := range r.inserter.snapshot() {
-		history.latest[c.HostID] = rulesapi.WatchedPathCommand{Payload: c.Payload, Status: catchup.StatusCompleted, CreatedAt: time.Now()}
+		history.latest[c.HostID] = rulesapi.HostCommand{Payload: c.Payload, Status: catchup.StatusCompleted, CreatedAt: time.Now()}
 	}
 
 	queued, err = converger.Converge(t.Context())
@@ -106,22 +106,22 @@ func TestWatchedPathsConverge_ResendsAfterExpiryAndReenrollment(t *testing.T) {
 	put := r.do(t, http.MethodPut, watchedPathsRoute, map[string]any{"paths": []rulesapi.WatchedPath{startupItems}, "reason": "r"})
 	put.Body.Close()
 	require.Equal(t, http.StatusOK, put.StatusCode)
-	history := &fakeCommandHistory{latest: map[string]rulesapi.WatchedPathCommand{}}
+	history := &fakeCommandHistory{latest: map[string]rulesapi.HostCommand{}}
 	pushedAt := time.Now()
 	for _, c := range r.inserter.snapshot() {
 		status := catchup.StatusCompleted
 		if c.HostID == "host-a" {
 			status = catchup.StatusExpired
 		}
-		history.latest[c.HostID] = rulesapi.WatchedPathCommand{Payload: c.Payload, Status: status, CreatedAt: pushedAt}
+		history.latest[c.HostID] = rulesapi.HostCommand{Payload: c.Payload, Status: status, CreatedAt: pushedAt}
 	}
 	// host-b took the set, then reinstalled and enrolled again, which removed the extension's persisted copy.
-	enrolled := []rulesapi.WatchedPathEnrollment{
+	enrolled := []rulesapi.HostEnrollment{
 		{HostID: "host-a", EnrolledAt: pushedAt.Add(-time.Hour)},
 		{HostID: "host-b", EnrolledAt: pushedAt.Add(time.Minute)},
 	}
 	converger := watchedpaths.NewConverger(watchedpaths.NewStore(r.db), history.insert,
-		func(context.Context) ([]rulesapi.WatchedPathEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
+		func(context.Context) ([]rulesapi.HostEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
 
 	queued, err := converger.Converge(t.Context())
 	require.NoError(t, err)
@@ -137,24 +137,24 @@ func TestWatchedPathsConverge_SurfacesAFailedRead(t *testing.T) {
 	put.Body.Close()
 	require.Equal(t, http.StatusOK, put.StatusCode)
 	readFailed := errors.New("read failed")
-	enrolled := func(context.Context) ([]rulesapi.WatchedPathEnrollment, error) {
-		return []rulesapi.WatchedPathEnrollment{{HostID: "late-host", EnrolledAt: time.Now().Add(-time.Hour)}}, nil
+	enrolled := func(context.Context) ([]rulesapi.HostEnrollment, error) {
+		return []rulesapi.HostEnrollment{{HostID: "late-host", EnrolledAt: time.Now().Add(-time.Hour)}}, nil
 	}
 
 	cases := []struct {
 		name        string
-		enrollments rulesapi.WatchedPathEnrollmentLister
-		latest      rulesapi.WatchedPathCommandLister
+		enrollments rulesapi.HostEnrollmentLister
+		latest      rulesapi.HostCommandLister
 	}{
 		{
 			name:        "enrollments",
-			enrollments: func(context.Context) ([]rulesapi.WatchedPathEnrollment, error) { return nil, readFailed },
-			latest:      (&fakeCommandHistory{latest: map[string]rulesapi.WatchedPathCommand{}}).list,
+			enrollments: func(context.Context) ([]rulesapi.HostEnrollment, error) { return nil, readFailed },
+			latest:      (&fakeCommandHistory{latest: map[string]rulesapi.HostCommand{}}).list,
 		},
 		{
 			name:        "command history",
 			enrollments: enrolled,
-			latest: func(context.Context, string, []string) (map[string]rulesapi.WatchedPathCommand, error) {
+			latest: func(context.Context, string, []string) (map[string]rulesapi.HostCommand, error) {
 				return nil, readFailed
 			},
 		},
@@ -162,7 +162,7 @@ func TestWatchedPathsConverge_SurfacesAFailedRead(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			history := &fakeCommandHistory{latest: map[string]rulesapi.WatchedPathCommand{}}
+			history := &fakeCommandHistory{latest: map[string]rulesapi.HostCommand{}}
 			converger := watchedpaths.NewConverger(watchedpaths.NewStore(r.db), history.insert, tc.enrollments, tc.latest, slog.Default())
 
 			queued, err := converger.Converge(t.Context())
@@ -177,13 +177,13 @@ func TestWatchedPathsConverge_SurfacesAFailedRead(t *testing.T) {
 // context queues the set for a host that missed it, without any caller invoking the sweep.
 func TestWatchedPathsConverge_RunsAsARulesContextLoop(t *testing.T) {
 	t.Parallel()
-	history := &fakeCommandHistory{latest: map[string]rulesapi.WatchedPathCommand{}}
+	history := &fakeCommandHistory{latest: map[string]rulesapi.HostCommand{}}
 	r := newAppControlRig(t, []string{"host-a"}, func(d *rulesbootstrap.Deps) {
 		d.CommandBatchInserter = history.insert
-		d.WatchedPathEnrollments = func(context.Context) ([]rulesapi.WatchedPathEnrollment, error) {
-			return []rulesapi.WatchedPathEnrollment{{HostID: "late-host", EnrolledAt: time.Now().Add(-time.Hour)}}, nil
+		d.HostEnrollments = func(context.Context) ([]rulesapi.HostEnrollment, error) {
+			return []rulesapi.HostEnrollment{{HostID: "late-host", EnrolledAt: time.Now().Add(-time.Hour)}}, nil
 		}
-		d.WatchedPathLatestCommands = history.list
+		d.HostLatestCommands = history.list
 		d.WatchedPathConvergeInterval = 20 * time.Millisecond
 	})
 	put := r.do(t, http.MethodPut, watchedPathsRoute, map[string]any{"paths": []rulesapi.WatchedPath{startupItems}, "reason": "r"})

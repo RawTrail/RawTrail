@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"slices"
 	"time"
 
 	"github.com/rawtrail/rawtrail/server/catchup"
 	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/hostpush"
 )
 
 // DefaultConvergeInterval is how often the catch-up runs. A host that enrolls, reinstalls, or comes back after its command aged out
@@ -20,12 +20,9 @@ const DefaultConvergeInterval = catchup.DefaultInterval
 // but a queued command lives an hour, a host enrolled later has none, and a reinstall loses the extension's persisted set; this closes
 // all three without the host asking.
 type Converger struct {
-	store       *Store
-	commands    func(ctx context.Context, hostIDs []string, commandType string, payload []byte) (int, error)
-	enrollments api.WatchedPathEnrollmentLister
-	latest      api.WatchedPathCommandLister
-	logger      *slog.Logger
-	now         func() time.Time
+	store  *Store
+	sweep  hostpush.Catchup
+	logger *slog.Logger
 	// ensureDefaults, when set, puts the built-in paths in the stored set before each pass (Service.EnsureDefaults), so a deployment
 	// that never configured a set still pushes them, and one restored from a backup regains them. See SetEnsureDefaults.
 	ensureDefaults func(context.Context) error
@@ -36,14 +33,17 @@ func (c *Converger) SetEnsureDefaults(ensure func(context.Context) error) { c.en
 
 // NewConverger builds a Converger. Every dependency is required.
 func NewConverger(store *Store, commands func(ctx context.Context, hostIDs []string, commandType string, payload []byte) (int, error),
-	enrollments api.WatchedPathEnrollmentLister, latest api.WatchedPathCommandLister, logger *slog.Logger) *Converger {
+	enrollments api.HostEnrollmentLister, latest api.HostCommandLister, logger *slog.Logger) *Converger {
 	if store == nil || commands == nil || enrollments == nil || latest == nil {
 		panic("watchedpaths.NewConverger: store, commands, enrollments and latest are required")
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Converger{store: store, commands: commands, enrollments: enrollments, latest: latest, logger: logger, now: time.Now}
+	return &Converger{store: store, logger: logger, sweep: hostpush.Catchup{
+		Subject: "watchedpaths", CommandType: api.CommandTypeSetWatchedPaths, Commands: commands, Enrollments: enrollments,
+		Latest: latest, Logger: logger, Now: time.Now,
+	}}
 }
 
 // Loop runs Converge every interval until ctx is cancelled; a zero or negative interval means DefaultConvergeInterval.
@@ -69,58 +69,13 @@ func (c *Converger) Converge(ctx context.Context) (int, error) {
 	if err != nil || set.Version == 0 {
 		return 0, err
 	}
-	enrolled, err := c.enrollments(ctx)
-	if err != nil {
-		return 0, err
-	}
-	hostIDs := make([]string, len(enrolled))
-	for i, e := range enrolled {
-		hostIDs[i] = e.HostID
-	}
-	latest, err := c.latest(ctx, api.CommandTypeSetWatchedPaths, hostIDs)
-	if err != nil {
-		return 0, err
-	}
-	now := c.now()
-	var stale []string
-	for _, e := range enrolled {
-		if needsSet(latest[e.HostID], e, set, now) {
-			stale = append(stale, e.HostID)
-		}
-	}
-	if len(stale) == 0 {
-		return 0, nil
-	}
-	slices.Sort(stale)
-	inserted, err := c.commands(ctx, stale, api.CommandTypeSetWatchedPaths, commandPayload(set))
-	c.logger.InfoContext(ctx, "watchedpaths: queued the set for hosts that did not have it",
-		"version", set.Version, "hosts", len(stale), "queued", inserted)
-	return inserted, err
-}
-
-// needsSet reports whether a host should be sent the current set, given its latest set_watched_paths command. The decision is
-// catchup's; what belongs here is what this context's command means, which is whether its payload carries the current set. The zero
-// WatchedPathCommand is a host that has never been sent one, and carries nothing.
-func needsSet(cmd api.WatchedPathCommand, e api.WatchedPathEnrollment, set api.WatchedPathSet, now time.Time) bool {
-	// This context records a terminal time as a zero value where the shared decision takes a nil, so an unfinished command reads as
-	// unfinished rather than as one that completed at the zero time.
-	var completedAt *time.Time
-	if !cmd.CompletedAt.IsZero() {
-		completedAt = &cmd.CompletedAt
-	}
-	return catchup.Needed(catchup.Latest{
-		Queued:      cmd.Payload != nil,
-		Carries:     carriesSet(cmd, set),
-		CreatedAt:   cmd.CreatedAt,
-		Status:      cmd.Status,
-		CompletedAt: completedAt,
-	}, e.EnrolledAt, now)
+	return c.sweep.Converge(ctx, set.Version, commandPayload(set), func(payload []byte) bool { return carriesSet(payload, set) })
 }
 
 // carriesSet reports whether a command's payload delivers the current set. The same version with a different epoch is a different
 // set, as after a database restore that sent versions backwards.
-func carriesSet(cmd api.WatchedPathCommand, set api.WatchedPathSet) bool {
+func carriesSet(payload []byte, set api.WatchedPathSet) bool {
 	var queued api.SetWatchedPathsPayload
-	return json.Unmarshal(cmd.Payload, &queued) == nil &&
+	return json.Unmarshal(payload, &queued) == nil &&
 		queued.Version == set.Version && queued.Epoch == set.UpdatedAt.UnixMicro()
 }

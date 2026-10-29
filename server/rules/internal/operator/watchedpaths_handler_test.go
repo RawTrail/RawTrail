@@ -17,6 +17,7 @@ import (
 
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/hostpush"
 	"github.com/rawtrail/rawtrail/server/rules/internal/watchedpaths"
 )
 
@@ -39,7 +40,7 @@ func (f *fakeWatchedPaths) Replace(_ context.Context, actor *identityapi.Actor, 
 		return watchedpaths.ReplaceResult{}, f.replaceErr
 	}
 	set := api.WatchedPathSet{Version: 4, Paths: paths, UpdatedBy: actor.Principal.ID}
-	return watchedpaths.ReplaceResult{Set: set, FanoutHosts: 3, FanoutFailed: 1}, nil
+	return watchedpaths.ReplaceResult{Set: set, Counts: hostpush.Counts{FanoutHosts: 3, FanoutFailed: 1}}, nil
 }
 
 var _ watchedPathsService = (*watchedpaths.Service)(nil)
