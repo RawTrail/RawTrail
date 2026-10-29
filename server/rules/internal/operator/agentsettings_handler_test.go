@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 	"github.com/rawtrail/rawtrail/server/rules/api"
@@ -127,5 +128,27 @@ func TestAgentSettingsHandler_ReplaceMapsEachOutcome(t *testing.T) {
 		var body agentsettings.ReplaceResult
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 		assert.Equal(t, "ops@example.com", body.Settings.UpdatedByLabel)
+	})
+}
+
+// The PUT body round-trips with capture_prompts and expected_version each absent or present, since absence is what the handler refuses
+// and what makes the change unconditional.
+func TestReplaceAgentSettingsRequest_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		want := replaceAgentSettingsRequest{Reason: rapid.String().Draw(t, "reason")}
+		if rapid.Bool().Draw(t, "has_capture_prompts") {
+			capture := rapid.Bool().Draw(t, "capture_prompts")
+			want.CapturePrompts = &capture
+		}
+		if rapid.Bool().Draw(t, "has_expected_version") {
+			version := rapid.Int64().Draw(t, "expected_version")
+			want.ExpectedVersion = &version
+		}
+		b, err := json.Marshal(want)
+		require.NoError(t, err)
+		var got replaceAgentSettingsRequest
+		require.NoError(t, json.Unmarshal(b, &got))
+		assert.Equal(t, want, got)
 	})
 }
