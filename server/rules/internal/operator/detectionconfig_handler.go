@@ -63,7 +63,9 @@ type DetectionConfigHandler struct {
 	principalLabel principalLabelResolver
 	// watchedPaths serves the watched-path routes; nil leaves them unregistered (see SetWatchedPaths).
 	watchedPaths watchedPathsService
-	logger       *slog.Logger
+	// agentSettings serves the agent-settings routes; nil leaves them unregistered (see SetAgentSettings).
+	agentSettings agentSettingsService
+	logger        *slog.Logger
 	// matchCountCap is the furthest back a match-count read may reach. Seeded with the constant maximum at construction and
 	// narrowed by SetCounterRetentionCap once the deployment's retention is known, so there is exactly ONE place that decides what an
 	// unconfigured or disabled retention means (api.EffectiveMatchCountCap) rather than a second fallback here that agrees with
@@ -182,6 +184,10 @@ func (h *DetectionConfigHandler) RegisterRoutes(mux httpserver.Router) {
 	if h.watchedPaths != nil {
 		mux.HandleFunc("GET /api/v1/detection-config/watched-paths", h.handleGetWatchedPaths)
 		mux.HandleFunc("PUT /api/v1/detection-config/watched-paths", h.handleReplaceWatchedPaths)
+	}
+	if h.agentSettings != nil {
+		mux.HandleFunc("GET /api/v1/detection-config/agent-settings", h.handleGetAgentSettings)
+		mux.HandleFunc("PUT /api/v1/detection-config/agent-settings", h.handleReplaceAgentSettings)
 	}
 }
 

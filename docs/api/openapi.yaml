@@ -2504,6 +2504,104 @@ paths:
               schema:
                 $ref: "#/components/schemas/DetectionConfigError"
 
+  /api/v1/detection-config/agent-settings:
+    get:
+      tags: [Detection tuning]
+      summary: Read the agent settings
+      description: |
+        Returns the fleet-wide switches for what agents collect. Version 0 is the
+        settings no operator has changed, with prompt capture on.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      responses:
+        "200":
+          description: Agent settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSettings"
+        "403":
+          description: Caller lacks detection_config.read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+    put:
+      tags: [Detection tuning]
+      summary: Change the agent settings
+      description: |
+        Stores the settings as the next version and queues a
+        `set_agent_settings` command for every host with an active enrollment.
+        Hosts that miss it are sent it by a periodic catch-up. `capture_prompts`
+        is required, so a misspelled field cannot turn capture off, and `reason`
+        is required and audited with the previous and new values. A command that
+        cannot be queued for some hosts does not fail the change; the response
+        counts them.
+
+        `expected_version`, when sent, is the version the edit started from. If
+        the settings have been changed since, the change is refused with 409 and
+        nothing is stored or queued.
+      security:
+        - SessionCookie: []
+          CSRF: []
+        - ServiceAccountToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capture_prompts, reason]
+              properties:
+                capture_prompts:
+                  type: boolean
+                reason:
+                  type: string
+                expected_version:
+                  type: integer
+                  format: int64
+                  description: The version this edit started from; the change is refused if the settings are at another version.
+      responses:
+        "200":
+          description: Settings changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [settings, fanout_hosts, fanout_failed]
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/AgentSettings"
+                  fanout_hosts:
+                    type: integer
+                    description: Enrolled hosts the command was queued for.
+                  fanout_failed:
+                    type: integer
+                    description: Of those, hosts the command could not be queued for.
+                  fanout_skipped_reason:
+                    type: string
+                    enum: [host_lister_error]
+                    description: Present when the settings were queued for no host because the enrolled hosts could not be listed.
+        "400":
+          description: A missing `capture_prompts`, a blank reason, or invalid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+        "403":
+          description: Caller lacks detection_config.write
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+        "409":
+          description: The settings are no longer at `expected_version`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+
   /api/v1/detection-config/rule-match-counts:
     get:
       tags: [Detection tuning]
@@ -4305,6 +4403,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WatchedPath"
+        updated_at:
+          type: string
+          format: date-time
+          description: Absent until the first change.
+        updated_by:
+          type: string
+          description: Principal id of whoever made the last change; absent until the first change.
+        updated_by_label:
+          type: string
+          description: >-
+            Display label resolved from updated_by at read time (a user's email, a
+            service account's name, or "system"). Absent until the first change, or
+            when the principal cannot be resolved; clients fall back to updated_by.
+    AgentSettings:
+      type: object
+      required: [version, capture_prompts]
+      properties:
+        version:
+          type: integer
+          format: int64
+        capture_prompts:
+          type: boolean
+          description: Whether agents send the prompts people type to AI agents. On until an operator turns it off.
         updated_at:
           type: string
           format: date-time
