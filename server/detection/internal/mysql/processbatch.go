@@ -144,6 +144,7 @@ type ProcessBatchPlan struct {
 	Updates          []ProcessRowUpdate
 	SigningBackfills []SigningBackfill
 	Sessions         []SessionSighting
+	Bypass           []BypassSighting
 }
 
 // SessionSighting is what one batch saw of an AI agent session on a host (issue #1281): its identity and what its earliest sighting
@@ -160,6 +161,14 @@ type SessionSighting struct {
 	LastSeenNs   int64
 }
 
+// BypassSighting is the earliest event in one batch that named an agent session on a host in the bypassPermissions mode (issue
+// #1427). The flush folds it into agent_session_bypass, whose first seen only moves earlier.
+type BypassSighting struct {
+	HostID      string
+	SessionID   string
+	FirstSeenNs int64
+}
+
 // SigningBackfill completes the code signature of a preloaded row an earlier extension's snapshot left unsigned. It is written as its
 // own conditional UPDATE rather than folded into ProcessRowUpdate, whose full-row write would carry this batch's stale view of
 // last_seen_ns and the exit columns over a heartbeat or a TTL exit another writer committed after the preload.
@@ -170,7 +179,7 @@ type SigningBackfill struct {
 
 // Empty reports whether the plan would issue no writes.
 func (p ProcessBatchPlan) Empty() bool {
-	return len(p.NewRows) == 0 && len(p.Updates) == 0 && len(p.SigningBackfills) == 0 && len(p.Sessions) == 0
+	return len(p.NewRows) == 0 && len(p.Updates) == 0 && len(p.SigningBackfills) == 0 && len(p.Sessions) == 0 && len(p.Bypass) == 0
 }
 
 // backfillSigningGuard limits a signature backfill to a row that is still open and still has none, so a concurrent exit or an
@@ -231,6 +240,25 @@ func upsertSessions(ctx context.Context, ext sqlx.ExtContext, sessions []Session
 	return nil
 }
 
+// upsertBypass folds the batch's bypass sightings into agent_session_bypass, in chunks of processUpdateChunk rows, keeping each
+// session's earliest. Keys arrive sorted, as upsertSessions' do.
+func upsertBypass(ctx context.Context, ext sqlx.ExtContext, sightings []BypassSighting) error {
+	for start := 0; start < len(sightings); start += processUpdateChunk {
+		chunk := sightings[start:min(start+processUpdateChunk, len(sightings))]
+		args := make([]any, 0, len(chunk)*3)
+		for _, b := range chunk {
+			args = append(args, b.HostID, b.SessionID, b.FirstSeenNs)
+		}
+		query := `INSERT INTO agent_session_bypass (host_id, agent_session_id, first_seen_ns)
+			VALUES (?, ?, ?)` + strings.Repeat(", (?, ?, ?)", len(chunk)-1) + `
+			AS new ON DUPLICATE KEY UPDATE first_seen_ns = LEAST(agent_session_bypass.first_seen_ns, new.first_seen_ns)`
+		if _, err := ext.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("upsert %d agent session bypass sightings: %w", len(chunk), err)
+		}
+	}
+	return nil
+}
+
 // FlushProcessBatch persists a batch plan. The fast path runs in one transaction: a single multi-row INSERT for the new rows (when
 // none links to a same-batch predecessor) plus chunked set-based UPDATEs for the modified rows, collapsing what used to be
 // ~1000+ per-event round-trips into a small constant.
@@ -273,6 +301,9 @@ func (s *Store) flushProcessBatchFast(ctx context.Context, plan ProcessBatchPlan
 		return err
 	}
 	if err := upsertSessions(ctx, tx, plan.Sessions); err != nil {
+		return err
+	}
+	if err := upsertBypass(ctx, tx, plan.Bypass); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -668,6 +699,17 @@ func (s *Store) flushProcessBatchPerRow(ctx context.Context, plan ProcessBatchPl
 		if err := upsertSessions(ctx, tx, []SessionSighting{sighting}); err != nil {
 			if IsPermanentDataError(err) {
 				s.logger.WarnContext(ctx, "agent session sighting dropped: permanent data error at flush", "host_id", sighting.HostID,
+					"err", err)
+				continue
+			}
+			return err
+		}
+	}
+	// A bypass sighting's session id comes from a transcript, so one too long for the column poisons only that sighting.
+	for _, sighting := range plan.Bypass {
+		if err := upsertBypass(ctx, tx, []BypassSighting{sighting}); err != nil {
+			if IsPermanentDataError(err) {
+				s.logger.WarnContext(ctx, "agent session bypass sighting dropped: permanent data error at flush", "host_id", sighting.HostID,
 					"err", err)
 				continue
 			}

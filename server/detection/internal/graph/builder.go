@@ -118,11 +118,11 @@ func (b *Builder) sweepPendingExits() {
 	}
 }
 
-// ProcessBatch materialises a batch of fork/exec/exit/snapshot-heartbeat events into the processes table; other event types are
-// ignored. It collapses what used to be one-or-more DB round-trips per event into a small constant (issue #535): the candidate
-// process rows for every (host_id, pid) the batch touches are preloaded in one query into an in-memory session, the handlers fold
-// the batch against that overlay (reproducing the exact per-event resolution semantics), and the result is persisted with set-based
-// writes in one flush. The resulting forest is identical to applying the events one at a time in timestamp order.
+// ProcessBatch materialises a batch of fork/exec/exit/snapshot-heartbeat events into the processes table, and records the agent
+// sessions agent_usage events name in the bypass mode; other event types are ignored. It collapses what used to be one-or-more DB
+// round-trips per event into a small constant (issue #535): the candidate process rows for every (host_id, pid) the batch touches
+// are preloaded in one query into an in-memory session, the handlers fold the batch against that overlay (reproducing the exact
+// per-event resolution semantics), and the result is persisted with set-based writes in one flush. The resulting forest is identical to applying the events one at a time in timestamp order.
 func (b *Builder) ProcessBatch(ctx context.Context, events []api.Event) error {
 	// Sort by timestamp so fork always precedes exec/exit for the same PID.
 	sorted := make([]api.Event, len(events))
@@ -186,8 +186,31 @@ func (b *Builder) foldEvent(ctx context.Context, w processStore, evt api.Event) 
 		return b.handleExit(ctx, w, evt)
 	case "snapshot_heartbeat":
 		return b.handleSnapshotHeartbeat(ctx, w, evt)
+	case "agent_usage":
+		return handleAgentUsage(ctx, w, evt)
 	}
 	return nil
+}
+
+// bypassPermissionsMode is the permission mode Claude Code records when it runs every tool call without asking.
+const bypassPermissionsMode = "bypassPermissions"
+
+type agentUsagePayload struct {
+	AgentSessionID string `json:"agent_session_id"`
+	PermissionMode string `json:"permission_mode"`
+}
+
+// handleAgentUsage records that the session the event names ran in the bypassPermissions mode (issue #1427). A forked session's copy
+// of its parent's line names the fork, so a fork of a bypassed session is recorded too.
+func handleAgentUsage(ctx context.Context, w processStore, evt api.Event) error {
+	var p agentUsagePayload
+	if err := json.Unmarshal(evt.Payload, &p); err != nil {
+		return err
+	}
+	if p.PermissionMode != bypassPermissionsMode {
+		return nil
+	}
+	return w.ObserveBypass(ctx, mysql.BypassSighting{HostID: evt.HostID, SessionID: p.AgentSessionID, FirstSeenNs: evt.TimestampNs})
 }
 
 // permanentError reports whether err is a deterministic per-event failure that recurs on every retry: a payload that cannot be parsed

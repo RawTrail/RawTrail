@@ -20,6 +20,7 @@ type processStore interface {
 	GetParentImage(ctx context.Context, hostID string, pid int, atTimeNs int64) (mysql.ParentImage, error)
 	ResolveParent(ctx context.Context, hostID string, pid int, pidversion uint32, atNs int64) (*api.Process, error)
 	ObserveSession(ctx context.Context, sighting mysql.SessionSighting) error
+	ObserveBypass(ctx context.Context, sighting mysql.BypassSighting) error
 	EventAlreadyApplied(ctx context.Context, hostID string, pid int, eventID string) (bool, error)
 	InsertProcess(ctx context.Context, p api.Process) (int64, error)
 	UpdateProcessExec(ctx context.Context, u mysql.ProcessExecUpdate) error
@@ -58,6 +59,8 @@ type batchSession struct {
 	signingBackfills []mysql.SigningBackfill
 	// sessions are the agent sessions this batch saw, one sighting per (host, session), upserted into agent_sessions at flush.
 	sessions map[sessionKey]mysql.SessionSighting
+	// bypass is the earliest event per (host, session) that named the session in the bypassPermissions mode.
+	bypass map[sessionKey]mysql.BypassSighting
 }
 
 // sessionKey identifies an agent session on a host.
@@ -76,6 +79,7 @@ func newBatchSession(ctx context.Context, store *mysql.Store, keys []mysql.HostP
 		byKey:    make(map[mysql.HostPID][]*procRow, len(keys)),
 		nextProv: -1,
 		sessions: map[sessionKey]mysql.SessionSighting{},
+		bypass:   map[sessionKey]mysql.BypassSighting{},
 	}
 	for i := range loaded {
 		r := &procRow{proc: loaded[i], loaded: true, seq: loaded[i].ID, creIdx: -1, prevNew: -1}
@@ -578,6 +582,15 @@ func (s *batchSession) ObserveSession(_ context.Context, sighting mysql.SessionS
 	return nil
 }
 
+// ObserveBypass keeps the earliest bypass sighting of each session in the batch.
+func (s *batchSession) ObserveBypass(_ context.Context, sighting mysql.BypassSighting) error {
+	key := sessionKey{hostID: sighting.HostID, sessionID: sighting.SessionID}
+	if seen, ok := s.bypass[key]; !ok || sighting.FirstSeenNs < seen.FirstSeenNs {
+		s.bypass[key] = sighting
+	}
+	return nil
+}
+
 // sightingOrder orders two sightings by (first seen, event id).
 func sightingOrder(a, b mysql.SessionSighting) int {
 	return cmp.Or(cmp.Compare(a.FirstSeenNs, b.FirstSeenNs), cmp.Compare(a.FirstEventID, b.FirstEventID))
@@ -606,12 +619,18 @@ func (s *batchSession) plan() mysql.ProcessBatchPlan {
 		}
 	}
 	p.SigningBackfills = s.signingBackfills
-	for _, key := range slices.SortedFunc(maps.Keys(s.sessions), func(a, b sessionKey) int {
-		return cmp.Or(cmp.Compare(a.hostID, b.hostID), cmp.Compare(a.sessionID, b.sessionID))
-	}) {
+	for _, key := range slices.SortedFunc(maps.Keys(s.sessions), compareSessionKeys) {
 		p.Sessions = append(p.Sessions, s.sessions[key])
 	}
+	for _, key := range slices.SortedFunc(maps.Keys(s.bypass), compareSessionKeys) {
+		p.Bypass = append(p.Bypass, s.bypass[key])
+	}
 	return p
+}
+
+// compareSessionKeys orders session keys by host, then session, the order the flush locks their rows in.
+func compareSessionKeys(a, b sessionKey) int {
+	return cmp.Or(cmp.Compare(a.hostID, b.hostID), cmp.Compare(a.sessionID, b.sessionID))
 }
 
 // rowUpdate captures the mutable column set of a modified preloaded row for the batched UPDATE.

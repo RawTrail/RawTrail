@@ -85,6 +85,11 @@ func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string
 	return out, nil
 }
 
+// sessionBypassed says an agent_sessions row's session ran in the bypassPermissions mode (issue #1427), a point lookup on
+// agent_session_bypass's primary key.
+const sessionBypassed = `EXISTS (SELECT 1 FROM agent_session_bypass b
+	WHERE b.host_id = agent_sessions.host_id AND b.agent_session_id = agent_sessions.agent_session_id)`
+
 // ListAgentSessions returns one page of agent sessions (issue #1283), most recently active first, keyset-paged on (last_seen_ns,
 // host_id, agent_session_id), which is idx_agent_sessions_last_seen's order (InnoDB appends the primary key), so a page reads only
 // its rows. Each row carries its process and alert counts, read with one grouped query each over the page's sessions rather than one
@@ -109,6 +114,9 @@ func (s *Store) ListAgentSessions(
 	if filter.ToNs > 0 {
 		where, args = append(where, "first_seen_ns <= ?"), append(args, filter.ToNs)
 	}
+	if filter.Bypass {
+		where = append(where, sessionBypassed)
+	}
 	var total int64
 	if err := s.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM agent_sessions WHERE "+strings.Join(where, " AND "), args...); err != nil {
 		return api.AgentSessionResult{}, fmt.Errorf("count agent sessions: %w", err)
@@ -122,7 +130,8 @@ func (s *Store) ListAgentSessions(
 	}
 	var rows []api.AgentSessionSummary
 	if err := s.db.SelectContext(ctx, &rows, `
-		SELECT host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns
+		SELECT host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns,
+			`+sessionBypassed+` AS bypass
 		FROM agent_sessions WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY last_seen_ns DESC, host_id DESC, agent_session_id DESC
 		LIMIT ?`, append(args, limit+1)...,

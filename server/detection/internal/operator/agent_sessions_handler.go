@@ -512,8 +512,14 @@ func (h *Handler) handleListAgentSessions(w http.ResponseWriter, r *http.Request
 		h.writeError(ctx, w, http.StatusBadRequest, errBadWindow)
 		return
 	}
+	bypass := q.Get("bypass")
+	if bypass != "" && bypass != "true" {
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidBypass)
+		return
+	}
 	filter := api.AgentSessionFilter{
 		HostID: q.Get("host_id"), AgentSessionID: q.Get("session"), AgentName: q.Get("agent"), FromNs: fromNs, ToNs: toNs,
+		Bypass: bypass == "true",
 	}
 	result, err := h.agentSessions.ListAgentSessions(ctx, filter, q.Get("cursor"), parseSearchLimit(q))
 	if err != nil {
