@@ -206,8 +206,8 @@ func TestAgentSessionCommands_Failures(t *testing.T) {
 	}
 }
 
-// buildTree is a session that ran one long build: its wrapper shell, make, and make's workers, the 140th of which an alert was
-// raised on.
+// buildTree is a session that ran one long build: its wrapper shell, make, and make's workers. With workers past the cap, the last
+// worker opened an app, which launchd started (row 9000) without the session's marker, and the link moves under that worker.
 func buildTree(workers int) func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
 	return func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
 		var children []api.ProcessNode
@@ -216,7 +216,13 @@ func buildTree(workers int) func(context.Context, string, api.TreeScope, int, bo
 			children = append(children, commandProc(id, 1000+i, int64(2000+i), "/usr/bin/cc", []string{"cc", "worker-" + strconv.Itoa(i)}))
 		}
 		makeProc := commandProc(2, 101, 1001, "/usr/bin/make", []string{"make", "-j"}, children...)
-		return api.ProcessTreeResult{Roots: []api.ProcessNode{toolCallShell(1, 100, 1000, "make -j", makeProc)}}, nil
+		roots := []api.ProcessNode{toolCallShell(1, 100, 1000, "make -j", makeProc)}
+		var links []api.ProcessLink
+		if workers > 100 {
+			roots = append(roots, commandProc(9000, 5000, 9000, "/Applications/Preview.app/Contents/MacOS/Preview", []string{"Preview"}))
+			links = []api.ProcessLink{{From: int64(10 + workers - 1), To: 9000, Kind: api.ProcessLinkInferredLaunch}}
+		}
+		return api.ProcessTreeResult{Roots: roots, Links: links}, nil
 	}
 }
 
@@ -250,7 +256,8 @@ func TestAgentSessionCommands_ListALargeCommandInPart(t *testing.T) {
 	const workers = 150
 	alertedWorker := int64(10 + 140)
 	lister := summarySession()
-	lister.alerted = []int64{alertedWorker}
+	const launched = int64(9000)
+	lister.alerted = []int64{alertedWorker, launched}
 	srv := newCommandsServer(t, fakeService{buildScopedTree: buildTree(workers)}, commandsCalls(), lister)
 
 	status, got := getCommands(t, srv, "")
@@ -258,10 +265,12 @@ func TestAgentSessionCommands_ListALargeCommandInPart(t *testing.T) {
 	require.Len(t, got.Commands, 1)
 	build := got.Commands[0]
 	assert.True(t, build.ProcessesCut)
-	assert.Len(t, build.ProcessIDs, workers+2, "every process is still named")
+	assert.Len(t, build.ProcessIDs, workers+3, "every process is still named, the launched app among them")
+	assert.Contains(t, lister.askedAlerts, launched, "alerts are asked for by row, so a launch without the session's marker counts")
 	listed := listedIDs(build.Roots)
-	assert.Len(t, listed, 100+1, "the first hundred and the alerted worker")
 	assert.Contains(t, listed, alertedWorker)
+	assert.Len(t, listed, 100+2, "the first hundred, the alerted worker, and the last worker the alerted app is listed under")
+	assert.Contains(t, listed, int64(10+workers-1), "the alerted app's launcher is listed, so the app is")
 
 	status, searched := getCommands(t, srv, "?q=worker-145")
 	require.Equal(t, http.StatusOK, status)
@@ -272,7 +281,7 @@ func TestAgentSessionCommands_ListALargeCommandInPart(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.Len(t, whole.Commands, 1)
 	assert.False(t, whole.Commands[0].ProcessesCut)
-	assert.Len(t, listedIDs(whole.Commands[0].Roots), workers+2, "one command asked for is listed whole")
+	assert.Len(t, listedIDs(whole.Commands[0].Roots), workers+2, "one command asked for is listed whole, three levels of it here")
 	assert.Equal(t, 1, whole.TotalMatched)
 
 	status, _ = getCommands(t, srv, "?command=row:999")
@@ -290,6 +299,6 @@ func TestAgentSessionCommands_AlertReadFailureFailsThePage(t *testing.T) {
 // alertFailingLister reads sessions but fails to list their alerted processes.
 type alertFailingLister struct{ *fakeSessionLister }
 
-func (alertFailingLister) AlertedSessionProcesses(context.Context, string, string) ([]int64, error) {
+func (alertFailingLister) AlertedProcesses(context.Context, []int64) ([]int64, error) {
 	return nil, errors.New("mysql down")
 }

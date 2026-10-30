@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,10 +24,20 @@ type fakeSessionLister struct {
 	result  api.AgentSessionResult
 	err     error
 	alerted []int64
+	// askedAlerts is the process rows the last alert lookup asked about.
+	askedAlerts []int64
 }
 
-func (f *fakeSessionLister) AlertedSessionProcesses(context.Context, string, string) ([]int64, error) {
-	return f.alerted, f.err
+// AlertedProcesses answers which of the asked rows are in alerted, recording the rows asked for.
+func (f *fakeSessionLister) AlertedProcesses(_ context.Context, ids []int64) ([]int64, error) {
+	f.askedAlerts = ids
+	var out []int64
+	for _, id := range ids {
+		if slices.Contains(f.alerted, id) {
+			out = append(out, id)
+		}
+	}
+	return out, f.err
 }
 
 func (f *fakeSessionLister) ListAgentSessions(_ context.Context, filter api.AgentSessionFilter, cursor string, limit int) (api.AgentSessionResult, error) {

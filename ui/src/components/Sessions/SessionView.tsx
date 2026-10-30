@@ -291,9 +291,11 @@ export function SessionView() {
       });
     };
     mark("loading");
+    // A read that lands after the operator moved to another session or search is that list's, not the one on screen.
+    const landed = (state: ListedCommand | "failed") => { if (activeCommandsKey.current === commandsKey) mark(state); };
     getSessionCommands(hostId, sessionId, { command: commandKey })
-      .then((page) => { mark(listedCommands(page).find((c) => c.key === commandKey) ?? "failed"); })
-      .catch(() => { mark("failed"); });
+      .then((page) => { landed(listedCommands(page).find((c) => c.key === commandKey) ?? "failed"); })
+      .catch(() => { landed("failed"); });
   }, [hostId, sessionId, commandsKey]);
 
   const alertsByProcess = useMemo(() => {

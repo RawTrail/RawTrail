@@ -22,8 +22,8 @@ type AgentSessionLister interface {
 	ListAgentSessions(ctx context.Context, filter api.AgentSessionFilter, cursor string, limit int) (api.AgentSessionResult, error)
 	// GetAgentSession reads one session's record without its counts; nil when the host holds no such session.
 	GetAgentSession(ctx context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error)
-	// AlertedSessionProcesses lists the rows of a session's processes an alert was raised on.
-	AlertedSessionProcesses(ctx context.Context, hostID, sessionID string) ([]int64, error)
+	// AlertedProcesses lists which of the given process rows an alert was raised on.
+	AlertedProcesses(ctx context.Context, processIDs []int64) ([]int64, error)
 }
 
 func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
@@ -257,7 +257,7 @@ func (h *Handler) sessionCommands(
 		return agentCommandsResponse{}, err
 	}
 	sessioncommands.JoinToolCalls(commands, calls)
-	page, err := h.commandsPage(ctx, session, commands, req)
+	page, err := h.commandsPage(ctx, commands, req)
 	if err != nil {
 		return agentCommandsResponse{}, err
 	}
@@ -281,7 +281,7 @@ func (h *Handler) sessionCommands(
 // commandsPage is the page a commands read returns: the one command asked for, whole, or a page of what the query finds, each command
 // cut to its first processes beside the alerted ones and the query's hits.
 func (h *Handler) commandsPage(
-	ctx context.Context, session *api.AgentSessionSummary, commands []sessioncommands.Command, req commandsRequest,
+	ctx context.Context, commands []sessioncommands.Command, req commandsRequest,
 ) (sessioncommands.Page, error) {
 	if req.command != "" {
 		for _, c := range commands {
@@ -295,7 +295,13 @@ func (h *Handler) commandsPage(
 	if err != nil {
 		return sessioncommands.Page{}, err
 	}
-	alerted, err := h.agentSessions.AlertedSessionProcesses(ctx, session.HostID, session.AgentSessionID)
+	var cut []int64
+	for _, c := range page.Commands {
+		if len(c.ProcessIDs) > sessioncommands.InlineProcesses {
+			cut = append(cut, c.ProcessIDs...)
+		}
+	}
+	alerted, err := h.agentSessions.AlertedProcesses(ctx, cut)
 	if err != nil {
 		return sessioncommands.Page{}, err
 	}

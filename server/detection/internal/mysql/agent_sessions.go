@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+
 	"github.com/rawtrail/rawtrail/server/detection/api"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
@@ -92,16 +94,25 @@ func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string
 const sessionBypassed = `EXISTS (SELECT 1 FROM agent_session_bypass b
 	WHERE b.host_id = agent_sessions.host_id AND b.agent_session_id = agent_sessions.agent_session_id)`
 
-// AlertedSessionProcesses lists the rows of a session's processes that an alert, not a monitor record, was raised on (issue #1443),
-// served by idx_processes_host_agent_session_fork.
-func (s *Store) AlertedSessionProcesses(ctx context.Context, hostID, sessionID string) ([]int64, error) {
-	var ids []int64
-	if err := s.db.SelectContext(ctx, &ids, `
-		SELECT DISTINCT a.process_id FROM alerts a JOIN processes p ON p.id = a.process_id
-		WHERE p.host_id = ? AND p.agent_session_id = ? AND a.disposition = ?`, hostID, sessionID, api.AlertDispositionAlert); err != nil {
-		return nil, fmt.Errorf("list alerted session processes: %w", err)
+// AlertedProcesses lists which of the given process rows an alert, not a monitor record, was raised on (issue #1443), in chunks of
+// processUpdateChunk rows. A command's processes include what launchd started for it, which carries no session marker, so they are
+// asked for by row rather than by session.
+func (s *Store) AlertedProcesses(ctx context.Context, processIDs []int64) ([]int64, error) {
+	var out []int64
+	for start := 0; start < len(processIDs); start += processUpdateChunk {
+		chunk := processIDs[start:min(start+processUpdateChunk, len(processIDs))]
+		query, args, err := sqlx.In(`SELECT DISTINCT process_id FROM alerts WHERE process_id IN (?) AND disposition = ?`,
+			chunk, api.AlertDispositionAlert)
+		if err != nil {
+			return nil, fmt.Errorf("build alerted processes query: %w", err)
+		}
+		var ids []int64
+		if err := s.db.SelectContext(ctx, &ids, s.db.Rebind(query), args...); err != nil {
+			return nil, fmt.Errorf("list alerted processes: %w", err)
+		}
+		out = append(out, ids...)
 	}
-	return ids, nil
+	return out, nil
 }
 
 // ListAgentSessions returns one page of agent sessions (issue #1283), most recently active first, keyset-paged on (last_seen_ns,
