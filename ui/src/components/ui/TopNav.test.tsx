@@ -121,4 +121,13 @@ describe("TopNav brand", () => {
     expect(brand).toBeVisible();
     expect(brand).toHaveTextContent(/^RawTrail$/);
   });
+
+  it("shows the logo mark in front of the wordmark, hidden from assistive technology", () => {
+    const { container } = renderNav(ALL_NAV_PERMISSIONS);
+    const brand = container.querySelector(".top-nav__brand");
+    const mark = brand?.querySelector("img.top-nav__logo-mark");
+    expect(mark).toHaveAttribute("src", "/ui/favicon.svg");
+    expect(mark).toHaveAttribute("alt", "");
+    expect(brand?.firstElementChild).toBe(mark);
+  });
 });
