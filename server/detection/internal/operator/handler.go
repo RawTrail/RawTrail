@@ -40,6 +40,7 @@ const (
 	errInvalidEventType   = "invalid_event_type"
 	errInvalidScope       = "invalid_scope"
 	errInvalidProcess     = "invalid_process"
+	errInvalidBypass      = "invalid_bypass"
 	errSessionNeedsHost   = "agent_session_requires_host_id"
 	errAgentNeedsHost     = "agent_process_requires_host_id_and_served_session"
 
