@@ -46,8 +46,8 @@ describe("SessionList", () => {
     expect(cells[0]).toBe("claude-code 2.1.296");
     expect(cells[1]).toBe("/private/tmp");
     expect(await screen.findByText("mac-a.local")).toBeVisible();
-    expect(cells.slice(5, 7)).toEqual(["16", "1"]);
-    expect(cells[7]).toBe("169b5bb1");
+    expect(cells.slice(5, 8)).toEqual(["16", "1", ""]);
+    expect(cells[8]).toBe("169b5bb1");
     expect(screen.getByText("Showing 1 of 1 matches")).toBeVisible();
   });
 
@@ -128,6 +128,17 @@ describe("SessionList", () => {
     expect(bypassed).toContainElement(badge);
     expect(badge.parentElement).toHaveAttribute("title", "Ran in bypass mode, or was forked from a session that did");
     expect(screen.getAllByText("Bypass permissions")).toHaveLength(1);
+  });
+
+  // spec:web-ui/sessions-list-tokens/a-session-lists-its-tokens
+  it("lists a session's tokens compactly, with the exact count on hover", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session({ tokens: 1_234_567 })], total_matched: 1 });
+    renderList();
+    const row = (await screen.findByRole("link", { name: "claude-code" })).closest("tr");
+    const cell = row?.querySelectorAll("td")[7];
+    expect(cell).toHaveTextContent(/^1\.2M$/);
+    expect(cell).toHaveAttribute("title", `${(1_234_567).toLocaleString()} tokens`);
   });
 
   it("says so when no session matches", async () => {

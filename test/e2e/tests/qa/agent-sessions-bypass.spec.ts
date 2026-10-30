@@ -16,6 +16,7 @@ test.describe("agent sessions bypass filter", () => {
   test.setTimeout(90_000);
 
   // spec:web-ui/sessions-list-bypass-filter/the-list-narrows-to-sessions-that-ran-bypassed
+  // spec:web-ui/sessions-list-tokens/a-session-lists-its-tokens
   test("narrows the list to the session that ran bypassed", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
@@ -29,6 +30,11 @@ test.describe("agent sessions bypass filter", () => {
     await expect(badge).toHaveCount(1);
     await expect(rows.filter({ hasText: "/Users/dev/bypassed" })).toContainText("Bypass permissions");
     await expect(rows.filter({ hasText: "/Users/dev/careful" })).not.toContainText("Bypass permissions");
+    // Each scenario message used 10 input and 20 output tokens; the bypassed session sent two, the other one.
+    const column = (await page.getByRole("columnheader").allTextContents()).indexOf("Tokens");
+    expect(column).toBeGreaterThan(-1);
+    await expect(rows.filter({ hasText: "/Users/dev/bypassed" }).locator("td").nth(column)).toHaveText("60");
+    await expect(rows.filter({ hasText: "/Users/dev/careful" }).locator("td").nth(column)).toHaveText("30");
 
     await page.getByLabel("Add filter field").selectOption("bypass");
     await page.getByLabel("Permissions value").selectOption("true");

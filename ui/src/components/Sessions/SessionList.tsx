@@ -13,6 +13,7 @@ import { formatNs } from "../Search/format";
 import { useHostNames } from "../useHostNames";
 import { MILLISECONDS_PER_DAY, NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import { sessionPath } from "./sessionPath";
+import { formatTokens } from "./sessionUsage";
 
 // ACTIVE_WINDOWS are the "active in the last" choices, by the URL value the chip stores. The URL keeps the relative choice rather than
 // absolute bounds so a bookmarked list stays "the last week" when it is reopened.
@@ -98,6 +99,7 @@ export function SessionList() {
               <th>Last seen</th>
               <th>Processes</th>
               <th>Alerts</th>
+              <th>Tokens</th>
               <th>Session</th>
             </tr>
           </thead>
@@ -120,6 +122,9 @@ export function SessionList() {
                 <td>{formatNs(s.last_seen_ns)}</td>
                 <td>{s.process_count.toLocaleString()}</td>
                 <td>{s.alert_count.toLocaleString()}</td>
+                <td title={s.tokens === undefined ? undefined : `${s.tokens.toLocaleString()} tokens`}>
+                  {s.tokens === undefined ? "" : formatTokens(s.tokens)}
+                </td>
                 <td className="search-page__mono" title={s.agent_session_id}>{s.agent_session_id.slice(0, SESSION_ID_PREFIX)}</td>
               </tr>
             ))}

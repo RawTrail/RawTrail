@@ -120,6 +120,11 @@ type EventArchive interface {
 	// (see AgentToolCalls) is that session's and is not counted. The filter's window and Limit are ignored.
 	AgentUsageTotals(ctx context.Context, filter AgentToolCallFilter) (AgentUsageTotals, error)
 
+	// AgentSessionTokens totals each listed session's tokens in one read (issue #1427): its input, cache-write, cache-read and output
+	// tokens over the messages AgentUsageTotals counts for it, so a session's total agrees with its totals'. A session with no
+	// messages is absent from the result.
+	AgentSessionTokens(ctx context.Context, sessions []AgentSessionRef) (map[AgentSessionRef]int64, error)
+
 	// AgentToolCallCounts counts the calls AgentToolCalls would list for the filter, uncapped, by tool name (issue #1422), most used
 	// first and then by name. The filter's Limit is ignored.
 	AgentToolCallCounts(ctx context.Context, filter AgentToolCallFilter) ([]ToolCallCount, error)
@@ -449,6 +454,12 @@ type DNSActivityRow struct {
 	ActivityRow
 	QueryName string   `json:"query_name"`
 	Addresses []string `json:"addresses"`
+}
+
+// AgentSessionRef names one AI agent session on one host.
+type AgentSessionRef struct {
+	HostID    string
+	SessionID string
 }
 
 // AgentUsageTotals is what one AI agent session's messages used (issue #1427): its tokens by model, heaviest output first, and its

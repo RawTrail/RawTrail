@@ -594,6 +594,24 @@ type recordedUsage struct {
 	eventID         string
 }
 
+// AgentSessionTokens sums each session's AgentUsageTotals, the agreement the ClickHouse store's single read keeps.
+func (m *MemArchive) AgentSessionTokens(ctx context.Context, sessions []api.AgentSessionRef) (map[api.AgentSessionRef]int64, error) {
+	out := map[api.AgentSessionRef]int64{}
+	for _, r := range sessions {
+		totals, err := m.AgentUsageTotals(ctx, api.AgentToolCallFilter{HostID: r.HostID, SessionID: r.SessionID})
+		if err != nil {
+			return nil, err
+		}
+		for _, u := range totals.Models {
+			out[r] += u.Input + u.Output + u.CacheCreation + u.CacheRead
+		}
+		if len(totals.Models) == 0 {
+			delete(out, r)
+		}
+	}
+	return out, nil
+}
+
 // AgentUsageTotals mirrors the ClickHouse store: one session's messages once each by id and owner at their first recording, the
 // copies another session holds left out, totalled by model (heaviest output first) and counted by mode (first seen first).
 func (m *MemArchive) AgentUsageTotals(_ context.Context, filter api.AgentToolCallFilter) (api.AgentUsageTotals, error) {
