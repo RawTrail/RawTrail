@@ -2753,6 +2753,7 @@ paths:
                 credentials:
                   type: array
                   maxItems: 64
+                  description: At most 8 KiB as the server encodes it, which is what each host is sent.
                   items:
                     $ref: "#/components/schemas/ProtectedCredential"
                 reason:
@@ -2784,6 +2785,12 @@ paths:
                     description: Present when the policy was queued for no host because the enrolled hosts could not be listed.
         "400":
           description: A missing `credentials`, a blank reason, an invalid mode or credential (the message names the field), or invalid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+        "413":
+          description: The request body is larger than the largest policy the API accepts.
           content:
             application/json:
               schema:
@@ -4687,7 +4694,8 @@ components:
           type: string
           maxLength: 512
           description: >-
-            The file below every home, without a leading slash or `~`, such as `.aws/credentials`. No empty, `.` or `..` segments.
+            The file below every home, without a leading slash or `~`, such as `.aws/credentials`. No empty, `.` or `..` segments,
+            and no control characters.
         match:
           type: string
           enum: [literal, prefix]

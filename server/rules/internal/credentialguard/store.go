@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
+	"slices"
 
 	"github.com/jmoiron/sqlx"
 
@@ -21,19 +21,13 @@ import (
 
 // Store reads and replaces the single credential_guard row. Its concurrency is versionedset's.
 type Store struct {
-	set    *versionedset.Store
-	outbox *auditoutbox.Store
+	*hostpush.Document[api.CredentialGuardPolicy]
 }
 
 // NewStore builds a Store. Panics on a nil db, which is a wiring bug.
 func NewStore(db *sqlx.DB) *Store {
-	if db == nil {
-		panic("credentialguard.NewStore: db must not be nil")
-	}
-	return &Store{
-		set:    versionedset.New(db, versionedset.Table{Name: "credential_guard", PayloadColumn: "policy", Noun: "credential guard policy"}),
-		outbox: auditoutbox.NewStore(db, detectionconfig.AuditOutboxTable),
-	}
+	table := versionedset.Table{Name: "credential_guard", PayloadColumn: "policy", Noun: "credential guard policy"}
+	return &Store{hostpush.NewDocument(db, table, detectionconfig.AuditOutboxTable, decode, ErrVersionConflict)}
 }
 
 // ErrVersionConflict is returned for a conditional replacement of a policy that has changed since the caller read it.
@@ -63,37 +57,26 @@ func decode(row versionedset.Row) (api.CredentialGuardPolicy, error) {
 	return out, nil
 }
 
-// Get returns the stored policy.
-func (s *Store) Get(ctx context.Context) (api.CredentialGuardPolicy, error) {
-	row, err := s.set.Get(ctx)
-	if err != nil {
-		return api.CredentialGuardPolicy{}, err
-	}
-	return decode(row)
-}
-
 // Replace stores mode and credentials as the new policy and returns the policy it replaced and the new one, one version past it.
 // A non-nil expectedVersion makes the replacement conditional, as for the agent settings, and the audit entry audit builds is written
-// in the same transaction, held for auditHold so the caller can add the push's host counts with SealAudit.
+// in the same transaction, held for hostpush.AuditHold so the caller can add the push's host counts with SealAudit.
 func (s *Store) Replace(
 	ctx context.Context, mode string, credentials []api.ProtectedCredential, actor string, expectedVersion *int64,
 	audit func(previous, next api.CredentialGuardPolicy) (auditoutbox.Entry, error),
 ) (previous, next api.CredentialGuardPolicy, auditID int64, err error) {
+	// An absent list, or a credential's absent owners, is stored as an empty one, so a reader and the extension see an array.
+	credentials = slices.Clone(credentials)
 	if credentials == nil {
 		credentials = []api.ProtectedCredential{}
+	}
+	for i := range credentials {
+		if credentials[i].Owners == nil {
+			credentials[i].Owners = []api.CredentialOwner{}
+		}
 	}
 	encoded, err := json.Marshal(stored{Mode: mode, Credentials: credentials})
 	if err != nil {
 		return api.CredentialGuardPolicy{}, api.CredentialGuardPolicy{}, 0, fmt.Errorf("encode credential guard policy: %w", err)
 	}
-	return hostpush.ReplaceAudited(ctx, s.set, s.outbox, encoded, actor, expectedVersion, ErrVersionConflict, auditHold, decode, audit)
-}
-
-// auditHold is how long a replacement's audit entry waits for the push's host counts, as for the agent settings.
-const auditHold = 5 * time.Minute
-
-// SealAudit adds the push's host counts to a replacement's held audit entry and releases it for delivery. It reports false when the
-// hold had already passed, in which case the entry is delivered without the counts.
-func (s *Store) SealAudit(ctx context.Context, id int64, entry auditoutbox.Entry) (bool, error) {
-	return s.outbox.Seal(ctx, id, entry)
+	return s.ReplaceEncoded(ctx, encoded, actor, expectedVersion, audit)
 }

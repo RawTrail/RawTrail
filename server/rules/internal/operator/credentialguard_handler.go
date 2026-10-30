@@ -37,6 +37,11 @@ func (h *DetectionConfigHandler) SetCredentialGuard(svc credentialGuardService) 
 	h.credentialGuard = svc
 }
 
+// credentialGuardBodyLimit caps the PUT body, sized from the largest policy the API accepts as watchedPathsBodyLimit is: a policy is at
+// most api.MaxCredentialGuardBytes as the server encodes it, a client may escape every byte as a six-byte \uXXXX sequence, and a
+// reason rides along.
+const credentialGuardBodyLimit = 6*api.MaxCredentialGuardBytes + 16*1024
+
 func (h *DetectionConfigHandler) handleGetCredentialGuard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger,
@@ -60,7 +65,7 @@ func (h *DetectionConfigHandler) handleReplaceCredentialGuard(w http.ResponseWri
 		return
 	}
 	var req replaceCredentialGuardRequest
-	if !h.decode(ctx, w, r, &req) {
+	if !h.decodeCapped(ctx, w, r, &req, credentialGuardBodyLimit) {
 		return
 	}
 	if req.Credentials == nil {

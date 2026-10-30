@@ -20,7 +20,7 @@
 #### Scenario: An invalid change is refused
 
 - **GIVEN** the default policy
-- **WHEN** a change omits credentials or the reason, names an unknown mode or kind, a path that is absolute or leaves the home, an owner with no identity or a malformed team, or one path twice
+- **WHEN** a change omits credentials or the reason, names an unknown mode or kind, a path that is absolute, leaves the home or holds a control character, an owner with no identity or a malformed team, or one path twice, or its credentials encode to more than 8 KiB
 - **THEN** it is refused with 400, and nothing is stored or queued
 
 #### Scenario: A change to a policy that moved on is refused

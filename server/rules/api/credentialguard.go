@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -97,6 +98,11 @@ const (
 	maxSigningIDBytes       = 255
 )
 
+// MaxCredentialGuardBytes bounds the credentials as the server encodes them, which is what a host is sent. The fan-out repeats the
+// payload on every row of a batched insert of up to 256 hosts, so this keeps one statement near 2 MiB, inside the 4 MiB
+// max_allowed_packet the server is designed to work under, as MaxWatchedPathSetBytes does. The built-in list is about 1 KiB.
+const MaxCredentialGuardBytes = 8 * 1024
+
 // teamIDPattern is an Apple Developer team identifier.
 var teamIDPattern = regexp.MustCompile(`^[A-Z0-9]{10}$`)
 
@@ -108,6 +114,10 @@ func ValidateCredentialGuard(mode string, credentials []ProtectedCredential) err
 	}
 	if len(credentials) > maxProtectedCredentials {
 		return fmt.Errorf("at most %d credentials", maxProtectedCredentials)
+	}
+	// Encoding a slice of plain structs cannot fail.
+	if encoded, _ := json.Marshal(credentials); len(encoded) > MaxCredentialGuardBytes {
+		return fmt.Errorf("the credentials encode to %d bytes, at most %d", len(encoded), MaxCredentialGuardBytes)
 	}
 	seen := map[string]bool{}
 	for i, c := range credentials {
@@ -143,6 +153,8 @@ func validateProtectedCredential(c ProtectedCredential) error {
 			return fmt.Errorf("owners[%d]: team_id must be ten capital letters and digits", j)
 		case len(o.SigningID) > maxSigningIDBytes:
 			return fmt.Errorf("owners[%d]: signing_id is longer than %d bytes", j, maxSigningIDBytes)
+		case hasControlCharacter(o.SigningID):
+			return fmt.Errorf("owners[%d]: signing_id must not hold control characters", j)
 		}
 	}
 	return nil
@@ -153,6 +165,10 @@ func validateHomePath(path string) error {
 	if path == "" || len(path) > maxCredentialPathBytes {
 		return fmt.Errorf("path must be 1 to %d bytes", maxCredentialPathBytes)
 	}
+	if hasControlCharacter(path) {
+		// A NUL would cut the path the extension mutes short, and no file name holds a control character a person typed.
+		return errors.New("path must not hold control characters")
+	}
 	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "~") {
 		return errors.New("path is below a home: write .aws/credentials, not ~/.aws/credentials")
 	}
@@ -162,4 +178,10 @@ func validateHomePath(path string) error {
 		}
 	}
 	return nil
+}
+
+// hasControlCharacter reports whether s holds an ASCII control character, NUL included, which would truncate the C string the
+// extension hands the kernel.
+func hasControlCharacter(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }

@@ -38,6 +38,14 @@ func TestValidateCredentialGuard(t *testing.T) {
 		tooMany[i] = ok
 		tooMany[i].Path = ".netrc" + strings.Repeat("x", i)
 	}
+	// Within every count and length bound, but over the encoded budget a 256-host fan-out can carry.
+	tooLarge := make([]ProtectedCredential, 32)
+	for i := range tooLarge {
+		tooLarge[i] = ProtectedCredential{Kind: "netrc", Path: ".netrc" + strings.Repeat("x", i), Match: "literal"}
+		for range 16 {
+			tooLarge[i].Owners = append(tooLarge[i].Owners, CredentialOwner{SigningID: strings.Repeat("s", 30)})
+		}
+	}
 	cases := []struct {
 		name        string
 		mode        string
@@ -74,6 +82,13 @@ func TestValidateCredentialGuard(t *testing.T) {
 			}
 		}), "at most 32 owners"},
 		{"a path listed twice", CredentialGuardDetect, []ProtectedCredential{ok, ok}, "listed twice"},
+		{"a NUL in the path", CredentialGuardDetect, with(func(c *ProtectedCredential) { c.Path = ".aws/credentials\x00suffix" }),
+			"control characters"},
+		{"a DEL in the path", CredentialGuardDetect, with(func(c *ProtectedCredential) { c.Path = ".net\x7frc" }), "control characters"},
+		{"a control character in a signing id", CredentialGuardDetect, with(func(c *ProtectedCredential) {
+			c.Owners = []CredentialOwner{{SigningID: "com.apple.curl\n"}}
+		}), "control characters"},
+		{"a policy over the encoded budget", CredentialGuardDetect, tooLarge, "at most 8192"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

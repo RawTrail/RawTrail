@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,8 +45,8 @@ func (r *appControlRig) putCredentialGuard(t *testing.T, body map[string]any) *h
 	return r.do(t, http.MethodPut, credentialGuardRoute, body)
 }
 
-// workKeys is an operator's edit of the default policy: protect mode, a second SSH key prefix, and Homebrew's signed gh as an
-// owner of the GitHub CLI token beside GitHub's own.
+// workKeys is an operator's edit of the default policy: protect mode, a second SSH key prefix, Homebrew's signed gh as an owner of
+// the GitHub CLI token beside GitHub's own, and a .netrc no tool may read, written without its owners.
 func workKeys() map[string]any {
 	return map[string]any{
 		"mode": "protect",
@@ -54,6 +55,7 @@ func workKeys() map[string]any {
 			{"kind": "ssh_private_key", "path": ".ssh/work_", "match": "prefix", "owners": []map[string]any{{"signing_id": "com.apple.ssh"}}},
 			{"kind": "github_cli_token", "path": ".config/gh/hosts.yml", "match": "literal",
 				"owners": []map[string]any{{"team_id": "VEKTX9H2N7"}, {"team_id": "ABCDE12345", "signing_id": "gh"}}},
+			{"kind": "netrc", "path": ".netrc", "match": "literal"},
 		},
 		"reason": "work keys and our signed gh",
 	}
@@ -90,8 +92,9 @@ func TestCredentialGuardREST_StoresPushesAndAuditsAChange(t *testing.T) {
 	assert.Equal(t, 3, result.FanoutHosts)
 
 	stored := r.credentialGuard(t)
-	require.Len(t, stored.Credentials, 3)
+	require.Len(t, stored.Credentials, 4)
 	assert.Equal(t, ".ssh/work_", stored.Credentials[1].Path)
+	assert.Equal(t, []rulesapi.CredentialOwner{}, stored.Credentials[3].Owners, "absent owners are stored as none, not null")
 	assert.False(t, stored.Credentials[1].Default, "an operator's entry is not a built-in")
 	require.NotNil(t, stored.UpdatedAt)
 
@@ -100,7 +103,8 @@ func TestCredentialGuardREST_StoresPushesAndAuditsAChange(t *testing.T) {
 		`{"kind":"ssh_private_key","path":".ssh/id_","match":"prefix","owners":[{"signing_id":"com.apple.ssh"}]},`+
 		`{"kind":"ssh_private_key","path":".ssh/work_","match":"prefix","owners":[{"signing_id":"com.apple.ssh"}]},`+
 		`{"kind":"github_cli_token","path":".config/gh/hosts.yml","match":"literal",`+
-		`"owners":[{"team_id":"VEKTX9H2N7"},{"team_id":"ABCDE12345","signing_id":"gh"}]}]}`, stored.UpdatedAt.UnixMicro())
+		`"owners":[{"team_id":"VEKTX9H2N7"},{"team_id":"ABCDE12345","signing_id":"gh"}]},`+
+		`{"kind":"netrc","path":".netrc","match":"literal","owners":[]}]}`, stored.UpdatedAt.UnixMicro())
 	commands := r.inserter.snapshot()
 	require.Len(t, commands, 3)
 	for _, c := range commands {
@@ -115,7 +119,7 @@ func TestCredentialGuardREST_StoresPushesAndAuditsAChange(t *testing.T) {
 	assert.Equal(t, "work keys and our signed gh", e.Payload["reason"])
 	assert.Equal(t, "protect", e.Payload["mode"])
 	assert.Equal(t, "detect", e.Payload["previous_mode"])
-	assert.Len(t, e.Payload["credentials"], 3)
+	assert.Len(t, e.Payload["credentials"], 4)
 	assert.Len(t, e.Payload["previous_credentials"], 6, "the built-ins it replaced")
 	assert.EqualValues(t, 3, e.Payload["fanout_hosts"])
 
@@ -163,6 +167,19 @@ func TestCredentialGuardREST_RefusesAnInvalidChange(t *testing.T) {
 		{"a path listed twice", valid(func(b map[string]any) {
 			entry := map[string]any{"kind": "netrc", "path": ".netrc", "match": "literal", "owners": []any{}}
 			b["credentials"] = []map[string]any{entry, entry}
+		})},
+		// A NUL would cut short the path the extension mutes.
+		{"a NUL in the path", valid(func(b map[string]any) {
+			b["credentials"] = []map[string]any{{"kind": "aws_credentials", "path": ".aws/credentials\x00x", "match": "literal",
+				"owners": []any{}}}
+		})},
+		{"a list over the size a host is sent", valid(func(b map[string]any) {
+			var credentials []map[string]any
+			for i := range 64 {
+				credentials = append(credentials, map[string]any{"kind": "netrc", "path": fmt.Sprintf(".netrc-%02d", i), "match": "literal",
+					"owners": []map[string]any{{"signing_id": strings.Repeat("s", 120)}}})
+			}
+			b["credentials"] = credentials
 		})},
 	}
 	for _, tc := range cases {

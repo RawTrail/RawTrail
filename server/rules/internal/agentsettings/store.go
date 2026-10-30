@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -20,19 +19,13 @@ import (
 
 // Store reads and replaces the single agent_settings row. Its concurrency is versionedset's.
 type Store struct {
-	set    *versionedset.Store
-	outbox *auditoutbox.Store
+	*hostpush.Document[api.AgentSettings]
 }
 
 // NewStore builds a Store. Panics on a nil db, which is a wiring bug.
 func NewStore(db *sqlx.DB) *Store {
-	if db == nil {
-		panic("agentsettings.NewStore: db must not be nil")
-	}
-	return &Store{
-		set:    versionedset.New(db, versionedset.Table{Name: "agent_settings", PayloadColumn: "settings", Noun: "agent settings"}),
-		outbox: auditoutbox.NewStore(db, detectionconfig.AuditOutboxTable),
-	}
+	table := versionedset.Table{Name: "agent_settings", PayloadColumn: "settings", Noun: "agent settings"}
+	return &Store{hostpush.NewDocument(db, table, detectionconfig.AuditOutboxTable, decode, ErrVersionConflict)}
 }
 
 // ErrVersionConflict is returned for a conditional replacement of settings that have changed since the caller read them.
@@ -57,21 +50,12 @@ func decode(row versionedset.Row) (api.AgentSettings, error) {
 	return out, nil
 }
 
-// Get returns the stored settings.
-func (s *Store) Get(ctx context.Context) (api.AgentSettings, error) {
-	row, err := s.set.Get(ctx)
-	if err != nil {
-		return api.AgentSettings{}, err
-	}
-	return decode(row)
-}
-
 // Replace stores capturePrompts as the new settings and returns the settings it replaced and the new ones, one version past them.
 //
 // A non-nil expectedVersion makes the replacement conditional: when the stored settings are at any other version, Replace stores
 // nothing and returns ErrVersionConflict.
 //
-// The audit entry audit builds from the two is written in the same transaction, held for auditHold so the caller can add the push's
+// The audit entry audit builds from the two is written in the same transaction, held for hostpush.AuditHold so the caller can add the push's
 // host counts with SealAudit before it is delivered. Replace returns the entry's id for that.
 func (s *Store) Replace(
 	ctx context.Context, capturePrompts bool, actor string, expectedVersion *int64,
@@ -79,15 +63,5 @@ func (s *Store) Replace(
 ) (previous, next api.AgentSettings, auditID int64, err error) {
 	// Marshalling a struct of one boolean cannot fail.
 	encoded, _ := json.Marshal(stored{CapturePrompts: &capturePrompts})
-	return hostpush.ReplaceAudited(ctx, s.set, s.outbox, encoded, actor, expectedVersion, ErrVersionConflict, auditHold, decode, audit)
-}
-
-// auditHold is how long a replacement's audit entry waits for the push's host counts, as for the watched-path set: the push takes well
-// under a second, so the hold only matters when the replica died before adding the counts.
-const auditHold = 5 * time.Minute
-
-// SealAudit adds the push's host counts to a replacement's held audit entry and releases it for delivery. It reports false when the
-// hold had already passed, in which case the entry is delivered without the counts.
-func (s *Store) SealAudit(ctx context.Context, id int64, entry auditoutbox.Entry) (bool, error) {
-	return s.outbox.Seal(ctx, id, entry)
+	return s.ReplaceEncoded(ctx, encoded, actor, expectedVersion, audit)
 }

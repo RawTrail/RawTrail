@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -125,6 +127,49 @@ func TestCredentialGuardHandler_ReplaceMapsEachOutcome(t *testing.T) {
 		require.NotNil(t, svc.gotExpect)
 		assert.Equal(t, int64(4), *svc.gotExpect)
 	})
+}
+
+// The body cap is sized from the encoded budget, not shared with the other detection-config routes: a policy near the budget with every
+// byte of it escaped, which a client is free to send, is far over the 16 KiB those take, and must still reach validation.
+func TestCredentialGuardHandler_TakesALargePolicyAnyClientMaySend(t *testing.T) {
+	t.Parallel()
+	var credentials []api.ProtectedCredential
+	// Credentials are added until one more would go over the budget.
+	for i := 0; ; i++ {
+		credentials = append(credentials, api.ProtectedCredential{Kind: "netrc", Path: fmt.Sprintf(".netrc-%03d", i), Match: "literal",
+			Owners: []api.CredentialOwner{
+				{TeamID: "ABCDE12345", SigningID: "com.example.tool"}, {TeamID: "ABCDE12345", SigningID: "com.example.helper"},
+				{SigningID: "com.apple.curl"},
+			}})
+		if encoded, _ := json.Marshal(credentials); len(encoded) > api.MaxCredentialGuardBytes {
+			credentials = credentials[:len(credentials)-1]
+			break
+		}
+	}
+	encoded, err := json.Marshal(credentials)
+	require.NoError(t, err)
+	require.NoError(t, api.ValidateCredentialGuard(api.CredentialGuardDetect, credentials), "the policy is one the API accepts")
+	var escaped strings.Builder
+	for _, b := range encoded {
+		if b == '"' || b == '[' || b == ']' || b == '{' || b == '}' || b == ':' || b == ',' {
+			escaped.WriteByte(b)
+			continue
+		}
+		fmt.Fprintf(&escaped, "\\u%04x", b)
+	}
+	body := `{"mode":"detect","reason":"r","credentials":` + escaped.String() + `}`
+	require.Greater(t, len(body), 16*1024)
+
+	svc := &fakeCredentialGuard{}
+	resp := dcDo(t, credentialGuardServer(t, svc, allowAllAuthZ{}), http.MethodPut, credentialGuardPath, body)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, credentials, svc.gotCreds)
+
+	tooLarge := `{"mode":"detect","reason":"` + strings.Repeat("r", credentialGuardBodyLimit) + `","credentials":[]}`
+	refused := dcDo(t, credentialGuardServer(t, &fakeCredentialGuard{}, allowAllAuthZ{}), http.MethodPut, credentialGuardPath, tooLarge)
+	defer refused.Body.Close()
+	assert.Equal(t, http.StatusRequestEntityTooLarge, refused.StatusCode)
 }
 
 // spec:server-admin-surface/the-credential-guard-is-configured-over-the-api/reading-and-changing-it-need-detection-config-permissions
