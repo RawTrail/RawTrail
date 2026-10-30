@@ -4685,7 +4685,7 @@ components:
           description: Display label resolved from updated_by at read time; absent until the first change or when it cannot be resolved.
     ProtectedCredential:
       type: object
-      required: [kind, path, match, owners]
+      required: [kind, path, match]
       properties:
         kind:
           type: string
@@ -4705,9 +4705,13 @@ components:
           maxItems: 32
           description: >-
             The tools allowed to read the file, by signing identity: a signing_id alone is an Apple platform binary, a team_id is that
-            Developer ID team, and both are that one binary of the team's. An ad hoc signed tool cannot be an owner.
+            Developer ID team, and both are that one binary of the team's. An ad hoc signed tool cannot be an owner. Omitted on a
+            change, it is stored as none; a read always carries the list.
           items:
             type: object
+            anyOf:
+              - required: [team_id]
+              - required: [signing_id]
             properties:
               team_id:
                 type: string
