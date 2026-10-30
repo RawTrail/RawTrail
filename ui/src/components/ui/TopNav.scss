@@ -23,6 +23,13 @@
     padding: $pad-small 0;
   }
 
+  &__logo-mark {
+    display: block;
+    flex: none;
+    width: 24px;
+    height: 24px;
+  }
+
   &__logo-text {
     font-weight: $bold;
     font-size: $small;
