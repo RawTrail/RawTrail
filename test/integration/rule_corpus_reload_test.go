@@ -78,11 +78,11 @@ func TestRuleCorpusReload_TwoReplicasConverge(t *testing.T) {
 
 	// Converged on the EXACT published rule, not merely on a smaller set. A reload that produced nothing would also be smaller,
 	// and that is what an unrunnable document yields, so a count comparison could not tell the two apart.
+	// The observer runs after the install, so the new set can be visible a moment before the engine is told: wait for both.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.Equal(c, []string{storedRuleID}, filterCorpusIDs(fromCorpus, subscriber.ContentService().ActiveRules()))
+		assert.Positive(c, notified.Load(), "and must tell its engine to rebuild, or the API lists rules that never run")
 	}, 10*time.Second, 20*time.Millisecond, "the subscriber must converge on the published corpus without a restart")
-
-	assert.Positive(t, notified.Load(), "and must tell its engine to rebuild, or the API lists rules that never run")
 	assert.Len(t, filterCorpusIDs(fromCorpus, publisher.ContentService().ActiveRules()), full,
 		"the publisher's own set is untouched until its own loop runs, which is the same per-replica property")
 
