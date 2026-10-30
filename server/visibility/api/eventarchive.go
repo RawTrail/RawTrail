@@ -112,6 +112,11 @@ type EventArchive interface {
 	// an ErrInvalidPromptCursor.
 	AgentPrompts(ctx context.Context, filter AgentPromptFilter) (AgentPromptPage, error)
 
+	// SearchAgentPrompts finds the prompts, across every host's sessions or one host's, whose text holds the query regardless of
+	// case, made within the search's window (issue #1428), newest first, a page at a time after its cursor. A cursor that does not
+	// decode is an ErrInvalidPromptCursor.
+	SearchAgentPrompts(ctx context.Context, search AgentPromptSearch) (FoundAgentPromptPage, error)
+
 	// AgentPromptCount counts the prompts AgentPrompts lists for one AI agent session on one host, with no search (issue #1429).
 	AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error)
 
@@ -498,6 +503,30 @@ type AgentPromptFilter struct {
 	Cursor    string
 	Search    string
 	Limit     int
+}
+
+// AgentPromptSearch is a search of prompt text across sessions (issue #1428): the text to find, the window the prompts were made in,
+// and optionally one host.
+type AgentPromptSearch struct {
+	Query  string
+	HostID string
+	FromNs int64
+	ToNs   int64
+	Cursor string
+	Limit  int
+}
+
+// FoundAgentPrompt is a prompt a search found, with the host and session it was typed in.
+type FoundAgentPrompt struct {
+	HostID    string `json:"host_id"`
+	SessionID string `json:"agent_session_id"`
+	AgentPrompt
+}
+
+// FoundAgentPromptPage is one page of what a prompt search found, newest first, and the cursor for the next, empty on the last.
+type FoundAgentPromptPage struct {
+	Prompts    []FoundAgentPrompt `json:"prompts"`
+	NextCursor string             `json:"next_cursor,omitempty"`
 }
 
 // AgentPrompt is one prompt a person typed, as the agent sent it (issue #1426): redacted and cut at 16 KiB before it left the host.

@@ -713,6 +713,52 @@ func (m *MemArchive) AgentPromptCount(ctx context.Context, hostID, sessionID str
 	return int64(len(page.Prompts)), err
 }
 
+// SearchAgentPrompts mirrors the ClickHouse store: the prompts in the window whose text holds the query regardless of case, of one
+// host when the search names one, newest first after the cursor.
+func (m *MemArchive) SearchAgentPrompts(_ context.Context, search api.AgentPromptSearch) (api.FoundAgentPromptPage, error) {
+	var before api.EventCursor
+	if search.Cursor != "" {
+		var err error
+		if before, err = clickhouse.DecodePromptCursor(search.Cursor); err != nil {
+			return api.FoundAgentPromptPage{}, err
+		}
+	}
+	type listed struct {
+		eventID string
+		prompt  api.FoundAgentPrompt
+	}
+	var found []listed
+	query := strings.ToLower(search.Query)
+	m.mu.Lock()
+	for _, e := range m.byID {
+		var p api.FoundAgentPrompt
+		inWindow := e.TimestampNs >= search.FromNs && e.TimestampNs <= search.ToNs
+		if e.EventType != "agent_prompt" || !inWindow || (search.HostID != "" && e.HostID != search.HostID) ||
+			json.Unmarshal(e.Payload, &p) != nil || !strings.Contains(strings.ToLower(p.Text), query) {
+			continue
+		}
+		if search.Cursor != "" && cmp.Or(cmp.Compare(e.TimestampNs, before.TimestampNs), cmp.Compare(e.EventID, before.EventID)) >= 0 {
+			continue
+		}
+		p.HostID, p.AtNs = e.HostID, e.TimestampNs
+		found = append(found, listed{e.EventID, p})
+	}
+	m.mu.Unlock()
+	slices.SortFunc(found, func(a, b listed) int {
+		return cmp.Or(cmp.Compare(b.prompt.AtNs, a.prompt.AtNs), cmp.Compare(b.eventID, a.eventID))
+	})
+	page := api.FoundAgentPromptPage{Prompts: []api.FoundAgentPrompt{}}
+	for i, f := range found {
+		if i == search.Limit {
+			last := found[i-1]
+			page.NextCursor = api.EncodeEventCursor(api.EventCursor{TimestampNs: last.prompt.AtNs, EventID: last.eventID})
+			break
+		}
+		page.Prompts = append(page.Prompts, f.prompt)
+	}
+	return page, nil
+}
+
 // AgentPrompts mirrors the ClickHouse store: one session's agent_prompt events after the cursor, oldest first, kept by a search of
 // their text regardless of case.
 func (m *MemArchive) AgentPrompts(_ context.Context, filter api.AgentPromptFilter) (api.AgentPromptPage, error) {

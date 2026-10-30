@@ -882,6 +882,82 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/agent-prompts:
+    get:
+      tags: [Hosts]
+      summary: Search the prompts people typed to AI agents
+      description: >-
+        The prompts, across every host's AI agent sessions or one host's, whose text holds `q` regardless of case, typed within a
+        window of at most 30 days, newest first, a page at a time. Each result names its host and session, as the session's own
+        prompts read lists it. Requires `agent_prompt.read`, and every search is audited with its query.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: The text to find, 3 characters to 255 bytes, case-insensitively.
+          schema: {type: string, minLength: 3, maxLength: 255}
+        - name: host_id
+          in: query
+          description: Search only this host's sessions.
+          schema: {type: string}
+        - name: from
+          in: query
+          description: The window's start, ns since epoch. Absent or 0 is a week before `to`.
+          schema: {type: integer, format: int64, minimum: 0}
+        - name: to
+          in: query
+          description: The window's end, ns since epoch. Absent or 0 is now. The window is at most 30 days.
+          schema: {type: integer, format: int64, minimum: 0}
+        - name: cursor
+          in: query
+          description: The previous page's `next_cursor`.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Prompts per page.
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the prompts found, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [prompts]
+                properties:
+                  prompts:
+                    type: array
+                    items:
+                      type: object
+                      required: [host_id, agent_session_id, prompt_id, text, length, at_ns, uid]
+                      properties:
+                        host_id: {type: string}
+                        agent_session_id: {type: string, description: The session the prompt was typed in.}
+                        prompt_id: {type: string, description: The turn the prompt began.}
+                        text: {type: string, description: "The prompt as sent: redacted, and cut at 16 KiB."}
+                        length: {type: integer, description: The prompt's length in bytes as typed.}
+                        truncated: {type: boolean, description: True when the text was cut.}
+                        redacted: {type: integer, description: How many credentials were replaced.}
+                        source: {type: string, description: "How it was entered: `typed`, `queued` or `suggestion_accepted`."}
+                        at_ns: {type: integer, format: int64}
+                        uid: {type: integer, description: The user whose transcript it was read from.}
+                  next_cursor: {type: string, description: Absent on the last page.}
+        "400":
+          description: "`invalid_query`, `bad_window` (wider than 30 days, inverted, or negative) or `invalid_cursor`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`forbidden`: the caller lacks `agent_prompt.read`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/hosts/{host_id}/agent-sessions/{session_id}/prompts:
     get:
       tags: [Hosts]
