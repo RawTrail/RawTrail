@@ -409,7 +409,8 @@ jobs:
           || needs.changes.outputs.go == 'true'
           || needs.changes.outputs.ui == 'true'
           || needs.changes.outputs.e2e == 'true')
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.60 has no Chromium build for Ubuntu 26.04, which ubuntu-latest now resolves to.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     # No top-level env block: scripts/test-e2e-coverage.sh sets the
