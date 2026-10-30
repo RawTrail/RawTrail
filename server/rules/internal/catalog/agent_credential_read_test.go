@@ -46,15 +46,19 @@ func agentProcesses() *generationReader {
 	}
 	cat := &api.Process{ID: 1, PID: 6991, Path: "/bin/cat", CodeSigning: sig("", "com.apple.cat", true)}
 	gh := &api.Process{ID: 2, PID: 7200, Path: "/opt/homebrew/bin/gh", CodeSigning: sig("", "a.out", false)}
-	cat.AgentSessionID, gh.AgentSessionID = &session, &session
+	// A signed tool the agent ran, by its vendor team and cdhash, as an exclusion would name it.
+	awsCDHash := "0123456789abcdef0123456789abcdef01234567"
+	aws := &api.Process{ID: 4, PID: 7300, Path: "/usr/local/bin/aws", CodeSigning: sig("94KV3E626L", "com.amazon.aws.cli2", false),
+		CDHash: &awsCDHash}
+	cat.AgentSessionID, gh.AgentSessionID, aws.AgentSessionID = &session, &session, &session
 	other := "another-session"
 	shell := &api.Process{ID: 9, PID: 6991, Path: "/bin/zsh", CodeSigning: sig("", "com.apple.zsh", true)}
 	shell.AgentSessionID = &other
 	agent := &api.Process{ID: 3, PID: 6833, Path: "/Users/victor/.local/share/claude/versions/2.1.302", CodeSigning: sig("", "a.out", false)}
 	return &generationReader{
-		perPIDGraphReader: perPIDGraphReader{procByPID: map[int]*api.Process{6991: shell, 7200: gh, 6833: agent}},
+		perPIDGraphReader: perPIDGraphReader{procByPID: map[int]*api.Process{6991: shell, 7200: gh, 7300: aws, 6833: agent}},
 		byGeneration: map[[2]int64]*api.Process{
-			{6991, 69910}: cat, {6991, 69909}: shell, {7200, 72000}: gh, {6833, 68330}: agent,
+			{6991, 69910}: cat, {6991, 69909}: shell, {7200, 72000}: gh, {7300, 73000}: aws, {6833, 68330}: agent,
 		},
 	}
 }
@@ -115,17 +119,24 @@ func TestAgentCredentialRead_AnOpenerIsWaivedBySignerOrPath(t *testing.T) {
 	rule := "agent_credential_read"
 	for _, tc := range []struct {
 		name  string
+		pid   int
 		excl  fakeExcl
 		fires bool
 	}{
-		{"by path", fakeExcl{ruleID: rule, matchType: api.ExclusionMatchPathGlob, value: "/opt/homebrew/bin/*"}, false},
-		{"another rule's exclusion", fakeExcl{ruleID: "suspicious_exec", matchType: api.ExclusionMatchPathGlob,
+		{"by path", 7200, fakeExcl{ruleID: rule, matchType: api.ExclusionMatchPathGlob, value: "/opt/homebrew/bin/*"}, false},
+		{"by team", 7300, fakeExcl{ruleID: rule, matchType: api.ExclusionMatchTeamID, value: "94KV3E626L"}, false},
+		{"by qualified signing id", 7300, fakeExcl{ruleID: rule, matchType: api.ExclusionMatchSigningID,
+			value: "94KV3E626L:com.amazon.aws.cli2"}, false},
+		{"by cdhash", 7300, fakeExcl{ruleID: rule, matchType: api.ExclusionMatchCDHash,
+			value: "0123456789abcdef0123456789abcdef01234567"}, false},
+		{"another rule's exclusion", 7200, fakeExcl{ruleID: "suspicious_exec", matchType: api.ExclusionMatchPathGlob,
 			value: "/opt/homebrew/bin/*"}, true},
+		{"another tool's team", 7300, fakeExcl{ruleID: rule, matchType: api.ExclusionMatchTeamID, value: "VEKTX9H2N7"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			findings := evaluateAgentCredentialRead(t, &fakeExclusions{entries: []fakeExcl{tc.excl}},
-				guardEvent(t, 7200, "/Users/victor/.config/gh/hosts.yml", "github_cli_token"))
+				guardEvent(t, tc.pid, "/Users/victor/.aws/credentials", "aws_credentials"))
 			assert.Equal(t, tc.fires, len(findings) == 1)
 		})
 	}
