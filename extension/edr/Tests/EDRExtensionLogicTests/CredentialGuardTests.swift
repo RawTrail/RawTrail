@@ -15,6 +15,7 @@ final class CredentialGuardTests: XCTestCase {
 
     private static let ssh = platform("com.apple.ssh")
     private static let cat = platform("com.apple.cat")
+    private static let curl = platform("com.apple.curl")
     private static let claude = developerID("Q6L2SF6YDW", "com.anthropic.claude-code")
     private static let awsCLI = developerID("94KV3E626L", "30bd15-aws")
     private static let gitRemoteHTTP = developerID("59GAB85EFG", "com.apple.git-remote-http")
@@ -22,6 +23,13 @@ final class CredentialGuardTests: XCTestCase {
     private static let adHocSSH = CodeSigning(teamID: "", signingID: "com.apple.ssh", flags: 0x2, isPlatformBinary: false)
     /// homebrewGH is `gh` as Homebrew ships it: linker-signed ad hoc, with the Go linker's default identifier.
     private static let homebrewGH = CodeSigning(teamID: "", signingID: "a.out", flags: 0x2_0002, isPlatformBinary: false)
+
+    /// homes are the homes every enforcement in these tests is built over: a person's and root's.
+    private static let homes = ["/Users/alice", "/var/root"]
+
+    private static func enforcing(_ policy: CredentialGuardPolicy) -> CredentialGuardEnforcement {
+        policy.enforcement(homes: homes)
+    }
 
     private struct Case {
         let name: String
@@ -85,7 +93,7 @@ final class CredentialGuardTests: XCTestCase {
         ]
         for tc in cases {
             let policy = CredentialGuardPolicy(mode: tc.mode, credentials: CredentialGuard.builtIn)
-            let got = policy.decide(path: tc.path, opener: tc.opener, inAgentProcessSet: tc.inAgentProcessSet)
+            let got = Self.enforcing(policy).decide(path: tc.path, opener: tc.opener, inAgentProcessSet: tc.inAgentProcessSet)
             XCTAssertEqual(got, tc.want, tc.name)
             let refused = tc.mode == .protect && tc.want != .allow
             XCTAssertEqual(got.deniesOpen, refused, "\(tc.name): only a protect-mode block refuses the open")
@@ -102,7 +110,7 @@ final class CredentialGuardTests: XCTestCase {
             ("/Users/alice/.ssh/id_rsa-cert.pub", nil),
             ("/Users/alice/.ssh/config", nil),
             ("/Users/alice/.ssh/known_hosts", nil),
-            ("/Users/alice/.ssh/id_", nil),
+            ("/Users/alice/.ssh/id_", .sshPrivateKey),
             ("/Users/alice/.ssh/id_dir/inner", nil),
             ("/Users/alice/.aws/credentials", .awsCredentials),
             ("/Users/alice/.aws/credentials.bak", nil),
@@ -110,13 +118,13 @@ final class CredentialGuardTests: XCTestCase {
             ("/private/var/root/.docker/config.json", .dockerConfig)
         ]
         for tc in cases {
-            XCTAssertEqual(CredentialGuardPolicy.builtIn.credential(at: tc.path)?.kind, tc.want, tc.path)
+            XCTAssertEqual(Self.enforcing(.builtIn).credential(at: tc.path)?.kind, tc.want, tc.path)
         }
     }
 
     // spec:extension-credential-guard/credential-files-are-guarded-in-every-home/every-home-s-credential-files-are-guarded
     func testTargetsAreEveryCredentialInEveryHome() {
-        let targets = CredentialGuardPolicy.builtIn.targets(homes: ["/Users/alice", "/var/root"])
+        let targets = CredentialGuardPolicy.builtIn.targets(homes: Self.homes).map(\.watched)
         let homePaths = [".ssh/id_", ".aws/credentials", ".config/gh/hosts.yml", ".netrc", ".docker/config.json", ".kube/config"]
         var expected: [WatchedPath] = []
         for home in ["/Users/alice", "/private/var/root", "/var/root"] {
@@ -159,13 +167,13 @@ final class CredentialGuardTests: XCTestCase {
         ]))
 
         // The guard follows the list it was given: a credential added is guarded, one removed is not, and protect refuses the read.
-        let policy = update.policy
+        let policy = Self.enforcing(update.policy)
         XCTAssertEqual(policy.decide(path: "/Users/alice/.ssh/deploy_prod", opener: Self.ssh, inAgentProcessSet: true),
                        .block(.sshPrivateKey), "a pushed credential with no owners is read by no tool in a session")
         XCTAssertEqual(policy.decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true), .allow,
                        "a credential the policy no longer lists is not guarded")
         XCTAssertEqual(policy.decide(path: "/Users/alice/work/.netrc", opener: Self.cat, inAgentProcessSet: true), .block(.netrc))
-        XCTAssertEqual(Set(policy.targets(homes: ["/Users/alice"])), [
+        XCTAssertEqual(Set(update.policy.targets(homes: ["/Users/alice"]).map(\.watched)), [
             WatchedPath(path: "/Users/alice/.aws/credentials", match: .literal),
             WatchedPath(path: "/Users/alice/work/.netrc", match: .literal),
             WatchedPath(path: "/Users/alice/.ssh/deploy_", match: .prefix)
@@ -175,22 +183,59 @@ final class CredentialGuardTests: XCTestCase {
     // spec:extension-credential-guard/credential-block-event/a-refused-read-is-reported
     func testARefusedReadIsReportedAsABlock() throws {
         let protect = CredentialGuardPolicy(mode: .protect, credentials: CredentialGuard.builtIn)
-        let decision = protect.decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true)
+        let decision = Self.enforcing(protect).decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true)
         XCTAssertTrue(decision.deniesOpen)
-        let report = try XCTUnwrap(decision.report)
+        let report = try XCTUnwrap(decision.report(denied: true))
         XCTAssertEqual(report.eventType, "agent_credential_block")
         XCTAssertEqual(report.credential, .sshPrivateKey)
+        // A refusal the kernel did not take may have let the read through, so it is not reported as stopped.
+        XCTAssertEqual(decision.report(denied: false)?.eventType, "agent_credential_would_block")
 
-        let detect = CredentialGuardPolicy.builtIn.decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true)
-        XCTAssertEqual(detect.report?.eventType, "agent_credential_would_block")
-        XCTAssertNil(CredentialGuardDecision.allow.report)
+        let detect = Self.enforcing(.builtIn).decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true)
+        XCTAssertEqual(detect.report(denied: false)?.eventType, "agent_credential_would_block")
+        XCTAssertNil(CredentialGuardDecision.allow.report(denied: true))
     }
 
     // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/off-watches-nothing
     func testOffWatchesNothingAndDecidesNothing() {
         let off = CredentialGuardPolicy(mode: .off, credentials: CredentialGuard.builtIn)
         XCTAssertEqual(off.targets(homes: ["/Users/alice"]), [], "nothing is muted, so no open reaches the guard")
-        XCTAssertEqual(off.decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true), .allow)
+        XCTAssertEqual(Self.enforcing(off).decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true), .allow)
+    }
+
+    // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/the-most-specific-credential-decides
+    //
+    // Two credentials can cover one opened file: `.netrc` and a `.netrc` in a subdirectory, or a key prefix and one key under it. The
+    // file's own entry decides, whichever is listed first: matching by suffix let `.netrc`'s owner read `work/.netrc`.
+    func testTheMostSpecificCredentialDecides() {
+        let curlOwnsNetrc = ProtectedCredential(kind: .netrc, homePath: ".netrc", match: .literal, owners: [.platform("com.apple.curl")])
+        let noOneOwnsWorkNetrc = ProtectedCredential(kind: .netrc, homePath: "work/.netrc", match: .literal, owners: [])
+        let sshOwnsKeys = ProtectedCredential(kind: .sshPrivateKey, homePath: ".ssh/id_", match: .prefix, owners: CredentialGuard.sshKeyOwners)
+        let noOneOwnsDeployKey = ProtectedCredential(kind: .sshPrivateKey, homePath: ".ssh/id_deploy", match: .literal, owners: [])
+        for credentials in [[curlOwnsNetrc, noOneOwnsWorkNetrc, sshOwnsKeys, noOneOwnsDeployKey],
+                            [noOneOwnsDeployKey, sshOwnsKeys, noOneOwnsWorkNetrc, curlOwnsNetrc]] {
+            let protect = Self.enforcing(CredentialGuardPolicy(mode: .protect, credentials: credentials))
+            XCTAssertEqual(protect.decide(path: "/Users/alice/work/.netrc", opener: Self.curl, inAgentProcessSet: true), .block(.netrc))
+            XCTAssertEqual(protect.decide(path: "/Users/alice/.netrc", opener: Self.curl, inAgentProcessSet: true), .allow)
+            XCTAssertEqual(protect.decide(path: "/Users/alice/.ssh/id_deploy", opener: Self.ssh, inAgentProcessSet: true),
+                           .block(.sshPrivateKey))
+            XCTAssertEqual(protect.decide(path: "/Users/alice/.ssh/id_rsa", opener: Self.ssh, inAgentProcessSet: true), .allow)
+            XCTAssertEqual(protect.decide(path: "/Users/bob/.netrc", opener: Self.cat, inAgentProcessSet: true), .allow,
+                           "a home the guard does not know is not judged by suffix")
+        }
+    }
+
+    // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/a-prefix-covers-the-file-it-names
+    //
+    // A pushed prefix names files that start with it, the file itself included: `.aws/credentials` as a prefix guards the file as well
+    // as `.aws/credentials.bak`, but not a directory that starts with it.
+    func testAPrefixCoversTheFileItNames() {
+        let prefix = ProtectedCredential(kind: .awsCredentials, homePath: ".aws/credentials", match: .prefix, owners: [])
+        let detect = Self.enforcing(CredentialGuardPolicy(mode: .detect, credentials: [prefix]))
+        for (path, want) in [("/Users/alice/.aws/credentials", true), ("/Users/alice/.aws/credentials.bak", true),
+                             ("/Users/alice/.aws/credentials.d/x", false), ("/Users/alice/.aws/credentials.pub", false)] {
+            XCTAssertEqual(detect.decide(path: path, opener: Self.cat, inAgentProcessSet: true) != .allow, want, path)
+        }
     }
 
     // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/a-policy-the-extension-cannot-read-is-turned-away

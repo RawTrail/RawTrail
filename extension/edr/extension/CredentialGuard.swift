@@ -56,26 +56,11 @@ struct CredentialOwner: Equatable, Sendable, Decodable {
 /// ProtectedCredential is one credential file the guard watches in every home, and the tools allowed to read it.
 struct ProtectedCredential: Equatable, Sendable {
     let kind: CredentialKind
-    /// homePath is the file below a home directory, without a leading "/". A prefix entry covers every name starting with it.
+    /// homePath is the file below a home directory, without a leading "/". A prefix entry covers every name in its directory starting
+    /// with it, the name itself included.
     let homePath: String
     let match: WatchedPathMatch
     let owners: [CredentialOwner]
-
-    /// covers reports whether an opened path is this credential: the file itself, or for a prefix entry a name in its directory that
-    /// starts with it and is not a public key, which `id_ed25519.pub` and `id_rsa-cert.pub` are.
-    func covers(_ path: String) -> Bool {
-        let needle = "/" + homePath
-        switch match {
-        case .literal:
-            return path.hasSuffix(needle)
-        case .prefix:
-            guard let range = path.range(of: needle, options: .backwards) else {
-                return false
-            }
-            let rest = path[range.upperBound...]
-            return !rest.isEmpty && !rest.contains("/") && !rest.hasSuffix(".pub")
-        }
-    }
 }
 
 /// CredentialGuardMode mirrors application control's enforcement: detect reports what protect would deny, protect denies it, and off
@@ -94,30 +79,71 @@ struct CredentialGuardPolicy: Equatable, Sendable {
 
     static let builtIn = CredentialGuardPolicy(mode: .detect, credentials: CredentialGuard.builtIn)
 
-    /// targets is every path the guard mutes, and so observes once target-path muting is inverted: each credential in each home, in
-    /// both spellings of a firmlinked root (root's home is under /var), in a stable order, and none when the guard is off. The homes are
-    /// distinct, as WatchedPaths.homeDirectories returns them, so the targets are too. A spelling es_mute_path could not take, which
-    /// only a very long home makes of a path the decode accepted, is left out.
-    func targets(homes: [String]) -> [WatchedPath] {
+    /// targets is every path the guard mutes, and so observes once target-path muting is inverted, with the credential each guards:
+    /// each credential in each home, in both spellings of a firmlinked root (root's home is under /var), in a stable order, and none when
+    /// the guard is off. The homes are distinct, as WatchedPaths.homeDirectories returns them, so the targets are too. A spelling
+    /// es_mute_path could not take, which only a very long home makes of a path the decode accepted, is left out.
+    func targets(homes: [String]) -> [CredentialTarget] {
         guard mode != .off else {
             return []
         }
-        var out: [WatchedPath] = []
+        var out: [CredentialTarget] = []
         for home in homes {
             for credential in credentials {
                 for spelling in WatchedPaths.spellings(of: home + "/" + credential.homePath)
                 where WatchedPaths.isAcceptable(spelling, .literal) {
-                    out.append(WatchedPath(path: spelling, match: credential.match))
+                    out.append(CredentialTarget(watched: WatchedPath(path: spelling, match: credential.match), credential: credential))
                 }
             }
         }
         return out
     }
 
-    /// credential is the protected credential an opened path is, or nil for any other file the muting delivers: a public key under
-    /// the `id_` prefix, or a directory that happens to start with it.
+    /// enforcement is the policy as it is enforced over homes: its mode, and every target muted.
+    func enforcement(homes: [String]) -> CredentialGuardEnforcement {
+        CredentialGuardEnforcement(mode: mode, targets: targets(homes: homes))
+    }
+}
+
+/// CredentialTarget is one path the guard mutes and the credential it guards.
+struct CredentialTarget: Equatable, Sendable {
+    let watched: WatchedPath
+    let credential: ProtectedCredential
+
+    /// covers reports whether an opened path is this target's: the file itself, or for a prefix a name in its directory that starts
+    /// with it and is not a public key, which `id_ed25519.pub` and `id_rsa-cert.pub` are. A directory that happens to start with it
+    /// is not covered.
+    func covers(_ path: String) -> Bool {
+        switch watched.match {
+        case .literal:
+            return path == watched.path
+        case .prefix:
+            guard path.hasPrefix(watched.path) else {
+                return false
+            }
+            let rest = path.dropFirst(watched.path.count)
+            return !rest.contains("/") && !rest.hasSuffix(".pub")
+        }
+    }
+}
+
+/// CredentialGuardEnforcement is what the guard decides an open by: the mode, and the targets that are muted and so reach it. It is
+/// published only once its targets are muted, so a decision never names a credential whose opens are not yet observed.
+struct CredentialGuardEnforcement: Sendable {
+    let mode: CredentialGuardMode
+    let targets: [CredentialTarget]
+
+    /// none is the enforcement before the first refresh, when no open reaches the guard.
+    static let none = CredentialGuardEnforcement(mode: .off, targets: [])
+
+    /// credential is the protected credential an opened path is, or nil for any other file the muting delivers. Where two targets
+    /// cover the path, as a prefix and a file under it, or `.netrc` and a `.netrc` in a subdirectory, the most specific decides: a
+    /// literal file before a prefix, and a longer path before a shorter one.
     func credential(at path: String) -> ProtectedCredential? {
-        credentials.first { $0.covers(path) }
+        targets.filter { $0.covers(path) }.max { lhs, rhs in
+            (lhs.watched.match == .literal ? 1 : 0, lhs.watched.path.count)
+                < (rhs.watched.match == .literal ? 1 : 0, rhs.watched.path.count)
+        }?.credential
     }
 
     /// decide is the verdict on a process opening path. The opener is in an agent session when the agent-process set holds it, or
@@ -206,15 +232,17 @@ enum CredentialGuardDecision: Equatable, Sendable {
     /// block denies an agent's read of a credential and reports it, which is protect mode.
     case block(CredentialKind)
 
-    /// report is the event the decision is reported as, and the credential it names, or nil for an open that is not reported.
-    var report: (eventType: String, credential: CredentialKind)? {
+    /// report is the event the decision is reported as, and the credential it names, or nil for an open that is not reported. denied
+    /// is whether the kernel took the refusal: a block it did not take is reported as a read that may have gone through, so an alert
+    /// never says the agent was stopped when it might not have been.
+    func report(denied: Bool) -> (eventType: String, credential: CredentialKind)? {
         switch self {
         case .allow:
             return nil
         case let .wouldBlock(kind):
             return ("agent_credential_would_block", kind)
         case let .block(kind):
-            return ("agent_credential_block", kind)
+            return (denied ? "agent_credential_block" : "agent_credential_would_block", kind)
         }
     }
 
