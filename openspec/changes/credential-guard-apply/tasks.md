@@ -16,5 +16,5 @@
 
 ## 4. Tests and QA
 
-- [x] 4.1 Agent executor and dispatcher tests; Swift decode, store, policy and dispatch tests; rule test and fixture
-- [ ] 4.2 edr-dev: push detect, off and protect, and check the guard's events and the denial
+- [x] 4.1 Agent executor and dispatcher tests; Swift decode, store, policy and dispatch tests; rule test and fixture; an efficacy scenario for the refused read
+- [x] 4.2 edr-dev: push detect, off and protect, and check the guard's events and the denial
