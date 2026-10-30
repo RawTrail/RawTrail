@@ -13,9 +13,9 @@ An agent session's views list what it did row by row. Nothing says, at a glance,
   - a timeline of commands and of events over the session's span;
   - alerts as a count with a link to Commands, last.
 - Each section says plainly when the session did none of it.
-- Commands stays the view a session opens on.
+- A session opens on its Summary.
 
 ## Impact
 
 - `ui/src/components/Sessions/` (the Summary, its shaping, the view switcher).
-- The cost estimate waits on #1427; sharing the Summary as an image is #1430.
+- Sharing the Summary as an image is #1430.

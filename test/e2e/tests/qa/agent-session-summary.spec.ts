@@ -102,7 +102,7 @@ test.describe("a session's Summary", () => {
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
     const views = page.getByRole("group", { name: "Session view" });
     await expect(views.getByRole("button")).toHaveText(["Summary", "Conversation", "Commands", "Processes", "Activity"], { timeout: 20_000 });
-    await views.getByRole("button", { name: "Summary" }).click();
+    await expect(views.getByRole("button", { name: "Summary", pressed: true })).toBeVisible();
 
     const glance = page.getByRole("region", { name: "At a glance" });
     await expect(glance.getByText("2 prompts")).toBeVisible({ timeout: 20_000 });

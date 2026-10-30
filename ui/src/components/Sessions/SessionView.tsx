@@ -209,8 +209,8 @@ export function SessionView() {
   const [showOwn, setShowOwn] = useState(false);
   const [query, setQuery] = useState("");
   // view picks what the session's main column shows: its summary (issue #1429), its turns (issue #1322), its commands, every process it
-  // ran as one tree (issue #1335), or the totals of what it touched (issue #1285).
-  const [view, setView] = useState<SessionLens>("commands");
+  // ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary.
+  const [view, setView] = useState<SessionLens>("summary");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
   const [read, setRead] = useState<SessionRead | null>(null);
