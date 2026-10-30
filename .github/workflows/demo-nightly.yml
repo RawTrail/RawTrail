@@ -50,7 +50,8 @@ concurrency:
 jobs:
   demo-smoke:
     name: Smoke-test the ${{ matrix.mode }} demo stack
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.60 has no Chromium build for Ubuntu 26.04, which ubuntu-latest now resolves to.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Scopes the NTFY_TOPIC secret (failure-notification topic) to a dedicated environment, matching how the other
     # custom-secret jobs (release-signing, sonarcloud, codecov) are gated. The environment is auto-created on first run;
