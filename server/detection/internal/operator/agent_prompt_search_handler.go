@@ -105,8 +105,9 @@ func encodePromptSearchCursor(window promptSearchBounds, after string) string {
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
-// decodePromptSearchCursor reads a continuation, or returns zero bounds and no cursor for none. A token that does not decode, or
-// whose window or archive cursor is missing, is an error.
+// decodePromptSearchCursor reads a continuation, or returns zero bounds and no cursor for none. A token that does not decode, has no
+// archive cursor, or carries a window promptSearchWindow would not have resolved is an error: the token is the client's to send, so
+// its window is bounded as a named one is.
 func decodePromptSearchCursor(token string) (promptSearchBounds, string, error) {
 	if token == "" {
 		return promptSearchBounds{}, "", nil
@@ -119,8 +120,8 @@ func decodePromptSearchCursor(token string) (promptSearchBounds, string, error) 
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return promptSearchBounds{}, "", fmt.Errorf("prompt search cursor: %w", err)
 	}
-	if c.ToNs <= 0 || c.FromNs > c.ToNs || c.After == "" {
-		return promptSearchBounds{}, "", errors.New("prompt search cursor: incomplete")
+	if c.After == "" || !c.bounded() {
+		return promptSearchBounds{}, "", errors.New("prompt search cursor: no archive cursor, or a window out of bounds")
 	}
 	return c.promptSearchBounds, c.After, nil
 }
@@ -139,6 +140,12 @@ func promptSearchWindow(q url.Values, now time.Time) (promptSearchBounds, bool) 
 	if fromNs == 0 {
 		fromNs = toNs - promptSearchDefaultWindow.Nanoseconds()
 	}
-	return promptSearchBounds{FromNs: fromNs, ToNs: toNs},
-		fromNs <= toNs && toNs-fromNs <= promptSearchMaxWindow.Nanoseconds()
+	window := promptSearchBounds{FromNs: fromNs, ToNs: toNs}
+	return window, window.bounded()
+}
+
+// bounded reports whether a window is one a search may read: not negative, not inverted, ending after the epoch, and no wider
+// than promptSearchMaxWindow.
+func (b promptSearchBounds) bounded() bool {
+	return b.FromNs >= 0 && b.ToNs > 0 && b.FromNs <= b.ToNs && b.ToNs-b.FromNs <= promptSearchMaxWindow.Nanoseconds()
 }
