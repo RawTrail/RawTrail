@@ -351,15 +351,21 @@
     },
     {
       "techniqueID": "T1552.001",
-      "score": 0.5,
-      "color": "#fdae6b",
-      "comment": "No rule covering this raises an alert as built in. Covered by: proc_creation_macos_chflags_hidden_flag, proc_creation_macos_find_cred_in_files"
+      "score": 1,
+      "color": "#31a354",
+      "comment": "Covered by: agent_credential_read, proc_creation_macos_chflags_hidden_flag, proc_creation_macos_find_cred_in_files"
     },
     {
       "techniqueID": "T1552.003",
       "score": 0.5,
       "color": "#fdae6b",
       "comment": "No rule covering this raises an alert as built in. Covered by: proc_creation_macos_susp_histfile_operations"
+    },
+    {
+      "techniqueID": "T1552.004",
+      "score": 1,
+      "color": "#31a354",
+      "comment": "Covered by: agent_credential_read"
     },
     {
       "techniqueID": "T1553",

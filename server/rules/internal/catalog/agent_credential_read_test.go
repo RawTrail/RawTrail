@@ -30,13 +30,13 @@ func agentProcesses() *perPIDGraphReader {
 		raw, _ := json.Marshal(map[string]any{"team_id": team, "signing_id": signingID, "flags": 0, "is_platform_binary": platform})
 		return api.NullRawJSON(raw)
 	}
-	procs := map[int]*api.Process{
-		6991: {ID: 1, PID: 6991, Path: "/bin/cat", CodeSigning: sig("", "com.apple.cat", true)},
-		7200: {ID: 2, PID: 7200, Path: "/opt/homebrew/bin/gh", CodeSigning: sig("", "a.out", false)},
+	cat := &api.Process{ID: 1, PID: 6991, Path: "/bin/cat", CodeSigning: sig("", "com.apple.cat", true)}
+	gh := &api.Process{ID: 2, PID: 7200, Path: "/opt/homebrew/bin/gh", CodeSigning: sig("", "a.out", false)}
+	cat.AgentSessionID, gh.AgentSessionID = &session, &session
+	return &perPIDGraphReader{procByPID: map[int]*api.Process{
+		6991: cat, 7200: gh,
 		6833: {ID: 3, PID: 6833, Path: "/Users/victor/.local/share/claude/versions/2.1.302", CodeSigning: sig("", "a.out", false)},
-	}
-	procs[6991].AgentSessionID, procs[7200].AgentSessionID = &session, &session
-	return &perPIDGraphReader{procByPID: procs}
+	}}
 }
 
 func evaluateAgentCredentialRead(t *testing.T, excl api.ExclusionResolver, events ...api.Event) []api.Finding {
