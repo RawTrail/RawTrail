@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,16 @@ func command(key, text string, startNs int64) Command {
 
 func call(id, text string, atNs int64) visibilityapi.AgentToolCall {
 	return visibilityapi.AgentToolCall{ToolUseID: id, ToolName: "Bash", Command: text, CalledAtNs: atNs, UID: uid}
+}
+
+// cutAt is a Bash call of one turn recording text cut to at most limit bytes, on a UTF-8 boundary, as the agent cuts it.
+func cutAt(text string, limit int) visibilityapi.AgentToolCall {
+	for limit > 0 && !utf8.RuneStart(text[limit]) {
+		limit--
+	}
+	c := call("toolu_cut", text[:limit], 1_000*ms)
+	c.Truncated = true
+	return c
 }
 
 // joined pairs the commands with the calls and returns them by key.
@@ -106,6 +117,26 @@ func TestJoinToolCalls(t *testing.T) {
 		got := joined([]Command{command("g", long, 1_010*ms)}, whole, cut)
 		assert.Equal(t, MatchAmbiguous, got["g"].Kind)
 		assert.Equal(t, 2, got["g"].CandidateCount)
+	})
+
+	// spec:server-rest-api/tied-calls-label-no-more-commands-than-they-hold/overlapping-cut-calls-label-two-commands-at-most
+	t.Run("two cut calls of one turn, one a prefix of the other, label two commands at most", func(t *testing.T) {
+		t.Parallel()
+		// The agent cuts a long command to 8 KiB, on a UTF-8 boundary: each é is two bytes, so a cut never splits one.
+		long := "printf '" + strings.Repeat("é", 6000) + "'"
+		short, longer := cutAt(long, 8192-1), cutAt(long, 8192+500)
+		require.True(t, strings.HasPrefix(longer.Command, short.Command), "the shorter cut is a prefix of the longer")
+		require.True(t, utf8.ValidString(short.Command) && utf8.ValidString(longer.Command))
+		short.ToolUseID, longer.ToolUseID = "toolu_short", "toolu_longer"
+		// Both commands ran whole; the second diverges between the two cuts, so only the shorter matches it.
+		diverged := short.Command + "x" + long[len(short.Command)+1:]
+		commands := []Command{
+			command("both", long, 1_010*ms), command("short only", diverged, 1_020*ms), command("both again", long, 1_030*ms),
+		}
+		got := joined(commands, short, longer)
+		assert.Equal(t, MatchAmbiguous, got["both"].Kind)
+		assert.Equal(t, matched(short), got["short only"])
+		assert.Nil(t, got["both again"], "the tie's first command is the longer call, so no third command takes it")
 	})
 
 	t.Run("between a whole call and a cut call made at different times, the nearer pairs", func(t *testing.T) {
@@ -215,4 +246,132 @@ func TestJoinToolCalls_Property(t *testing.T) {
 			}
 		}
 	})
+}
+
+// assignable reports whether every labelled command can be given a call of its own from its label: the call it matched, or one of
+// the calls of its tie. It is a maximum bipartite matching by augmenting paths, small enough for the property's sessions.
+func assignable(commands []Command) bool {
+	owner := map[callKey]int{}
+	var try func(i int, seen map[callKey]bool) bool
+	options := func(m *ToolCallMatch) []visibilityapi.AgentToolCall {
+		if m.Kind == MatchMatched {
+			return []visibilityapi.AgentToolCall{*m.Call}
+		}
+		return m.tied
+	}
+	try = func(i int, seen map[callKey]bool) bool {
+		for _, c := range options(commands[i].ToolCall) {
+			k := callKey{c.ToolUseID, c.UID}
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			if j, taken := owner[k]; !taken || try(j, seen) {
+				owner[k] = i
+				return true
+			}
+		}
+		return false
+	}
+	for i := range commands {
+		if commands[i].ToolCall != nil && !try(i, map[callKey]bool{}) {
+			return false
+		}
+	}
+	return true
+}
+
+// Over random sessions with whole and cut calls whose texts overlap, every labelled command can be given a call of its own: no label
+// is one another command already took (issue #1442).
+//
+// spec:server-rest-api/tied-calls-label-no-more-commands-than-they-hold/overlapping-cut-calls-label-two-commands-at-most
+func TestJoinToolCalls_LabelsCanBeGivenDistinctCalls(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		// Texts share prefixes, so a cut call can match commands of several texts.
+		texts := []string{"aa", "aaaa", "aaaabb"}
+		var calls []visibilityapi.AgentToolCall
+		at := int64(0)
+		for i := range rapid.IntRange(2, 6).Draw(t, "calls") {
+			at += int64(rapid.IntRange(0, 1).Draw(t, "turn")) * 1_000 * ms
+			c := call(fmt.Sprintf("toolu_%d", i), rapid.SampledFrom(texts).Draw(t, "text"), at)
+			c.Truncated = rapid.Bool().Draw(t, "cut")
+			calls = append(calls, c)
+		}
+		var commands []Command
+		for i := range rapid.IntRange(0, 10).Draw(t, "commands") {
+			// Shortly after the last turn, where a tie and its overlapping calls are all still in reach.
+			start := at + int64(rapid.IntRange(1, 100).Draw(t, "start"))*ms
+			commands = append(commands, command(fmt.Sprintf("g_%d", i), rapid.SampledFrom(texts).Draw(t, "command"), start))
+		}
+		slices.SortStableFunc(commands, func(a, b Command) int { return cmp.Compare(a.StartNs, b.StartNs) })
+		JoinToolCalls(commands, calls)
+		require.True(t, assignable(commands), "the labels can be given distinct calls")
+		for _, c := range commands {
+			if c.ToolCall == nil {
+				continue
+			}
+			for _, call := range append([]visibilityapi.AgentToolCall{}, c.ToolCall.tied...) {
+				require.True(t, strings.HasPrefix(c.Command, call.Command), "a tied call ran the command's text")
+			}
+		}
+	})
+}
+
+// A transcript is its user's to write, so a turn can hold thousands of identical calls: the join labels as many commands as there
+// are calls and leaves the rest unlabelled.
+func TestJoinToolCalls_AThousandsCallTieLabelsAsManyCommands(t *testing.T) {
+	t.Parallel()
+	const n = 2_000
+	calls := make([]visibilityapi.AgentToolCall, n)
+	for i := range calls {
+		calls[i] = call(fmt.Sprintf("toolu_%d", i), "ls", 1_000*ms)
+	}
+	commands := make([]Command, n+50)
+	for i := range commands {
+		commands[i] = command(fmt.Sprintf("g_%d", i), "ls", 1_010*ms+int64(i))
+	}
+	JoinToolCalls(commands, calls)
+	labelled := 0
+	for _, c := range commands {
+		if c.ToolCall != nil {
+			labelled++
+		}
+	}
+	assert.Equal(t, n, labelled)
+	assert.Nil(t, commands[n].ToolCall, "a command past the calls is left unlabelled")
+}
+
+// A search cut short by its budget may have missed a call the nearest calls could still give, so the command is left unlabelled
+// rather than given an older call.
+//
+// spec:server-rest-api/tied-calls-label-no-more-commands-than-they-hold/a-search-that-reaches-its-bound-leaves-the-command-unlabelled
+func TestJoinToolCalls_ASearchCutShortLeavesTheCommandUnlabelled(t *testing.T) {
+	t.Parallel()
+	older := call("toolu_older", "ls", 500*ms)
+	first, second := call("toolu_a", "ls", 1_000*ms), call("toolu_b", "ls", 1_000*ms)
+	commands := []Command{command("g1", "ls", 1_010*ms), command("g2", "ls", 1_020*ms), command("g3", "ls", 1_030*ms)}
+	joinWithBudget(commands, []visibilityapi.AgentToolCall{older, first, second}, 1)
+	for _, c := range commands[:2] {
+		require.NotNil(t, c.ToolCall, c.Key)
+		assert.Equal(t, MatchAmbiguous, c.ToolCall.Kind)
+	}
+	assert.Nil(t, commands[2].ToolCall, "not the older call, which a full search might have shown was not the nearest")
+}
+
+// Calls of one text at their own times, then as many commands of it: each command pairs with the newest call left. Its search does
+// not rescan the calls the commands before it took, so the join is quadratic here; rescanning them made it cubic, minutes at this size.
+func TestJoinToolCalls_ManyCallsAtTheirOwnTimesPairNewestFirst(t *testing.T) {
+	t.Parallel()
+	const n = 1_000
+	calls := make([]visibilityapi.AgentToolCall, 0, n)
+	commands := make([]Command, 0, n)
+	for i := range n {
+		calls = append(calls, call(fmt.Sprintf("toolu_%d", i), "ls", int64(i)*ms))
+		commands = append(commands, command(fmt.Sprintf("g_%d", i), "ls", int64(n+i)*ms))
+	}
+	got := joined(commands, calls...)
+	for i := range n {
+		require.Equal(t, matched(calls[n-1-i]), got[fmt.Sprintf("g_%d", i)])
+	}
 }
