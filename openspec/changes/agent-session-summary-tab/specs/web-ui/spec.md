@@ -9,6 +9,7 @@ The agent session view SHALL list a Summary first among its views and open on it
 - **GIVEN** an agent session
 - **WHEN** the operator opens it
 - **THEN** it opens on its Summary, listed first among its views, which shows the session from its summary
+- **AND** a session reached from another session's lineage opens on its Summary too, whichever view was open
 
 #### Scenario: The summary describes the session
 

@@ -208,11 +208,14 @@ export function SessionView() {
   // work reads first, and their count says how many are one click away.
   const [showOwn, setShowOwn] = useState(false);
   const [query, setQuery] = useState("");
-  // view picks what the session's main column shows: its summary (issue #1429), its turns (issue #1322), its commands, every process it
-  // ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary.
-  const [view, setView] = useState<SessionLens>("summary");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
+  // view picks what the session's main column shows: its summary (issue #1429), its turns (issue #1322), its commands, every process it
+  // ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary, including one
+  // reached from another session's lineage, so the lens chosen is kept for the session it was chosen in.
+  const [chosenLens, setChosenLens] = useState<{ key: string; lens: SessionLens } | null>(null);
+  const view: SessionLens = chosenLens?.key === readKey ? chosenLens.lens : "summary";
+  const setView = useCallback((lens: SessionLens) => { setChosenLens({ key: readKey, lens }); }, [readKey]);
   const [read, setRead] = useState<SessionRead | null>(null);
   const current = read?.key === readKey ? read : null;
   const tree = current?.tree ?? null;

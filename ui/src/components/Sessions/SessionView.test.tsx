@@ -523,6 +523,7 @@ describe("SessionView commands from the server", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
     fireEvent.click(await screen.findByRole("button", { name: "Load more processes" }));
     fireEvent.click(screen.getByRole("link", { name: "next" }));
+    openLens("Processes");
     await waitFor(() => { expect(api.getSessionTree).toHaveBeenCalledWith("H1", "other-session"); });
     const more = await screen.findByRole("button", { name: "Load more processes" });
     await waitFor(() => { expect(more).toBeEnabled(); });
@@ -1330,7 +1331,8 @@ describe("SessionView", () => {
     expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
   });
 
-  it("closes a process's detail when moving to another session", async () => {
+  // spec:web-ui/agent-session-summary-tab/the-summary-is-the-first-view
+  it("closes a process's detail and opens on the Summary when moving to another session", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
     vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
@@ -1347,6 +1349,9 @@ describe("SessionView", () => {
     fireEvent.click(await screen.findByRole("button", { name: "ls" }));
     expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
+    // A session reached from another opens on its Summary, whichever view the operator had open.
+    expect(screen.getByRole("button", { name: "Summary", pressed: true })).toBeVisible();
+    openLens("Commands");
     expect(await screen.findByRole("button", { name: "ls" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Process detail" })).not.toBeInTheDocument();
   });
@@ -1372,6 +1377,7 @@ describe("SessionView", () => {
     openLens("Commands");
     expect(await screen.findByText("Error: boom")).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
+    openLens("Commands");
     expect(await screen.findByText("Loading...")).toBeVisible();
     expect(screen.queryByText("Error: boom")).not.toBeInTheDocument();
     resolveNext(tree());
