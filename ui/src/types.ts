@@ -184,6 +184,9 @@ export interface AgentSessionSummary {
   alert_count: number;
   // bypass says the session ran with permissions bypassed, or was forked from one that did, whose copied lines carry the mode.
   bypass: boolean;
+  // tokens is the input, cache and output tokens the session's messages used, as its header totals them; absent when the session sent
+  // no usage or the server could not read it.
+  tokens?: number;
 }
 
 // AgentSessionResult is one page of the sessions list, most recently active first, with the keyset cursor for the next page (absent

@@ -3480,6 +3480,12 @@ components:
           type: boolean
           description: >-
             The session ran with permissions bypassed (Claude Code's `bypassPermissions` mode), or was forked from one that did.
+        tokens:
+          type: integer
+          format: int64
+          description: >-
+            The input, cache-write, cache-read and output tokens the session's messages used, counted as its summary's `usage` counts
+            them. Absent when the session sent no usage, or when the event archive could not be read within a few seconds.
     TimelineEvent:
       type: object
       required: [event_id, host_id, timestamp_ns, event_type, payload]

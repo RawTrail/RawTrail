@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // sessionCursor is the keyset position of the sessions list: the last row of the previous page by its sort key. Session ids are the
@@ -147,8 +149,37 @@ func (s *Store) ListAgentSessions(
 	if err := s.countSessionActivity(ctx, rows); err != nil {
 		return api.AgentSessionResult{}, err
 	}
+	s.fillSessionTokens(ctx, rows)
 	result.Rows = rows
 	return result, nil
+}
+
+// sessionTokensTimeout bounds the sessions list's token read, so a stalled event archive delays the list by seconds rather than
+// holding it past the server's write timeout.
+const sessionTokensTimeout = 3 * time.Second
+
+// fillSessionTokens fills each row's token total from the event archive with one read over the page's sessions. The list is served
+// from MySQL, so an archive that cannot be read in time leaves the totals out rather than failing the list.
+func (s *Store) fillSessionTokens(ctx context.Context, rows []api.AgentSessionSummary) {
+	if len(rows) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, sessionTokensTimeout)
+	defer cancel()
+	refs := make([]visibilityapi.AgentSessionRef, len(rows))
+	for i, r := range rows {
+		refs[i] = visibilityapi.AgentSessionRef{HostID: r.HostID, SessionID: r.AgentSessionID}
+	}
+	tokens, err := s.archive.AgentSessionTokens(ctx, refs)
+	if err != nil {
+		s.logger.WarnContext(ctx, "agent sessions list: token totals unavailable", "err", err)
+		return
+	}
+	for i, ref := range refs {
+		if n, ok := tokens[ref]; ok {
+			rows[i].Tokens = &n
+		}
+	}
 }
 
 // countSessionActivity fills each row's process and alert counts with one grouped query apiece over the page's sessions, both served

@@ -81,6 +81,12 @@ func (f *fakeEventArchive) AgentUsageTotals(context.Context, visibilityapi.Agent
 	return visibilityapi.AgentUsageTotals{}, nil
 }
 
+func (f *fakeEventArchive) AgentSessionTokens(
+	context.Context, []visibilityapi.AgentSessionRef,
+) (map[visibilityapi.AgentSessionRef]int64, error) {
+	return nil, nil
+}
+
 func (f *fakeEventArchive) ActivityTotalsForGenerations(context.Context, api.ActivityFilter) (visibilityapi.ActivitySummary, error) {
 	return visibilityapi.ActivitySummary{}, nil
 }

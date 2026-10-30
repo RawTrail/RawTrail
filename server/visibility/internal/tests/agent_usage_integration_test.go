@@ -100,3 +100,70 @@ func TestEventArchive_AgentUsageTotalsAreTheSumOfTheMessages(t *testing.T) {
 			CacheCreation: 10 * int64(n), CacheRead: 100 * int64(n), Thinking: int64(n)}, got.Models[0])
 	})
 }
+
+// tokensOf is a session's tokens as its totals count them: input, cache-write, cache-read and output.
+func tokensOf(totals visibilityapi.AgentUsageTotals) (int64, bool) {
+	var sum int64
+	for _, m := range totals.Models {
+		sum += m.Input + m.Output + m.CacheCreation + m.CacheRead
+	}
+	return sum, len(totals.Models) > 0
+}
+
+// spec:server-rest-api/sessions-list-token-total/a-session-s-total-agrees-with-its-header
+func TestEventArchive_AgentSessionTokensAgreeWithEachSessionsTotals(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	iter := 0
+	rapid.Check(t, func(rt *rapid.T) {
+		iter++
+		prefix := "tok-" + strconv.Itoa(iter) + "-"
+		hosts := []string{prefix + "h1", prefix + "h2"}
+		sessions := []string{"s0", "s1", "s2"}
+		var events []visibilityapi.Event
+		for i := range rapid.IntRange(1, 12).Draw(rt, "messages") {
+			host := rapid.SampledFrom(hosts).Draw(rt, "host")
+			session := rapid.SampledFrom(sessions).Draw(rt, "session")
+			msg := "msg_" + strconv.Itoa(i)
+			in, out := rapid.Int64Range(0, 500).Draw(rt, "in"), rapid.Int64Range(0, 500).Draw(rt, "out")
+			id := prefix + strconv.Itoa(i)
+			events = append(events, usageEvent(id, host, session, msg, "claude-opus-5-5", in, out, base+int64(i), ``))
+			if rapid.Bool().Draw(rt, "resent") {
+				events = append(events, usageEvent(id+"-again", host, session, msg, "claude-opus-5-5", in, out, base+int64(i)+50, ``))
+			}
+			// A line of another session naming this one as its source: a copy when the message is this session's, on its host.
+			if rapid.Bool().Draw(rt, "named") {
+				other := rapid.SampledFrom(sessions).Draw(rt, "other")
+				member := rapid.SampledFrom([]string{"origin_session_id", "forked_from_session_id"}).Draw(rt, "member")
+				copyHost := rapid.SampledFrom(hosts).Draw(rt, "copy host")
+				copyMsg := rapid.SampledFrom([]string{msg, msg + "_own"}).Draw(rt, "copy message")
+				events = append(events, usageEvent(id+"-copy", copyHost, other, copyMsg, "claude-opus-5-5", in, out, base+int64(i)+1,
+					`,"`+member+`":"`+session+`"`))
+			}
+		}
+		require.NoError(rt, arch.Insert(ctx, rapid.Permutation(events).Draw(rt, "order")))
+
+		var refs []visibilityapi.AgentSessionRef
+		for _, h := range hosts {
+			for _, s := range append(sessions, "none") {
+				refs = append(refs, visibilityapi.AgentSessionRef{HostID: h, SessionID: s})
+			}
+		}
+		got, err := arch.AgentSessionTokens(ctx, refs)
+		require.NoError(rt, err)
+		for _, r := range refs {
+			totals, err := arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: r.HostID, SessionID: r.SessionID})
+			require.NoError(rt, err)
+			want, has := tokensOf(totals)
+			tokens, listed := got[r]
+			require.Equal(rt, has, listed, "%v is listed exactly when it has messages", r)
+			require.Equal(rt, want, tokens, "%v", r)
+		}
+	})
+
+	empty, err := arch.AgentSessionTokens(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+}

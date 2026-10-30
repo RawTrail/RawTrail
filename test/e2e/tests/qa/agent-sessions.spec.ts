@@ -53,7 +53,7 @@ test.describe("agent sessions", () => {
     // Every process carries the session: four wrapper shells, the git, the subshell's copy of zsh, the sleep it backgrounded, sudo
     // and the id it ran, the open, and TextEdit, which launchd started with the agent's environment.
     await expect(cells.nth(5)).toHaveText("11");
-    await expect(cells.nth(7)).toHaveText(SESSION_ID.slice(0, 8));
+    await expect(cells.nth(8)).toHaveText(SESSION_ID.slice(0, 8));
 
     await rows.first().getByRole("link", { name: "claude-code" }).click();
     await expect(page).toHaveURL(new RegExp(`/ui/agent-sessions/${hostId}/${SESSION_ID}$`));

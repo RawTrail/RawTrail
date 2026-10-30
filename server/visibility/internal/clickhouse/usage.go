@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/rawtrail/rawtrail/server/visibility/api"
 )
@@ -46,6 +47,68 @@ func (s *Store) AgentUsageTotals(ctx context.Context, filter api.AgentToolCallFi
 		return api.AgentUsageTotals{}, err
 	}
 	return FoldUsage(groups), nil
+}
+
+// AgentSessionTokens totals each listed session's tokens with one read over the listed hosts (issue #1427). A session's messages are
+// counted as AgentUsageTotals counts them: once each by id and owner, at the first recording, leaving out the copies a session they
+// name holds, which here may be any session on the same host.
+func (s *Store) AgentSessionTokens(ctx context.Context, sessions []api.AgentSessionRef) (map[api.AgentSessionRef]int64, error) {
+	out := map[api.AgentSessionRef]int64{}
+	if len(sessions) == 0 {
+		return out, nil
+	}
+	hostSet := map[string]bool{}
+	var hosts []any
+	var pairs []any
+	for _, r := range sessions {
+		if !hostSet[r.HostID] {
+			hostSet[r.HostID] = true
+			hosts = append(hosts, r.HostID)
+		}
+		pairs = append(pairs, r.HostID, r.SessionID)
+	}
+	hostsIn := "host_id IN (" + placeholders(len(hosts)) + ")"
+	pairsIn := "(host_id, " + callSession + ") IN (" + strings.TrimSuffix(strings.Repeat("(?, ?), ", len(sessions)), ", ") + ")"
+	usage := "events FINAL WHERE " + hostsIn + " AND event_type = 'agent_usage'"
+	// held is the messages of every session a listed session's messages name as their source, the sessions a copy can come from.
+	held := `SELECT host_id, ` + callSession + `, ` + usageMessageID + `, ` + callUID + ` FROM ` + usage + ` AND (host_id, ` + callSession +
+		`) IN (SELECT host_id, arrayJoin([` + callOrigin + `, ` + callForked + `]) FROM ` + usage + ` AND ` + pairsIn + `)`
+	query := `
+		SELECT host_id, session, sum(tokens) FROM (
+			SELECT host_id, ` + callSession + ` AS session, ` + usageMessageID + ` AS id, ` + callUID + ` AS uid,
+				argMin(JSONExtractInt(payload, 'input_tokens') + JSONExtractInt(payload, 'output_tokens') +
+					JSONExtractInt(payload, 'cache_creation_input_tokens') + JSONExtractInt(payload, 'cache_read_input_tokens'),
+					(timestamp_ns, event_id)) AS tokens
+			FROM ` + usage + ` AND ` + pairsIn + `
+				AND NOT ((` + callOrigin + ` != '' AND (host_id, ` + callOrigin + `, ` + usageMessageID + `, ` + callUID + `) IN (` + held + `))
+					OR (` + callForked + ` != '' AND (host_id, ` + callForked + `, ` + usageMessageID + `, ` + callUID + `) IN (` + held + `)))
+			GROUP BY host_id, session, id, uid)
+		GROUP BY host_id, session`
+	var args []any
+	args = append(args, hosts...)
+	args = append(args, pairs...)
+	for range 2 {
+		args = append(args, hosts...)
+		args = append(args, hosts...)
+		args = append(args, pairs...)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse agent session tokens: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ref api.AgentSessionRef
+		var tokens int64
+		if err := rows.Scan(&ref.HostID, &ref.SessionID, &tokens); err != nil {
+			return nil, fmt.Errorf("scan agent session tokens: %w", err)
+		}
+		out[ref] = tokens
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate agent session tokens: %w", err)
+	}
+	return out, nil
 }
 
 // UsageGroup is a session's messages of one model written in one permission mode: their count, tokens, and first and last time.
