@@ -18,6 +18,8 @@ import { createContext, useCallback, useContext, useMemo } from "react";
 export const PermissionAction = {
   HostRead: "host.read",
   ProcessRead: "process.read",
+  // AgentPromptRead reads the prompts people typed to AI agents, in a session or searched across them (issues #1426, #1428).
+  AgentPromptRead: "agent_prompt.read",
   AlertRead: "alert.read",
   AlertComment: "alert.comment",
   AlertAcknowledge: "alert.acknowledge",

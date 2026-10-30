@@ -1,0 +1,42 @@
+@use "../../styles/var/colors" as *;
+
+// The prompt search across sessions (issue #1428): a one-line form above the sessions list, and its results.
+.prompt-search {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  max-width: 72rem;
+
+  &__title {
+    font-size: 1rem;
+    margin: 0;
+  }
+
+  &__form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  &__input {
+    flex: 1 1 18rem;
+    min-width: 0;
+  }
+
+  &__note {
+    color: $ui-black-75;
+    font-size: 0.8rem;
+    margin: 0;
+  }
+
+  &__snippet {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+
+    mark {
+      background: $ui-black-10;
+      color: inherit;
+      font-weight: 600;
+    }
+  }
+}

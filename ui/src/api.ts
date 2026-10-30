@@ -13,6 +13,7 @@ import type {
   AgentSessionLineage,
   AgentSessionResult,
   AgentSessionTotals,
+  FoundAgentPromptPage,
   Alert,
   AlertDetail,
   ApplicationControlPolicy,
@@ -560,6 +561,25 @@ export interface AgentSessionFilter {
   to?: string;
   // bypass "true" keeps the sessions that ran with permissions bypassed, or were forked from one that did.
   bypass?: string;
+}
+
+// PromptSearch is a search of the prompts people typed across agent sessions (issue #1428): the text, the window in ns since epoch
+// (at most 30 days), and the previous page's cursor.
+export interface PromptSearch {
+  q: string;
+  from: string;
+  to: string;
+  host_id?: string;
+  cursor?: string;
+}
+
+// searchAgentPrompts finds the prompts whose text holds q, newest first, a page at a time. It needs agent_prompt.read, and the
+// server audits each search with its text.
+export async function searchAgentPrompts(search: PromptSearch): Promise<FoundAgentPromptPage> {
+  const query = new URLSearchParams({ q: search.q, from: search.from, to: search.to });
+  if (search.host_id) query.set("host_id", search.host_id);
+  if (search.cursor) query.set("cursor", search.cursor);
+  return fetchJSON<FoundAgentPromptPage>(`/agent-prompts?${queryString(query)}`);
 }
 
 export async function listAgentSessions(filter: AgentSessionFilter, cursor?: string): Promise<AgentSessionResult> {
