@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/rawtrail/rawtrail/agent/agentsettings"
 	"github.com/rawtrail/rawtrail/agent/config"
 	"github.com/rawtrail/rawtrail/agent/containment"
 	"github.com/rawtrail/rawtrail/agent/health"
@@ -24,6 +25,8 @@ type telemetryDeps struct {
 	// extension's containment status. Both are macOS-only and nil-safe elsewhere.
 	neDispatcher *receiver.Dispatcher
 	containment  *containment.Manager
+	// settings are the fleet's agent settings, which say whether the transcript reader captures prompts (issue #1426).
+	settings *agentsettings.Settings
 	// hostID is the value at sensor-start time. Fine for the Windows ETW sensor, which stamps it once into a connector.
 	hostID string
 	// hostIDFn reads the CURRENT host id. Anything that stamps an id onto an event must use this rather than hostID: a

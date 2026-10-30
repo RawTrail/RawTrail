@@ -9,6 +9,7 @@ import (
 
 	"github.com/rawtrail/rawtrail/server/catchup"
 	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/hostpush"
 )
 
 // spec:server-admin-surface/hosts-that-miss-the-watched-path-push-get-the-set/a-failure-with-no-completion-time-is-not-retried-at-once
@@ -17,29 +18,29 @@ func TestNeedsSet(t *testing.T) {
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	updated := now.Add(-2 * time.Hour)
 	set := api.WatchedPathSet{Version: 4, UpdatedAt: &updated}
-	enrolled := api.WatchedPathEnrollment{HostID: "h", EnrolledAt: now.Add(-24 * time.Hour)}
+	enrolled := api.HostEnrollment{HostID: "h", EnrolledAt: now.Add(-24 * time.Hour)}
 	payload := func(version int64) []byte {
 		b, _ := json.Marshal(api.SetWatchedPathsPayload{Version: version, Epoch: updated.UnixMicro(), Paths: []api.WatchedPath{}})
 		return b
 	}
-	queued := func(version int64, status catchup.Status, created, completed time.Time) api.WatchedPathCommand {
-		return api.WatchedPathCommand{Payload: payload(version), Status: status, CreatedAt: created, CompletedAt: completed}
+	queued := func(version int64, status catchup.Status, created, completed time.Time) api.HostCommand {
+		return api.HostCommand{Payload: payload(version), Status: status, CreatedAt: created, CompletedAt: completed}
 	}
 	at := now.Add
 	hourAgo := now.Add(-time.Hour)
 
 	cases := []struct {
 		name string
-		cmd  api.WatchedPathCommand
+		cmd  api.HostCommand
 		want bool
 	}{
-		{"never sent one", api.WatchedPathCommand{}, true},
+		{"never sent one", api.HostCommand{}, true},
 		{"sent an older version", queued(3, catchup.StatusCompleted, hourAgo, at(-time.Hour)), true},
-		{"same version, different epoch", api.WatchedPathCommand{
+		{"same version, different epoch", api.HostCommand{
 			Payload: []byte(`{"version":4,"epoch":1,"paths":[]}`), Status: catchup.StatusCompleted, CreatedAt: hourAgo,
 		}, true},
 		{"queued at the same instant the host enrolled", queued(4, catchup.StatusCompleted, enrolled.EnrolledAt, at(-time.Hour)), true},
-		{"payload it cannot read", api.WatchedPathCommand{Payload: []byte(`{`), Status: catchup.StatusCompleted, CreatedAt: hourAgo}, true},
+		{"payload it cannot read", api.HostCommand{Payload: []byte(`{`), Status: catchup.StatusCompleted, CreatedAt: hourAgo}, true},
 		{"queued before the host last enrolled", queued(4, catchup.StatusCompleted, now.Add(-48*time.Hour), at(-47*time.Hour)), true},
 		{"expired undelivered", queued(4, catchup.StatusExpired, hourAgo, at(-time.Minute)), true},
 		{"cancelled", queued(4, catchup.StatusCancelled, hourAgo, at(-time.Minute)), true},
@@ -59,7 +60,7 @@ func TestNeedsSet(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tc.want, needsSet(tc.cmd, enrolled, set, now))
+			assert.Equal(t, tc.want, hostpush.Needs(tc.cmd, enrolled, func(payload []byte) bool { return carriesSet(payload, set) }, now))
 		})
 	}
 }

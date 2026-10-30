@@ -1,8 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./SessionView.scss";
-import { getAgentSessionLineage, getAgentToolCalls, getSessionTree, listAgentSessions, listAlerts } from "../../api";
-import type { AgentSessionLineage, AgentSessionSummary, AgentToolCall, Alert, ProcessNode, TreeResponse } from "../../types";
+import {
+  getAgentSessionLineage, getAgentSessionTotals, getProcessDetail, getSessionCommands, getSessionConversation, getSessionTree, listAgentSessions, listAlerts, searchSessionProcesses,
+} from "../../api";
+import type {
+  AgentSessionLineage, AgentSessionSummary, AgentSessionTotals, AgentToolCall, Alert, ConversationTurn, ProcessNode, SessionCommand,
+  SessionCommandsResponse, ToolCallMatch, TreeResponse,
+} from "../../types";
+import { useCursorList, type CursorPage } from "../Search/useCursorList";
 import { PageHeader } from "../ui/PageHeader";
 import { Toggle } from "../ui/Toggle";
 import { Input } from "../ui/Input";
@@ -18,7 +24,7 @@ import { applyLaunchLinks } from "../launchLinks";
 import { useHostNames } from "../useHostNames";
 import { NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import {
-  buildCommands,
+  shapeCommand,
   containsHit,
   containsProcess,
   forkSpan,
@@ -33,8 +39,10 @@ import {
   type Command,
 } from "./sessionTree";
 import { commandLine } from "./toolCommand";
-import { joinToolCalls, type ToolCallMatch } from "./toolCallJoin";
 import { sessionPath } from "./sessionPath";
+import { mergeTreePages } from "./treePages";
+import { BYPASS_MODE, formatSpan, formatTokens, usageLine, type UsageLine } from "./sessionUsage";
+import { SessionSummary } from "./SessionSummary";
 
 // AUTO_EXPAND_GROUPS is the most commands a session can have and still open with every one expanded. A longer session opens with
 // only the commands an alert was raised in expanded, so the operator starts from what was flagged.
@@ -43,9 +51,12 @@ const AUTO_EXPAND_GROUPS = 10;
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
 
-// SESSION_LENSES are the session's three views, in order: what it ran as commands, every process as one tree, and what it touched.
-type SessionLens = "commands" | "processes" | "activity";
+// SESSION_LENSES are the session's views, in order: the session at a glance; its turns, each prompt with what the agent did for it
+// (issue #1322); what it ran as commands; every process as one tree; and what it touched.
+type SessionLens = "summary" | "conversation" | "commands" | "processes" | "activity";
 const SESSION_LENSES: readonly { lens: SessionLens; label: string }[] = [
+  { lens: "summary", label: "Summary" },
+  { lens: "conversation", label: "Conversation" },
   { lens: "commands", label: "Commands" },
   { lens: "processes", label: "Processes" },
   { lens: "activity", label: "Activity" },
@@ -84,6 +95,11 @@ const SERVICE_TITLE = "launchd started it for the app it is listed under, which 
 // INFERRED_LAUNCH_TITLE explains an inferred launch's badge: the row is listed under its launcher, which is not its creator.
 const INFERRED_LAUNCH_TITLE =
   "Started by launchd moments after the process it is listed under asked for it: linked by timing and target, not lineage";
+// COMMANDS_PAGE is how many commands one read lists; the rest are a "Load more" away (issue #1425).
+const COMMANDS_PAGE = 50;
+// SEARCH_DELAY_MS is how long the view waits after the last keystroke before it asks the server for the commands a search finds.
+const SEARCH_DELAY_MS = 300;
+
 // MAX_SESSION_ALERTS bounds the session's alert read. One more is asked for, so a session with more is reported rather than shown as
 // if its first page were all of them.
 const MAX_SESSION_ALERTS = 1000;
@@ -99,10 +115,8 @@ interface SessionRead {
   alertsFailed?: boolean;
   // alertsTruncated is set when the session has more alerts than were read, so some are not badged.
   alertsTruncated?: boolean;
-  // toolCalls are the tool calls the agent reported in its transcript (issue #1288). Unread, the groups simply carry no call.
-  toolCalls?: AgentToolCall[];
-  // toolCallsTruncated is set when the session recorded more calls than were read, so some groups may show none.
-  toolCallsTruncated?: boolean;
+  // totals are the session's totals the server counted (issue #1422). Unread, the header counts what the tree read holds.
+  totals?: AgentSessionTotals;
   // lineage is the session this one was forked from and the sessions forked from it (issue #1347). Unread, none are linked.
   lineage?: AgentSessionLineage;
 }
@@ -115,6 +129,9 @@ interface SessionRows {
   hits: SearchHits;
   selectedId: number | null;
   onSelect: (node: ProcessNode) => void;
+  // wholeState is how far the read of a large command's whole list has got, and readWhole starts it (issue #1443).
+  wholeState: (commandKey: string) => "loading" | "failed" | undefined;
+  readWhole: (commandKey: string) => void;
 }
 
 const SessionRowsContext = createContext<SessionRows | null>(null);
@@ -130,32 +147,71 @@ function message(err: unknown): string {
 }
 
 async function readSession(key: string, hostId: string, sessionId: string): Promise<SessionRead> {
-  const [tree, record, alerts, toolCalls, lineage] = await Promise.all([
+  const [tree, record, alerts, totals, lineage] = await Promise.all([
     getSessionTree(hostId, sessionId).catch((err: unknown) => message(err)),
     listAgentSessions({ host_id: hostId, session: sessionId })
       .then((res) => res.rows[0] as AgentSessionSummary | undefined)
       .catch(() => undefined),
     listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
-    getAgentToolCalls(hostId, sessionId).catch(() => undefined),
+    getAgentSessionTotals(hostId, sessionId).catch(() => undefined),
     getAgentSessionLineage(hostId, sessionId).catch(() => undefined),
   ]);
-  if (typeof tree === "string") return { key, error: tree };
+  // A failed tree read costs the Processes view only: the commands are read on their own, and still carry the session's alerts.
+  const read = typeof tree === "string" ? { error: tree } : { tree };
   // The session's alerts are those on its stamped processes; the agent's own processes (issue #1361) carry no session marker, so their
   // alerts are read by the agent that ran them, to badge them in the Processes view.
-  const ownAlerts = await Promise.all((tree.agents ?? []).filter((agent) => (agent.children ?? []).length > 0).map((agent) =>
+  const ownAlerts = await Promise.all((read.tree?.agents ?? []).filter((agent) => (agent.children ?? []).length > 0).map((agent) =>
     listAlerts({ host_id: hostId, agent_process: agent.id, served_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null)));
   const lists = [alerts, ...ownAlerts];
   return {
     key,
-    tree,
+    ...read,
     record,
     alerts: lists.flatMap((list) => (list ?? []).slice(0, MAX_SESSION_ALERTS)),
     alertsFailed: lists.includes(null),
     alertsTruncated: lists.some((list) => (list?.length ?? 0) > MAX_SESSION_ALERTS),
-    toolCalls: toolCalls?.tool_calls,
-    toolCallsTruncated: toolCalls?.truncated,
+    totals,
     lineage,
   };
+}
+
+// ListedCommand is a command as a page lists it, with the rows of it that page names as moved under a launcher.
+interface ListedCommand extends SessionCommand {
+  inferred: number[];
+  services: number[];
+}
+
+// listedCommands are a commands page's commands, each with the rows the page names as moved under a launcher that are its own.
+function listedCommands(page: SessionCommandsResponse): ListedCommand[] {
+  const within = (ids: number[], command: SessionCommand) => {
+    const own = new Set(command.process_ids);
+    return ids.filter((id) => own.has(id));
+  };
+  return page.commands.map((c) => ({ ...c, inferred: within(page.inferred, c), services: within(page.services, c) }));
+}
+
+// WholeCommands are the large commands the operator asked to see whole (issue #1443), read one at a time, for the commands list they
+// were asked in: each read, loading, or failed.
+interface WholeCommands {
+  key: string;
+  read: ReadonlyMap<string, ListedCommand | "loading" | "failed">;
+}
+
+// CommandsMeta is what a commands page says about the whole read: whether the server's process read, or its tool-call read, was cut.
+interface CommandsMeta {
+  key: string;
+  truncated: boolean;
+  toolCallsTruncated: boolean;
+}
+
+// useDebounced is value once it has held still for delayMs.
+function useDebounced(value: string, delayMs: number): string {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => { setSettled(value); }, delayMs);
+    return () => { clearTimeout(timer); };
+  }, [value, delayMs]);
+  return settled;
 }
 
 // SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its commands ran, one
@@ -171,11 +227,14 @@ export function SessionView() {
   // work reads first, and their count says how many are one click away.
   const [showOwn, setShowOwn] = useState(false);
   const [query, setQuery] = useState("");
-  // view picks what the session's main column shows: its commands, every process it ran as one tree (issue #1335), or the totals of
-  // what it touched (issue #1285).
-  const [view, setView] = useState<SessionLens>("commands");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
+  // view picks what the session's main column shows: its summary (issue #1429), its turns (issue #1322), its commands, every process it
+  // ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary, including one
+  // reached from another session's lineage, so the lens chosen is kept for the session it was chosen in.
+  const [chosenLens, setChosenLens] = useState<{ key: string; lens: SessionLens } | null>(null);
+  const view: SessionLens = chosenLens?.key === readKey ? chosenLens.lens : "summary";
+  const setView = useCallback((lens: SessionLens) => { setChosenLens({ key: readKey, lens }); }, [readKey]);
   const [read, setRead] = useState<SessionRead | null>(null);
   const current = read?.key === readKey ? read : null;
   const tree = current?.tree ?? null;
@@ -186,6 +245,59 @@ export function SessionView() {
     return () => { cancelled = true; };
   }, [hostId, sessionId, readKey]);
 
+  // The process tree's next page, read on request and joined to the pages before it (issue #1425), for the session it was asked for.
+  const [moreProcesses, setMoreProcesses] = useState<{ key: string; loading: boolean; failed: boolean } | null>(null);
+  const processesMore = moreProcesses?.key === readKey ? moreProcesses : null;
+  const loadMoreProcesses = useCallback(() => {
+    const cursor = tree?.next_cursor;
+    if (!cursor) return;
+    setMoreProcesses({ key: readKey, loading: true, failed: false });
+    getSessionTree(hostId, sessionId, undefined, cursor)
+      .then((page) => {
+        setRead((r) => (r?.key === readKey && r.tree ? { ...r, tree: mergeTreePages(r.tree, page) } : r));
+        // A page of a session the operator has since left does not settle the state of the one now shown.
+        setMoreProcesses((m) => (m?.key === readKey ? { key: readKey, loading: false, failed: false } : m));
+      })
+      .catch(() => { setMoreProcesses((m) => (m?.key === readKey ? { key: readKey, loading: false, failed: true } : m)); });
+  }, [tree, hostId, sessionId, readKey]);
+
+  // The session's commands, a page at a time, as the server groups them (issue #1425). A search asks the server for the commands it
+  // finds once the operator stops typing.
+  const searched = useDebounced(query.trim(), SEARCH_DELAY_MS);
+  const commandsKey = `${readKey}\n${searched}`;
+  const [commandsMeta, setCommandsMeta] = useState<CommandsMeta | null>(null);
+  // The commands key on screen, read when a page lands so a slower page for a key since replaced cannot overwrite the meta of the list
+  // that replaced it.
+  const activeCommandsKey = useRef(commandsKey);
+  useEffect(() => { activeCommandsKey.current = commandsKey; }, [commandsKey]);
+  const fetchCommands = useCallback(async (cursor: string): Promise<CursorPage<ListedCommand>> => {
+    const page = await getSessionCommands(hostId, sessionId, { cursor, q: searched, limit: COMMANDS_PAGE });
+    if (activeCommandsKey.current === commandsKey) {
+      setCommandsMeta({ key: commandsKey, truncated: page.truncated, toolCallsTruncated: page.tool_calls_truncated });
+    }
+    return { rows: listedCommands(page), nextCursor: page.next_cursor, total: page.total_matched };
+  }, [hostId, sessionId, searched, commandsKey]);
+  const commands = useCursorList(commandsKey, fetchCommands);
+  const meta = commandsMeta?.key === commandsKey ? commandsMeta : null;
+  // A large command lists only part of its processes; the operator reads the rest of one on request.
+  const [wholeCommands, setWholeCommands] = useState<WholeCommands | null>(null);
+  const whole = wholeCommands?.key === commandsKey ? wholeCommands.read : null;
+  const readWhole = useCallback((commandKey: string) => {
+    const mark = (state: ListedCommand | "loading" | "failed") => {
+      setWholeCommands((w) => {
+        const read = new Map(w?.key === commandsKey ? w.read : []);
+        read.set(commandKey, state);
+        return { key: commandsKey, read };
+      });
+    };
+    mark("loading");
+    // A read that lands after the operator moved to another session or search is that list's, not the one on screen.
+    const landed = (state: ListedCommand | "failed") => { if (activeCommandsKey.current === commandsKey) mark(state); };
+    getSessionCommands(hostId, sessionId, { command: commandKey })
+      .then((page) => { landed(listedCommands(page).find((c) => c.key === commandKey) ?? "failed"); })
+      .catch(() => { landed("failed"); });
+  }, [hostId, sessionId, commandsKey]);
+
   const alertsByProcess = useMemo(() => {
     const byProcess = new Map<number, Alert[]>();
     for (const alert of current?.alerts ?? []) byProcess.set(alert.process_id, [...(byProcess.get(alert.process_id) ?? []), alert]);
@@ -193,16 +305,21 @@ export function SessionView() {
   }, [current?.alerts]);
   // What launchd started for a command's open or launchctl is listed under it, marked inferred (issue #1286).
   const logical = useMemo(() => (tree ? applyLaunchLinks(tree.roots, tree.links) : null), [tree]);
+  // The session's read is incomplete while its record or alerts are unread or cut, or retention removed its early processes. Folding
+  // is then off in every view, since an identical-looking row may hide what the view never saw.
+  const sessionIncomplete = current === null || current.alertsFailed === true || current.alertsTruncated === true
+    || beganBeforeRetention(current);
   const groups = useMemo(
     () => {
-      if (!tree || !logical) return [];
-      const incomplete = tree.truncated || current === null || current.alertsFailed === true || current.alertsTruncated === true
-        || beganBeforeRetention(current);
-      return buildCommands(logical.roots, {
-        verbose, keep: new Set(alertsByProcess.keys()), incomplete, inferred: logical.inferred, services: logical.services,
+      const incomplete = meta?.truncated === true || sessionIncomplete;
+      const keep = new Set(alertsByProcess.keys());
+      return commands.rows.map((listed) => {
+        const read = whole?.get(listed.key);
+        const c = typeof read === "object" ? read : listed;
+        return shapeCommand(c, { verbose, keep, incomplete, inferred: new Set(c.inferred), services: new Set(c.services) });
       });
     },
-    [tree, logical, verbose, alertsByProcess, current],
+    [commands.rows, whole, meta, verbose, alertsByProcess, sessionIncomplete],
   );
   const forest = useMemo(
     () => (tree && logical
@@ -217,16 +334,28 @@ export function SessionView() {
     [view, forest, groups, query],
   );
   // A selection belongs to the session it was made in.
-  const selectedNode = selected?.key === readKey && tree !== null ? selected.node : null;
+  // selection counts the selections made and closed, so a process read for a selection the operator has since replaced or closed is
+  // dropped rather than opened over it.
+  const selection = useRef(0);
+  // A selection belongs to the session it was made in. It needs no tree: a search result or an Activity row opens one without it.
+  const selectedNode = selected?.key === readKey ? selected.node : null;
   const rowsContext = useMemo<SessionRows>(
     () => ({
       hostId,
       alertsByProcess,
       hits,
       selectedId: selectedNode?.id ?? null,
-      onSelect: (node: ProcessNode) => { setSelected({ key: readKey, node }); },
+      onSelect: (node: ProcessNode) => {
+        selection.current += 1;
+        setSelected({ key: readKey, node });
+      },
+      wholeState: (commandKey: string) => {
+        const read = whole?.get(commandKey);
+        return typeof read === "string" ? read : undefined;
+      },
+      readWhole,
     }),
-    [hostId, alertsByProcess, hits, selectedNode, readKey],
+    [hostId, alertsByProcess, hits, selectedNode, readKey, whole, readWhole],
   );
 
   const record = current?.record;
@@ -241,9 +370,13 @@ export function SessionView() {
       {project && <span className="session-view__mono">{project}</span>}
       <span>{hostNames.get(hostId) ?? hostId}</span>
       {firstNs !== undefined && lastNs !== undefined && <span>{`${formatNs(firstNs)} to ${formatNs(lastNs)}`}</span>}
-      {tree && <span>{plural(summary.processCount, "process", "processes")}</span>}
+      {current?.totals && <span>{plural(current.totals.commands, "command", "commands")}</span>}
+      {(current?.totals ?? tree) && (
+        <span>{plural(current?.totals?.processes ?? summary.processCount, "process", "processes")}</span>
+      )}
       {record?.agent_pid !== undefined && <span>agent pid {record.agent_pid}</span>}
       <span className="session-view__mono" title={sessionId}>Session {sessionId}</span>
+      <SessionUsage usage={usageLine(current?.totals?.usage)} />
     </span>
   );
 
@@ -255,13 +388,16 @@ export function SessionView() {
         subtitle={subtitle}
         actions={(
           <div className="session-view__actions">
-            <Input
-              type="search"
-              aria-label="Search this session"
-              placeholder={view === "processes" ? "Search processes" : "Search commands"}
-              value={query}
-              onChange={(e) => { setQuery(e.target.value); }}
-            />
+            {/* The Summary has nothing to search; the box keeps its space so the header does not move between views. */}
+            <span style={view === "summary" ? { visibility: "hidden" } : undefined}>
+              <Input
+                type="search"
+                aria-label="Search this session"
+                placeholder={view === "commands" ? "Search commands" : `Search ${view}`}
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); }}
+              />
+            </span>
             {/* The plumbing toggle belongs to Commands alone: Processes lists every process already. It keeps its space in every view,
                 hidden rather than removed, so the header wraps alike in all three and the view switcher below never moves. */}
             <span style={view === "commands" ? undefined : { visibility: "hidden" }}>
@@ -276,7 +412,7 @@ export function SessionView() {
         )}
       />
       <SessionLineageLine hostId={hostId} lineage={current?.lineage} />
-      <SessionNotices read={current} />
+      <SessionNotices read={current} meta={meta} view={view} />
       <SessionRowsContext.Provider value={rowsContext}>
         <div className="session-view__layout">
           <div className="session-view__main">
@@ -293,19 +429,59 @@ export function SessionView() {
                 </button>
               ))}
             </div>
-            {view === "commands" && <SessionBody read={current} groups={groups} />}
-            {view === "processes" && (
-              <ProcessesBody read={current} forest={forest} agent={agentLabel(agentName)} showOwn={showOwn} onShowOwn={setShowOwn} />
+            {view === "summary" && !current && <EmptyState>Loading...</EmptyState>}
+            {view === "summary" && current && (
+              <SessionSummary
+                totals={current.totals}
+                agent={title}
+                project={project}
+                firstNs={firstNs}
+                lastNs={lastNs}
+                onAlerts={() => { setQuery(""); setView("commands"); }}
+              />
+            )}
+            {view === "conversation" && (
+              <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} incomplete={sessionIncomplete} />
+            )}
+            {view === "commands" && (
+              <SessionBody
+                groups={groups}
+                commands={commands}
+                expandAll={(current?.totals?.commands ?? commands.total) <= AUTO_EXPAND_GROUPS}
+              />
+            )}
+            {view === "processes" && searched !== "" && (
+              <ProcessSearchBody hostId={hostId} sessionId={sessionId} query={searched} />
+            )}
+            {view === "processes" && searched === "" && (
+              <ProcessesBody
+                read={current}
+                forest={forest}
+                agent={agentLabel(agentName)}
+                showOwn={showOwn}
+                onShowOwn={setShowOwn}
+                more={processesMore}
+                onMore={loadMoreProcesses}
+              />
             )}
             {view === "activity" && (
               <ActivityTabs
                 label="Session activity"
                 hostId={hostId}
                 scope={{ kind: "session", session: sessionId }}
-                onProcess={(id) => {
+                search={searched}
+                onProcess={(process, atNs) => {
                   // The agent is not among the roots, and its own edits are what the Files tab lists most (issue #1287).
-                  const node = tree ? findNodeByDbId([...(tree.agents ?? []), ...tree.roots], id) : null;
-                  if (node) rowsContext.onSelect(node);
+                  const node = tree ? findNodeByDbId([...(tree.agents ?? []), ...tree.roots], process.id) : null;
+                  if (node) {
+                    rowsContext.onSelect(node);
+                    return;
+                  }
+                  // A row can name a process on a tree page not yet read, which a search reaches (issue #1452): read that process.
+                  const asked = selection.current;
+                  void getProcessDetail(hostId, process.pid, atNs, process.pidversion)
+                    .then((detail) => { if (selection.current === asked) rowsContext.onSelect(detail.process); })
+                    .catch(() => undefined);
                 }}
               />
             )}
@@ -319,7 +495,10 @@ export function SessionView() {
                 key={selectedNode.id}
                 hostId={hostId}
                 node={selectedNode}
-                onClose={() => { setSelected(null); }}
+                onClose={() => {
+                  selection.current += 1;
+                  setSelected(null);
+                }}
                 timelineHref={timelineHref(hostId, selectedNode)}
               />
             </aside>
@@ -327,6 +506,26 @@ export function SessionView() {
         </div>
       </SessionRowsContext.Provider>
     </div>
+  );
+}
+
+// SessionUsage says what the session's messages used (issue #1427): its models, its tokens, and the permission modes the agent ran in,
+// each with how many replies and over how long. Bypass mode, in which the agent runs tools without asking, is flagged.
+function SessionUsage({ usage }: { readonly usage: UsageLine | null }) {
+  if (!usage) return null;
+  // The split is written out, not left to a tooltip a keyboard or a touch screen cannot open.
+  const split = `${formatTokens(usage.input)} in, ${formatTokens(usage.cache)} cache, ${formatTokens(usage.output)} out`;
+  return (
+    <span className="session-view__usage">
+      <span>{usage.models.join(", ")}</span>
+      <span>{`${formatTokens(usage.total)} tokens (${split})`}</span>
+      {usage.modes.map((m) => (
+        <span key={m.mode} className="session-view__mode">
+          <Badge variant={m.mode === BYPASS_MODE ? "high" : "neutral"}>{m.label}</Badge>
+          {`${plural(m.messages, "reply", "replies")} in ${formatSpan(m.spanNs)}`}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -363,13 +562,18 @@ function beganBeforeRetention(read: SessionRead): boolean {
   return retainedFrom !== undefined && read.record !== undefined && read.record.first_seen_ns < retainedFrom;
 }
 
-function SessionNotices({ read }: { readonly read: SessionRead | null }) {
-  const tree = read?.tree;
-  if (!tree) return null;
-  const retainedFrom = tree.retained_from_ns;
+// Each read's cut is told with the view it cuts: the commands with Commands, the process tree with Processes.
+function SessionNotices({ read, meta, view }: {
+  readonly read: SessionRead | null;
+  readonly meta: CommandsMeta | null;
+  readonly view: SessionLens;
+}) {
+  if (!read) return null;
+  const tree = read.tree;
+  const retainedFrom = tree?.retained_from_ns;
   return (
     <>
-      {tree.truncated && (
+      {view === "processes" && tree?.truncated && (
         <p className="session-view__notice" role="status">
           Showing the first {tree.returned.toLocaleString()} of {tree.total_matched_capped ? "more than " : ""}
           {tree.total_matched.toLocaleString()} processes in this session.
@@ -383,7 +587,12 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
       {read.alertsFailed && (
         <p className="session-view__notice" role="status">This session&apos;s alerts could not be loaded, so none are shown.</p>
       )}
-      {read.toolCallsTruncated && (
+      {view === "commands" && meta?.truncated && (
+        <p className="session-view__notice" role="status">
+          This session ran more processes than the server reads, so its later commands are not listed.
+        </p>
+      )}
+      {view === "commands" && meta?.toolCallsTruncated && (
         <p className="session-view__notice" role="status">
           The agent reported more tool calls than are read, so some commands may show without the tool call the agent reported for
           them.
@@ -399,40 +608,105 @@ function SessionNotices({ read }: { readonly read: SessionRead | null }) {
   );
 }
 
-function SessionBody({ read, groups }: { readonly read: SessionRead | null; readonly groups: Command[] }) {
+// SessionBody lists the session's commands a page at a time. A session of at most AUTO_EXPAND_GROUPS commands opens with every one
+// expanded; a longer one with only those an alert was raised in.
+function SessionBody({ groups, commands, expandAll }: {
+  readonly groups: Command[];
+  readonly commands: { error: string | null; loading: boolean; hasMore: boolean; total: number; loadMore: () => void };
+  readonly expandAll: boolean;
+}) {
   const { alertsByProcess } = useSessionRows();
-  if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
-  if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
-  if (groups.length === 0) return <EmptyState>No processes are recorded for this session.</EmptyState>;
-  const expandAll = groups.length <= AUTO_EXPAND_GROUPS;
-  const matches = joinToolCalls(groups, read.toolCalls ?? []);
+  // A failed later page keeps the commands already listed, and the button that retries it.
+  if (commands.error && groups.length === 0) return <EmptyState>Error: {commands.error}</EmptyState>;
+  if (groups.length === 0) {
+    return <EmptyState>{commands.loading ? "Loading..." : "No processes are recorded for this session."}</EmptyState>;
+  }
   return (
-    <ol className="session-view__calls">
-      {groups.map((group) => {
-        const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
-        return (
-          <CommandGroup
-            key={group.key}
-            group={group}
-            match={matches.get(group.key)}
-            alerts={alerts}
-            defaultOpen={expandAll || alerts.length > 0}
-          />
-        );
-      })}
-    </ol>
+    <>
+      <ol className="session-view__calls">
+        {groups.map((group) => {
+          const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
+          return (
+            <CommandGroup
+              key={group.key}
+              group={group}
+              match={group.toolCall}
+              alerts={alerts}
+              defaultOpen={expandAll || alerts.length > 0}
+            />
+          );
+        })}
+      </ol>
+      {commands.error && (
+        <p className="session-view__notice" role="alert">The next commands could not be loaded: {commands.error}</p>
+      )}
+      {commands.hasMore && (
+        <Button variant="text-link" disabled={commands.loading} onClick={commands.loadMore}>
+          {`Load more commands (${(commands.total - groups.length).toLocaleString()} more)`}
+        </Button>
+      )}
+    </>
+  );
+}
+
+// ProcessSearchBody lists the processes a search found across the whole session (issue #1452), each alone and in fork order, from the
+// server and a page at a time: the tree a match sits in may lie on a page not yet read, so the loaded tree cannot answer it.
+function ProcessSearchBody({ hostId, sessionId, query }: {
+  readonly hostId: string;
+  readonly sessionId: string;
+  readonly query: string;
+}) {
+  const key = `${hostId}/${sessionId}\n${query}`;
+  const [cut, setCut] = useState<{ key: string; truncated: boolean } | null>(null);
+  // The key on screen, read when a page lands so a slower page for a search since replaced cannot report its cut as this one's.
+  const activeKey = useRef(key);
+  useEffect(() => { activeKey.current = key; }, [key]);
+  const fetchPage = useCallback(async (cursor: string): Promise<CursorPage<SessionRow>> => {
+    const page = await searchSessionProcesses(hostId, sessionId, { cursor, q: query, limit: COMMANDS_PAGE });
+    if (activeKey.current === key) setCut({ key, truncated: page.truncated });
+    return { rows: page.processes.map((node) => ({ node, children: [] })), nextCursor: page.next_cursor, total: page.total_matched };
+  }, [hostId, sessionId, query, key]);
+  const found = useCursorList(key, fetchPage);
+  if (found.error && found.rows.length === 0) return <EmptyState>Error: {found.error}</EmptyState>;
+  const partial = cut?.key === key && cut.truncated;
+  const notice = partial && (
+    <p className="session-view__notice" role="status">
+      This session ran more processes than the server reads, so a match among the later ones is not found.
+    </p>
+  );
+  if (found.rows.length === 0) {
+    if (found.loading) return <EmptyState>Searching...</EmptyState>;
+    // A cut read cannot say that nothing matches, only that nothing it read does.
+    return <>{notice}<EmptyState>{partial ? "No process the server read matches." : "No process in this session matches."}</EmptyState></>;
+  }
+  return (
+    <div className="session-view__processes">
+      <p className="session-view__processes-summary">{plural(found.total, "process matches", "processes match")}</p>
+      {notice}
+      {/* The server pages the matches, so every match read is listed: no second cap behind Load more. */}
+      <ProcessRows rows={found.rows} cap={Infinity} />
+      {found.error && <p className="session-view__notice" role="alert">The next processes could not be loaded: {found.error}</p>}
+      {found.hasMore && (
+        <Button variant="text-link" disabled={found.loading} onClick={found.loadMore}>
+          {`Load more matches (${(found.total - found.rows.length).toLocaleString()} more)`}
+        </Button>
+      )}
+    </div>
   );
 }
 
 // ProcessesBody lists every process the session ran as one tree rooted at the agent (issue #1335), with nothing hidden or folded: the
 // forensic counterpart to the commands, which group and trim the same processes for reading.
-function ProcessesBody({ read, forest, agent, showOwn, onShowOwn }: {
+function ProcessesBody({ read, forest, agent, showOwn, onShowOwn, more, onMore }: {
   readonly read: SessionRead | null;
   readonly forest: SessionRow[];
   // agent is the name the view calls the session's agent by, such as Claude Code.
   readonly agent: string;
   readonly showOwn: boolean;
   readonly onShowOwn: (show: boolean) => void;
+  // more is the state of the next page's read; onMore reads it.
+  readonly more: { loading: boolean; failed: boolean } | null;
+  readonly onMore: () => void;
 }) {
   if (read?.error) return <EmptyState>Error: {read.error}</EmptyState>;
   if (!read?.tree) return <EmptyState>Loading...</EmptyState>;
@@ -457,6 +731,12 @@ function ProcessesBody({ read, forest, agent, showOwn, onShowOwn }: {
         </div>
       )}
       <ProcessRows rows={forest} />
+      {more?.failed && <p className="session-view__notice" role="status">The next processes could not be loaded.</p>}
+      {read.tree.next_cursor && (
+        <Button variant="text-link" disabled={more?.loading === true} onClick={onMore}>
+          Load more processes
+        </Button>
+      )}
     </div>
   );
 }
@@ -489,6 +769,145 @@ function highestSeverity(alerts: readonly Alert[]): string {
   return alerts.reduce((top, a) => (severityRank(a.severity) < severityRank(top) ? a.severity : top), "");
 }
 
+// ListedTurn is a turn as the Conversation view lists it: its commands shaped as the Commands view shapes them.
+interface ListedTurn {
+  turn: ConversationTurn;
+  groups: Command[];
+}
+
+// ConversationMeta is what a conversation page says about the whole read, kept with the key it was read for.
+interface ConversationMeta {
+  key: string;
+  promptsHidden: boolean;
+  processesCut: boolean;
+  cut: boolean;
+}
+
+// ConversationBody lists the session as its turns (issue #1322), a page at a time from the server: each prompt the person typed, the
+// commands the agent ran for it and the tool calls it made that ran none, and last what belongs to no prompt. A search asks the
+// server, over prompt text the operator may read, commands and calls. The pages are read as the server sends them and shaped here, so
+// alerts read later reshape the turns already loaded rather than reading them again.
+function ConversationBody({ hostId, sessionId, query, incomplete }: {
+  readonly hostId: string;
+  readonly sessionId: string;
+  readonly query: string;
+  // incomplete is the session view's own: its record or alerts are unread or cut, or retention removed early processes.
+  readonly incomplete: boolean;
+}) {
+  const rows = useSessionRows();
+  const key = `${hostId}/${sessionId}\n${query}`;
+  const [meta, setMeta] = useState<ConversationMeta | null>(null);
+  // The key on screen, read when a page lands so a slower page for a search since replaced cannot report its flags as this one's.
+  const activeKey = useRef(key);
+  useEffect(() => { activeKey.current = key; }, [key]);
+  const fetchPage = useCallback(async (cursor: string): Promise<CursorPage<ConversationTurn>> => {
+    const page = await getSessionConversation(hostId, sessionId, { cursor, q: query, limit: COMMANDS_PAGE });
+    if (activeKey.current === key) {
+      setMeta({ key, promptsHidden: page.prompts_hidden, processesCut: page.truncated,
+        cut: page.truncated || page.tool_calls_truncated || page.prompts_truncated });
+    }
+    return { rows: page.turns, nextCursor: page.next_cursor, total: page.total_matched };
+  }, [hostId, sessionId, query, key]);
+  const turns = useCursorList(key, fetchPage);
+  const current = meta?.key === key ? meta : null;
+  const listed = useMemo<ListedTurn[]>(() => {
+    const shape = { verbose: false, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
+    return turns.rows.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(c, shape)) }));
+  }, [turns.rows, rows.alertsByProcess, incomplete, current?.processesCut]);
+  // The search's hits are found in these groups, so a matching row is marked and listed past the cap, and its command opens.
+  const scoped = useMemo<SessionRows>(
+    () => ({ ...rows, hits: searchCommands(listed.flatMap((t) => t.groups), query) }),
+    [rows, listed, query],
+  );
+  if (turns.error && turns.rows.length === 0) return <EmptyState>Error: {turns.error}</EmptyState>;
+  const cutNotice = current?.cut === true && (
+    <p className="session-view__notice" role="status">
+      This session holds more than the server reads, so some of its prompts, commands or tool calls are not listed.
+    </p>
+  );
+  if (turns.rows.length === 0) {
+    if (turns.loading) return <EmptyState>Loading...</EmptyState>;
+    // A cut read cannot say that nothing matches, only that nothing it read does.
+    const none = query ? (current?.cut === true ? "No turn the server read matches." : "No turn of this session matches.")
+      : "No prompts are recorded for this session.";
+    return <>{cutNotice}<EmptyState>{none}</EmptyState></>;
+  }
+  return (
+    <SessionRowsContext.Provider value={scoped}>
+      {cutNotice}
+      <ol className="session-view__turns">
+        {listed.map(({ turn, groups }) => (
+          <TurnEntry key={`${turn.prompt_id ?? ""}/${String(turn.uid ?? "")}`} turn={turn} groups={groups}
+            promptsHidden={current?.promptsHidden === true} />
+        ))}
+      </ol>
+      {turns.error && <p className="session-view__notice" role="alert">The next turns could not be loaded: {turns.error}</p>}
+      {turns.hasMore && (
+        <Button variant="text-link" disabled={turns.loading} onClick={turns.loadMore}>
+          {`Load more turns (${(turns.total - turns.rows.length).toLocaleString()} more)`}
+        </Button>
+      )}
+    </SessionRowsContext.Provider>
+  );
+}
+
+// TurnEntry is one turn: the prompt the person typed, labelled as the agent's report since the transcript is the user's to write,
+// then the commands the agent ran for it and the tool calls that ran none.
+function TurnEntry({ turn, groups, promptsHidden }: {
+  readonly turn: ConversationTurn;
+  readonly groups: Command[];
+  readonly promptsHidden: boolean;
+}) {
+  const { alertsByProcess } = useSessionRows();
+  return (
+    <li className="session-view__turn">
+      <div className="session-view__prompt">
+        {turn.prompt_id === undefined ? (
+          <span className="session-view__prompt-text">Outside any prompt</span>
+        ) : (
+          <>
+            {/* Only a prompt the agent captured is its report; an uncaptured one says so instead. */}
+            {turn.prompt && <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>}
+            <span className="session-view__prompt-text">{promptText(turn, promptsHidden)}</span>
+          </>
+        )}
+        <span className="session-view__meta">{formatNs(turn.at_ns)}</span>
+      </div>
+      {groups.length > 0 && (
+        <ol className="session-view__calls">
+          {groups.map((group) => {
+            const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
+            return <CommandGroup key={group.key} group={group} match={group.toolCall} alerts={alerts} defaultOpen={alerts.length > 0} />;
+          })}
+        </ol>
+      )}
+      {turn.calls.length > 0 && (
+        <ul className="session-view__turn-calls">
+          {turn.calls.map((call) => <TurnCall key={`${call.tool_use_id}/${String(call.uid)}`} call={call} />)}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+// promptText is what a turn shows for its prompt: the text, or why there is none.
+function promptText(turn: ConversationTurn, promptsHidden: boolean): string {
+  if (!turn.prompt) return "Prompt not captured";
+  if (promptsHidden) return "Prompt hidden: you need permission to read prompts";
+  return turn.prompt.text;
+}
+
+// TurnCall is a tool call of a turn that ran no command: a file read or edit, a web fetch, an MCP tool.
+function TurnCall({ call }: { readonly call: AgentToolCall }) {
+  return (
+    <li className="session-view__turn-call">
+      <code className="session-view__tool-name">{call.tool_name}</code>
+      <span className="session-view__mono">{call.file_path ?? call.command ?? ""}</span>
+      <span className="session-view__meta">{formatNs(call.called_at_ns)}</span>
+    </li>
+  );
+}
+
 // CommandGroup is one command. A search that finds something in it opens it, whatever the operator last chose.
 function CommandGroup({ group, match, alerts, defaultOpen }: {
   readonly group: Command;
@@ -496,17 +915,19 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
   readonly alerts: readonly Alert[];
   readonly defaultOpen: boolean;
 }) {
-  const { hits } = useSessionRows();
-  const [open, setOpen] = useState(defaultOpen);
+  const { hits, wholeState, readWhole } = useSessionRows();
+  const wholeRead = wholeState(group.key);
+  // The group follows defaultOpen until the operator opens or closes it, so alerts read after the commands still open their groups.
+  const [toggled, setToggled] = useState<boolean | null>(null);
   const found = hits.byGroup.get(group.key) ?? 0;
-  const expanded = open || found > 0;
+  const expanded = (toggled ?? defaultOpen) || found > 0;
   return (
     <li className="session-view__call">
       <button
         type="button"
         className="session-view__call-header"
         aria-expanded={expanded}
-        onClick={() => { setOpen(!expanded); }}
+        onClick={() => { setToggled(!expanded); }}
       >
         <code className="session-view__command">{group.command}</code>
         <span className="session-view__meta">
@@ -519,6 +940,15 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
         {match && <AgentCall match={match} />}
       </button>
       {expanded && group.rows.length > 0 && <ProcessRows rows={group.rows} />}
+      {expanded && group.processesCut && (
+        <p className="session-view__notice" role="status">
+          {"Some of this command's processes are not listed. "}
+          <Button variant="text-link" disabled={wholeRead === "loading"} onClick={() => { readWhole(group.key); }}>
+            {`Show all ${group.processCount.toLocaleString()} processes`}
+          </Button>
+          {wholeRead === "failed" && " They could not be loaded."}
+        </p>
+      )}
     </li>
   );
 }
@@ -529,10 +959,11 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
 function AgentCall({ match }: { readonly match: ToolCallMatch }) {
   if (match.kind === "ambiguous") {
     const ids = match.candidates.map((c) => c.tool_use_id);
+    const unlisted = match.candidate_count - ids.length;
     return (
-      <span className="session-view__agent-call" title={`One of: ${ids.join(", ")}`}>
+      <span className="session-view__agent-call" title={`One of: ${ids.join(", ")}${unlisted > 0 ? ` and ${String(unlisted)} more` : ""}`}>
         <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
-        One of {match.candidates.length} identical calls made at once
+        One of {match.candidate_count} identical calls made at once
       </span>
     );
   }
@@ -547,9 +978,9 @@ function AgentCall({ match }: { readonly match: ToolCallMatch }) {
 
 // ProcessRows lists rows up to ROW_CAP, then offers the rest. A row holding a search hit or an alert is listed past the cap, since
 // the command opened, or the search expanded it, to show that row.
-function ProcessRows({ rows }: { readonly rows: SessionRow[] }) {
+function ProcessRows({ rows, cap = ROW_CAP }: { readonly rows: SessionRow[]; readonly cap?: number }) {
   const { hits, alertsByProcess } = useSessionRows();
-  const [shown, setShown] = useState(ROW_CAP);
+  const [shown, setShown] = useState(cap);
   const listed = rows.filter((r, i) => i < shown || containsHit(r, hits) || containsProcess(r, alertsByProcess));
   const rest = rows.length - listed.length;
   return (

@@ -8,10 +8,11 @@
 // session-probe endpoint.
 import type {
   ActivityHistogram,
+  ActivityPage,
   ActivityResponse,
   AgentSessionLineage,
   AgentSessionResult,
-  AgentToolCallsResponse,
+  AgentSessionTotals,
   Alert,
   AlertDetail,
   ApplicationControlPolicy,
@@ -28,6 +29,9 @@ import type {
   ProcessSearchResult,
   ReachableAddress,
   ReachableSet,
+  SessionCommandsResponse,
+  SessionConversationResponse,
+  SessionProcessesResponse,
   TreeResponse,
 } from "./types";
 import {
@@ -174,6 +178,13 @@ export function attachCsrfHeader(
 // whitelist is deliberately narrow: leading slash, then only URL-path +
 // query-string characters we actually use.
 const API_PATH_RE = /^\/[A-Za-z0-9/?=&%:_.@~-]*$/;
+
+// queryString serializes a query for assertSafeAPIPath. URLSearchParams writes a space as "+" and leaves "*" literal, both outside the
+// whitelist, so a search such as `git status` or `rm build*` would be refused before it is sent; they are escaped as %20 and %2A, which
+// the server decodes back. A literal "+" in a value is already %2B.
+function queryString(query: URLSearchParams): string {
+  return query.toString().replace(/[+*]/g, (c) => (c === "+" ? "%20" : "%2A"));
+}
 
 function assertSafeAPIPath(path: string): void {
   if (!API_PATH_RE.test(path) || path.includes("..")) {
@@ -361,9 +372,11 @@ export async function getProcessTree(
 // read by its index, and no sibling aggregation, since the session view groups the processes itself. limit bounds the rows; its
 // default is the server's cap, the same bound the session's activity read resolves its processes with, so every process the activity
 // names is in the tree the view can open it from.
-export async function getSessionTree(hostId: string, sessionId: string, limit = 5000): Promise<TreeResponse> {
+export async function getSessionTree(hostId: string, sessionId: string, limit = 5000, cursor?: string): Promise<TreeResponse> {
   const query = new URLSearchParams({ scope: "session", session: sessionId, flatten: "1", limit: String(limit) });
-  return fetchJSON<TreeResponse>(`/hosts/${encodeURIComponent(hostId)}/tree?${query.toString()}`);
+  // A cut read's next page continues after its last row (issue #1424).
+  if (cursor) query.set("cursor", cursor);
+  return fetchJSON<TreeResponse>(`/hosts/${encodeURIComponent(hostId)}/tree?${queryString(query)}`);
 }
 
 // ActivityScopeQuery names what an activity read totals: one process or its subtree by row id, or an agent session.
@@ -371,21 +384,85 @@ export type ActivityScopeQuery =
   | { kind: "process" | "subtree"; process: number }
   | { kind: "session"; session: string };
 
-// getActivity reads what a scope touched on a host: its files, network destinations and DNS names (issue #1285).
-export async function getActivity(hostId: string, scope: ActivityScopeQuery): Promise<ActivityResponse> {
+// activityScopeParams names an activity scope as the activity reads take it.
+function activityScopeParams(scope: ActivityScopeQuery): URLSearchParams {
   const query = new URLSearchParams({ scope: scope.kind });
   if (scope.kind === "session") {
     query.set("session", scope.session);
   } else {
     query.set("process", String(scope.process));
   }
-  return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${query.toString()}`);
+  return query;
 }
 
-// getAgentToolCalls reads the tool calls an AI agent session recorded in its transcript (issue #1288), oldest first.
-export async function getAgentToolCalls(hostId: string, sessionId: string): Promise<AgentToolCallsResponse> {
-  return fetchJSON<AgentToolCallsResponse>(
-    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/tool-calls`,
+// getActivity reads what a scope touched on a host: its files, network destinations and DNS names (issue #1285).
+export async function getActivity(hostId: string, scope: ActivityScopeQuery): Promise<ActivityResponse> {
+  return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${queryString(activityScopeParams(scope))}`);
+}
+
+// ActivityClassName names one class of a scope's activity.
+export type ActivityClassName = "files" | "network" | "dns";
+
+// getActivityPage reads the page of one class of a scope's activity after a cursor the rollup or the previous page handed out
+// (issue #1424).
+export async function getActivityPage<Row>(
+  hostId: string, scope: ActivityScopeQuery, cls: ActivityClassName, cursor: string, q = "",
+): Promise<ActivityPage<Row>> {
+  const query = activityScopeParams(scope);
+  query.set("cursor", cursor);
+  // q keeps the rows whose artifact holds it (issue #1452); a cursor continues the search it was handed out for.
+  if (q) query.set("q", q);
+  return fetchJSON<ActivityPage<Row>>(`/hosts/${encodeURIComponent(hostId)}/activity/${cls}?${queryString(query)}`);
+}
+
+// SessionCommandsQuery pages a session's commands: the previous page's cursor, a search, and the page size.
+export interface SessionCommandsQuery {
+  cursor?: string;
+  q?: string;
+  limit?: number;
+  // command reads that one command of the session whole, by its key (issue #1443).
+  command?: string;
+}
+
+// getSessionCommands reads one page of the commands an AI agent session ran, as the server groups them and pairs each with the tool
+// call the agent reported for it (issue #1423).
+export async function getSessionCommands(
+  hostId: string, sessionId: string, page: SessionCommandsQuery = {},
+): Promise<SessionCommandsResponse> {
+  return fetchJSON<SessionCommandsResponse>(sessionPagePath(hostId, sessionId, "commands", page));
+}
+
+// getSessionConversation reads a page of a session's turns (issue #1322): each prompt with the commands and tool calls the agent made
+// for it, prompt text only for a caller with agent_prompt.read.
+export async function getSessionConversation(
+  hostId: string, sessionId: string, page: SessionCommandsQuery = {},
+): Promise<SessionConversationResponse> {
+  return fetchJSON<SessionConversationResponse>(sessionPagePath(hostId, sessionId, "conversation", page));
+}
+
+// sessionPagePath is the path of one page of a session's paged list: its cursor, search and page size on the session's leaf.
+function sessionPagePath(hostId: string, sessionId: string, leaf: string, page: SessionCommandsQuery): string {
+  const query = new URLSearchParams();
+  if (page.cursor) query.set("cursor", page.cursor);
+  if (page.q) query.set("q", page.q);
+  if (page.limit !== undefined) query.set("limit", String(page.limit));
+  if (page.command) query.set("command", page.command);
+  const qs = queryString(query);
+  return `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/${leaf}${qs ? `?${qs}` : ""}`;
+}
+
+// searchSessionProcesses reads the processes of a session whose path or command line holds q, over the whole session, each listed
+// without its children in fork order, a page at a time (issue #1452).
+export async function searchSessionProcesses(
+  hostId: string, sessionId: string, page: SessionCommandsQuery = {},
+): Promise<SessionProcessesResponse> {
+  return fetchJSON<SessionProcessesResponse>(sessionPagePath(hostId, sessionId, "processes", page));
+}
+
+// getAgentSessionTotals reads a session's totals, counted by the server over the whole session (issue #1422).
+export async function getAgentSessionTotals(hostId: string, sessionId: string): Promise<AgentSessionTotals> {
+  return fetchJSON<AgentSessionTotals>(
+    `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/summary`,
   );
 }
 
@@ -425,7 +502,7 @@ export async function getProcessDetail(
     params.set("pidversion", String(pidVersion));
   }
   return fetchJSON<ProcessDetail>(
-    `/hosts/${encodeURIComponent(hostId)}/processes/${String(pid)}?${params.toString()}`
+    `/hosts/${encodeURIComponent(hostId)}/processes/${String(pid)}?${queryString(params)}`
   );
 }
 
@@ -463,7 +540,7 @@ export async function searchProcesses(filter: ProcessSearchFilter, cursor?: stri
   set("ancestor", filter.ancestor);
   set("args", filter.args);
   set("cursor", cursor);
-  const qs = query.toString();
+  const qs = queryString(query);
   const suffix = qs ? `?${qs}` : "";
   const res = await fetchJSON<ProcessSearchResult>(`/search/processes${suffix}`);
   // A zero-match page marshals a nil Go slice as JSON null; normalize to [] so list consumers never read .length of null. The
@@ -481,6 +558,8 @@ export interface AgentSessionFilter {
   agent?: string;
   from?: string;
   to?: string;
+  // bypass "true" keeps the sessions that ran with permissions bypassed, or were forked from one that did.
+  bypass?: string;
 }
 
 export async function listAgentSessions(filter: AgentSessionFilter, cursor?: string): Promise<AgentSessionResult> {
@@ -488,7 +567,7 @@ export async function listAgentSessions(filter: AgentSessionFilter, cursor?: str
   for (const [key, value] of Object.entries({ ...filter, cursor })) {
     if (value) query.set(key, value);
   }
-  const qs = query.toString();
+  const qs = queryString(query);
   return fetchJSON<AgentSessionResult>(`/agent-sessions${qs ? `?${qs}` : ""}`);
 }
 
@@ -519,7 +598,7 @@ export async function searchEvents(mode: EventSearchMode, filter: EventSearchFil
   set("from", filter.from);
   set("to", filter.to);
   set("cursor", cursor);
-  const qs = query.toString();
+  const qs = queryString(query);
   const suffix = qs ? `?${qs}` : "";
   const res = await fetchJSON<EventSearchResult>(`/search/${mode}${suffix}`);
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Go marshals a nil slice as JSON null (a non-nil empty slice would be []) (the type models events as non-null)
@@ -554,7 +633,7 @@ export async function getHostTimeline(hostID: string, filter: HostTimelineFilter
     query.set("pin", String(filter.chainPin));
   }
   set("cursor", cursor);
-  const qs = query.toString();
+  const qs = queryString(query);
   const suffix = qs ? `?${qs}` : "";
   const res = await fetchJSON<HostTimelineResult>(`/hosts/${encodeURIComponent(hostID)}/timeline${suffix}`);
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Go marshals a nil slice as JSON null (a non-nil empty slice would be []) (the type models events as non-null)
@@ -590,7 +669,7 @@ export async function listAlerts(params?: {
   if (params?.agent_process) query.set("agent_process", String(params.agent_process));
   if (params?.served_session) query.set("served_session", params.served_session);
   if (params?.limit) query.set("limit", String(params.limit));
-  const qs = query.toString();
+  const qs = queryString(query);
   const suffix = qs ? `?${qs}` : "";
   return fetchJSON<Alert[]>(`/alerts${suffix}`);
 }
@@ -1829,6 +1908,43 @@ export async function replaceWatchedPaths(
     "/v1/detection-config/watched-paths",
     { paths, reason, expected_version: expectedVersion },
     (res) => res.json() as Promise<ReplaceWatchedPathsResult>,
+  );
+}
+
+// AgentSettings are the fleet-wide switches for what agents collect (issue #1426). Version 0 is the settings no operator has changed.
+export interface AgentSettings {
+  version: number;
+  capture_prompts: boolean;
+  updated_at?: string;
+  updated_by?: string;
+  updated_by_label?: string;
+}
+
+export interface ReplaceAgentSettingsResult {
+  settings: AgentSettings;
+  fanout_hosts: number;
+  fanout_failed: number;
+  fanout_skipped_reason?: string;
+}
+
+// getAgentSettings reads the agent settings. Requires detection_config.read.
+export async function getAgentSettings(): Promise<AgentSettings> {
+  return fetchJSON<AgentSettings>("/v1/detection-config/agent-settings");
+}
+
+// replaceAgentSettings stores the settings, provided they are still at expectedVersion, and pushes them to every enrolled host. Settings
+// changed since are refused with the code detection_config.conflict. Requires detection_config.write and a recent sign-in; wrap it in
+// useReauthRetry.
+export async function replaceAgentSettings(
+  capturePrompts: boolean,
+  reason: string,
+  expectedVersion: number,
+): Promise<ReplaceAgentSettingsResult> {
+  return detectionConfigMutationEndpoint(
+    "PUT",
+    "/v1/detection-config/agent-settings",
+    { capture_prompts: capturePrompts, reason, expected_version: expectedVersion },
+    (res) => res.json() as Promise<ReplaceAgentSettingsResult>,
   );
 }
 

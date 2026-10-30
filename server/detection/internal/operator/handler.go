@@ -40,6 +40,7 @@ const (
 	errInvalidEventType   = "invalid_event_type"
 	errInvalidScope       = "invalid_scope"
 	errInvalidProcess     = "invalid_process"
+	errInvalidBypass      = "invalid_bypass"
 	errSessionNeedsHost   = "agent_session_requires_host_id"
 	errAgentNeedsHost     = "agent_process_requires_host_id_and_served_session"
 
@@ -100,6 +101,7 @@ type Handler struct {
 	agentSessions  AgentSessionLister
 	agentToolCalls AgentToolCallReader
 	activity       ActivityReader
+	sessionTotals  AgentSessionTotalsReader
 	// processRetentionDays is how many days completed process records are kept, or 0 when retention is disabled. See
 	// SetProcessRetention.
 	processRetentionDays int
@@ -214,12 +216,25 @@ func (h *Handler) handleProcessTree(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusBadRequest, errInvalidScope)
 		return
 	}
+	// ?cursor= continues a scoped read where its last page stopped (issue #1424).
+	if cursor := r.URL.Query().Get("cursor"); scoped && cursor != "" {
+		after, err := decodeTreeCursor(cursor)
+		if err != nil {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		scope.After = after
+	}
 	var res api.ProcessTreeResult
 	var err error
 	switch {
 	case scoped:
 		res, err = h.svc.BuildScopedTree(ctx, hostID, scope, limit, flatten, pinnedID)
-		if err == nil && scope.AgentSessionID != "" {
+		if err == nil && res.Next != nil {
+			res.NextCursor = encodeTreeCursor(*res.Next)
+		}
+		// The agents lead a session's first page only: a later page continues the session's own rows.
+		if err == nil && scope.AgentSessionID != "" && scope.After == (api.TreePosition{}) {
 			res.Agents, err = h.sessionAgents(ctx, hostID, scope.AgentSessionID, res.Roots)
 			if err == nil {
 				res.AgentOwnTruncated, err = h.agentOwnProcesses(ctx, hostID, scope.AgentSessionID, res.Agents)

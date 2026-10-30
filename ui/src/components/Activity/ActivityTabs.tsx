@@ -1,9 +1,13 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import "./ActivityTabs.scss";
-import { getActivity, type ActivityScopeQuery } from "../../api";
-import type { ActivityResponse, ActivityRow, ActivityScope } from "../../types";
+import { getActivity, getActivityPage, type ActivityScopeQuery } from "../../api";
+import type {
+  ActivityResponse, ActivityRow, DNSActivityRow, FileActivityRow, NetworkActivityRow,
+} from "../../types";
+import { Button } from "../ui/Button";
 import { Table, EmptyState } from "../ui/Table";
 import { formatNs, executableName, hostPort, plural } from "../Search/format";
+import { scopeNote } from "./activityScope";
 import { socketDaemon } from "./socketDaemon";
 
 type TabKey = "files" | "network" | "dns";
@@ -30,39 +34,83 @@ interface ActivityRead {
   error?: string;
 }
 
+// ClassMore is the rows of one class read past the rollup's cut list (issue #1424), the cursor of the page after them, and whether
+// that read is under way or failed.
+interface ClassMore {
+  rows: unknown[];
+  cursor?: string;
+  loading: boolean;
+  failed: boolean;
+}
+
+// More is each class's rows read past its list, kept with the scope they were read for so another scope's are never shown.
+interface More {
+  key: string;
+  byClass: ReadonlyMap<TabKey, ClassMore>;
+}
+
 interface Props {
   // label names the class switch, so two activity views on one page (a session's and a selected process's) are told apart.
   readonly label: string;
   readonly hostId: string;
   readonly scope: ActivityScopeQuery;
-  // onProcess, when set, makes each row's process a button that selects it (the session view); otherwise it is plain text.
-  readonly onProcess?: (processId: number) => void;
-}
-
-// scopeNote says how much of the scope the activity reflects, or null when it reflects all of it.
-function scopeNote(scope: ActivityScope): string | null {
-  // A truncated scope comes first: when the processes read carry no generation, the unread ones still might, so all that can be said
-  // is that the activity is partial.
-  if (scope.truncated) return "This scope has more processes than are read, so its activity is partial.";
-  if (!scope.applied) {
-    return scope.processes === 0
-      ? "No stored process matches this scope, so there is no activity to show."
-      : "None of this scope's processes carry a process generation, so their activity cannot be read.";
-  }
-  if (scope.unmatched > 0) {
-    return `${plural(scope.unmatched, "process carries", "processes carry")} no process generation, so their activity is not counted.`;
-  }
-  return null;
+  // onProcess, when set, makes each row's process a button that selects it (the session view); otherwise it is plain text. It is
+  // handed the process and the moment of the row's first event, which together name the process to read when it is not loaded.
+  readonly onProcess?: (process: ActivityResponse["processes"][number], atNs: number) => void;
+  // search, when set, lists each class's rows the server finds for it (issue #1452) in place of the rollup's list; the totals stay
+  // the scope's.
+  readonly search?: string;
 }
 
 // ActivityTabs shows what a process, its subtree or an agent session touched (issue #1285): its files, network destinations and DNS
 // names as totals and lists, each row naming the process behind it. The server matches events to processes by exact generation and
 // says how far the scope reached; this says so too.
-export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
+export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: Props) {
   const key = `${hostId}/${JSON.stringify(scope)}`;
+  // The rows read past the rollup belong to the scope and the search they were read for.
+  const listKey = `${key}\n${search}`;
   const [read, setRead] = useState<ActivityRead | null>(null);
   const [tab, setTab] = useState<TabKey>("network");
   const current = read?.key === key ? read : null;
+  const [more, setMore] = useState<More>({ key: listKey, byClass: new Map() });
+  const extra: ReadonlyMap<TabKey, ClassMore> = more.key === listKey ? more.byClass : new Map();
+
+  // loadMore reads a class's next page after its cursor and appends it, for the scope and search it was asked for only. An empty
+  // cursor reads a search's first page.
+  const loadMore = useCallback((cls: TabKey, cursor: string) => {
+    const key = listKey;
+    const update = (change: (prior: ClassMore) => ClassMore) => {
+      setMore((m) => {
+        const byClass = new Map(m.key === key ? m.byClass : []);
+        byClass.set(cls, change(byClass.get(cls) ?? { rows: [], loading: false, failed: false }));
+        return { key, byClass };
+      });
+    };
+    // A page lands only on the scope it was read for: one read before the operator moved to another scope is dropped, rather than
+    // replacing what was loaded for the scope now shown.
+    const settle = (change: (prior: ClassMore) => ClassMore) => {
+      setMore((m) => {
+        if (m.key !== key) return m;
+        const byClass = new Map(m.byClass);
+        byClass.set(cls, change(byClass.get(cls) ?? { rows: [], loading: false, failed: false }));
+        return { key, byClass };
+      });
+    };
+    // The cursor being read stays the class's until a page replaces it, so a failed read is offered again.
+    update((prior) => ({ ...prior, cursor, loading: true, failed: false }));
+    getActivityPage<unknown>(hostId, scope, cls, cursor, search)
+      .then((page) => {
+        settle((prior) => ({ rows: [...prior.rows, ...page.rows], cursor: page.next_cursor, loading: false, failed: false }));
+      })
+      .catch(() => { settle((prior) => ({ ...prior, loading: false, failed: true })); });
+  }, [hostId, scope, listKey, search]);
+
+  // A search reads the open class's first page from the server once the rollup is in; another class's waits until it is opened.
+  const searching = search !== "";
+  const pending = searching && current?.activity !== undefined && !extra.has(tab);
+  useEffect(() => {
+    if (pending) loadMore(tab, "");
+  }, [pending, tab, loadMore]);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,7 +130,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
     const label = `${executableName(process.path)} (${String(row.pid)})`;
     if (!onProcess) return label;
     return (
-      <button type="button" className="activity-tabs__process" onClick={() => { onProcess(process.id); }}>
+      <button type="button" className="activity-tabs__process" onClick={() => { onProcess(process, row.first_ns); }}>
         {label}
       </button>
     );
@@ -112,25 +160,89 @@ export function ActivityTabs({ label, hostId, scope, onProcess }: Props) {
         ))}
       </div>
       <div className="activity-tabs__panel">
-        {tab === "files" && <FilesPanel activity={activity} processName={processName} />}
-        {tab === "network" && <NetworkPanel activity={activity} processName={processName} />}
-        {tab === "dns" && <DNSPanel activity={activity} processName={processName} />}
+        {searching && extra.get(tab)?.rows.length === 0 && extra.get(tab)?.loading === true && (
+          <p className="activity-tabs__note" role="status">Searching...</p>
+        )}
+        {tab === "files" && (
+          <FilesPanel
+            activity={activity}
+            rows={listed(activity.files.rows, extra.get("files"), searching) as FileActivityRow[]}
+            processName={processName}
+            hasMore={hasMore(activity.files, extra.get("files"))}
+            more={<LoadMore cls="files" first={activity.files.next_cursor} extra={extra.get("files")} onMore={loadMore} />}
+          />
+        )}
+        {tab === "network" && (
+          <NetworkPanel
+            activity={activity}
+            rows={listed(activity.network.rows, extra.get("network"), searching) as NetworkActivityRow[]}
+            processName={processName}
+            hasMore={hasMore(activity.network, extra.get("network"))}
+            more={<LoadMore cls="network" first={activity.network.next_cursor} extra={extra.get("network")} onMore={loadMore} />}
+          />
+        )}
+        {tab === "dns" && (
+          <DNSPanel
+            activity={activity}
+            rows={listed(activity.dns.rows, extra.get("dns"), searching) as DNSActivityRow[]}
+            processName={processName}
+            hasMore={hasMore(activity.dns, extra.get("dns"))}
+            more={<LoadMore cls="dns" first={activity.dns.next_cursor} extra={extra.get("dns")} onMore={loadMore} />}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-interface PanelProps {
+interface PanelProps<Row> {
   readonly activity: ActivityResponse;
+  // rows are the class's rows the rollup listed and those read past it.
+  readonly rows: Row[];
   readonly processName: (row: ActivityRow) => ReactNode;
+  // hasMore is set while the class has rows not yet listed; more offers the next page.
+  readonly hasMore: boolean;
+  readonly more: ReactNode;
 }
 
-// Summary is a class's totals line, and its cut-list notice when the server listed fewer rows than the class has.
-function Summary({ text, truncated, shown }: { readonly text: string; readonly truncated: boolean; readonly shown: number }) {
+// listed is a class's rows as shown: the rollup's list and the rows read past it, or under a search only what the server found.
+function listed(rollup: readonly unknown[], extra: ClassMore | undefined, searching: boolean): unknown[] {
+  return searching ? (extra?.rows ?? []) : [...rollup, ...(extra?.rows ?? [])];
+}
+
+// hasMore reports a class with rows not yet listed: one whose last page read names a next page, or whose cut list does.
+function hasMore(listed: { truncated: boolean }, extra: ClassMore | undefined): boolean {
+  return extra ? extra.cursor !== undefined : listed.truncated;
+}
+
+// LoadMore offers a class's next page while it has one: after the rollup's cut list, from the cursor it named, and after a page
+// read since, from that page's.
+function LoadMore({ cls, first, extra, onMore }: {
+  readonly cls: TabKey;
+  readonly first: string | undefined;
+  readonly extra: ClassMore | undefined;
+  readonly onMore: (cls: TabKey, cursor: string) => void;
+}) {
+  const cursor = extra ? extra.cursor : first;
+  return (
+    <>
+      {extra?.failed && <p className="activity-tabs__note" role="status">The next rows could not be loaded.</p>}
+      {/* A search's first page is read from the empty cursor, so a failed first read is offered again from it. */}
+      {cursor !== undefined && (cursor !== "" || extra?.failed === true) && (
+        <Button variant="text-link" disabled={extra?.loading === true} onClick={() => { onMore(cls, cursor); }}>
+          Load more rows
+        </Button>
+      )}
+    </>
+  );
+}
+
+// Summary is a class's totals line, and its cut-list notice while the rows listed are fewer than the class has.
+function Summary({ text, more, shown }: { readonly text: string; readonly more: boolean; readonly shown: number }) {
   return (
     <>
       <p className="activity-tabs__summary">{text}</p>
-      {truncated && (
+      {more && (
         <p className="activity-tabs__note" role="status">
           Showing the first {plural(shown, "row", "rows")}; there are more than the list holds.
         </p>
@@ -167,17 +279,17 @@ function TruncatedPath({ path }: { readonly path: string }) {
   );
 }
 
-function FilesPanel({ activity, processName }: PanelProps) {
+function FilesPanel({ activity, rows, processName, hasMore: listsMore, more }: PanelProps<FileActivityRow>) {
   const { files } = activity;
   const text = `${plural(files.events, "file event", "file events")} on ${plural(files.distinct, "path", "paths")}`;
   return (
     <>
-      <Summary text={text} truncated={files.truncated} shown={files.rows.length} />
-      {files.rows.length > 0 && (
+      <Summary text={text} more={listsMore} shown={rows.length} />
+      {rows.length > 0 && (
         <Table>
           <thead><tr><th>Operation</th><th>Path</th><th>Process</th><th>Count</th><th>First</th><th>Last</th></tr></thead>
           <tbody>
-            {files.rows.map((r) => (
+            {rows.map((r) => (
               <tr key={`${r.operation}|${r.path}|${r.source_path ?? ""}|${r.rolled_up ? "dir" : ""}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td>{OPERATION_LABELS[r.operation] ?? r.operation}</td>
                 <td className="activity-tabs__mono">
@@ -203,21 +315,22 @@ function FilesPanel({ activity, processName }: PanelProps) {
           </tbody>
         </Table>
       )}
+      {more}
     </>
   );
 }
 
-function NetworkPanel({ activity, processName }: PanelProps) {
+function NetworkPanel({ activity, rows, processName, hasMore: listsMore, more }: PanelProps<NetworkActivityRow>) {
   const { network } = activity;
   const text = `${plural(network.events, "connection", "connections")} to ${plural(network.distinct, "destination", "destinations")}`;
   return (
     <>
-      <Summary text={text} truncated={network.truncated} shown={network.rows.length} />
-      {network.rows.length > 0 && (
+      <Summary text={text} more={listsMore} shown={rows.length} />
+      {rows.length > 0 && (
         <Table>
           <thead><tr><th>Destination</th><th>Process</th><th>Count</th><th>First</th><th>Last</th></tr></thead>
           <tbody>
-            {network.rows.map((r) => (
+            {rows.map((r) => (
               <tr key={`${r.remote_address}|${String(r.remote_port)}|${r.protocol}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td className="activity-tabs__mono">
                   {hostPort(r.remote_address, r.remote_port)} {r.protocol}
@@ -230,21 +343,22 @@ function NetworkPanel({ activity, processName }: PanelProps) {
           </tbody>
         </Table>
       )}
+      {more}
     </>
   );
 }
 
-function DNSPanel({ activity, processName }: PanelProps) {
+function DNSPanel({ activity, rows, processName, hasMore: listsMore, more }: PanelProps<DNSActivityRow>) {
   const { dns } = activity;
   const text = `${plural(dns.events, "query", "queries")} for ${plural(dns.distinct, "name", "names")}`;
   return (
     <>
-      <Summary text={text} truncated={dns.truncated} shown={dns.rows.length} />
-      {dns.rows.length > 0 && (
+      <Summary text={text} more={listsMore} shown={rows.length} />
+      {rows.length > 0 && (
         <Table>
           <thead><tr><th>Name</th><th>Answers</th><th>Process</th><th>Count</th><th>First</th><th>Last</th></tr></thead>
           <tbody>
-            {dns.rows.map((r) => (
+            {rows.map((r) => (
               <tr key={`${r.query_name}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td className="activity-tabs__mono">{r.query_name}</td>
                 <td className="activity-tabs__mono">{r.addresses.join(", ")}</td>
@@ -255,6 +369,7 @@ function DNSPanel({ activity, processName }: PanelProps) {
           </tbody>
         </Table>
       )}
+      {more}
     </>
   );
 }

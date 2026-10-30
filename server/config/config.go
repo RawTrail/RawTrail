@@ -45,6 +45,8 @@ const (
 	// defaultMonitorRecordRetentionDays is how long a monitor record is kept (issue #994). Seven days because that is the window the
 	// Observed column counts over and the window a promote decision is made over; a record older than that no longer informs one.
 	defaultMonitorRecordRetentionDays = 7
+	// defaultEventRetentionDays is how long the event archive keeps raw events (issue #1434): the 30 days its migration set.
+	defaultEventRetentionDays = 30
 	// maxRetentionDays caps every retention window at a hundred years. Every consumer turns a window into a time.Duration of that many
 	// days, and a Duration counts nanoseconds in an int64, so past about 106,751 days the conversion wraps negative. A wrapped window puts
 	// the cutoff in the FUTURE and the next pass deletes every row older than that, which is to say everything: the opposite of what an
@@ -115,9 +117,13 @@ type Config struct {
 	// records, which the retention runner prunes once their exit aged past it (alert-referenced rows are kept), the per-rule
 	// monitor-match counters (issue #813), which the rules context prunes by day, and the work-queue entries SET ASIDE after a batch
 	// failed repeatedly (issue #836), aged from when they were withdrawn, which makes this knob the window an operator has to inspect
-	// a host's processing gap. 0 disables all three. Event retention is the ClickHouse archive's native TTL (ADR-0015), not this
-	// knob. Default 30. Alerts are NOT covered by it; see AlertRetentionDays.
+	// a host's processing gap. 0 disables all three. Event retention is the ClickHouse archive's native TTL (ADR-0015), set by
+	// EventRetentionDays, not this knob. Default 30. Alerts are NOT covered by it; see AlertRetentionDays.
 	RetentionDays int
+
+	// EventRetentionDays is how long the event archive keeps raw events (issue #1434): the server sets the archive's TTL to it at
+	// startup. At least 1, so the archive never keeps events without bound. Default 30.
+	EventRetentionDays int
 
 	// AlertRetentionDays is how long an alert is kept after its last triage activity (issue #995). Its own knob on purpose, independent
 	// of RetentionDays in both directions: alerts are the investigation and compliance record and belong on a far longer window than
@@ -220,6 +226,7 @@ func defaults() Config {
 		LogFormat:                  "json",
 		EnrollRatePerMin:           defaultEnrollRatePerMin,
 		RetentionDays:              defaultRetentionDays,
+		EventRetentionDays:         defaultEventRetentionDays,
 		AlertRetentionDays:         defaultAlertRetentionDays,
 		MonitorRecordRetentionDays: defaultMonitorRecordRetentionDays,
 		ShutdownDrain:              defaultShutdownDrain,
@@ -351,6 +358,11 @@ func loadRateLimits(c *Config, getenv func(string) string, errs *[]error) {
 	envparse.NonNegativeInt(getenv, "EDR_RETENTION_DAYS", &c.RetentionDays, errs)
 	envparse.NonNegativeInt(getenv, "EDR_ALERT_RETENTION_DAYS", &c.AlertRetentionDays, errs)
 	envparse.NonNegativeInt(getenv, "EDR_MONITOR_RETENTION_DAYS", &c.MonitorRecordRetentionDays, errs)
+	// Events have no "disable": an archive kept without bound fills its disk.
+	envparse.PositiveInt(getenv, "EDR_EVENT_RETENTION_DAYS", &c.EventRetentionDays, errs)
+	if c.EventRetentionDays > maxRetentionDays {
+		*errs = append(*errs, fmt.Errorf("EDR_EVENT_RETENTION_DAYS=%d exceeds the maximum of %d days", c.EventRetentionDays, maxRetentionDays))
+	}
 	for key, days := range map[string]int{
 		"EDR_RETENTION_DAYS":         c.RetentionDays,
 		"EDR_ALERT_RETENTION_DAYS":   c.AlertRetentionDays,

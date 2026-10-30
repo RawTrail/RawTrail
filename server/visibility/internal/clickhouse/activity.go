@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/rawtrail/rawtrail/server/visibility/api"
@@ -45,60 +46,106 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 	if limit <= 0 {
 		limit = defaultActivityLimit
 	}
-	genClause, genArgs := activityScopeSQL(filter)
-	scope := hostPredicate + " AND " + genClause
-	scopeArgs := append([]any{filter.HostID}, genArgs...)
-	if filter.FromNs > 0 {
-		// timestamp_ns follows (host_id, event_type) in the sorting key, so the bound prunes the host's older granules.
-		scope += " AND timestamp_ns >= ?"
-		scopeArgs = append(scopeArgs, filter.FromNs)
-	}
+	scope, scopeArgs := activityScope(filter)
 
 	// The four reads are independent and each writes its own fields of out, so they run at once: the rollup waits for the slowest.
-	// Clipped, so each list read's append of its limit copies the arguments instead of writing into an array the others share.
-	scopeArgs = slices.Clip(scopeArgs)
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return s.activityTotals(gctx, scope, scopeArgs, &out) })
-	g.Go(func() (err error) {
-		out.Files.Rows, out.Files.Truncated, err = s.fileActivity(gctx, scope, scopeArgs, limit)
+	g, gctx := errgroup.WithContext(withActivityQuerySize(ctx))
+	g.Go(func() error {
+		totals, err := s.activityTotals(gctx, scope, scopeArgs)
+		out.Files.Events, out.Files.Distinct = totals.Files.Events, totals.Files.Distinct
+		out.Network.Events, out.Network.Distinct = totals.Network.Events, totals.Network.Distinct
+		out.DNS.Events, out.DNS.Distinct = totals.DNS.Events, totals.DNS.Distinct
 		return err
 	})
 	g.Go(func() (err error) {
-		out.Network.Rows, out.Network.Truncated, err = s.networkActivity(gctx, scope, scopeArgs, limit)
+		out.Files.Rows, out.Files.Truncated, err = s.fileActivity(gctx, scope, scopeArgs, nil, limit)
 		return err
 	})
 	g.Go(func() (err error) {
-		out.DNS.Rows, out.DNS.Truncated, err = s.dnsActivity(gctx, scope, scopeArgs, limit)
+		out.Network.Rows, out.Network.Truncated, err = s.networkActivity(gctx, scope, scopeArgs, nil, limit)
+		return err
+	})
+	g.Go(func() (err error) {
+		out.DNS.Rows, out.DNS.Truncated, err = s.dnsActivity(gctx, scope, scopeArgs, nil, limit)
 		return err
 	})
 	if err := g.Wait(); err != nil {
 		return api.ActivityRollup{}, err
 	}
+	// A cut list names where its next page starts, which ActivityPage reads.
+	out.Files.NextCursor = nextCursor(out.Files.Rows, out.Files.Truncated, fileCursor)
+	out.Network.NextCursor = nextCursor(out.Network.Rows, out.Network.Truncated, networkCursor)
+	out.DNS.NextCursor = nextCursor(out.DNS.Rows, out.DNS.Truncated, dnsCursor)
 	return out, nil
 }
 
-// activityTotals counts each class's events and distinct artifacts in one pass: a file's artifact is its path, a connection's its
-// destination (address, port and protocol), a query's its name.
-func (s *Store) activityTotals(ctx context.Context, scope string, args []any, out *api.ActivityRollup) error {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT
-			toInt64(sumIf(`+activityWeight+`, event_type IN `+activityFileTypes+`)),
-			toInt64(uniqExactIf(JSONExtractString(payload, 'path'), event_type IN `+activityFileTypes+`)),
-			toInt64(sumIf(`+activityWeight+`, event_type = 'network_connect')),
-			toInt64(uniqExactIf((JSONExtractString(payload, 'remote_address'), JSONExtractInt(payload, 'remote_port'),
-				JSONExtractString(payload, 'protocol')), event_type = 'network_connect')),
-			toInt64(sumIf(`+activityWeight+`, event_type = 'dns_query')),
-			toInt64(uniqExactIf(JSONExtractString(payload, 'query_name'), event_type = 'dns_query'))
-		FROM events FINAL
-		WHERE event_type IN `+activityAllTypes+` AND `+scope, args...)
-	if err := row.Scan(&out.Files.Events, &out.Files.Distinct, &out.Network.Events, &out.Network.Distinct,
-		&out.DNS.Events, &out.DNS.Distinct); err != nil {
-		return fmt.Errorf("clickhouse activity totals: %w", err)
-	}
-	return nil
+// activityQuerySize is the query size an activity read may send. Its filter names every generation of its scope, and a session's
+// scope runs to tens of thousands of them (issue #1424): at about 20 bytes a generation, ClickHouse's default 256 KiB stops a filter
+// at some ten thousand. 8 MiB holds the largest scope a read names with room to spare.
+const activityQuerySize = 8 << 20
+
+// withActivityQuerySize raises the query size of the reads made with the context to activityQuerySize.
+func withActivityQuerySize(ctx context.Context) context.Context {
+	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{"max_query_size": activityQuerySize}))
 }
 
-func (s *Store) fileActivity(ctx context.Context, scope string, args []any, limit int) ([]api.FileActivityRow, bool, error) {
+// activityScope is the WHERE clause, after the event types, that keeps the filter's events, and its arguments. Clipped, so each list
+// read's append of its limit copies the arguments instead of writing into an array the others share.
+func activityScope(filter api.ActivityFilter) (string, []any) {
+	genClause, genArgs := activityScopeSQL(filter)
+	scope := hostPredicate + " AND " + genClause
+	args := append([]any{filter.HostID}, genArgs...)
+	if filter.FromNs > 0 {
+		// timestamp_ns follows (host_id, event_type) in the sorting key, so the bound prunes the host's older granules.
+		scope += " AND timestamp_ns >= ?"
+		args = append(args, filter.FromNs)
+	}
+	return scope, slices.Clip(args)
+}
+
+// ActivityTotalsForGenerations totals what the generations touched, as ActivityForGenerations does, with the file events by operation
+// and no lists. Every figure comes from one aggregate, so a live session's events arriving mid-read cannot make the operations disagree
+// with the file total. A filter with no generation and no span totals nothing, as the rollup does.
+func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter api.ActivityFilter) (api.ActivitySummary, error) {
+	if len(filter.Generations) == 0 && len(filter.Spans) == 0 {
+		return api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}, nil
+	}
+	scope, args := activityScope(filter)
+	return s.activityTotals(withActivityQuerySize(ctx), scope, args)
+}
+
+// activityTotals counts each class's events and distinct artifacts, and the file events by operation, in one pass: a file's artifact
+// is its path, a connection's its destination (address, port and protocol), a query's its name.
+func (s *Store) activityTotals(ctx context.Context, scope string, args []any) (api.ActivitySummary, error) {
+	out := api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}
+	operations, counts := []string{}, []int64{}
+	// The operations are one map, read as its keys and values from the row that computes it once.
+	row := s.db.QueryRowContext(ctx, `
+		SELECT operations.1, operations.2, files, paths, connections, destinations, queries, names
+		FROM (
+			SELECT
+				sumMapIf(([`+activityFileOperation+`], [toInt64(`+activityWeight+`)]), event_type IN `+activityFileTypes+`) AS operations,
+				toInt64(sumIf(`+activityWeight+`, event_type IN `+activityFileTypes+`)) AS files,
+				toInt64(uniqExactIf(JSONExtractString(payload, 'path'), event_type IN `+activityFileTypes+`)) AS paths,
+				toInt64(sumIf(`+activityWeight+`, event_type = 'network_connect')) AS connections,
+				toInt64(uniqExactIf((JSONExtractString(payload, 'remote_address'), JSONExtractInt(payload, 'remote_port'),
+					JSONExtractString(payload, 'protocol')), event_type = 'network_connect')) AS destinations,
+				toInt64(sumIf(`+activityWeight+`, event_type = 'dns_query')) AS queries,
+				toInt64(uniqExactIf(JSONExtractString(payload, 'query_name'), event_type = 'dns_query')) AS names
+			FROM events FINAL
+			WHERE event_type IN `+activityAllTypes+` AND `+scope+`
+		)`, args...)
+	if err := row.Scan(&operations, &counts, &out.Files.Events, &out.Files.Distinct, &out.Network.Events, &out.Network.Distinct,
+		&out.DNS.Events, &out.DNS.Distinct); err != nil {
+		return api.ActivitySummary{}, fmt.Errorf("clickhouse activity totals: %w", err)
+	}
+	for i, operation := range operations {
+		out.Files.ByOperation[operation] = counts[i]
+	}
+	return out, nil
+}
+
+func (s *Store) fileActivity(ctx context.Context, scope string, args []any, after keyset, limit int) ([]api.FileActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+activityFileOperation+` AS operation, JSONExtractString(payload, 'path') AS path,
 			JSONExtractString(payload, 'source_path') AS source_path, toBool(JSONExtractBool(payload, 'rolled_up')) AS rolled_up,
@@ -106,8 +153,9 @@ func (s *Store) fileActivity(ctx context.Context, scope string, args []any, limi
 		FROM events FINAL
 		WHERE event_type IN `+activityFileTypes+` AND `+scope+`
 		GROUP BY operation, path, source_path, rolled_up, pid, pv
-		ORDER BY first, path, operation
-		LIMIT ?`, append(args, limit+1)...)
+		`+after.having(fileOrder)+`
+		ORDER BY `+fileOrder+`
+		LIMIT ?`, after.args(args, limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse file activity: %w", err)
 	}
@@ -116,7 +164,9 @@ func (s *Store) fileActivity(ctx context.Context, scope string, args []any, limi
 	})
 }
 
-func (s *Store) networkActivity(ctx context.Context, scope string, args []any, limit int) ([]api.NetworkActivityRow, bool, error) {
+func (s *Store) networkActivity(
+	ctx context.Context, scope string, args []any, after keyset, limit int,
+) ([]api.NetworkActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT JSONExtractString(payload, 'remote_address') AS address, JSONExtractInt(payload, 'remote_port') AS port,
 			JSONExtractString(payload, 'protocol') AS protocol,
@@ -126,8 +176,9 @@ func (s *Store) networkActivity(ctx context.Context, scope string, args []any, l
 		FROM events FINAL
 		WHERE event_type = 'network_connect' AND `+scope+`
 		GROUP BY address, port, protocol, pid, pv
-		ORDER BY first, address, port
-		LIMIT ?`, append(args, limit+1)...)
+		`+after.having(networkOrder)+`
+		ORDER BY `+networkOrder+`
+		LIMIT ?`, after.args(args, limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse network activity: %w", err)
 	}
@@ -138,7 +189,7 @@ func (s *Store) networkActivity(ctx context.Context, scope string, args []any, l
 
 // dnsActivity lists the names resolved, each with up to 16 of the addresses its answers carried, sorted. The bound is inside the
 // aggregate, so a name whose answers rotate through many addresses does not collect all of them only to keep 16.
-func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, limit int) ([]api.DNSActivityRow, bool, error) {
+func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, after keyset, limit int) ([]api.DNSActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT JSONExtractString(payload, 'query_name') AS name,
 			arraySort(groupUniqArrayArray(16)(JSONExtract(payload, 'response_addresses', 'Array(String)'))),
@@ -147,8 +198,9 @@ func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, limit
 		FROM events FINAL
 		WHERE event_type = 'dns_query' AND `+scope+`
 		GROUP BY name, pid, pv
-		ORDER BY first, name
-		LIMIT ?`, append(args, limit+1)...)
+		`+after.having(dnsOrder)+`
+		ORDER BY `+dnsOrder+`
+		LIMIT ?`, after.args(args, limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse dns activity: %w", err)
 	}
@@ -184,26 +236,16 @@ func scanActivity[R any](rows *sql.Rows, limit int, fields func(*R) []any) ([]R,
 // reported again is listed once, at the time the agent first recorded it, and a line another user forged with the same ids is listed
 // apart, under its own uid.
 func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilter) ([]api.AgentToolCall, bool, error) {
-	where := hostPredicate + ` AND event_type = 'agent_tool_call' AND JSONExtractString(payload, 'agent_session_id') = ?`
-	args := []any{filter.HostID, filter.SessionID}
-	if filter.FromNs > 0 {
-		where += " AND timestamp_ns >= ?"
-		args = append(args, filter.FromNs)
-	}
-	if filter.ToNs > 0 {
-		where += " AND timestamp_ns <= ?"
-		args = append(args, filter.ToNs)
-	}
-	where += " AND " + notCopiedSQL
-	args = append(args, filter.HostID, filter.HostID, filter.SessionID, filter.HostID, filter.HostID, filter.SessionID)
+	where, args := toolCallScope(filter)
 	// One argMin over the whole record, so every field comes from the first recording, as the time does.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, first.1, first.2, first.3, first.4, toBool(first.5), toBool(first.6), at, uid
+		SELECT id, first.1, first.2, first.3, first.4, toBool(first.5), toBool(first.6), at, uid, first.7
 		FROM (
 			SELECT JSONExtractString(payload, 'tool_use_id') AS id, JSONExtractInt(payload, 'uid') AS uid,
 				argMin((JSONExtractString(payload, 'tool_name'), JSONExtractString(payload, 'command'),
 					JSONExtractString(payload, 'description'), JSONExtractString(payload, 'file_path'),
-					JSONExtractBool(payload, 'sidechain'), JSONExtractBool(payload, 'truncated')), (timestamp_ns, event_id)) AS first,
+					JSONExtractBool(payload, 'sidechain'), JSONExtractBool(payload, 'truncated'),
+					JSONExtractString(payload, 'prompt_id')), (timestamp_ns, event_id)) AS first,
 				min(timestamp_ns) AS at
 			FROM events FINAL
 			WHERE `+where+`
@@ -215,8 +257,59 @@ func (s *Store) AgentToolCalls(ctx context.Context, filter api.AgentToolCallFilt
 		return nil, false, fmt.Errorf("clickhouse agent tool calls: %w", err)
 	}
 	return scanActivity(rows, filter.Limit, func(c *api.AgentToolCall) []any {
-		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID}
+		return []any{&c.ToolUseID, &c.ToolName, &c.Command, &c.Description, &c.FilePath, &c.Sidechain, &c.Truncated, &c.CalledAtNs, &c.UID,
+			&c.PromptID}
 	})
+}
+
+// toolCallScope is the WHERE clause that keeps one session's own tool calls in the filter's window, copies of another session's left
+// out, and its arguments.
+func toolCallScope(filter api.AgentToolCallFilter) (string, []any) {
+	where := hostPredicate + ` AND event_type = 'agent_tool_call' AND JSONExtractString(payload, 'agent_session_id') = ?`
+	args := []any{filter.HostID, filter.SessionID}
+	if filter.FromNs > 0 {
+		where += " AND timestamp_ns >= ?"
+		args = append(args, filter.FromNs)
+	}
+	if filter.ToNs > 0 {
+		where += " AND timestamp_ns <= ?"
+		args = append(args, filter.ToNs)
+	}
+	where += " AND " + notCopiedSQL
+	return where, append(args, filter.HostID, filter.HostID, filter.SessionID, filter.HostID, filter.HostID, filter.SessionID)
+}
+
+// AgentToolCallCounts counts one session's tool calls by tool (issue #1422), each call once by tool_use_id and owner, as
+// AgentToolCalls lists them, named by the tool its first recording gives.
+func (s *Store) AgentToolCallCounts(ctx context.Context, filter api.AgentToolCallFilter) ([]api.ToolCallCount, error) {
+	where, args := toolCallScope(filter)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tool, toInt64(count()) AS n
+		FROM (
+			SELECT JSONExtractString(payload, 'tool_use_id') AS id, JSONExtractInt(payload, 'uid') AS uid,
+				argMin(JSONExtractString(payload, 'tool_name'), (timestamp_ns, event_id)) AS tool
+			FROM events FINAL
+			WHERE `+where+`
+			GROUP BY id, uid
+		)
+		GROUP BY tool
+		ORDER BY n DESC, tool`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse agent tool call counts: %w", err)
+	}
+	defer rows.Close()
+	out := []api.ToolCallCount{}
+	for rows.Next() {
+		var c api.ToolCallCount
+		if err := rows.Scan(&c.ToolName, &c.Count); err != nil {
+			return nil, fmt.Errorf("scan tool call count: %w", err)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tool call counts: %w", err)
+	}
+	return out, nil
 }
 
 // The fields of an agent_tool_call payload the copy and lineage reads use (issues #1347 and #1354).
@@ -229,19 +322,24 @@ const (
 	toolCalls   = "events FINAL WHERE " + hostPredicate + " AND event_type = 'agent_tool_call'"
 )
 
-// heldBySourcesSQL lists the calls held by the sessions a session's calls name as their source: the origin a copied line was written
-// under, or the parent the session's /fork job names. Its arguments are the host, the host and the session.
-const heldBySourcesSQL = `SELECT ` + callSession + `, ` + callID + `, ` + callUID + ` FROM ` + toolCalls + ` AND ` + callSession + ` IN (
-			SELECT arrayJoin([` + callOrigin + `, ` + callForked + `]) FROM ` + toolCalls + ` AND ` + callSession + ` = ?)`
-
 // notCopiedSQL keeps a session's calls that are not copies of another session's (issues #1347 and #1354). A copy is a call that the
 // session it names holds under the same tool_use_id and owner: the origin its line was written under, or the parent its /fork job
 // names. The origin alone is not enough, since a process that switched sessions (/clear) writes its first session's id on the new
-// session's own calls, and a fork of that session copies them naming that first session too; the job's parent holds them. The held
-// calls looked up are those of the sessions this session's calls name, not the host's whole history. Its arguments are the host, the
-// host and the session, twice.
-const notCopiedSQL = `NOT ((` + callOrigin + ` != '' AND (` + callOrigin + `, ` + callID + `, ` + callUID + `) IN (` + heldBySourcesSQL + `))
-		OR (` + callForked + ` != '' AND (` + callForked + `, ` + callID + `, ` + callUID + `) IN (` + heldBySourcesSQL + `)))`
+// session's own calls, and a fork of that session copies them naming that first session too; the job's parent holds them. Its
+// arguments are the host, the host and the session, twice.
+var notCopiedSQL = notCopied("agent_tool_call", callID)
+
+// notCopied is the copy filter for one event type of a session's transcript, its entries told apart by id: the agent_tool_call
+// event's tool_use_id, or an agent_usage event's message_id (issue #1427), whose lines a fork copies the same way.
+func notCopied(eventType, id string) string {
+	scope := "events FINAL WHERE " + hostPredicate + " AND event_type = '" + eventType + "'"
+	// The entries held by the sessions this session's entries name as their source, not the host's whole history. Its arguments
+	// are the host, the host and the session.
+	held := `SELECT ` + callSession + `, ` + id + `, ` + callUID + ` FROM ` + scope + ` AND ` + callSession + ` IN (
+			SELECT arrayJoin([` + callOrigin + `, ` + callForked + `]) FROM ` + scope + ` AND ` + callSession + ` = ?)`
+	return `NOT ((` + callOrigin + ` != '' AND (` + callOrigin + `, ` + id + `, ` + callUID + `) IN (` + held + `))
+		OR (` + callForked + ` != '' AND (` + callForked + `, ` + id + `, ` + callUID + `) IN (` + held + `)))`
+}
 
 // AgentSessionLineage reads a session's parent and forks (issues #1347 and #1354) from its owner's calls on its host. A session's
 // parent is the one its /fork job names where the agent read it, and otherwise the origin of its latest copied call; the forks are

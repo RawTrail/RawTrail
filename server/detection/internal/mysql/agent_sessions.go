@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/jmoiron/sqlx"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
 // sessionCursor is the keyset position of the sessions list: the last row of the previous page by its sort key. Session ids are the
@@ -61,6 +65,56 @@ func (s *Store) GetAgentSession(ctx context.Context, hostID, sessionID string) (
 	return &rows[0], nil
 }
 
+// AgentSessionCounts counts one session's retained processes and the alerts raised on them by severity (issue #1422), as the sessions
+// list counts them, both served by idx_processes_host_agent_session_fork.
+func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string) (api.AgentSessionCounts, error) {
+	out := api.AgentSessionCounts{AlertsBySeverity: map[string]int64{}}
+	if err := s.db.GetContext(ctx, &out.Processes,
+		`SELECT COUNT(*) FROM processes WHERE host_id = ? AND agent_session_id = ?`, hostID, sessionID); err != nil {
+		return api.AgentSessionCounts{}, fmt.Errorf("count session processes: %w", err)
+	}
+	var bySeverity []struct {
+		Severity string `db:"severity"`
+		N        int64  `db:"n"`
+	}
+	if err := s.db.SelectContext(ctx, &bySeverity, `
+		SELECT a.severity, COUNT(*) AS n FROM alerts a JOIN processes p ON p.id = a.process_id
+		WHERE p.host_id = ? AND p.agent_session_id = ? AND a.disposition = ?
+		GROUP BY a.severity`, hostID, sessionID, api.AlertDispositionAlert); err != nil {
+		return api.AgentSessionCounts{}, fmt.Errorf("count session alerts by severity: %w", err)
+	}
+	for _, c := range bySeverity {
+		out.AlertsBySeverity[c.Severity] = c.N
+	}
+	return out, nil
+}
+
+// sessionBypassed says an agent_sessions row's session ran in the bypassPermissions mode (issue #1427), a point lookup on
+// agent_session_bypass's primary key.
+const sessionBypassed = `EXISTS (SELECT 1 FROM agent_session_bypass b
+	WHERE b.host_id = agent_sessions.host_id AND b.agent_session_id = agent_sessions.agent_session_id)`
+
+// AlertedProcesses lists which of the given process rows an alert, not a monitor record, was raised on (issue #1443), in chunks of
+// processUpdateChunk rows. A command's processes include what launchd started for it, which carries no session marker, so they are
+// asked for by row rather than by session.
+func (s *Store) AlertedProcesses(ctx context.Context, processIDs []int64) ([]int64, error) {
+	var out []int64
+	for start := 0; start < len(processIDs); start += processUpdateChunk {
+		chunk := processIDs[start:min(start+processUpdateChunk, len(processIDs))]
+		query, args, err := sqlx.In(`SELECT DISTINCT process_id FROM alerts WHERE process_id IN (?) AND disposition = ?`,
+			chunk, api.AlertDispositionAlert)
+		if err != nil {
+			return nil, fmt.Errorf("build alerted processes query: %w", err)
+		}
+		var ids []int64
+		if err := s.db.SelectContext(ctx, &ids, s.db.Rebind(query), args...); err != nil {
+			return nil, fmt.Errorf("list alerted processes: %w", err)
+		}
+		out = append(out, ids...)
+	}
+	return out, nil
+}
+
 // ListAgentSessions returns one page of agent sessions (issue #1283), most recently active first, keyset-paged on (last_seen_ns,
 // host_id, agent_session_id), which is idx_agent_sessions_last_seen's order (InnoDB appends the primary key), so a page reads only
 // its rows. Each row carries its process and alert counts, read with one grouped query each over the page's sessions rather than one
@@ -85,6 +139,9 @@ func (s *Store) ListAgentSessions(
 	if filter.ToNs > 0 {
 		where, args = append(where, "first_seen_ns <= ?"), append(args, filter.ToNs)
 	}
+	if filter.Bypass {
+		where = append(where, sessionBypassed)
+	}
 	var total int64
 	if err := s.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM agent_sessions WHERE "+strings.Join(where, " AND "), args...); err != nil {
 		return api.AgentSessionResult{}, fmt.Errorf("count agent sessions: %w", err)
@@ -98,7 +155,8 @@ func (s *Store) ListAgentSessions(
 	}
 	var rows []api.AgentSessionSummary
 	if err := s.db.SelectContext(ctx, &rows, `
-		SELECT host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns
+		SELECT host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns,
+			`+sessionBypassed+` AS bypass
 		FROM agent_sessions WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY last_seen_ns DESC, host_id DESC, agent_session_id DESC
 		LIMIT ?`, append(args, limit+1)...,
@@ -114,8 +172,37 @@ func (s *Store) ListAgentSessions(
 	if err := s.countSessionActivity(ctx, rows); err != nil {
 		return api.AgentSessionResult{}, err
 	}
+	s.fillSessionTokens(ctx, rows)
 	result.Rows = rows
 	return result, nil
+}
+
+// sessionTokensTimeout bounds the sessions list's token read, so a stalled event archive delays the list by seconds rather than
+// holding it past the server's write timeout.
+const sessionTokensTimeout = 3 * time.Second
+
+// fillSessionTokens fills each row's token total from the event archive with one read over the page's sessions. The list is served
+// from MySQL, so an archive that cannot be read in time leaves the totals out rather than failing the list.
+func (s *Store) fillSessionTokens(ctx context.Context, rows []api.AgentSessionSummary) {
+	if len(rows) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, sessionTokensTimeout)
+	defer cancel()
+	refs := make([]visibilityapi.AgentSessionRef, len(rows))
+	for i, r := range rows {
+		refs[i] = visibilityapi.AgentSessionRef{HostID: r.HostID, SessionID: r.AgentSessionID}
+	}
+	tokens, err := s.archive.AgentSessionTokens(ctx, refs)
+	if err != nil {
+		s.logger.WarnContext(ctx, "agent sessions list: token totals unavailable", "err", err)
+		return
+	}
+	for i, ref := range refs {
+		if n, ok := tokens[ref]; ok {
+			rows[i].Tokens = &n
+		}
+	}
 }
 
 // countSessionActivity fills each row's process and alert counts with one grouped query apiece over the page's sessions, both served

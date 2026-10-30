@@ -308,6 +308,12 @@ paths:
           in: query
           description: The process id of the story's root, for `scope=story`.
           schema: {type: integer, format: int64, minimum: 1}
+        - name: cursor
+          in: query
+          description: >-
+            For `scope=session` or `scope=story`, the previous page's `next_cursor`: the read continues after that page's last row,
+            oldest first. A session's `agents` come with its first page only. A malformed cursor is rejected with `invalid_cursor`.
+          schema: {type: string}
       responses:
         "200":
           description: Forest of process roots
@@ -317,6 +323,11 @@ paths:
                 type: object
                 required: [roots, returned, total_matched, total_matched_capped, truncated]
                 properties:
+                  next_cursor:
+                    type: string
+                    description: >-
+                      For a cut `scope=session` or `scope=story` read, the cursor of the next page. A page's processes whose creator is on
+                      an earlier page are its roots. Absent on the last page and for any other read.
                   roots:
                     type: array
                     items:
@@ -386,6 +397,12 @@ paths:
                       was not seen.
                     items:
                       $ref: "#/components/schemas/ProcessNode"
+                  links_truncated:
+                    type: boolean
+                    description: >-
+                      True when what the read added through its links (a launched program's descendants, an app's services) was cut at
+                      its bound. `truncated` is set too; a later page of a scoped read does not read them again, so a client joining
+                      pages keeps this.
                   agent_own_truncated:
                     type: boolean
                     description: For a `session` read, true when an agent's own processes were cut at their bound (2,000 per agent).
@@ -537,14 +554,79 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/activity/{class}:
+    get:
+      tags: [Hosts]
+      summary: The next page of one class of a scope's activity
+      description: >-
+        One page of the files, network destinations or DNS names a scope touched, after the cursor the activity rollup or the previous
+        page handed out, in the rollup's order. The scope is named as for `GET /api/hosts/{host_id}/activity`. Each row has the shape
+        of its class's rows there.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: class
+          in: path
+          required: true
+          schema: {type: string, enum: [files, network, dns]}
+        - name: scope
+          in: query
+          required: true
+          description: As for the rollup.
+          schema: {type: string, enum: [process, subtree, session, story]}
+        - name: process
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: session
+          in: query
+          schema: {type: string, maxLength: 256}
+        - name: root
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: cursor
+          in: query
+          description: The cursor the rollup or the previous page handed out for this class; none reads the first page.
+          schema: {type: string}
+        - name: q
+          in: query
+          description: >-
+            Keep the rows whose artifact holds this text, regardless of case: a file's path or a rename's origin, a destination's
+            address or name, a lookup's name. Send the same q with a cursor this search handed out.
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, default: 200, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the class's rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows]
+                properties:
+                  rows:
+                    type: array
+                    description: The class's rows, shaped as in the activity rollup.
+                    items: {type: object}
+                  next_cursor: {type: string, description: Absent on the last page.}
+        "400":
+          description: "`invalid_scope`, or `invalid_cursor` for a malformed cursor, one of another class, or an unknown class."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls:
     get:
       tags: [Hosts]
       summary: The tool calls an AI agent session recorded
       description: >-
         The tool calls the agent recorded in its session transcript, read by the agent from the transcript on disk and stored in the
-        event archive, oldest first and each once per transcript owner. Only tool-call metadata is held: never prompt text, model
-        output or tool results.
+        event archive, oldest first and each once per transcript owner. A call holds tool-call metadata only: never model output or
+        tool results.
         A forked session's copy of a call from the session it was forked from is listed under that session only.
         The list is capped, and a cut list says so.
       security:
@@ -632,6 +714,505 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/hosts/{host_id}/agent-sessions/{session_id}/commands:
+    get:
+      tags: [Hosts]
+      summary: The commands an AI agent session ran
+      description: >-
+        The session's commands in the order they started, a page at a time. A command is the processes one call started: the
+        agent's wrapper shell for a Bash call and everything under it, a daemon it backgrounded included, with what launchd started
+        for it (an `open`, a `launchctl submit`) moved under the process that asked. Each is labelled with the command the agent ran,
+        read from the wrapper, and paired with the Bash call the agent recorded for it: the nearest earlier call that ran the same
+        command and that the same user's transcript holds. Identical calls the agent made in one turn are offered as `ambiguous`
+        candidates rather than guessed. The server groups and pairs over the session's whole process read, so a page boundary changes
+        neither. The read covers up to 20,000 of the session's processes, and `truncated` says when it was cut.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+        - name: q
+          in: query
+          description: Keep the commands whose label, or whose processes' path or command line, holds this text, case-insensitively.
+          schema: {type: string}
+        - name: cursor
+          in: query
+          description: The previous page's `next_cursor`.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Commands per page.
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+        - name: command
+          in: query
+          description: >-
+            A command's `key`: read that one command with every process listed, instead of a page. `q`, `cursor` and `limit` are ignored.
+          schema: {type: string}
+      responses:
+        "200":
+          description: One page of the session's commands
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commands, total_matched, inferred, services, truncated, tool_calls_truncated]
+                properties:
+                  commands:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, command, from_agent, start_ns, last_ns, process_ids, roots]
+                      properties:
+                        key: {type: string, description: "The command by the row of the root that started it, `row:<id>`."}
+                        command: {type: string, description: "What the agent ran, or the root's command line when it is not the agent's wrapper."}
+                        from_agent: {type: boolean, description: True when the root is the agent's wrapper shell for a Bash call.}
+                        uid: {type: integer, description: The user the command's root ran as.}
+                        start_ns: {type: integer, format: int64}
+                        last_ns: {type: integer, format: int64, description: "The latest observed exit, exec or fork of its processes."}
+                        process_ids:
+                          type: array
+                          items: {type: integer, format: int64}
+                          description: Every process the command started, shell plumbing included.
+                        roots:
+                          type: array
+                          description: >-
+                            The command's processes as a forest, nested by creator, launched programs under their launcher. Past 100
+                            processes a page lists the first 100, every alerted process and every process `q` finds, each under its
+                            creators, and sets `processes_cut`.
+                          items: {$ref: "#/components/schemas/ProcessNode"}
+                        processes_cut:
+                          type: boolean
+                          description: True when `roots` lists only some of the command's processes; `process_ids` still names them all.
+                        tool_call:
+                          type: object
+                          required: [kind]
+                          description: The Bash call the command pairs with; absent when none does.
+                          properties:
+                            kind: {type: string, enum: [matched, ambiguous]}
+                            call: {type: object, description: "The paired call, as the tool-calls endpoint lists it, when `matched`."}
+                            candidates: {type: array, items: {type: object}, description: "The first 10 of the tied calls, when `ambiguous`."}
+                            candidate_count: {type: integer, description: "How many calls are tied, when `ambiguous`."}
+                  next_cursor: {type: string, description: Absent on the last page.}
+                  total_matched: {type: integer, description: The commands the query matched across every page.}
+                  inferred:
+                    type: array
+                    items: {type: integer, format: int64}
+                    description: The page's processes launchd started for the command they are listed under, linked by timing and target.
+                  services:
+                    type: array
+                    items: {type: integer, format: int64}
+                    description: The page's processes listed under the app that is responsible for them.
+                  truncated: {type: boolean, description: "True when the session had more processes than the 20,000 that are read."}
+                  tool_calls_truncated: {type: boolean, description: True when the session recorded more tool calls than are read.}
+        "400":
+          description: "`invalid_cursor`: the cursor does not decode."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`not_found`: no such session on the host, or no such `command` in it."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/hosts/{host_id}/agent-sessions/{session_id}/processes:
+    get:
+      tags: [Hosts]
+      summary: Search an AI agent session's processes
+      description: >-
+        The session's processes whose path or command line holds `q`, case-insensitively, each listed without its children and in the
+        order they forked, a page at a time. The search covers the session's whole process read, not a page of its tree, so it finds
+        a process however deep it sits or however late it ran. The read covers up to 20,000 of the session's processes, and
+        `truncated` says when it was cut. An empty `q` lists every process.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+        - name: q
+          in: query
+          description: Keep the processes whose path or command line holds this text, case-insensitively.
+          schema: {type: string}
+        - name: cursor
+          in: query
+          description: The previous page's `next_cursor`.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Processes per page.
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the processes the search found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [processes, total_matched, truncated]
+                properties:
+                  processes:
+                    type: array
+                    description: The matching processes, each without its children.
+                    items: {$ref: "#/components/schemas/ProcessNode"}
+                  next_cursor: {type: string, description: Absent on the last page.}
+                  total_matched: {type: integer, description: The processes the search matched across every page.}
+                  truncated: {type: boolean, description: "True when the session had more processes than the 20,000 that are read."}
+        "400":
+          description: "`invalid_cursor`: the cursor does not decode."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/hosts/{host_id}/agent-sessions/{session_id}/prompts:
+    get:
+      tags: [Hosts]
+      summary: The prompts a person typed in an AI agent session
+      description: >-
+        The prompts a person typed to the agent in this session, oldest first, a page at a time, as the agent sent them: recognizable
+        credentials replaced by a placeholder naming their kind, and the text cut at 16 KiB. Each names its turn (`prompt_id`), which
+        the session's tool calls made in it name too. Requires `agent_prompt.read` as well as process read for the host; process read
+        alone does not grant it, and every read is audited.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+        - name: q
+          in: query
+          description: Keep the prompts whose text holds this, case-insensitively.
+          schema: {type: string}
+        - name: cursor
+          in: query
+          description: The previous page's `next_cursor`.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Prompts per page.
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the session's prompts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [prompts]
+                properties:
+                  prompts:
+                    type: array
+                    items:
+                      type: object
+                      required: [prompt_id, text, length, at_ns, uid]
+                      properties:
+                        prompt_id: {type: string, description: The turn the prompt began.}
+                        text: {type: string, description: "The prompt as sent: redacted, and cut at 16 KiB."}
+                        length: {type: integer, description: The prompt's length in bytes as typed.}
+                        truncated: {type: boolean, description: True when the text was cut.}
+                        redacted: {type: integer, description: How many credentials were replaced.}
+                        source: {type: string, description: "How it was entered: `typed`, `queued` or `suggestion_accepted`."}
+                        at_ns: {type: integer, format: int64}
+                        uid: {type: integer, description: The user whose transcript it was read from.}
+                  next_cursor: {type: string, description: Absent on the last page.}
+        "400":
+          description: "`invalid_cursor`: the cursor does not decode."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`forbidden`: the caller lacks process read for the host or `agent_prompt.read`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/hosts/{host_id}/agent-sessions/{session_id}/conversation:
+    get:
+      tags: [Hosts]
+      summary: An AI agent session as its turns
+      description: >-
+        The session as the person and the agent took turns, oldest first, a page at a time. Each turn has the prompt that began it,
+        the commands the agent ran for it (as the commands endpoint lists them, placed by the tool call each pairs with), and the
+        tool calls that ran no command: file reads and edits, web fetches, MCP tools. A command no call pairs with, and a call read
+        before any turn, are listed in a last turn with no `prompt_id`. A prompt's text is listed only for a caller that also holds
+        `agent_prompt.read`; without it `prompts_hidden` is set, each prompt is listed without its text, and `q` does not search the
+        text. A turn whose prompt the agent did not capture has no `prompt`.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+        - name: q
+          in: query
+          description: Keep the turns whose prompt text, a command, or a call's command or path holds this, case-insensitively.
+          schema: {type: string}
+        - name: cursor
+          in: query
+          description: The previous page's `next_cursor`.
+          schema: {type: string}
+        - name: limit
+          in: query
+          description: Turns per page.
+          schema: {type: integer, default: 50, minimum: 1, maximum: 200}
+      responses:
+        "200":
+          description: One page of the session's turns
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [turns, total_matched, prompts_hidden, truncated, tool_calls_truncated, prompts_truncated]
+                properties:
+                  turns:
+                    type: array
+                    items:
+                      type: object
+                      required: [at_ns, commands, calls]
+                      properties:
+                        prompt_id: {type: string, description: "The turn; absent on the turn of what belongs to no prompt."}
+                        uid: {type: integer, description: "The owner of the transcript the turn was read from. Another user's prompt or call naming the same turn is a turn of its own."}
+                        at_ns: {type: integer, format: int64, description: "The prompt's time, or the turn's first item's when it has none."}
+                        prompt: {type: object, description: "The prompt as the prompts endpoint lists it, its text left out when prompts are hidden."}
+                        commands:
+                          type: array
+                          description: The commands of the turn, as the commands endpoint lists them.
+                          items: {type: object}
+                        calls:
+                          type: array
+                          description: The tool calls of the turn that ran no command, as the tool-calls endpoint lists them.
+                          items: {type: object}
+                  next_cursor: {type: string, description: Absent on the last page.}
+                  total_matched: {type: integer, description: The turns the query matched across every page.}
+                  prompts_hidden: {type: boolean, description: True when the caller lacks `agent_prompt.read`.}
+                  truncated: {type: boolean, description: "True when the session had more processes than the 20,000 that are read."}
+                  tool_calls_truncated: {type: boolean, description: True when the session recorded more tool calls than are read.}
+                  prompts_truncated: {type: boolean, description: "True when the session had more than the 5,000 prompts that are read."}
+        "400":
+          description: "`invalid_cursor`: the cursor does not decode."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/hosts/{host_id}/agent-sessions/{session_id}/summary:
+    get:
+      tags: [Hosts]
+      summary: An AI agent session's totals
+      description: >-
+        How much one AI agent session did, counted by the server over the whole session rather than over a page of it: its retained
+        processes, the alerts raised on them by severity (monitor records not counted), the tool calls it recorded by tool (each call
+        once, a forked session's copies of its parent's calls left out), and its file events by operation with its network and DNS
+        totals. The activity is counted over the same processes the session's activity rollup (`GET /api/hosts/{host_id}/activity`)
+        reads, up to 20,000 of the session's processes, and `scope` says how far that reached.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      parameters:
+        - $ref: "#/components/parameters/HostID"
+        - name: session_id
+          in: path
+          required: true
+          description: The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code.
+          schema: {type: string, maxLength: 256}
+      responses:
+        "200":
+          description: The session's totals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commands, processes, alerts, tool_calls, activity, scope, usage, digest]
+                properties:
+                  commands: {type: integer, description: "The session's commands, as `GET .../commands` lists them."}
+                  processes: {type: integer, format: int64, description: "The session's retained processes."}
+                  alerts:
+                    type: object
+                    required: [total, by_severity]
+                    properties:
+                      total: {type: integer, format: int64}
+                      by_severity:
+                        type: object
+                        description: "Alerts by severity (low, medium, high, critical); a severity no alert carries is absent."
+                        additionalProperties: {type: integer, format: int64}
+                  tool_calls:
+                    type: object
+                    required: [total, by_tool]
+                    properties:
+                      total: {type: integer, format: int64}
+                      by_tool:
+                        type: array
+                        description: Most used first, then by name.
+                        items:
+                          type: object
+                          required: [tool, count]
+                          properties:
+                            tool: {type: string, description: "The tool called, e.g. Bash, Edit, Write or Read."}
+                            count: {type: integer, format: int64}
+                  activity:
+                    type: object
+                    required: [files, network, dns]
+                    properties:
+                      files:
+                        type: object
+                        required: [events, distinct, by_operation]
+                        properties:
+                          events: {type: integer, format: int64, description: "File events, a folded one counting as the operations it stands for."}
+                          distinct: {type: integer, format: int64, description: "Distinct paths."}
+                          by_operation:
+                            type: object
+                            description: "Events by operation: an agent's create, modify, rename or delete, or a watched path's event type."
+                            additionalProperties: {type: integer, format: int64}
+                      network:
+                        type: object
+                        required: [events, distinct]
+                        properties:
+                          events: {type: integer, format: int64, description: "Connections, a coalesced flow counting as the connections it stands for."}
+                          distinct: {type: integer, format: int64, description: "Distinct destinations by address, port and protocol."}
+                      dns:
+                        type: object
+                        required: [events, distinct]
+                        properties:
+                          events: {type: integer, format: int64}
+                          distinct: {type: integer, format: int64, description: "Distinct names."}
+                  scope:
+                    type: object
+                    required: [applied, processes, unmatched, truncated]
+                    description: How far the activity's scope reached, as the activity rollup reports it.
+                    properties:
+                      applied: {type: boolean, description: "False when no process of the session carries a generation, so no activity is counted."}
+                      processes: {type: integer, description: "The processes the activity was counted over."}
+                      unmatched: {type: integer, description: "Those of them with no generation, whose events cannot be counted."}
+                      truncated: {type: boolean, description: "True when the session had more processes than the activity is counted over."}
+                  usage:
+                    type: object
+                    required: [models, modes]
+                    description: >-
+                      The tokens the session's messages used, each message once and a fork's copy of another session's left out.
+                    properties:
+                      models:
+                        type: array
+                        description: By model, heaviest output first.
+                        items:
+                          type: object
+                          required: [model, messages, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, thinking_tokens]
+                          properties:
+                            model: {type: string}
+                            messages: {type: integer, format: int64}
+                            input_tokens: {type: integer, format: int64, description: Input tokens not read from or written to the prompt cache.}
+                            output_tokens: {type: integer, format: int64, description: "Output tokens, thinking included."}
+                            cache_creation_input_tokens: {type: integer, format: int64}
+                            cache_read_input_tokens: {type: integer, format: int64}
+                            thinking_tokens: {type: integer, format: int64}
+                      modes:
+                        type: array
+                        description: The session's messages by the permission mode in force, first seen first; an empty mode is messages written before the transcript named one.
+                        items:
+                          type: object
+                          required: [mode, messages, first_ns, last_ns]
+                          properties:
+                            mode: {type: string, description: "As the agent recorded it, such as `auto`, `plan` or `bypassPermissions`."}
+                            messages: {type: integer, format: int64}
+                            first_ns: {type: integer, format: int64}
+                            last_ns: {type: integer, format: int64}
+                  digest:
+                    type: object
+                    description: >-
+                      The session described for its Summary, over the scope `activity` is counted over. Its timelines split a span
+                      holding every one of the session's commands and events, from `timeline_start_ns`, into 48 buckets
+                      `timeline_bucket_ns` wide.
+                    required: [prompts, programs, directories, directories_truncated, outside_project, domains, domains_truncated, timeline, command_timeline, timeline_start_ns, timeline_bucket_ns]
+                    properties:
+                      prompts: {type: integer, format: int64, description: "The prompts the session was sent, counted without reading their text."}
+                      programs:
+                        type: array
+                        description: "The ten programs the session's commands ran most, by executable name, most first; the shell wrapping a command the agent ran is not counted."
+                        items:
+                          type: object
+                          required: [program, count]
+                          properties:
+                            program: {type: string}
+                            count: {type: integer}
+                      directories:
+                        type: array
+                        description: The twenty directories with the most file events, most first. A folded row's directory is its own path.
+                        items:
+                          type: object
+                          required: [directory, paths, by_operation]
+                          properties:
+                            directory: {type: string}
+                            paths: {type: integer, format: int64, description: Distinct paths.}
+                            by_operation:
+                              type: object
+                              description: Events by operation, keyed as `activity.files.by_operation` is.
+                              additionalProperties: {type: integer, format: int64}
+                      directories_truncated: {type: boolean, description: More directories had file events than are listed.}
+                      outside_project: {type: integer, format: int64, description: "Distinct paths outside the session's project; 0 when its project is unknown."}
+                      domains:
+                        type: array
+                        description: >-
+                          The fifty registrable domains by the public suffix list (api.github.com counts as github.com) with the most
+                          lookups and connections, most first. A connection counts only when the agent named the host it connected to.
+                        items:
+                          type: object
+                          required: [domain, lookups, connections, new]
+                          properties:
+                            domain: {type: string}
+                            lookups: {type: integer, format: int64}
+                            connections: {type: integer, format: int64}
+                            new: {type: boolean, description: "The host had not looked the domain up before the session began, in the history it retains."}
+                      domains_truncated: {type: boolean, description: More domains were seen than are listed.}
+                      timeline: {type: array, items: {type: integer, format: int64}, description: "File, network and DNS events in each bucket."}
+                      command_timeline: {type: array, items: {type: integer, format: int64}, description: Commands that started in each bucket.}
+                      timeline_start_ns: {type: integer, format: int64}
+                      timeline_bucket_ns: {type: integer, format: int64}
+        "404":
+          description: "`not_found`: no such session on the host."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/agent-sessions:
     get:
       tags: [Hosts]
@@ -662,6 +1243,12 @@ paths:
           in: query
           description: Keep sessions first active at or before this time, ns since epoch. 0 or absent is unbounded.
           schema: {type: integer, format: int64, minimum: 0}
+        - name: bypass
+          in: query
+          description: >-
+            `true` keeps only the sessions that ran with permissions bypassed (Claude Code's `bypassPermissions` mode), or were forked
+            from one that did, since a fork carries copies of its parent's lines.
+          schema: {type: string, enum: ["true"]}
         - name: cursor
           in: query
           description: The `next_cursor` of the previous page.
@@ -689,7 +1276,7 @@ paths:
                     type: integer
                     format: int64
         "400":
-          description: "`bad_window` or `invalid_cursor`."
+          description: "`bad_window`, `invalid_bypass` or `invalid_cursor`."
           content:
             application/json:
               schema:
@@ -1934,6 +2521,104 @@ paths:
               schema:
                 $ref: "#/components/schemas/DetectionConfigError"
 
+  /api/v1/detection-config/agent-settings:
+    get:
+      tags: [Detection tuning]
+      summary: Read the agent settings
+      description: |
+        Returns the fleet-wide switches for what agents collect. Version 0 is the
+        settings no operator has changed, with prompt capture on.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      responses:
+        "200":
+          description: Agent settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSettings"
+        "403":
+          description: Caller lacks detection_config.read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+    put:
+      tags: [Detection tuning]
+      summary: Change the agent settings
+      description: |
+        Stores the settings as the next version and queues a
+        `set_agent_settings` command for every host with an active enrollment.
+        Hosts that miss it are sent it by a periodic catch-up. `capture_prompts`
+        is required, so a misspelled field cannot turn capture off, and `reason`
+        is required and audited with the previous and new values. A command that
+        cannot be queued for some hosts does not fail the change; the response
+        counts them.
+
+        `expected_version`, when sent, is the version the edit started from. If
+        the settings have been changed since, the change is refused with 409 and
+        nothing is stored or queued.
+      security:
+        - SessionCookie: []
+          CSRF: []
+        - ServiceAccountToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capture_prompts, reason]
+              properties:
+                capture_prompts:
+                  type: boolean
+                reason:
+                  type: string
+                expected_version:
+                  type: integer
+                  format: int64
+                  description: The version this edit started from; the change is refused if the settings are at another version.
+      responses:
+        "200":
+          description: Settings changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [settings, fanout_hosts, fanout_failed]
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/AgentSettings"
+                  fanout_hosts:
+                    type: integer
+                    description: Enrolled hosts the command was queued for.
+                  fanout_failed:
+                    type: integer
+                    description: Of those, hosts the command could not be queued for.
+                  fanout_skipped_reason:
+                    type: string
+                    enum: [host_lister_error]
+                    description: Present when the settings were queued for no host because the enrolled hosts could not be listed.
+        "400":
+          description: A missing `capture_prompts`, a blank reason, or invalid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+        "403":
+          description: Caller lacks detection_config.write
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+        "409":
+          description: The settings are no longer at `expected_version`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+
   /api/v1/detection-config/rule-match-counts:
     get:
       tags: [Detection tuning]
@@ -2751,6 +3436,8 @@ components:
             - file_activity
             - agent_credential_would_block
             - agent_tool_call
+            - agent_prompt
+            - agent_usage
             - network_connect
             - dns_query
             - application_control_block
@@ -2783,7 +3470,7 @@ components:
 
     AgentSessionSummary:
       type: object
-      required: [host_id, agent_session_id, agent_name, first_seen_ns, last_seen_ns, process_count, alert_count]
+      required: [host_id, agent_session_id, agent_name, first_seen_ns, last_seen_ns, process_count, alert_count, bypass]
       properties:
         host_id: {type: string}
         agent_session_id: {type: string}
@@ -2801,6 +3488,16 @@ components:
           type: integer
           format: int64
           description: Retained alerts raised on the session's processes; monitor records are not counted.
+        bypass:
+          type: boolean
+          description: >-
+            The session ran with permissions bypassed (Claude Code's `bypassPermissions` mode), or was forked from one that did.
+        tokens:
+          type: integer
+          format: int64
+          description: >-
+            The input, cache-write, cache-read and output tokens the session's messages used, counted as its summary's `usage` counts
+            them. Absent when the session sent no usage, or when the event archive could not be read within a few seconds.
     TimelineEvent:
       type: object
       required: [event_id, host_id, timestamp_ns, event_type, payload]
@@ -2824,6 +3521,9 @@ components:
             - type: object
               required: [rows]
               properties:
+                next_cursor:
+                  type: string
+                  description: When the list was cut, the cursor that reads its next page from `GET /api/hosts/{host_id}/activity/{class}`.
                 rows:
                   type: array
                   items:
@@ -2849,6 +3549,9 @@ components:
             - type: object
               required: [rows]
               properties:
+                next_cursor:
+                  type: string
+                  description: When the list was cut, the cursor that reads its next page from `GET /api/hosts/{host_id}/activity/{class}`.
                 rows:
                   type: array
                   items:
@@ -2867,6 +3570,9 @@ components:
             - type: object
               required: [rows]
               properties:
+                next_cursor:
+                  type: string
+                  description: When the list was cut, the cursor that reads its next page from `GET /api/hosts/{host_id}/activity/{class}`.
                 rows:
                   type: array
                   items:
@@ -3725,6 +4431,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WatchedPath"
+        updated_at:
+          type: string
+          format: date-time
+          description: Absent until the first change.
+        updated_by:
+          type: string
+          description: Principal id of whoever made the last change; absent until the first change.
+        updated_by_label:
+          type: string
+          description: >-
+            Display label resolved from updated_by at read time (a user's email, a
+            service account's name, or "system"). Absent until the first change, or
+            when the principal cannot be resolved; clients fall back to updated_by.
+    AgentSettings:
+      type: object
+      required: [version, capture_prompts]
+      properties:
+        version:
+          type: integer
+          format: int64
+        capture_prompts:
+          type: boolean
+          description: Whether agents send the prompts people type to AI agents. On until an operator turns it off.
         updated_at:
           type: string
           format: date-time

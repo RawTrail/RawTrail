@@ -29,7 +29,7 @@ test.describe("agent sessions", () => {
   // spec:web-ui/activity-table-cells-stay-on-one-line/a-file-path-in-the-process-detail-panel-reads-whole
   // spec:web-ui/session-processes-view/every-process-is-listed-under-the-agent-that-ran-it
   // spec:web-ui/session-processes-view/a-reparented-process-stays-under-its-creator
-  test("a Claude Code session is listed with its project and opens to its commands", async ({ page, agent }) => {
+  test("a Claude Code session is listed with its project, opens on its Summary and lists its commands", async ({ page, agent }) => {
     await signInAsAdminViaForgedSession(page);
     const hostId = crypto.randomUUID();
     await agent.runScenario("claude-code-session.yaml", { hostIdOverride: hostId });
@@ -53,11 +53,15 @@ test.describe("agent sessions", () => {
     // Every process carries the session: four wrapper shells, the git, the subshell's copy of zsh, the sleep it backgrounded, sudo
     // and the id it ran, the open, and TextEdit, which launchd started with the agent's environment.
     await expect(cells.nth(5)).toHaveText("11");
-    await expect(cells.nth(7)).toHaveText(SESSION_ID.slice(0, 8));
+    await expect(cells.nth(8)).toHaveText(SESSION_ID.slice(0, 8));
 
     await rows.first().getByRole("link", { name: "claude-code" }).click();
     await expect(page).toHaveURL(new RegExp(`/ui/agent-sessions/${hostId}/${SESSION_ID}$`));
     await expect(page.getByRole("heading", { name: "claude-code 2.1.296" })).toBeVisible({ timeout: 10_000 });
+    // A session opens on its Summary.
+    const views = page.getByRole("group", { name: "Session view" });
+    await expect(views.getByRole("button", { name: "Summary", pressed: true })).toBeVisible();
+    await views.getByRole("button", { name: "Commands" }).click();
 
     // One group per command the agent ran, in order, labelled with that command rather than its wrapper script.
     const commands = page.locator(".session-view__call");
@@ -87,7 +91,7 @@ test.describe("agent sessions", () => {
 
     // Every process as one tree under the agent: the agent leads, marked, and the sleep launchd adopted stays under the subshell that
     // created it, marked as reparented. Nothing is hidden or folded, so the count is the eleven processes the session's commands started.
-    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Processes" }).click();
+    await views.getByRole("button", { name: "Processes" }).click();
     const processes = page.locator(".session-view__processes");
     await expect(processes.getByText("11 processes", { exact: true })).toBeVisible();
     await expect(processes.locator(".session-view__name").first()).toHaveText("claude");
@@ -98,7 +102,7 @@ test.describe("agent sessions", () => {
     const adopted = processes.locator("li", { hasText: "reparented, ppid 1" }).last();
     await expect(adopted.locator(".session-view__name").first()).toHaveText("sleep");
     await expect(adopted.locator("xpath=../../div/button[contains(@class, 'session-view__name')]")).toHaveText("zsh");
-    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Commands" }).click();
+    await views.getByRole("button", { name: "Commands" }).click();
 
     // Selecting a process opens its detail beside the session.
     await commands.nth(1).getByRole("button", { name: "sleep", exact: true }).click();
@@ -107,7 +111,7 @@ test.describe("agent sessions", () => {
     await expect(graphLink).toHaveAttribute("href", new RegExp(`/hosts/${hostId}\\?process=\\d+&at=\\d+$`));
 
     // The session's activity: git's lookup of github.com, its one connection and its index update, matched to git by its generation.
-    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Activity" }).click();
+    await views.getByRole("button", { name: "Activity" }).click();
     const sessionActivity = page.locator(".session-view__main");
     await expect(sessionActivity.getByText("1 connection to 1 destination")).toBeVisible({ timeout: 10_000 });
     const connection = sessionActivity.locator(".activity-tabs__panel").getByRole("row").nth(1);
@@ -126,7 +130,7 @@ test.describe("agent sessions", () => {
     // The same edit in git's process detail panel, at a width that puts the panel below the commands: the path keeps to one line and
     // the table scrolls sideways, rather than wrapping the path a few characters at a time.
     await page.setViewportSize({ width: 800, height: 900 });
-    await page.getByRole("group", { name: "Session view" }).getByRole("button", { name: "Commands" }).click();
+    await views.getByRole("button", { name: "Commands" }).click();
     await commands.nth(0).getByRole("button", { name: "git", exact: true }).click();
     await page.getByRole("group", { name: "Process activity" }).getByRole("button", { name: /^Files/ }).click();
     const panelRow = page.locator(".process-detail__activity .activity-tabs__panel").getByRole("row").nth(1);

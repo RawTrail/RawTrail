@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  buildCommands,
+  shapeCommand,
   buildProcessForest,
   countOwn,
   containsHit,
@@ -14,9 +14,14 @@ import {
   type SessionRow,
 } from "./sessionTree";
 import type { ProcessNode } from "../../types";
-import { MS, proc, realSession } from "../../test/agentSession";
+import { MS, proc, realSession, sessionCommands } from "../../test/agentSession";
 
 const QUIET: RowShape = { verbose: false };
+
+// buildCommands lists a forest's commands as the view does: grouped as the server groups them, then shaped here.
+function buildCommands(roots: ProcessNode[], shape: RowShape) {
+  return sessionCommands(roots).commands.map((c) => shapeCommand(c, shape));
+}
 const VERBOSE: RowShape = { verbose: true };
 
 // outline renders rows as indented "path" lines, so a test reads the shape the view shows.
@@ -60,12 +65,6 @@ describe("buildCommands", () => {
     expect(verbose.map((c) => c.command)).toEqual(quiet.map((c) => c.command));
   });
 
-  it("does not stretch a call's span to an exit the server synthesized", () => {
-    const daemon = proc(3, 3, 202, "/bin/sleep", ["sleep", "47"], [], { exit_reason: "ttl_reconciliation", exit_time_ns: 9_000_000 * MS });
-    const root = proc(2, 2, 200, "/bin/zsh", ["zsh", "-c", "eval '(sleep 47 &)'"], [daemon], { tool_call_group: 2 });
-    // The shell's observed exit is the call's last activity, not the sweep that closed the sleep hours later.
-    expect(buildCommands([root], QUIET)[0].lastNs).toBe(205 * MS);
-  });
 
   // spec:web-ui/ai-agent-session-view-badges/an-alerted-process-is-never-hidden-as-plumbing
   it("lists plumbing an alert was raised on, even with verbose off", () => {
@@ -119,9 +118,6 @@ describe("buildCommands", () => {
     expect(buildCommands([root], QUIET)[0].rows[0].uidChange).toBeUndefined();
   });
 
-  it("collects every process of a call, hidden plumbing included", () => {
-    expect(buildCommands(realSession(), QUIET)[1].processIds).toEqual([2298325, 2298326, 2298327]);
-  });
 
   it("keeps a fork that never exec'd when it is not a shell copy", () => {
     const worker = proc(11, 2, 11, "/usr/bin/python3", undefined);
@@ -137,31 +133,8 @@ describe("buildCommands", () => {
     expect(outline(buildCommands([root], QUIET)[0].rows)).toEqual(["/bin/bash"]);
   });
 
-  it("folds a root whose creator was not read into its tool call's group", () => {
-    const orphan = proc(9, 9, 150, "/usr/bin/git", ["git", "status"], [], { tool_call_group: 80727 });
-    const calls = buildCommands([...realSession(), orphan], QUIET);
-    expect(calls).toHaveLength(5);
-    expect(outline(calls[0].rows)).toEqual(["/bin/ls", "/usr/bin/head", "/usr/bin/git"]);
-    expect(calls[0].processCount).toBe(4);
-  });
 
-  it("starts a new group when a later call's leader reuses an earlier call's process group", () => {
-    const first = proc(1, 700, 100, "/bin/zsh", ["/bin/zsh", "-c", "eval 'git status'"], [], { tool_call_group: 700 });
-    const reused = proc(2, 700, 900, "/bin/zsh", ["/bin/zsh", "-c", "eval 'make test'"], [], { tool_call_group: 700 });
-    // A process of the later call whose creator was not read joins the later call, not the earlier one.
-    const orphan = proc(3, 701, 950, "/usr/bin/make", ["make", "test"], [], { tool_call_group: 700 });
-    const calls = buildCommands([orphan, reused, first], QUIET);
-    expect(calls.map((c) => c.command)).toEqual(["git status", "make test"]);
-    expect(outline(calls[1].rows)).toEqual(["/usr/bin/make"]);
-  });
 
-  it("gives a root without a tool-call group a group of its own, labelled with its command line", () => {
-    const hook = proc(7, 7, 50, "/usr/bin/osascript", ["osascript", "-e", "beep"]);
-    const [first] = buildCommands([hook, ...realSession()], QUIET);
-    expect(first.key).toBe("row:7");
-    expect(first.command).toBe("osascript -e beep");
-    expect(outline(first.rows)).toEqual(["/usr/bin/osascript"]);
-  });
 });
 
 describe("summarizeSession", () => {

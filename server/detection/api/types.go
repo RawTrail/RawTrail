@@ -168,10 +168,18 @@ type ExecLineage struct {
 }
 
 // TreeScope selects the rows of an indexed tree read (issue #1282): an AI agent session by its id when AgentSessionID is set, or
-// else the story whose root row is StoryRootID.
+// else the story whose root row is StoryRootID. A read of it starts after After (issue #1424), or at its oldest row when After is
+// zero.
 type TreeScope struct {
 	StoryRootID    int64
 	AgentSessionID string
+	After          TreePosition
+}
+
+// TreePosition is a place in a scoped tree read's order, oldest first: the fork time and row id of the last row read.
+type TreePosition struct {
+	ForkTimeNs int64 `json:"f"`
+	ID         int64 `json:"i"`
 }
 
 // AgentSessionFilter selects agent sessions for the sessions list (issue #1283). Every field is optional: HostID, AgentSessionID and
@@ -183,6 +191,8 @@ type AgentSessionFilter struct {
 	AgentName      string
 	FromNs         int64
 	ToNs           int64
+	// Bypass keeps only the sessions that ran in the bypassPermissions mode, or were forked from one that did.
+	Bypass bool
 }
 
 // AgentSessionSummary is one row of the sessions list: the session's own record, with how much it did.
@@ -201,9 +211,22 @@ type AgentSessionSummary struct {
 	// its rows are pruned.
 	ProcessCount int64 `db:"-" json:"process_count"`
 	AlertCount   int64 `db:"-" json:"alert_count"`
+	// Bypass says the session ran in the bypassPermissions mode, or was forked from one that did, whose copied lines carry the mode.
+	// Read by ListAgentSessions only.
+	Bypass bool `db:"bypass" json:"bypass"`
+	// Tokens is the input, cache and output tokens the session's messages used, counted as its summary counts them (issue #1427).
+	// Read by ListAgentSessions only, and nil when the event archive could not be read or the session sent no usage.
+	Tokens *int64 `db:"-" json:"tokens,omitempty"`
 	// OwnerUID is the uid of the session's earliest retained process, the user who ran it, which the kernel stamped and a transcript
 	// cannot restate. Read by GetAgentSession only, and nil when no process of the session is retained (issue #1347).
 	OwnerUID *int64 `db:"owner_uid" json:"-"`
+}
+
+// AgentSessionCounts is how many retained processes one AI agent session ran and how many retained alerts (not monitor records)
+// were raised on them, by severity (issue #1422). A severity no alert carries is absent.
+type AgentSessionCounts struct {
+	Processes        int64
+	AlertsBySeverity map[string]int64
 }
 
 // AgentSessionResult is one page of the sessions list, with the cursor for the next page (absent on the last) and the number of
@@ -786,8 +809,16 @@ type ProcessTreeResult struct {
 	// Agents are an AI agent session's agent processes (issue #1334), read only for a session scope: the agent carries no session
 	// marker, so it is not among the roots, and each root it created names its row as ParentProcessID. Absent otherwise.
 	Agents []ProcessNode `json:"agents,omitempty"`
+	// LinksTruncated reports that what a read added through its links, a launched program's descendants or an app's services, was cut
+	// at its bound (issue #1425). Truncated says so too, but a later page of a scoped read does not read them again, so a client
+	// joining pages keeps this to know the joined tree is still partial.
+	LinksTruncated bool `json:"links_truncated,omitempty"`
 	// AgentOwnTruncated reports that an agent's own processes, the Children of an Agents node (issue #1361), were cut at their bound.
 	AgentOwnTruncated bool `json:"agent_own_truncated,omitempty"`
+	// Next is where a truncated scoped read's next page starts (issue #1424): its last row. The handler hands it out as a cursor.
+	Next *TreePosition `json:"-"`
+	// NextCursor is the opaque cursor of a truncated scoped read's next page. Absent on the last page and for any other read.
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 // ProcessLinkInferredLaunch is a link inferred from timing and a matching target: an open or launchctl exec, then within seconds a

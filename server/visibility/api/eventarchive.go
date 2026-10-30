@@ -83,6 +83,20 @@ type EventArchive interface {
 	// later process that reused a pid, is never counted. See ActivityRollup for what each class reports.
 	ActivityForGenerations(ctx context.Context, filter ActivityFilter) (ActivityRollup, error)
 
+	// ActivityTotalsForGenerations is ActivityForGenerations' totals without its lists (issue #1422), with the file events counted by
+	// operation, for a summary that names how much a scope touched but none of what.
+	ActivityTotalsForGenerations(ctx context.Context, filter ActivityFilter) (ActivitySummary, error)
+
+	// ActivityDigest describes what a scope touched for a summary of it (issue #1429): its file events by directory, how many paths it
+	// touched outside its project, the domains it looked up or connected to, each marked when the host had not looked it up before
+	// the scope began, and its events counted in equal buckets of the filter's span.
+	ActivityDigest(ctx context.Context, filter DigestFilter) (ActivityDigest, error)
+
+	// ActivityPage lists one class of the rollup's rows (issue #1424), filter.Limit of them, from after the row a cursor names, or
+	// from the first when the cursor is empty: the page that follows the rollup's own list, or one after it. The rows are in the
+	// rollup's order. A cursor of another class, or one that does not decode, is ErrInvalidActivityCursor.
+	ActivityPage(ctx context.Context, filter ActivityFilter, class, cursor string) (ActivityPage, error)
+
 	// SessionTouches lists, for one process generation, the first time it touched a path of each AI agent session (issue #1319),
 	// from its agent file activity: Claude Code's transcript ~/.claude/projects/<project>/<session id>.jsonl, and the session's
 	// directories.
@@ -92,6 +106,28 @@ type EventArchive interface {
 	// transcript owner however many times the agent reported it, and reports whether more than the limit were recorded. A call that
 	// is a copy of another session's (see AgentSessionLineage) is not listed: it is that session's.
 	AgentToolCalls(ctx context.Context, filter AgentToolCallFilter) ([]AgentToolCall, bool, error)
+
+	// AgentPrompts lists the prompts a person typed in one AI agent session on one host (issue #1426), oldest first, a page at a time
+	// after the filter's cursor, keeping those whose text holds the filter's search when it has one. A cursor that does not decode is
+	// an ErrInvalidPromptCursor.
+	AgentPrompts(ctx context.Context, filter AgentPromptFilter) (AgentPromptPage, error)
+
+	// AgentPromptCount counts the prompts AgentPrompts lists for one AI agent session on one host, with no search (issue #1429).
+	AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error)
+
+	// AgentUsageTotals totals the tokens one AI agent session's messages used on one host (issue #1427), by model, and counts its
+	// messages by the permission mode in force, each message once by its id and owner. A message that is a copy of another session's
+	// (see AgentToolCalls) is that session's and is not counted. The filter's window and Limit are ignored.
+	AgentUsageTotals(ctx context.Context, filter AgentToolCallFilter) (AgentUsageTotals, error)
+
+	// AgentSessionTokens totals each listed session's tokens in one read (issue #1427): its input, cache-write, cache-read and output
+	// tokens over the messages AgentUsageTotals counts for it, so a session's total agrees with its totals'. A session with no
+	// messages is absent from the result.
+	AgentSessionTokens(ctx context.Context, sessions []AgentSessionRef) (map[AgentSessionRef]int64, error)
+
+	// AgentToolCallCounts counts the calls AgentToolCalls would list for the filter, uncapped, by tool name (issue #1422), most used
+	// first and then by name. The filter's Limit is ignored.
+	AgentToolCallCounts(ctx context.Context, filter AgentToolCallFilter) ([]ToolCallCount, error)
 
 	// AgentSessionLineage reads which session a session was forked from and which were forked from it (issue #1347), from the copies
 	// of each other's tool calls their transcripts hold. Only calls read from transcripts ownerUID owns count: the session's owner,
@@ -210,6 +246,29 @@ const TotalNotCounted int64 = -1
 // sees rather than a false accusation against that host.
 var ErrEventsTruncated = errors.New("visibility: event read exceeded its row cap")
 
+// ErrInvalidActivityCursor is returned by ActivityPage when its cursor does not decode or names another class. The operator handler
+// maps it to 400.
+var ErrInvalidActivityCursor = errors.New("visibility: invalid activity cursor")
+
+// ErrInvalidPromptCursor is AgentPrompts' answer to a cursor that does not decode.
+var ErrInvalidPromptCursor = errors.New("visibility: invalid prompt cursor")
+
+// Activity classes, as ActivityPage names them.
+const (
+	ActivityFiles   = "files"
+	ActivityNetwork = "network"
+	ActivityDNS     = "dns"
+)
+
+// ActivityPage is one page of one activity class's rows: the class's rows, the others nil, and the cursor of the next page, empty on
+// the last.
+type ActivityPage struct {
+	Files      []FileActivityRow
+	Network    []NetworkActivityRow
+	DNS        []DNSActivityRow
+	NextCursor string
+}
+
 // ErrInvalidEventCursor is returned by SearchEvents when the pagination cursor does not decode. The operator handler maps it to 400.
 var ErrInvalidEventCursor = errors.New("visibility: invalid event search cursor")
 
@@ -226,6 +285,9 @@ type ActivityFilter struct {
 	// before a reboot can, is not counted.
 	FromNs int64
 	Limit  int
+	// Search, when set, keeps only the rows of an ActivityPage whose artifact holds it, case-insensitively: a file's path or a rename's
+	// origin, a destination's address or name, a lookup's name (issue #1424). The rollup's totals and lists do not read it.
+	Search string
 }
 
 // GenerationSpan is a process generation and the span its events are counted in: from FromNs, up to but excluding ToNs, zero ToNs
@@ -259,6 +321,79 @@ type ActivityTotals struct {
 	Truncated bool  `json:"truncated"`
 }
 
+// ClassTotals is a class's size without the report of a cut list: Events counts its events, a coalesced one counting as the
+// occurrences it stands for, and Distinct its distinct artifacts.
+type ClassTotals struct {
+	Events   int64 `json:"events"`
+	Distinct int64 `json:"distinct"`
+}
+
+// ActivitySummary is how much a set of process generations touched, by class, with no list of what (issue #1422).
+type ActivitySummary struct {
+	Files   FileTotals  `json:"files"`
+	Network ClassTotals `json:"network"`
+	DNS     ClassTotals `json:"dns"`
+}
+
+// FileTotals is the file class's totals and its events by operation, keyed as FileActivityRow.Operation is. A coalesced event counts
+// as the operations it stands for, as in Events, so the operations sum to Events.
+type FileTotals struct {
+	ClassTotals
+	ByOperation map[string]int64 `json:"by_operation"`
+}
+
+// DigestFilter selects the scope an ActivityDigest describes. Project is the directory the scope worked in, empty when unknown. The
+// timeline splits [StartNs, EndNs], widened to the scope's events, into Buckets equal buckets; StartNs is also when the scope
+// began, for marking first-time domains.
+type DigestFilter struct {
+	ActivityFilter
+	Project string
+	StartNs int64
+	EndNs   int64
+	Buckets int
+}
+
+// ActivityDigest is what a scope touched, in the shape a summary reads it (issue #1429). Directories lists the directories with the
+// most file events, most first, and DirectoriesTruncated reports that more had events. OutsideProject counts the distinct paths
+// outside the project. Domains lists the domains with the most lookups and connections, most first. Timeline counts the scope's
+// file, network and DNS events in equal buckets, from TimelineStartNs, TimelineBucketNs wide, a coalesced event counting as the
+// occurrences it stands for. The buckets split the filter's span widened to the scope's first and last event, so every event is on it.
+type ActivityDigest struct {
+	Directories          []DirectoryActivity `json:"directories"`
+	DirectoriesTruncated bool                `json:"directories_truncated"`
+	OutsideProject       int64               `json:"outside_project"`
+	Domains              []DomainActivity    `json:"domains"`
+	DomainsTruncated     bool                `json:"domains_truncated"`
+	Timeline             []int64             `json:"timeline"`
+	TimelineStartNs      int64               `json:"timeline_start_ns"`
+	TimelineBucketNs     int64               `json:"timeline_bucket_ns"`
+}
+
+// DirectoryActivity is the file events under one directory, keyed by operation as FileTotals.ByOperation is, and the distinct paths
+// they touched. A rolled-up row's directory is its own path.
+type DirectoryActivity struct {
+	Directory   string           `json:"directory"`
+	Paths       int64            `json:"paths"`
+	ByOperation map[string]int64 `json:"by_operation"`
+}
+
+// DomainActivity is one domain's lookups and connections, by its registrable domain under the public suffix list (api.github.com
+// and github.com are github.com).
+// A connection counts only when the agent named the host it connected to. New marks a domain the host had not looked up before the
+// scope began.
+type DomainActivity struct {
+	Domain      string `json:"domain"`
+	Lookups     int64  `json:"lookups"`
+	Connections int64  `json:"connections"`
+	New         bool   `json:"new"`
+}
+
+// ToolCallCount is how many calls of one tool an AI agent session recorded.
+type ToolCallCount struct {
+	ToolName string `json:"tool"`
+	Count    int64  `json:"count"`
+}
+
 // ActivityRow is the part of a listed artifact every class shares: the process generation that touched it, how many times, and when.
 // LastNs is the latest event time, a coalesced flow's last occurrence included.
 type ActivityRow struct {
@@ -275,6 +410,8 @@ type ActivityRow struct {
 type FileActivity struct {
 	ActivityTotals
 	Rows []FileActivityRow `json:"rows"`
+	// NextCursor reads the rows past the list, by ActivityPage, when the list was cut.
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 // FileActivityRow is one path one process touched in one way.
@@ -291,7 +428,8 @@ type FileActivityRow struct {
 // NetworkActivity lists, per process, the destinations it connected to.
 type NetworkActivity struct {
 	ActivityTotals
-	Rows []NetworkActivityRow `json:"rows"`
+	Rows       []NetworkActivityRow `json:"rows"`
+	NextCursor string               `json:"next_cursor,omitempty"`
 }
 
 // NetworkActivityRow is one destination one process connected to. RemoteHostname is the name the network extension reported for
@@ -307,7 +445,8 @@ type NetworkActivityRow struct {
 // DNSActivity lists, per process, the names it resolved.
 type DNSActivity struct {
 	ActivityTotals
-	Rows []DNSActivityRow `json:"rows"`
+	Rows       []DNSActivityRow `json:"rows"`
+	NextCursor string           `json:"next_cursor,omitempty"`
 }
 
 // DNSActivityRow is one name one process resolved, with the addresses its answers carried.
@@ -315,6 +454,71 @@ type DNSActivityRow struct {
 	ActivityRow
 	QueryName string   `json:"query_name"`
 	Addresses []string `json:"addresses"`
+}
+
+// AgentSessionRef names one AI agent session on one host.
+type AgentSessionRef struct {
+	HostID    string
+	SessionID string
+}
+
+// AgentUsageTotals is what one AI agent session's messages used (issue #1427): its tokens by model, heaviest output first, and its
+// messages by the permission mode in force when each was written, with the span each mode was seen over.
+type AgentUsageTotals struct {
+	Models []ModelUsage `json:"models"`
+	Modes  []ModeUsage  `json:"modes"`
+}
+
+// ModelUsage is the tokens a session's messages written by one model used. Input excludes the tokens written to and read from the
+// prompt cache, which CacheCreation and CacheRead count; Thinking is the part of Output spent thinking.
+type ModelUsage struct {
+	Model         string `json:"model"`
+	Messages      int64  `json:"messages"`
+	Input         int64  `json:"input_tokens"`
+	Output        int64  `json:"output_tokens"`
+	CacheCreation int64  `json:"cache_creation_input_tokens"`
+	CacheRead     int64  `json:"cache_read_input_tokens"`
+	Thinking      int64  `json:"thinking_tokens"`
+}
+
+// ModeUsage is how many of a session's messages were written in one permission mode, as the agent recorded it, and the first and
+// last of them. An empty Mode is messages written before the transcript named any.
+type ModeUsage struct {
+	Mode     string `json:"mode"`
+	Messages int64  `json:"messages"`
+	FirstNs  int64  `json:"first_ns"`
+	LastNs   int64  `json:"last_ns"`
+}
+
+// AgentPromptFilter selects a page of one session's prompts: the session on its host, the previous page's cursor (empty for the
+// first), a search the text must hold (empty for none), and the page size.
+type AgentPromptFilter struct {
+	HostID    string
+	SessionID string
+	Cursor    string
+	Search    string
+	Limit     int
+}
+
+// AgentPrompt is one prompt a person typed, as the agent sent it (issue #1426): redacted and cut at 16 KiB before it left the host.
+// Length is the prompt's length as typed, Redacted how many credentials were replaced, and Source how it was entered (typed,
+// queued, an accepted suggestion). PromptID names the turn, which the session's tool calls made in it name too.
+type AgentPrompt struct {
+	PromptID  string `json:"prompt_id"`
+	Text      string `json:"text"`
+	Length    int64  `json:"length"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Redacted  int64  `json:"redacted,omitempty"`
+	Source    string `json:"source,omitempty"`
+	AtNs      int64  `json:"at_ns"`
+	// UID is the uid of the transcript the prompt was read from.
+	UID int64 `json:"uid"`
+}
+
+// AgentPromptPage is one page of a session's prompts and the cursor for the next, empty on the last.
+type AgentPromptPage struct {
+	Prompts    []AgentPrompt `json:"prompts"`
+	NextCursor string        `json:"next_cursor,omitempty"`
 }
 
 // AgentToolCallFilter selects one session's tool calls on one host. FromNs/ToNs bound the time the agent recorded each call, zero
@@ -353,6 +557,9 @@ type AgentToolCall struct {
 	Sidechain  bool  `json:"sidechain,omitempty"`
 	Truncated  bool  `json:"truncated,omitempty"`
 	CalledAtNs int64 `json:"called_at_ns"`
+	// PromptID is the turn the call was made in (issue #1426), which the prompt that began it names too; empty for a call the agent
+	// read before any turn.
+	PromptID string `json:"prompt_id,omitempty"`
 	// UID is the uid of the transcript the call was read from. A transcript is its user's to write, so a call is trusted only for the
 	// processes of the user who owns it.
 	UID int64 `json:"uid"`

@@ -1,0 +1,105 @@
+@use "../../styles/var/colors" as *;
+
+// A session's Summary (issue #1429): sections of plain facts and short lists, with two single-hue activity strips.
+.session-summary {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 60rem;
+
+  &__section {
+    border-top: 1px solid $ui-black-10;
+    padding-top: 0.75rem;
+  }
+
+  &__title {
+    font-size: 1rem;
+    margin: 0 0 0.5rem;
+  }
+
+  &__subtitle {
+    color: $ui-black-75;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+  }
+
+  &__mono {
+    font-family: ui-monospace, sfmono-regular, Menlo, monospace;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.25rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  &__columns {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  }
+
+  &__group {
+    margin-top: 0.75rem;
+  }
+
+  &__counts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+
+    li {
+      align-items: center;
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.125rem 0;
+    }
+  }
+
+  .badge {
+    white-space: nowrap;
+  }
+
+  &__count {
+    color: $ui-black-75;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+
+  &__note {
+    color: $ui-black-50;
+    font-size: 0.85rem;
+  }
+
+  &__strip {
+    margin-bottom: 0.5rem;
+  }
+
+  // Thin baseline-anchored bars, 2px apart, as the host page's activity strip draws them.
+  &__bars {
+    align-items: flex-end;
+    border-bottom: 1px solid $ui-black-10;
+    display: flex;
+    gap: 2px;
+    height: 40px;
+  }
+
+  &__bar {
+    background: $core-green;
+    border-radius: 2px 2px 0 0;
+    flex: 1 1 0;
+  }
+
+  &__axis {
+    color: $ui-black-50;
+    display: flex;
+    font-size: 0.8rem;
+    justify-content: space-between;
+    margin: 0;
+  }
+}

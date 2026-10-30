@@ -73,6 +73,40 @@ func (f *fakeEventArchive) AgentToolCalls(context.Context, visibilityapi.AgentTo
 	return nil, false, nil
 }
 
+func (f *fakeEventArchive) AgentPrompts(context.Context, visibilityapi.AgentPromptFilter) (visibilityapi.AgentPromptPage, error) {
+	return visibilityapi.AgentPromptPage{}, nil
+}
+
+func (f *fakeEventArchive) AgentUsageTotals(context.Context, visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error) {
+	return visibilityapi.AgentUsageTotals{}, nil
+}
+
+func (f *fakeEventArchive) AgentSessionTokens(
+	context.Context, []visibilityapi.AgentSessionRef,
+) (map[visibilityapi.AgentSessionRef]int64, error) {
+	return nil, nil
+}
+
+func (f *fakeEventArchive) ActivityTotalsForGenerations(context.Context, api.ActivityFilter) (visibilityapi.ActivitySummary, error) {
+	return visibilityapi.ActivitySummary{}, nil
+}
+
+func (f *fakeEventArchive) ActivityPage(context.Context, api.ActivityFilter, string, string) (visibilityapi.ActivityPage, error) {
+	return visibilityapi.ActivityPage{}, nil
+}
+
+func (f *fakeEventArchive) ActivityDigest(context.Context, visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
+	return visibilityapi.ActivityDigest{}, nil
+}
+
+func (f *fakeEventArchive) AgentPromptCount(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeEventArchive) AgentToolCallCounts(context.Context, visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error) {
+	return nil, nil
+}
+
 func (f *fakeEventArchive) AgentSessionLineage(context.Context, string, string, int64) (visibilityapi.AgentSessionLineage, error) {
 	return visibilityapi.AgentSessionLineage{}, nil
 }

@@ -212,6 +212,7 @@ func (d *Detection) wireFullMode(deps Deps, store *mysql.Store, intakeH *intake.
 	d.operatorH.SetAgentSessions(store)
 	d.operatorH.SetAgentToolCalls(store)
 	d.operatorH.SetActivity(store)
+	d.operatorH.SetAgentSessionTotals(store)
 	d.operatorH.SetProcessRetention(deps.RetentionDays)
 
 	processor, err := pipeline.NewProcessor(

@@ -4,12 +4,26 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ## [Unreleased]
 
+### Upgrade notes (action required)
+
+- **The agent now sends the prompts people type to Claude Code.** Each prompt is stored as an event, with recognizable credentials replaced and long text cut at 16 KiB. On upgrade, the agent rereads transcripts changed in the last 10 minutes from their start, so prompts typed shortly before the upgrade are sent too. To stop prompts being sent from any Mac, upgrade the server first and turn off **Capture prompts** in Admin settings > Data collection before upgrading agents: an agent sends no prompts until it has that setting, and the change is audited with a reason. `EDR_CAPTURE_PROMPTS=0` in an agent's configuration keeps prompts on that Mac whatever the setting says.
+- **If you changed the event archive's retention by hand, set `EDR_EVENT_RETENTION_DAYS` to it before upgrading.** Set it on every server and ingest replica. The upgraded server resets the archive to the setting at startup, 30 days when unset, and a shorter window deletes the older events.
+
 ### Added
 
+- **A Conversation view of each AI agent session.** It lists each prompt the person typed with the commands and tool calls the agent made for it, and what belongs to no prompt last. Operators without permission to read prompts see the turns with each prompt hidden.
+- **An AI agent session has a Summary.** It describes the session at a glance: what it was asked and ran, the files it changed by directory and outside its project, where it connected to by organization (with domains new to the host marked), its tokens and permission modes, and when it was busy. Alerts are a count with a link. A session opens on its Summary.
+- **An AI agent session's header shows its models, tokens and permission modes.** Each mode the agent ran in is listed with how many replies and for how long, and bypass permissions is flagged. The Agent sessions page lists each session's tokens.
+- **Find the AI agent sessions that ran with permissions bypassed.** The Agent sessions page filters to them and badges each one. A session forked from a bypassed one carries its parent's lines and is included. Sessions are marked from the upgrade on: one that ran bypassed only before it is not.
+- **The agent reports an AI agent session's token usage and permission mode.** Each reply's model and tokens are sent, with the permission mode in force, whatever the prompt-capture setting; no prompt or reply text is included.
+- **Read the prompts typed to an AI agent, behind their own permission.** The prompts of a session are served by the server to operators who hold the new `agent_prompt.read` permission: admins and senior analysts. Analysts and auditors do not have it, and every read is audited.
+- **Event retention is a setting.** `EDR_EVENT_RETENTION_DAYS` (default 30) sets how long raw events are kept; the server applies it at startup. Shortening it deletes older events. Use the same value on every server and ingest replica.
+- **Long agent sessions open quickly.** A session's commands, processes and each Activity list load a page at a time with the rest on request, a search in any of them runs on the server over the session's first 20,000 processes (the view says when a session has more), and the header counts the whole session's commands and processes. A command that started hundreds of processes lists its first hundred and its alerted ones, with the rest one click away.
 - **An alertable count of service accounts about to expire.** The `edr.service_accounts.expiring` metric reports the active service accounts whose credential expires within 14 days, the same accounts the console flags. Alert when it is above zero and rotate the credential before the date.
 
 ### Fixed
 
+- **A search with a space or `*` in it no longer fails with "unsafe API path"** in the host timeline and the other searches that send free text.
 - **Signing in again no longer discards what you were typing.** When saving the reachable destinations, the watched paths, an exclusion, a rule or an application control rule needs a fresh single sign-on, your unsaved changes are kept and put back when you return, with a notice. Nothing is saved for you: review them and save again.
 - **A host told to contain before its network extension is connected is contained as soon as the extension connects,** instead of up to six hours later. The console still shows that first command as failed until the next catch-up confirms it.
 - **The detection tuning table no longer shifts when you click a figure.** Observed and Cost figures are plain text, the Cost column now shows the slowest run beside the total and average, and each rule name links to its page. The evaluation count and exact match counts are no longer shown, and a long Cost cell wraps between figures, never inside one.

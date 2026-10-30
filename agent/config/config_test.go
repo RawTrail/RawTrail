@@ -73,6 +73,38 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			// spec:agent-configuration/the-agent-configuration-surface-is-intentionally-minimal/prompt-capture-can-be-turned-off
+			name: "prompt capture is on unless turned off",
+			env:  minEnv,
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.True(t, c.CapturePrompts)
+			},
+		},
+		{
+			name: "prompt capture turned off",
+			env:  withExtra(minEnv, map[string]string{"EDR_CAPTURE_PROMPTS": "0"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.False(t, c.CapturePrompts)
+			},
+		},
+		{
+			name: "prompt capture turned on explicitly",
+			env:  withExtra(minEnv, map[string]string{"EDR_CAPTURE_PROMPTS": "1"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.True(t, c.CapturePrompts)
+			},
+		},
+		{
+			// "false" reads as off to the operator who wrote it, so it must not quietly leave capture on.
+			// spec:agent-configuration/the-agent-configuration-surface-is-intentionally-minimal/a-prompt-capture-value-other-than-0-or-1-is-refused
+			name:    "an EDR_CAPTURE_PROMPTS other than 0 or 1 is refused",
+			env:     withExtra(minEnv, map[string]string{"EDR_CAPTURE_PROMPTS": "false"}),
+			wantErr: `EDR_CAPTURE_PROMPTS="false" must be 0 (off) or 1 (on)`,
+		},
+		{
 			name:    "missing server url",
 			env:     map[string]string{},
 			wantErr: "EDR_SERVER_URL",

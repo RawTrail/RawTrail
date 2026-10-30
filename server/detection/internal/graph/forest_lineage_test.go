@@ -162,3 +162,29 @@ func TestBuildForest_ExactEdgesProperty(t *testing.T) {
 		}
 	})
 }
+
+// A forest lists its roots, and each node's children, in the order the read returned them, the same every time (issue #1424 review):
+// a scope cut at a bound must keep the same processes on every request.
+//
+// spec:server-rest-api/agent-session-reads-past-one-page/a-session-past-the-tree-page-is-read-whole
+func TestBuildForest_KeepsTheReadsOrder(t *testing.T) {
+	t.Parallel()
+	var procs []api.Process
+	for i := range 40 {
+		procs = append(procs, api.Process{ID: int64(100 + i), PID: 1000 + i, PPID: 1, ForkTimeNs: int64(i)})
+	}
+	for i := range 20 {
+		parent := int64(100)
+		procs = append(procs, api.Process{ID: int64(200 + i), PID: 2000 + i, PPID: 1000, ParentProcessID: &parent, ForkTimeNs: int64(40 + i)})
+	}
+	for range 25 {
+		roots := buildForest(procs, nil)
+		require.Len(t, roots, 40)
+		for i, r := range roots {
+			require.Equal(t, int64(100+i), r.ID, "roots in the read's order")
+		}
+		for i, c := range roots[0].Children {
+			require.Equal(t, int64(200+i), c.ID, "children in the read's order")
+		}
+	}
+}

@@ -1,0 +1,91 @@
+package agenttranscript
+
+import (
+	"regexp"
+	"strings"
+)
+
+// Redacting the secrets a user pastes into a prompt before the prompt leaves the host (issue #1426). Each pattern is the published
+// shape of one kind of credential, chosen to fire on the credential and almost never on prose, so a prompt reads as it was typed with
+// each credential replaced by a placeholder naming its kind. A credential with no recognizable shape is not caught: the redaction
+// narrows what a prompt can carry, it does not make a prompt safe to hold.
+
+// secretPattern is one kind of credential and how it reads.
+type secretPattern struct {
+	kind string
+	re   *regexp.Regexp
+	// value is the index of the first submatch that can hold the secret, for a pattern that matches the secret with the name it is
+	// given (later submatches are alternative forms of it); 0 for a pattern whose whole match is the secret.
+	value int
+}
+
+// wholePlaceholder is a value an earlier pattern replaced entirely.
+var wholePlaceholder = regexp.MustCompile(`^\[REDACTED:[a-z-]+\]$`)
+
+// secretWords are the words a name holds when its value is a secret: DB_PASSWORD, GITHUB_TOKEN, CLIENT_CREDENTIALS, PRIVATE_KEY.
+const secretWords = `password|passwd|secret|token|api[_-]?key|credentials?|private[_-]?key|auth[_-]?config`
+
+var secretPatterns = []secretPattern{
+	{kind: "private-key", re: regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`)},
+	{kind: "aws-access-key", re: regexp.MustCompile(`\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b`)},
+	{kind: "github-token", re: regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})\b`)},
+	{kind: "slack-token", re: regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}`)},
+	{kind: "anthropic-key", re: regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_-]{20,}`)},
+	{kind: "openai-key", re: regexp.MustCompile(`\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}`)},
+	// No trailing \b: a key may end in "-", after which a word boundary never falls.
+	{kind: "google-api-key", re: regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}`)},
+	{kind: "stripe-key", re: regexp.MustCompile(`\b[rs]k_live_[0-9A-Za-z]{20,}\b`)},
+	{kind: "jwt", re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)},
+	// An opaque bearer token, and an Authorization header's basic credentials. Basic is matched only in the header: a bare "basic"
+	// is a word of prose. The scheme stays, so the prompt still says how it authenticated.
+	{kind: "bearer-token", re: regexp.MustCompile(`(?i)\bbearer\s+([A-Za-z0-9._~+/=-]{16,})`), value: 1},
+	{kind: "basic-credentials", re: regexp.MustCompile(`(?i)\bauthorization:\s*basic\s+([A-Za-z0-9+/=]{8,})`), value: 1},
+	// A password in a URL's userinfo. The scheme, user and host stay.
+	{kind: "url-credentials", re: regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:([^\s/@]+)@`), value: 1},
+	// A value given a secret's name: `password=...`, `AWS_SECRET_ACCESS_KEY: ...`, `"api_key": "..."`. The name stays, so the prompt
+	// still says what was set. A quoted value is the secret through its closing quote, so a passphrase with spaces is redacted whole;
+	// in double quotes an escaped quote is part of the value, as JSON and the shell read it. An unquoted value runs to the first space
+	// or delimiter.
+	{
+		kind: "secret",
+		re: regexp.MustCompile(`(?i)\b[A-Z0-9_]*(?:` + secretWords + `)[A-Z0-9_]*["']?\s*[:=]\s*` +
+			`(?:"((?:[^"\\\n]|\\.)+)"|'([^'\n]+)'|([^\s"',;]{8,}))`),
+		value: 1,
+	},
+}
+
+// Redact replaces each credential in text with "[REDACTED:<kind>]" and reports how many it replaced.
+func Redact(text string) (string, int) {
+	count := 0
+	for _, p := range secretPatterns {
+		placeholder := "[REDACTED:" + p.kind + "]"
+		text = p.re.ReplaceAllStringFunc(text, func(match string) string {
+			if p.value == 0 {
+				count++
+				return placeholder
+			}
+			start, end := valueSpan(p, match)
+			// An earlier pattern may already have replaced the whole credential with its own kind, the truer name for it. A value that
+			// only begins with a placeholder still holds secret text after it, so it is redacted whole.
+			if start < 0 || wholePlaceholder.MatchString(match[start:end]) {
+				return match
+			}
+			// The value's own placeholders are swallowed by this one, so the count stays the placeholders the text ends with.
+			count += 1 - strings.Count(match[start:end], "[REDACTED:")
+			return match[:start] + placeholder + match[end:]
+		})
+	}
+	return text, count
+}
+
+// valueSpan is where a named pattern's secret sits in its match: the first of its value groups, from p.value on, that took part (a
+// quoted value and a bare one are alternatives). -1 when none did.
+func valueSpan(p secretPattern, match string) (int, int) {
+	sub := p.re.FindStringSubmatchIndex(match)
+	for g := p.value; 2*g+1 < len(sub); g++ {
+		if sub[2*g] >= 0 {
+			return sub[2*g], sub[2*g+1]
+		}
+	}
+	return -1, -1
+}

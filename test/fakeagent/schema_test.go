@@ -61,7 +61,10 @@ var payloadFixtures = map[string]string{
 	"file_activity": `{"pid":101,"pidversion":5445,"operation":"modify","path":"/Users/dev/repo/main.go"}`,
 	"agent_credential_would_block": `{"pid":101,"pidversion":5445,"path":"/Users/dev/.ssh/id_ed25519","credential":"ssh_private_key",` +
 		`"flags":0}`,
-	"agent_tool_call":     `{"agent_session_id":"47abb2a1","tool_use_id":"toolu_01","tool_name":"Bash","command":"ls","uid":501}`,
+	"agent_tool_call": `{"agent_session_id":"47abb2a1","tool_use_id":"toolu_01","tool_name":"Bash","command":"ls","uid":501}`,
+	"agent_prompt":    `{"agent_session_id":"47abb2a1","prompt_id":"p-1","text":"run the tests","length":13,"uid":501}`,
+	"agent_usage": `{"agent_session_id":"47abb2a1","message_id":"msg_01","model":"claude-opus-5-5","input_tokens":3,` +
+		`"output_tokens":120,"cache_creation_input_tokens":0,"cache_read_input_tokens":4096,"thinking_tokens":40,"uid":501}`,
 	"network_connect":     `{"pid":101,"protocol":"tcp","direction":"outbound","remote_address":"93.184.216.34","remote_port":443}`,
 	"dns_query":           `{"pid":101,"query_name":"example.com","query_type":"A"}`,
 	"snapshot_heartbeat":  `{"pid":101}`,

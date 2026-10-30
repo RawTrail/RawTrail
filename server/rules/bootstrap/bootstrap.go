@@ -20,6 +20,7 @@ import (
 	"github.com/rawtrail/rawtrail/server/migrations/runner"
 	rulecontentapi "github.com/rawtrail/rawtrail/server/rulecontent/api"
 	"github.com/rawtrail/rawtrail/server/rules/api"
+	"github.com/rawtrail/rawtrail/server/rules/internal/agentsettings"
 	"github.com/rawtrail/rawtrail/server/rules/internal/appcontrol"
 	"github.com/rawtrail/rawtrail/server/rules/internal/catalog"
 	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
@@ -69,16 +70,17 @@ type Deps struct {
 	// seen events from rather than active enrollments. Same optional-when-nil contract as CommandBatchInserter; nil disables the
 	// application-control REST surface.
 	HostLister appcontrol.HostLister
-	// EnrolledHostLister enumerates the hosts with an active enrollment, which is who a watched-path set is pushed to (issue #998).
+	// EnrolledHostLister enumerates the hosts with an active enrollment, which is who a watched-path set and the agent settings are
+	// pushed to (issues #998, #1426).
 	// cmd/main passes the endpoint context's ActiveHostIDs. Separate from HostLister because that one lists hosts the detection
 	// context has seen events from, which misses a host enrolled but not yet reporting and includes one whose enrollment is revoked.
-	// Nil leaves the watched-path routes unmounted.
+	// Nil leaves the watched-path and agent-settings routes unmounted.
 	EnrolledHostLister appcontrol.HostLister
-	// WatchedPathEnrollments and WatchedPathLatestCommands feed the watched-path catch-up, which queues the current set for hosts
-	// that enrolled after a change, reinstalled, or let their command age out (issue #998). cmd/main adapts the endpoint context's
-	// enrollment list and the response context's LatestOfType. The catch-up runs only when both are set, alongside the routes.
-	WatchedPathEnrollments    api.WatchedPathEnrollmentLister
-	WatchedPathLatestCommands api.WatchedPathCommandLister
+	// HostEnrollments and HostLatestCommands feed the watched-path and agent-settings catch-ups, which queue the current document for
+	// hosts that enrolled after a change, reinstalled, or let their command age out (issues #998, #1426). cmd/main adapts the endpoint
+	// context's enrollment list and the response context's LatestOfType. The catch-ups run only when both are set, alongside the routes.
+	HostEnrollments    api.HostEnrollmentLister
+	HostLatestCommands api.HostCommandLister
 	// WatchedPathConvergeInterval is how often the catch-up runs. Optional: zero or negative means
 	// watchedpaths.DefaultConvergeInterval.
 	WatchedPathConvergeInterval time.Duration
@@ -130,8 +132,10 @@ type Rules struct {
 	// audit recorder.
 	detectionConfigAuditDrain *auditoutbox.Drain
 	detectionConfigH          *operator.DetectionConfigHandler
-	// watchedPathConverger is nil unless the watched-path catch-up is wired; see Deps.WatchedPathEnrollments.
+	// watchedPathConverger is nil unless the watched-path catch-up is wired; see Deps.HostEnrollments.
 	watchedPathConverger *watchedpaths.Converger
+	// agentSettingsConverger is the agent settings' catch-up (issue #1426), wired alongside the watched-path one.
+	agentSettingsConverger *agentsettings.Converger
 	// watchedPathConvergeInterval is how often it runs. See Deps.WatchedPathConvergeInterval.
 	watchedPathConvergeInterval time.Duration
 	// auditSweepInterval is how often both audit outbox sweeps run. See Deps.AuditSweepInterval.
@@ -244,14 +248,22 @@ func New(ctx context.Context, deps Deps) (*Rules, error) {
 		appControlH = operator.NewAppControl(appControlSvc, deps.AuthZ, logger)
 	}
 	var watchedPathConverger *watchedpaths.Converger
+	var agentSettingsConverger *agentsettings.Converger
 	if deps.CommandBatchInserter != nil && deps.EnrolledHostLister != nil {
+		agentSettingsStore := agentsettings.NewStore(deps.DB)
+		detectionConfigH.SetAgentSettings(agentsettings.NewService(
+			agentSettingsStore, deps.CommandBatchInserter, deps.EnrolledHostLister, detectionConfigAuditDrain, logger))
+		if deps.HostEnrollments != nil && deps.HostLatestCommands != nil {
+			agentSettingsConverger = agentsettings.NewConverger(agentSettingsStore, deps.CommandBatchInserter,
+				deps.HostEnrollments, deps.HostLatestCommands, logger)
+		}
 		watchedPathStore := watchedpaths.NewStore(deps.DB)
 		watchedPathSvc := watchedpaths.NewService(
 			watchedPathStore, deps.CommandBatchInserter, deps.EnrolledHostLister, detectionConfigAuditDrain, logger)
 		detectionConfigH.SetWatchedPaths(watchedPathSvc)
-		if deps.WatchedPathEnrollments != nil && deps.WatchedPathLatestCommands != nil {
+		if deps.HostEnrollments != nil && deps.HostLatestCommands != nil {
 			watchedPathConverger = watchedpaths.NewConverger(watchedPathStore, deps.CommandBatchInserter,
-				deps.WatchedPathEnrollments, deps.WatchedPathLatestCommands, logger)
+				deps.HostEnrollments, deps.HostLatestCommands, logger)
 			watchedPathConverger.SetEnsureDefaults(watchedPathSvc.EnsureDefaults)
 		}
 	}
@@ -270,6 +282,7 @@ func New(ctx context.Context, deps Deps) (*Rules, error) {
 		detectionConfigH:            detectionConfigH,
 		ruleAuthoringH:              ruleAuthoringH,
 		watchedPathConverger:        watchedPathConverger,
+		agentSettingsConverger:      agentSettingsConverger,
 		watchedPathConvergeInterval: deps.WatchedPathConvergeInterval,
 		auditSweepInterval:          deps.AuditSweepInterval,
 		db:                          deps.DB,
@@ -380,6 +393,12 @@ func (r *Rules) Run(ctx context.Context) {
 		func(ctx context.Context) {
 			if r.watchedPathConverger != nil {
 				r.watchedPathConverger.Loop(ctx, r.watchedPathConvergeInterval)
+			}
+		},
+		// The same for the agent settings (issue #1426), on the watched-path catch-up's interval.
+		func(ctx context.Context) {
+			if r.agentSettingsConverger != nil {
+				r.agentSettingsConverger.Loop(ctx, r.watchedPathConvergeInterval)
 			}
 		},
 	}

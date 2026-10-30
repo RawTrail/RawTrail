@@ -17,6 +17,7 @@ function session(over: Partial<AgentSessionSummary> = {}): AgentSessionSummary {
     last_seen_ns: 9_000_000_000,
     process_count: 16,
     alert_count: 1,
+    bypass: false,
     ...over,
   };
 }
@@ -45,8 +46,8 @@ describe("SessionList", () => {
     expect(cells[0]).toBe("claude-code 2.1.296");
     expect(cells[1]).toBe("/private/tmp");
     expect(await screen.findByText("mac-a.local")).toBeVisible();
-    expect(cells.slice(5, 7)).toEqual(["16", "1"]);
-    expect(cells[7]).toBe("169b5bb1");
+    expect(cells.slice(5, 8)).toEqual(["16", "1", ""]);
+    expect(cells[8]).toBe("169b5bb1");
     expect(screen.getByText("Showing 1 of 1 matches")).toBeVisible();
   });
 
@@ -109,6 +110,35 @@ describe("SessionList", () => {
     expect(screen.getByRole("link", { name: "claude-code" })).toBeVisible();
     expect(spy.mock.calls[1][1]).toBe("page-2");
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/sessions-list-bypass-filter/the-list-narrows-to-sessions-that-ran-bypassed
+  it("asks the server for the sessions that ran bypassed and badges them", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const spy = vi.spyOn(api, "listAgentSessions").mockResolvedValue({
+      rows: [session({ bypass: true }), session({ agent_session_id: "s2", agent_name: "codex" })], total_matched: 2,
+    });
+    renderList("/agent-sessions?bypass=true");
+    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
+    expect(spy.mock.calls[0][0]).toEqual({ bypass: "true" });
+    expect(screen.getByText("Permissions: Ran in bypass mode (or forked from a session that did)")).toBeVisible();
+    const bypassed = (await screen.findByRole("link", { name: "claude-code" })).closest("tr");
+    const badge = screen.getByText("Bypass permissions");
+    expect(badge).toBeVisible();
+    expect(bypassed).toContainElement(badge);
+    expect(badge.parentElement).toHaveAttribute("title", "Ran in bypass mode, or was forked from a session that did");
+    expect(screen.getAllByText("Bypass permissions")).toHaveLength(1);
+  });
+
+  // spec:web-ui/sessions-list-tokens/a-session-lists-its-tokens
+  it("lists a session's tokens compactly, with the exact count on hover", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session({ tokens: 1_234_567 })], total_matched: 1 });
+    renderList();
+    const row = (await screen.findByRole("link", { name: "claude-code" })).closest("tr");
+    const cell = row?.querySelectorAll("td")[7];
+    expect(cell).toHaveTextContent(/^1\.2M$/);
+    expect(cell).toHaveAttribute("title", `${(1_234_567).toLocaleString()} tokens`);
   });
 
   it("says so when no session matches", async () => {

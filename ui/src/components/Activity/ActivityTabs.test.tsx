@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
 import { ActivityTabs } from "./ActivityTabs";
 import * as api from "../../api";
@@ -187,7 +187,8 @@ describe("ActivityTabs", () => {
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
     expect(await screen.findByText("pid 43017")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "dig (43027)" }));
-    expect(onProcess).toHaveBeenCalledWith(10);
+    // The process and its row's first event, which together name the process to read when the view has not loaded it.
+    expect(onProcess).toHaveBeenCalledWith(expect.objectContaining({ id: 10, pid: 43027 }), expect.any(Number));
   });
 
   it("names the generation a row belongs to, not another process that reused its pid", async () => {
@@ -260,5 +261,107 @@ describe("ActivityTabs", () => {
     rerender(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "subtree", process: 7 }} />);
     expect(await screen.findByText("Loading activity...")).toBeVisible();
     expect(screen.queryByText("4 connections to 3 destinations")).not.toBeInTheDocument();
+  });
+});
+
+// A cut list reads its next page on request (issue #1424), from the cursor the rollup named and then each page's own.
+describe("ActivityTabs paging", () => {
+  const S = 1_000_000_000;
+  const dnsRow = (name: string, first: number) =>
+    ({ pid: 43027, pidversion: 3552899, count: 1, first_ns: first * S, last_ns: first * S, query_name: name, addresses: [] });
+
+  // spec:web-ui/agent-session-view-pages-its-processes-and-activity/the-rest-of-an-activity-list-comes-on-request
+  it("reads a cut list's rows page by page until the last", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({
+      dns: { events: 3, distinct: 3, truncated: true, rows: [dnsRow("a.example", 1)], next_cursor: "c1" },
+    }));
+    const page = vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, _c, cursor) => Promise.resolve(cursor === "c1"
+      ? { rows: [dnsRow("b.example", 2)], next_cursor: "c2" }
+      : { rows: [dnsRow("c.example", 3)] }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    expect(screen.getByRole("status")).toHaveTextContent("Showing the first 1 row");
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("b.example")).toBeVisible();
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "c1", "");
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("c.example")).toBeVisible();
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "c2", "");
+    expect(screen.getByText("a.example")).toBeVisible();
+    expect(screen.getByText("b.example")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more rows" })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("says when the next rows could not be loaded, and offers them again", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({
+      files: { events: 2, distinct: 2, truncated: true, next_cursor: "f1",
+        rows: [{ pid: 43017, pidversion: 3552872, count: 1, first_ns: S, last_ns: S, operation: "modify", path: "/r/a" }] },
+    }));
+    vi.spyOn(api, "getActivityPage").mockRejectedValue(new Error("down"));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Files/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Load more rows" })).toBeVisible();
+  });
+
+  // spec:web-ui/the-session-view-searches-its-processes-and-activity-on-the-server/an-activity-search-reads-the-class-from-the-server
+  it("lists a class's rows the server finds for a search, in place of the rollup's, and pages them", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({
+      dns: { events: 3, distinct: 3, truncated: false, rows: [dnsRow("a.example", 1), dnsRow("ab.example", 2)] },
+    }));
+    // The open class (Network) is searched first; DNS is read once it is opened.
+    const page = vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, cls, cursor) => Promise.resolve(cls !== "dns"
+      ? { rows: [] }
+      : cursor === "" ? { rows: [dnsRow("b.example", 3)], next_cursor: "q2" } : { rows: [dnsRow("bb.example", 4)] }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} search="b." />);
+    await waitFor(() => { expect(page).toHaveBeenCalledWith("H1", { kind: "session", session: "s1" }, "network", "", "b."); });
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    expect(await screen.findByText("b.example")).toBeVisible();
+    expect(screen.queryByText("a.example")).toBeNull();
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "", "b.");
+    expect(screen.getByRole("button", { name: /^DNS/ })).toHaveTextContent("3", { normalizeWhitespace: true });
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("bb.example")).toBeVisible();
+    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "q2", "b.");
+  });
+
+  it("offers a search's failed first page again", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { events: 1, distinct: 1, truncated: false, rows: [] } }));
+    let dnsAttempts = 0;
+    vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, cls) => {
+      if (cls !== "dns") return Promise.resolve({ rows: [] });
+      dnsAttempts++;
+      return dnsAttempts === 1 ? Promise.reject(new Error("down")) : Promise.resolve({ rows: [dnsRow("b.example", 3)] });
+    });
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} search="b." />);
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("b.example")).toBeVisible();
+    expect(dnsAttempts).toBe(2);
+  });
+
+  it("drops a page read for a scope the operator has since left", async () => {
+    vi.spyOn(api, "getActivity").mockImplementation((_h, scope) => Promise.resolve(session({
+      dns: { events: 2, distinct: 2, truncated: true, rows: [dnsRow(`${scope.kind === "session" ? scope.session : ""}-a.example`, 1)],
+        next_cursor: "c1" },
+    })));
+    let landOld: (page: { rows: unknown[] }) => void = () => undefined;
+    vi.spyOn(api, "getActivityPage").mockImplementation((_h, scope) => (scope.kind === "session" && scope.session === "s1"
+      ? new Promise((resolve) => { landOld = resolve; })
+      : Promise.resolve({ rows: [dnsRow("s2-b.example", 2)] })));
+    const { rerender } = render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    rerender(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s2" }} />);
+    expect(await screen.findByText("s2-a.example")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("s2-b.example")).toBeVisible();
+    landOld({ rows: [dnsRow("s1-b.example", 2)] });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getByText("s2-b.example")).toBeVisible();
+    expect(screen.queryByText("s1-b.example")).toBeNull();
   });
 });

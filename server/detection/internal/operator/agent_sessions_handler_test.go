@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,11 +18,26 @@ import (
 )
 
 type fakeSessionLister struct {
-	filter api.AgentSessionFilter
-	cursor string
-	limit  int
-	result api.AgentSessionResult
-	err    error
+	filter  api.AgentSessionFilter
+	cursor  string
+	limit   int
+	result  api.AgentSessionResult
+	err     error
+	alerted []int64
+	// askedAlerts is the process rows the last alert lookup asked about.
+	askedAlerts []int64
+}
+
+// AlertedProcesses answers which of the asked rows are in alerted, recording the rows asked for.
+func (f *fakeSessionLister) AlertedProcesses(_ context.Context, ids []int64) ([]int64, error) {
+	f.askedAlerts = ids
+	var out []int64
+	for _, id := range ids {
+		if slices.Contains(f.alerted, id) {
+			out = append(out, id)
+		}
+	}
+	return out, f.err
 }
 
 func (f *fakeSessionLister) ListAgentSessions(_ context.Context, filter api.AgentSessionFilter, cursor string, limit int) (api.AgentSessionResult, error) {
@@ -58,6 +74,7 @@ func newSessionsServer(t *testing.T, lister AgentSessionLister, az identityapi.A
 }
 
 // spec:server-rest-api/agent-sessions-list/filters-narrow-the-list
+// spec:server-rest-api/agent-sessions-list-bypass-filter/the-list-keeps-the-sessions-that-ran-bypassed
 func TestAgentSessionsHandler_PassesFiltersAndPaging(t *testing.T) {
 	t.Parallel()
 	lister := &fakeSessionLister{result: api.AgentSessionResult{
@@ -65,11 +82,11 @@ func TestAgentSessionsHandler_PassesFiltersAndPaging(t *testing.T) {
 		NextCursor: "next", TotalMatched: 9,
 	}}
 	srv := newSessionsServer(t, lister, allowAllAuthZ{})
-	resp := doGet(t, srv, "/api/agent-sessions?host_id=h1&session=s1&agent=claude-code&from=100&to=900&cursor=abc&limit=25")
+	resp := doGet(t, srv, "/api/agent-sessions?host_id=h1&session=s1&agent=claude-code&from=100&to=900&bypass=true&cursor=abc&limit=25")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, api.AgentSessionFilter{HostID: "h1", AgentSessionID: "s1", AgentName: "claude-code", FromNs: 100, ToNs: 900},
-		lister.filter)
+	assert.Equal(t, api.AgentSessionFilter{HostID: "h1", AgentSessionID: "s1", AgentName: "claude-code", FromNs: 100, ToNs: 900,
+		Bypass: true}, lister.filter)
 	assert.Equal(t, "abc", lister.cursor)
 	assert.Equal(t, 25, lister.limit)
 	var body api.AgentSessionResult
@@ -89,6 +106,7 @@ func TestAgentSessionsHandler_EmptyPageIsAnArray(t *testing.T) {
 }
 
 // spec:server-rest-api/agent-sessions-list/the-list-pages-by-cursor
+// spec:server-rest-api/agent-sessions-list-bypass-filter/the-list-keeps-the-sessions-that-ran-bypassed
 func TestAgentSessionsHandler_Errors(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -101,6 +119,7 @@ func TestAgentSessionsHandler_Errors(t *testing.T) {
 		{name: "malformed cursor", query: "?cursor=zz", err: api.ErrInvalidCursor, lister: true, want: http.StatusBadRequest},
 		{name: "inverted window", query: "?from=900&to=100", lister: true, want: http.StatusBadRequest},
 		{name: "negative bound", query: "?from=-1", lister: true, want: http.StatusBadRequest},
+		{name: "bypass other than true", query: "?bypass=false", lister: true, want: http.StatusBadRequest},
 		{name: "store failure", err: errors.New("boom"), lister: true, want: http.StatusInternalServerError},
 		{name: "surface not wired", want: http.StatusServiceUnavailable},
 	} {

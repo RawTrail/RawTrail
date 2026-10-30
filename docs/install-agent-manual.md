@@ -95,11 +95,21 @@ EDR_ENROLL_SECRET=paste-the-enroll-secret-here
 # of `openssl x509 -noout -fingerprint -sha256` (hex, optionally with
 # `sha256:` prefix and/or `:` separators).
 # EDR_SERVER_FINGERPRINT=sha256:AA:BB:CC:DD:EE:FF:...
+# Optional: set to 0 to keep the prompts users type to AI coding agents on
+# the Mac (1 or unset sends them; any other value stops the agent from
+# starting). See "AI agent prompts" below.
+# EDR_CAPTURE_PROMPTS=0
 EOF
 sudo chmod 0600 /etc/rawtrail.conf
 ```
 
 Replace `https://edr.example.com` with your server URL and `paste-the-enroll-secret-here` with the value from the server's `./secrets/enroll_secret` file or `EDR_ENROLL_SECRET` env var.
+
+### AI agent prompts
+
+When someone on the Mac works with an AI coding agent such as Claude Code, the agent reads the session transcript the coding agent keeps and sends the server the prompts the person typed, beside the commands run for each. Recognizable credentials in a prompt (cloud and API keys, tokens, bearer and basic authorization values, passwords in URLs, private keys, values named as passwords, secrets or credentials) are replaced with a placeholder before it leaves the Mac, and a prompt is cut to 16 KiB. The redaction catches credentials by their known shape, so a prompt can still hold other sensitive text. An unquoted value given a secret's name is redacted only from 8 characters, so a short one such as `DB_PASSWORD=hunter2` is sent as typed, and a quoted one of any length is redacted. If your privacy obligations rule out holding prompts, an administrator can turn prompt capture off for every Mac in Admin settings > Data collection (or with `PUT /api/v1/detection-config/agent-settings`); each Mac stops at once and keeps the setting across restarts. A newly installed agent sends no prompts until it has received the setting, within minutes of enrolling; an agent upgraded from a version without the setting can take up to six hours to receive it. `EDR_CAPTURE_PROMPTS=0` keeps prompts on one Mac whatever the agent settings say, and must be set before installing to keep the first prompts too. Either way the commands and tool calls are still sent.
+
+The agent also sends how many tokens each of the coding agent's replies used, which model wrote it, and the permission mode the session was in (for example `auto`, `plan` or `bypassPermissions`). This is metadata with no prompt or reply text, so `EDR_CAPTURE_PROMPTS=0` does not turn it off.
 
 ## Step 4: install the pkg
 

@@ -331,6 +331,11 @@ seed_oidc 1
     tests/qa/policy-editor.spec.ts \
     tests/qa/process-tree-detail.spec.ts \
     tests/qa/agent-sessions.spec.ts \
+    tests/qa/agent-sessions-bypass.spec.ts \
+    tests/qa/agent-session-paging.spec.ts \
+    tests/qa/agent-session-conversation.spec.ts \
+    tests/qa/agent-session-summary.spec.ts \
+    tests/qa/data-collection-settings.spec.ts \
     --workers=1
 )
 stop_server

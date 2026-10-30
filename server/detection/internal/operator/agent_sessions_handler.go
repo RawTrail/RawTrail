@@ -2,11 +2,16 @@ package operator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/internal/sessioncommands"
 	"github.com/rawtrail/rawtrail/server/httpserver"
 	identityapi "github.com/rawtrail/rawtrail/server/identity/api"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
@@ -17,18 +22,27 @@ type AgentSessionLister interface {
 	ListAgentSessions(ctx context.Context, filter api.AgentSessionFilter, cursor string, limit int) (api.AgentSessionResult, error)
 	// GetAgentSession reads one session's record without its counts; nil when the host holds no such session.
 	GetAgentSession(ctx context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error)
+	// AlertedProcesses lists which of the given process rows an alert was raised on.
+	AlertedProcesses(ctx context.Context, processIDs []int64) ([]int64, error)
 }
 
 func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/agent-sessions", h.handleListAgentSessions)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls", h.handleAgentToolCalls)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage", h.handleAgentSessionLineage)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary", h.handleAgentSessionSummary)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands", h.handleAgentSessionCommands)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/processes", h.handleAgentSessionProcesses)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/prompts", h.handleAgentSessionPrompts)
+	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/conversation", h.handleAgentSessionConversation)
 }
 
-// AgentToolCallReader is the read of the tool calls a session recorded (issue #1288), and of the sessions forked from each other that
-// their copied calls show (issue #1347), from the event archive. mysql.Store satisfies it.
+// AgentToolCallReader is the read of what a session's transcript recorded, from the event archive: its tool calls (issue #1288), the
+// sessions forked from each other that their copied calls show (issue #1347), and the prompts the person typed (issue #1426).
+// mysql.Store satisfies it.
 type AgentToolCallReader interface {
 	AgentToolCalls(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.AgentToolCall, bool, error)
+	AgentPrompts(ctx context.Context, filter visibilityapi.AgentPromptFilter) (visibilityapi.AgentPromptPage, error)
 	AgentSessionLineage(ctx context.Context, hostID, sessionID string, ownerUID int64) (visibilityapi.AgentSessionLineage, error)
 }
 
@@ -37,7 +51,7 @@ func (h *Handler) SetAgentToolCalls(r AgentToolCallReader) { h.agentToolCalls = 
 
 const (
 	// maxToolCalls bounds the calls one read lists, the same bound as the session's process read.
-	maxToolCalls = maxTimelineChain
+	maxToolCalls = graph.MaxScopedRead
 	// toolCallMargin widens the session's span when reading its calls. A session's span runs from its first marked process to its last,
 	// and a call comes before its process, by as long as the user took to approve it.
 	toolCallMargin = time.Hour
@@ -141,13 +155,9 @@ func (h *Handler) handleAgentToolCalls(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	hostID, sessionID := session.HostID, session.AgentSessionID
-	calls, truncated, err := h.agentToolCalls.AgentToolCalls(ctx, visibilityapi.AgentToolCallFilter{
-		HostID: hostID, SessionID: sessionID, Limit: maxToolCalls,
-		FromNs: session.FirstSeenNs - toolCallMargin.Nanoseconds(), ToNs: session.LastSeenNs + toolCallMargin.Nanoseconds(),
-	})
+	calls, truncated, err := h.agentToolCalls.AgentToolCalls(ctx, sessionToolCalls(session))
 	if err != nil {
-		h.logger.ErrorContext(ctx, "read agent tool calls", "host_id", hostID, "err", err)
+		h.logger.ErrorContext(ctx, "read agent tool calls", "host_id", session.HostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
@@ -155,6 +165,387 @@ func (h *Handler) handleAgentToolCalls(w http.ResponseWriter, r *http.Request) {
 		calls = []visibilityapi.AgentToolCall{}
 	}
 	h.writeJSON(w, r, agentToolCallsResponse{ToolCalls: calls, Truncated: truncated})
+}
+
+// handleAgentSessionSummary serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary: a session's totals, which the
+// session view's counts and its Summary read rather than counting the rows a page loaded. Gated on process read for the host, like
+// the session's processes and activity.
+func (h *Handler) handleAgentSessionSummary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	if h.sessionTotals == nil || h.activity == nil {
+		h.writeError(ctx, w, http.StatusServiceUnavailable, errInternal)
+		return
+	}
+	hostID, sessionID := session.HostID, session.AgentSessionID
+	summary, err := h.sessionSummary(ctx, session)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "read agent session summary", "host_id", hostID, "session", sessionID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	h.writeJSON(w, r, summary)
+}
+
+// agentCommandsResponse is one page of a session's commands, in the order they started, with the cursor for the next page. Inferred
+// and Services name the rows of the page that were moved under the process that asked launchd for them, as inferred launches and as
+// services. Truncated reports that the session had more processes than its read lists, and ToolCallsTruncated more tool calls.
+type agentCommandsResponse struct {
+	Commands           []sessioncommands.Command `json:"commands"`
+	NextCursor         string                    `json:"next_cursor,omitempty"`
+	TotalMatched       int                       `json:"total_matched"`
+	Inferred           []int64                   `json:"inferred"`
+	Services           []int64                   `json:"services"`
+	Truncated          bool                      `json:"truncated"`
+	ToolCallsTruncated bool                      `json:"tool_calls_truncated"`
+}
+
+// handleAgentSessionCommands serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands: the commands a session ran, each
+// paired with the tool call the agent reported for it, a page at a time, filtered by ?q= and keyset-paged by ?cursor=. The session
+// is shaped into commands over its whole process read, so a page boundary cannot split a command or change which call pairs with it.
+// Gated on process read for the host, like the session's processes.
+func (h *Handler) handleAgentSessionCommands(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	resp, err := h.sessionCommands(ctx, session, commandsRequest{
+		query: q.Get("q"), cursor: q.Get("cursor"), limit: parseSearchLimit(q), command: q.Get("command"),
+	})
+	if err != nil {
+		if errors.Is(err, api.ErrInvalidCursor) {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		if errors.Is(err, errNoSuchCommand) {
+			h.writeError(ctx, w, http.StatusNotFound, errNotFound)
+			return
+		}
+		h.logger.ErrorContext(ctx, "read agent session commands", "host_id", session.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	h.writeJSON(w, r, resp)
+}
+
+// commandsRequest is what a commands read asks for: a page of the commands a query finds, or, with command, that one command whole.
+type commandsRequest struct {
+	query, cursor string
+	limit         int
+	command       string
+}
+
+// errNoSuchCommand is a request for one command the session does not hold.
+var errNoSuchCommand = errors.New("no such command")
+
+// sessionCommands reads a session's processes and tool calls and returns one page of its commands, each listing up to
+// sessioncommands.InlineProcesses of its processes beside its alerted ones and the query's hits, or the one command asked for whole.
+func (h *Handler) sessionCommands(
+	ctx context.Context, session *api.AgentSessionSummary, req commandsRequest,
+) (agentCommandsResponse, error) {
+	logical, commands, truncated, err := h.buildSessionCommands(ctx, session)
+	if err != nil {
+		return agentCommandsResponse{}, err
+	}
+	calls, callsCut, err := h.agentToolCalls.AgentToolCalls(ctx, sessionToolCalls(session))
+	if err != nil {
+		return agentCommandsResponse{}, err
+	}
+	sessioncommands.JoinToolCalls(commands, calls)
+	page, err := h.commandsPage(ctx, commands, req)
+	if err != nil {
+		return agentCommandsResponse{}, err
+	}
+	resp := agentCommandsResponse{
+		Commands: page.Commands, NextCursor: page.NextCursor, TotalMatched: page.TotalMatched, Inferred: []int64{}, Services: []int64{},
+		Truncated: truncated, ToolCallsTruncated: callsCut,
+	}
+	for _, c := range page.Commands {
+		for _, id := range c.ProcessIDs {
+			if logical.Inferred[id] {
+				resp.Inferred = append(resp.Inferred, id)
+			}
+			if logical.Services[id] {
+				resp.Services = append(resp.Services, id)
+			}
+		}
+	}
+	return resp, nil
+}
+
+// commandsPage is the page a commands read returns: the one command asked for, whole, or a page of what the query finds, each command
+// cut to its first processes beside the alerted ones and the query's hits.
+func (h *Handler) commandsPage(
+	ctx context.Context, commands []sessioncommands.Command, req commandsRequest,
+) (sessioncommands.Page, error) {
+	if req.command != "" {
+		for _, c := range commands {
+			if c.Key == req.command {
+				return sessioncommands.Page{Commands: []sessioncommands.Command{c}, TotalMatched: 1}, nil
+			}
+		}
+		return sessioncommands.Page{}, errNoSuchCommand
+	}
+	page, err := sessioncommands.PageOf(sessioncommands.Search(commands, req.query), req.cursor, req.limit)
+	if err != nil {
+		return sessioncommands.Page{}, err
+	}
+	var cut []int64
+	for _, c := range page.Commands {
+		if len(c.ProcessIDs) > sessioncommands.InlineProcesses {
+			cut = append(cut, c.ProcessIDs...)
+		}
+	}
+	alerted, err := h.agentSessions.AlertedProcesses(ctx, cut)
+	if err != nil {
+		return sessioncommands.Page{}, err
+	}
+	isAlerted := make(map[int64]bool, len(alerted))
+	for _, id := range alerted {
+		isAlerted[id] = true
+	}
+	for i, c := range page.Commands {
+		hit := sessioncommands.Matching(c, req.query)
+		page.Commands[i] = sessioncommands.Cap(c, sessioncommands.InlineProcesses, func(p api.ProcessNode) bool {
+			return isAlerted[p.ID] || hit(p)
+		})
+	}
+	return page, nil
+}
+
+// agentProcessesResponse is one page of the processes a search found in a session, in fork order, each listed alone. Truncated
+// reports that the session had more processes than its read lists, so a match past them is not found.
+type agentProcessesResponse struct {
+	Processes    []api.ProcessNode `json:"processes"`
+	NextCursor   string            `json:"next_cursor,omitempty"`
+	TotalMatched int               `json:"total_matched"`
+	Truncated    bool              `json:"truncated"`
+}
+
+// handleAgentSessionProcesses serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/processes: the processes of a session whose
+// path or command line holds ?q=, over the whole session read, a page at a time by ?cursor= (issue #1452). Gated on process read
+// for the host, like the session's processes.
+func (h *Handler) handleAgentSessionProcesses(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	var after api.TreePosition
+	if token := q.Get("cursor"); token != "" {
+		var err error
+		if after, err = decodeTreeCursor(token); err != nil {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+	}
+	tree, err := h.readSession(ctx, session)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "read agent session processes", "host_id", session.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	found := sessioncommands.SearchProcesses(tree.Roots, q.Get("q"))
+	page, next := sessioncommands.ProcessPageOf(found, after, parseSearchLimit(q))
+	resp := agentProcessesResponse{Processes: page, TotalMatched: len(found), Truncated: tree.Truncated}
+	if next != nil {
+		resp.NextCursor = encodeTreeCursor(*next)
+	}
+	h.writeJSON(w, r, resp)
+}
+
+// handleAgentSessionPrompts serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/prompts: the prompts a person typed in the
+// session, oldest first, a page at a time by ?cursor=, kept by ?q= in their text (issue #1426). Gated on process read for the host
+// like the rest of the session, and on agent_prompt.read for the session as well, which process read does not imply and which is
+// audited on every read.
+func (h *Handler) handleAgentSessionPrompts(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	res := identityapi.Resource{Type: "agent_session", ID: promptResourceID(session.HostID, session.AgentSessionID)}
+	if !identityapi.HTTPGate(ctx, w, h.authz, h.logger, identityapi.ActionAgentPromptRead, res) {
+		return
+	}
+	q := r.URL.Query()
+	page, err := h.agentToolCalls.AgentPrompts(ctx, visibilityapi.AgentPromptFilter{
+		HostID: session.HostID, SessionID: session.AgentSessionID, Cursor: q.Get("cursor"), Search: strings.TrimSpace(q.Get("q")),
+		Limit: parseSearchLimit(q),
+	})
+	if err != nil {
+		if errors.Is(err, visibilityapi.ErrInvalidPromptCursor) {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		h.logger.ErrorContext(ctx, "read agent session prompts", "host_id", session.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	// Prompt text is what a person typed, so no browser or proxy keeps a copy of it.
+	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, page)
+}
+
+// maxConversationPrompts bounds the prompts a conversation reads, as maxToolCalls bounds its calls; promptsPage is the page it reads
+// them by.
+const (
+	maxConversationPrompts = 5000
+	promptsPage            = 200
+)
+
+// agentConversationResponse is one page of a session's turns (issue #1322). PromptsHidden reports that the caller lacks
+// agent_prompt.read, so each prompt is listed without its text; the cut flags say which of the session's reads stopped short.
+type agentConversationResponse struct {
+	sessioncommands.ConversationPage
+	PromptsHidden      bool `json:"prompts_hidden"`
+	Truncated          bool `json:"truncated"`
+	ToolCallsTruncated bool `json:"tool_calls_truncated"`
+	PromptsTruncated   bool `json:"prompts_truncated"`
+}
+
+// handleAgentSessionConversation serves GET /api/hosts/{host_id}/agent-sessions/{session_id}/conversation: the session as its
+// turns, each prompt with the commands and tool calls the agent made for it, a page at a time by ?cursor=, kept by ?q= (issue
+// #1322). Gated on process read for the host. A prompt's text is listed only for a caller that also holds agent_prompt.read; without
+// it the turns still show, their prompts without text, and a search does not reach the text.
+func (h *Handler) handleAgentSessionConversation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	session, ok := h.sessionOfRequest(w, r)
+	if !ok {
+		return
+	}
+	res := identityapi.Resource{Type: "agent_session", ID: promptResourceID(session.HostID, session.AgentSessionID)}
+	decision, err := h.authz.Allow(ctx, identityapi.ActionAgentPromptRead, res)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "authz", "err", err, "action", string(identityapi.ActionAgentPromptRead))
+		h.writeError(ctx, w, http.StatusServiceUnavailable, "authz_unavailable")
+		return
+	}
+	resp, err := h.sessionConversation(ctx, session, !decision.Allow)
+	if err == nil {
+		q := r.URL.Query()
+		turns := sessioncommands.SearchConversation(resp.turns, q.Get("q"))
+		resp.ConversationPage, err = sessioncommands.ConversationPageOf(turns, q.Get("cursor"), parseSearchLimit(q))
+	}
+	if err != nil {
+		if errors.Is(err, api.ErrInvalidCursor) {
+			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		h.logger.ErrorContext(ctx, "read agent session conversation", "host_id", session.HostID, "err", err)
+		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
+		return
+	}
+	// The turns can hold prompt text, so no browser or proxy keeps a copy of them.
+	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, resp.agentConversationResponse)
+}
+
+// sessionConversation reads a session's commands, tool calls and prompts and groups them into its turns, with each prompt's text
+// removed when hide is set.
+func (h *Handler) sessionConversation(ctx context.Context, session *api.AgentSessionSummary, hide bool) (conversation, error) {
+	_, commands, truncated, err := h.buildSessionCommands(ctx, session)
+	if err != nil {
+		return conversation{}, err
+	}
+	calls, callsCut, err := h.agentToolCalls.AgentToolCalls(ctx, sessionToolCalls(session))
+	if err != nil {
+		return conversation{}, err
+	}
+	sessioncommands.JoinToolCalls(commands, calls)
+	prompts, promptsCut, err := h.sessionPrompts(ctx, session)
+	if err != nil {
+		return conversation{}, err
+	}
+	if hide {
+		for i := range prompts {
+			prompts[i].Text = ""
+		}
+	}
+	return conversation{
+		turns: sessioncommands.BuildConversation(commands, calls, prompts),
+		agentConversationResponse: agentConversationResponse{
+			PromptsHidden: hide, Truncated: truncated, ToolCallsTruncated: callsCut, PromptsTruncated: promptsCut,
+		},
+	}, nil
+}
+
+// conversation is a session's turns before they are searched and paged, with the response's flags.
+type conversation struct {
+	agentConversationResponse
+	turns []sessioncommands.Turn
+}
+
+// sessionPrompts reads a session's prompts, oldest first, up to maxConversationPrompts, and reports whether there were more.
+func (h *Handler) sessionPrompts(ctx context.Context, session *api.AgentSessionSummary) ([]visibilityapi.AgentPrompt, bool, error) {
+	var prompts []visibilityapi.AgentPrompt
+	filter := visibilityapi.AgentPromptFilter{HostID: session.HostID, SessionID: session.AgentSessionID, Limit: promptsPage}
+	for len(prompts) < maxConversationPrompts {
+		page, err := h.agentToolCalls.AgentPrompts(ctx, filter)
+		if err != nil {
+			return nil, false, err
+		}
+		prompts = append(prompts, page.Prompts...)
+		if page.NextCursor == "" {
+			return prompts, false, nil
+		}
+		filter.Cursor = page.NextCursor
+	}
+	return prompts[:maxConversationPrompts], true, nil
+}
+
+// maxAuditTargetID is the length of audit_events.target_id, which records the resource a gate was asked for.
+const maxAuditTargetID = 255
+
+// promptResourceID names a session for the prompt-read gate, and so for its audit row, as "<host>/<session>". A host and session id
+// can together run past the audit column, and a row that does not fit is not written, so a longer name is recorded as the SHA-256
+// of it instead: bounded, and still one session's alone.
+func promptResourceID(hostID, sessionID string) string {
+	name := hostID + "/" + sessionID
+	if len(name) <= maxAuditTargetID {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// buildSessionCommands reads a session's processes and shapes them into its commands, with what launchd started for each moved under
+// it, and reports whether the read was cut.
+func (h *Handler) buildSessionCommands(
+	ctx context.Context, session *api.AgentSessionSummary,
+) (sessioncommands.LogicalForest, []sessioncommands.Command, bool, error) {
+	tree, err := h.readSession(ctx, session)
+	if err != nil {
+		return sessioncommands.LogicalForest{}, nil, false, err
+	}
+	logical, commands := commandsOf(tree)
+	return logical, commands, tree.Truncated, nil
+}
+
+// readSession reads a session's processes as the activity rollup reads a session scope: as a flat forest, the whole session up to
+// the scoped read's bound.
+func (h *Handler) readSession(ctx context.Context, session *api.AgentSessionSummary) (api.ProcessTreeResult, error) {
+	scope := api.TreeScope{AgentSessionID: session.AgentSessionID}
+	return h.svc.BuildScopedTree(ctx, session.HostID, scope, graph.MaxScopedRead, true, 0)
+}
+
+// commandsOf shapes a session's process read into its commands, with what launchd started for each moved under it.
+func commandsOf(tree api.ProcessTreeResult) (sessioncommands.LogicalForest, []sessioncommands.Command) {
+	logical := sessioncommands.ApplyLaunchLinks(tree.Roots, tree.Links)
+	return logical, sessioncommands.Build(logical.Roots)
+}
+
+// sessionToolCalls selects the tool calls of a session: those it recorded within its span widened by toolCallMargin, up to
+// maxToolCalls.
+func sessionToolCalls(session *api.AgentSessionSummary) visibilityapi.AgentToolCallFilter {
+	return visibilityapi.AgentToolCallFilter{
+		HostID: session.HostID, SessionID: session.AgentSessionID, Limit: maxToolCalls,
+		FromNs: session.FirstSeenNs - toolCallMargin.Nanoseconds(), ToNs: session.LastSeenNs + toolCallMargin.Nanoseconds(),
+	}
 }
 
 // SetAgentSessions installs the sessions list surface. Bootstrap wires it with the detection store in ModeFull; unset, the route
@@ -180,8 +571,14 @@ func (h *Handler) handleListAgentSessions(w http.ResponseWriter, r *http.Request
 		h.writeError(ctx, w, http.StatusBadRequest, errBadWindow)
 		return
 	}
+	bypass := q.Get("bypass")
+	if bypass != "" && bypass != "true" {
+		h.writeError(ctx, w, http.StatusBadRequest, errInvalidBypass)
+		return
+	}
 	filter := api.AgentSessionFilter{
 		HostID: q.Get("host_id"), AgentSessionID: q.Get("session"), AgentName: q.Get("agent"), FromNs: fromNs, ToNs: toNs,
+		Bypass: bypass == "true",
 	}
 	result, err := h.agentSessions.ListAgentSessions(ctx, filter, q.Get("cursor"), parseSearchLimit(q))
 	if err != nil {

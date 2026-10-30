@@ -10,6 +10,10 @@ import {
   getSessionTree,
   searchEvents,
   getHostTimeline,
+  getSessionCommands,
+  searchSessionProcesses,
+  getSessionConversation,
+  getActivityPage,
   setForbiddenHandler,
   setUnauthorizedHandler,
   Unauthorized401Error,
@@ -603,5 +607,54 @@ describe("session filters", () => {
     await listAlerts({ host_id: "host-a", agent_session: "s1", limit: 1000 });
     const [target] = fetchMock.mock.calls[0] as [URL];
     expect(Object.fromEntries(new URL(target.toString()).searchParams)).toEqual({ host_id: "host-a", agent_session: "s1", limit: "1000" });
+  });
+});
+
+describe("free-text queries", () => {
+  // URLSearchParams writes a space as "+" and leaves "*" literal, and assertSafeAPIPath refuses both, so a multi-word or wildcard
+  // search used to fail before it was sent ("unsafe API path").
+  it("sends a session commands search with a space and a wildcard, decoded back to what was typed", async () => {
+    const fetchMock = stubFetch({ commands: [], inferred: [], services: [], total_matched: 0, truncated: false, tool_calls_truncated: false });
+    await getSessionCommands("host-a", "s1", { q: "rm -rf build* && git status", limit: 50 });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host-a\/agent-sessions\/s1\/commands$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: "rm -rf build* && git status", limit: "50" });
+  });
+
+  it("sends a session process search to the session's processes, with its cursor and page size", async () => {
+    const fetchMock = stubFetch({ processes: [], total_matched: 0, truncated: false });
+    await searchSessionProcesses("host a", "s1", { q: "git status", cursor: "c2", limit: 50 });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host%20a\/agent-sessions\/s1\/processes$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: "git status", cursor: "c2", limit: "50" });
+  });
+
+  it("reads a session's conversation from the session's path, with its search and cursor", async () => {
+    const fetchMock = stubFetch({ turns: [], total_matched: 0, prompts_hidden: false, truncated: false, tool_calls_truncated: false,
+      prompts_truncated: false });
+    await getSessionConversation("host-a", "s1", { q: "deploy it", cursor: "c2", limit: 50 });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host-a\/agent-sessions\/s1\/conversation$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: "deploy it", cursor: "c2", limit: "50" });
+  });
+
+  it("sends an activity class's search with its cursor", async () => {
+    const fetchMock = stubFetch({ rows: [] });
+    await getActivityPage("host-a", { kind: "session", session: "s1" }, "dns", "c2", "evil example");
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(target.toString());
+    expect(url.pathname).toMatch(/\/hosts\/host-a\/activity\/dns$/);
+    expect(url.searchParams.get("q")).toBe("evil example");
+    expect(url.searchParams.get("cursor")).toBe("c2");
+  });
+
+  it("sends a host timeline text search with a space and a literal plus", async () => {
+    const fetchMock = stubFetch({ events: [], total_matched: 0 });
+    await getHostTimeline("hostA", { from: "1000", to: "2000", text: "c++ build" });
+    const [target] = fetchMock.mock.calls[0] as [URL];
+    expect(new URL(target.toString()).searchParams.get("text")).toBe("c++ build");
   });
 });

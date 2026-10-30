@@ -10,6 +10,7 @@ export const SETTINGS_SECTIONS = [
   { to: "/admin/settings/sso", label: "Single sign-on", action: PermissionAction.SSOManage },
   { to: "/admin/settings/webhooks", label: "Webhooks", action: PermissionAction.WebhookManage },
   { to: "/admin/settings/containment", label: "Containment", action: PermissionAction.ContainmentConfigRead },
+  { to: "/admin/settings/data-collection", label: "Data collection", action: PermissionAction.DetectionConfigRead },
   { to: "/admin/settings/users", label: "Users", action: PermissionAction.UserRead },
   { to: "/admin/settings/service-accounts", label: "Service accounts", action: PermissionAction.ServiceAccountRead },
 ] as const;

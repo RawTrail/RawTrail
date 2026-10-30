@@ -69,6 +69,9 @@ type Reader struct {
 	now     func() time.Time
 	logger  *slog.Logger
 	files   map[string]*position
+	// prompts reports whether the prompts the user typed are read and sent, as well as the tool calls (issue #1426). Asked per line,
+	// since the fleet's agent settings can turn capture on or off while the agent runs.
+	prompts func() bool
 }
 
 // position is how far one transcript has been read: the offset of the next unread line, the file it was read from, so a transcript
@@ -80,16 +83,45 @@ type position struct {
 	// parent is the session the transcript's session was forked from, read once from its job's parent transcript (issue #1354).
 	parent     string
 	parentRead bool
+	// turn is the turn the last user entry read belongs to, which each tool call after it was made in (issue #1426). Measured on 60 real
+	// transcripts, it names the same turn as the call's own result in every one of 46,833 calls.
+	turn string
+	// mode is the permission mode the last entry that names one put in force (issue #1427).
+	mode string
+	// messages are the assistant messages whose usage this transcript has sent (issue #1427). Claude Code writes a streamed message as
+	// several entries, each with the whole message's usage and its own time, so only the first is sent: the archive keeps one row
+	// for an event only when its time matches too, which the first entry's does each time the transcript is read from its start.
+	messages map[string]struct{}
 }
 
-// New returns a Reader over the home directories under root (/Users on macOS).
-func New(root string, hostID func() string, enqueue func(context.Context, []byte) error, logger *slog.Logger) *Reader {
-	return &Reader{root: root, hostID: hostID, enqueue: enqueue, now: time.Now, logger: logger, files: map[string]*position{}}
+// sent reports whether the transcript has sent a message's usage.
+func (p *position) sent(messageID string) bool {
+	_, ok := p.messages[messageID]
+	return ok
+}
+
+// markSent records that the transcript sent a message's usage. It is called once the queue took the event, so a message the queue
+// refused is sent again when its line is read again.
+func (p *position) markSent(messageID string) {
+	if p.messages == nil {
+		p.messages = map[string]struct{}{}
+	}
+	p.messages[messageID] = struct{}{}
+}
+
+// New returns a Reader over the home directories under root (/Users on macOS). capturePrompts reports whether the prompts the user typed
+// are sent as well as the tool calls.
+func New(root string, hostID func() string, enqueue func(context.Context, []byte) error, logger *slog.Logger,
+	capturePrompts func() bool) *Reader {
+	return &Reader{root: root, hostID: hostID, enqueue: enqueue, now: time.Now, logger: logger, files: map[string]*position{},
+		prompts: capturePrompts}
 }
 
 // PassStats is what one pass read.
 type PassStats struct {
 	Calls      int
+	Prompts    int
+	Usage      int
 	Unreadable int
 }
 
@@ -335,7 +367,7 @@ func (r *Reader) consume(ctx context.Context, hostID string, src source, pos *po
 		if end < 0 {
 			break
 		}
-		if err := r.handleLine(ctx, hostID, src, chunk[:end], stats); err != nil {
+		if err := r.handleLine(ctx, hostID, src, pos, chunk[:end], stats); err != nil {
 			// The line is read again next pass: a call the queue refused is not lost.
 			return err
 		}
@@ -350,15 +382,51 @@ func (r *Reader) consume(ctx context.Context, hostID string, src source, pos *po
 	return nil
 }
 
-// handleLine enqueues one line's tool calls, stamped with the transcript's owner. An unreadable line, or one naming a session other
-// than its transcript's, is counted and passed over: the file is the user's to write, and a line naming another session would put a
-// call in it that its agent never made. Only an enqueue failure stops the read.
-func (r *Reader) handleLine(ctx context.Context, hostID string, src source, line []byte, stats *PassStats) error {
-	calls, err := ParseLine(line)
+// handleLine enqueues one line's tool calls, and its prompt when prompts are captured, stamped with the transcript's owner. An
+// unreadable line, or one naming a session other than its transcript's, is counted and passed over: the file is the user's to write,
+// and a line naming another session would put a call or a prompt in it that never happened there. Only an enqueue failure stops the
+// read.
+func (r *Reader) handleLine(ctx context.Context, hostID string, src source, pos *position, raw []byte, stats *PassStats) error {
+	line, err := ParseLine(raw)
 	if err != nil {
 		stats.Unreadable++
 		return nil
 	}
+	// A user entry of another session neither names this session's turn nor carries a prompt of it.
+	if line.Turn != "" && line.TurnSession == src.session {
+		pos.turn = line.Turn
+	}
+	if line.Mode != "" && line.ModeSession == src.session {
+		pos.mode = line.Mode
+	}
+	if usage := line.Usage; usage != nil && usage.SessionID == src.session && !pos.sent(usage.MessageID) {
+		usage.OwnerUID, usage.PromptID, usage.PermissionMode, usage.ForkedFromSessionID = src.ownerUID, pos.turn, pos.mode, src.forkedFrom
+		body, err := sensorevent.Marshal(usage.EventID(), hostID, UsageEventType, usage.At.UnixNano(), usage.Payload())
+		if err != nil {
+			return err
+		}
+		if err := r.enqueue(ctx, body); err != nil {
+			return fmt.Errorf("enqueue usage: %w", err)
+		}
+		pos.markSent(usage.MessageID)
+		stats.Usage++
+	}
+	if prompt := line.Prompt; prompt != nil && r.prompts() {
+		if prompt.SessionID != src.session {
+			stats.Unreadable++
+			return nil
+		}
+		prompt.OwnerUID = src.ownerUID
+		body, err := sensorevent.Marshal(prompt.EventID(), hostID, PromptEventType, prompt.At.UnixNano(), prompt.Payload())
+		if err != nil {
+			return err
+		}
+		if err := r.enqueue(ctx, body); err != nil {
+			return fmt.Errorf("enqueue prompt: %w", err)
+		}
+		stats.Prompts++
+	}
+	calls := line.Calls
 	for _, call := range calls {
 		if call.SessionID != src.session {
 			stats.Unreadable++
@@ -366,7 +434,7 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, line
 		}
 	}
 	for _, call := range calls {
-		call.OwnerUID, call.ForkedFromSessionID = src.ownerUID, src.forkedFrom
+		call.OwnerUID, call.ForkedFromSessionID, call.PromptID = src.ownerUID, src.forkedFrom, pos.turn
 		body, err := sensorevent.Marshal(call.EventID(), hostID, EventType, call.At.UnixNano(), call.Payload())
 		if err != nil {
 			return err

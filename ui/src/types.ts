@@ -182,6 +182,11 @@ export interface AgentSessionSummary {
   last_seen_ns: number;
   process_count: number;
   alert_count: number;
+  // bypass says the session ran with permissions bypassed, or was forked from one that did, whose copied lines carry the mode.
+  bypass: boolean;
+  // tokens is the input, cache and output tokens the session's messages used, as its header totals them; absent when the session sent
+  // no usage or the server could not read it.
+  tokens?: number;
 }
 
 // AgentSessionResult is one page of the sessions list, most recently active first, with the keyset cursor for the next page (absent
@@ -230,6 +235,14 @@ export interface ActivityClass<Row> {
   distinct: number;
   truncated: boolean;
   rows: Row[];
+  // next_cursor reads the rows past a cut list (issue #1424).
+  next_cursor?: string;
+}
+
+// ActivityPage is one page of one class's rows past a cut list, with the cursor of the next page (issue #1424).
+export interface ActivityPage<Row> {
+  rows: Row[];
+  next_cursor?: string;
 }
 
 // ActivityScope says how far an activity read's scope reached. When applied is false the activity is empty, never the host's.
@@ -253,11 +266,149 @@ export interface AgentToolCall {
   called_at_ns: number;
   // uid owns the transcript the call was read from; a call is trusted only for that user's processes.
   uid: number;
+  // prompt_id is the turn the call was made in (issue #1426).
+  prompt_id?: string;
 }
 
-export interface AgentToolCallsResponse {
-  tool_calls: AgentToolCall[];
+// AgentPrompt is one prompt a person typed to an AI agent (issue #1426), as the agent sent it: redacted and cut at 16 KiB. Its text is
+// empty when the caller lacks agent_prompt.read.
+export interface AgentPrompt {
+  prompt_id: string;
+  text: string;
+  length: number;
+  truncated?: boolean;
+  redacted?: number;
+  source?: string;
+  at_ns: number;
+  uid: number;
+}
+
+// ConversationTurn is one prompt of a session and what the agent did for it (issue #1322). The turn with no prompt_id holds what
+// belongs to no prompt; a turn whose prompt the agent did not capture has no prompt.
+export interface ConversationTurn {
+  prompt_id?: string;
+  uid?: number;
+  at_ns: number;
+  prompt?: AgentPrompt;
+  commands: SessionCommand[];
+  calls: AgentToolCall[];
+}
+
+// SessionConversationResponse is one page of a session's turns. prompts_hidden is set when the caller lacks agent_prompt.read.
+export interface SessionConversationResponse {
+  turns: ConversationTurn[];
+  next_cursor?: string;
+  total_matched: number;
+  prompts_hidden: boolean;
   truncated: boolean;
+  tool_calls_truncated: boolean;
+  prompts_truncated: boolean;
+}
+
+// ToolCallMatch is the tool call the agent reported for a command (issue #1288), paired by the server (issue #1423): the call, or, for
+// identical calls of one turn that cannot be told apart, the first of them with how many there are.
+export type ToolCallMatch =
+  | { kind: "matched"; call: AgentToolCall }
+  | { kind: "ambiguous"; candidates: AgentToolCall[]; candidate_count: number };
+
+// SessionCommand is one command an AI agent session ran, as the server groups it (issue #1423): the processes one command started, as
+// a forest under its root, labelled with what the agent ran.
+export interface SessionCommand {
+  // key names the command by the row of the root that started it.
+  key: string;
+  command: string;
+  // from_agent is set when the command's root is the agent's wrapper shell for a Bash call.
+  from_agent: boolean;
+  uid?: number;
+  start_ns: number;
+  last_ns: number;
+  // process_ids are every process the command started, shell plumbing included.
+  process_ids: number[];
+  roots: ProcessNode[];
+  // processes_cut says roots lists only some of a large command's processes: its first, its alerted ones and a search's hits
+  // (issue #1443). process_ids still names every one, and the command can be read whole.
+  processes_cut?: boolean;
+  tool_call?: ToolCallMatch;
+}
+
+// SessionCommandsResponse is one page of a session's commands, in the order they started.
+// SessionProcessesResponse is one page of the processes a search found in a session (issue #1452): each alone, in fork order, with
+// the matches' total and whether the session had more processes than its read lists.
+export interface SessionProcessesResponse {
+  processes: ProcessNode[];
+  next_cursor?: string;
+  total_matched: number;
+  truncated: boolean;
+}
+
+export interface SessionCommandsResponse {
+  commands: SessionCommand[];
+  next_cursor?: string;
+  total_matched: number;
+  // inferred and services name the page's processes moved under the process that asked launchd for them.
+  inferred: number[];
+  services: number[];
+  // truncated is set when the session had more processes than the server reads; tool_calls_truncated, more tool calls.
+  truncated: boolean;
+  tool_calls_truncated: boolean;
+}
+
+// AgentSessionTotals is a session's totals, counted by the server over the whole session (issue #1422).
+export interface AgentSessionTotals {
+  commands: number;
+  processes: number;
+  alerts: { total: number; by_severity: Record<string, number> };
+  tool_calls: { total: number; by_tool: { tool: string; count: number }[] };
+  // usage is the tokens the session's messages used by model, and its messages by permission mode (issue #1427).
+  usage?: AgentUsageTotals;
+  activity?: {
+    files: { events: number; distinct: number; by_operation: Record<string, number> };
+    network: { events: number; distinct: number };
+    dns: { events: number; distinct: number };
+  };
+  // scope says how far the activity and digest reach into the session's processes.
+  scope?: ActivityScope;
+  // digest describes the session for its Summary (issue #1429).
+  digest?: AgentSessionDigest;
+}
+
+// AgentSessionDigest is a session described for its Summary: its prompts, the programs its commands ran most, its busiest
+// directories and domains, and its timelines, which split its span from timeline_start_ns into buckets timeline_bucket_ns wide.
+export interface AgentSessionDigest {
+  prompts: number;
+  programs: { program: string; count: number }[];
+  directories: { directory: string; paths: number; by_operation: Record<string, number> }[];
+  directories_truncated: boolean;
+  outside_project: number;
+  domains: DomainActivity[];
+  domains_truncated: boolean;
+  timeline: number[];
+  command_timeline: number[];
+  timeline_start_ns: number;
+  timeline_bucket_ns: number;
+}
+
+// DomainActivity is one registrable domain's lookups and named connections; new marks one the host had not looked up before.
+export interface DomainActivity {
+  domain: string;
+  lookups: number;
+  connections: number;
+  new: boolean;
+}
+
+// AgentUsageTotals is what a session's messages used: tokens by model, heaviest output first, and messages by the permission mode in
+// force, first seen first. An empty mode is messages written before the transcript named one.
+export interface AgentUsageTotals {
+  models: {
+    model: string;
+    messages: number;
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+    thinking_tokens: number;
+  }[];
+  modes: { mode: string; messages: number; first_ns: number; last_ns: number }[];
 }
 
 // AgentSessionLineage is a session's place among the sessions forked from each other on its host (issue #1347): the session it was
@@ -448,8 +599,12 @@ export interface TreeResponse {
   // agents are a session read's AI agent processes (issue #1334): the agent carries no session marker, so it is not among the roots,
   // and each root it created names it by parent_process_id. Absent for other reads, and when the agent was not seen.
   agents?: ProcessNode[];
+  // links_truncated is set when what the read added through its links was cut at its bound; a later page does not read them again.
+  links_truncated?: boolean;
   // agent_own_truncated is set when an agent's own processes, the children of an agents node (issue #1361), were cut at their bound.
   agent_own_truncated?: boolean;
+  // next_cursor reads a cut session or story read's next page (issue #1424); absent on the last page and for any other read.
+  next_cursor?: string;
 }
 
 export interface Alert {

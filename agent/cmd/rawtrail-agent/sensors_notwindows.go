@@ -35,8 +35,10 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 		component:    health.ComponentEndpointSecurityExtension,
 	})
 	// The tool calls AI agents record in their session transcripts (issue #1288), read from every home directory, so the server can
-	// label each tool call's processes with the call that started them. On Linux there is no /Users and this reads nothing.
-	go agenttranscript.New("/Users", d.hostIDFn, d.enqueue, d.logger).Run(ctx)
+	// label each tool call's processes with the call that started them, and the prompts their users typed unless prompt capture is off
+	// (issue #1426), which the fleet's agent settings and the agent's own EDR_CAPTURE_PROMPTS decide together. On Linux there is no
+	// /Users and this reads nothing.
+	go agenttranscript.New("/Users", d.hostIDFn, d.enqueue, d.logger, d.settings.CapturePrompts).Run(ctx)
 
 	if d.cfg.NetXPCService != "" {
 		// One emitter shared by both durable sensor records: the provider transitions and the repair-gave-up event go

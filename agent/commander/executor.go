@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"syscall"
 
+	"github.com/rawtrail/rawtrail/agent/agentsettings"
 	"github.com/rawtrail/rawtrail/agent/procgen"
 )
 
@@ -77,7 +78,9 @@ type Executor struct {
 	inFlight *InFlight
 	// containment applies set_network_containment. Nil (the default) reports those commands failed.
 	containment NetworkContainment
-	logger      *slog.Logger
+	// settings applies set_agent_settings. Nil (the default) reports those commands failed.
+	settings AgentSettings
+	logger   *slog.Logger
 }
 
 // NewExecutor builds an Executor. sender may be nil (set_application_control and set_watched_paths then report failed with a clear reason);
@@ -100,6 +103,12 @@ func (e *Executor) SetInFlight(f *InFlight) {
 // has a network extension to contain with.
 func (e *Executor) SetContainment(c NetworkContainment) {
 	e.containment = c
+}
+
+// SetAgentSettings wires the agent settings applier (issue #1426). Optional for the same reason as SetContainment: tests and the
+// degraded path leave it nil.
+func (e *Executor) SetAgentSettings(s AgentSettings) {
+	e.settings = s
 }
 
 // SetGeneration installs the live process-generation registry used to pin kill_process to the operator-selected generation (issue #627).
@@ -265,6 +274,8 @@ func (e *Executor) run(ctx context.Context, cmd Command) (status string, result 
 		return e.runSetWatchedPaths(ctx, cmd)
 	case "set_network_containment":
 		return e.runSetNetworkContainment(ctx, cmd)
+	case "set_agent_settings":
+		return e.runSetAgentSettings(ctx, cmd)
 	default:
 		return StatusFailed, marshalResult("unknown command type: " + cmd.CommandType)
 	}
@@ -383,6 +394,28 @@ func (e *Executor) runSetWatchedPaths(ctx context.Context, cmd Command) (string,
 	e.logger.InfoContext(ctx, "commander set_watched_paths", "cmd_id", cmd.ID, "edr.watched_paths.version", payload.Version,
 		"edr.watched_paths.count", len(paths))
 	result, _ := json.Marshal(map[string]any{"version": payload.Version, "paths": len(paths)})
+	return StatusCompleted, result
+}
+
+// runSetAgentSettings puts the fleet's agent settings in force (issue #1426). An older push than the settings in force completes without
+// changing them, and says so, since commands can arrive out of order. Result: {"version": V, "applied": bool, "capture_prompts": bool},
+// the last being what is in force after the command.
+func (e *Executor) runSetAgentSettings(ctx context.Context, cmd Command) (string, json.RawMessage) {
+	if e.settings == nil {
+		return StatusFailed, marshalResult("agent settings not configured")
+	}
+	var payload agentsettings.Payload
+	if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+		return StatusFailed, marshalResult(invalidPayloadPrefix + err.Error())
+	}
+	applied, err := e.settings.Apply(payload)
+	if err != nil {
+		return StatusFailed, marshalResult(err.Error())
+	}
+	capture := e.settings.CapturePrompts()
+	e.logger.InfoContext(ctx, "commander set_agent_settings", "cmd_id", cmd.ID, "edr.agent_settings.version", payload.Version,
+		"edr.agent_settings.applied", applied, "edr.agent_settings.capture_prompts", capture)
+	result, _ := json.Marshal(map[string]any{"version": payload.Version, "applied": applied, "capture_prompts": capture})
 	return StatusCompleted, result
 }
 

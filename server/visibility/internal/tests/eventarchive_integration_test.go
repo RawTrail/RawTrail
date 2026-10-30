@@ -95,6 +95,13 @@ func openTestArchive(t *testing.T) visibilityapi.EventArchive {
 // until test cleanup, so a test may use it for the whole test body.
 func openTestArchiveWithHandle(t *testing.T) (visibilityapi.EventArchive, *sqlx.DB) {
 	t.Helper()
+	return openTestArchiveWithRetention(t, 0)
+}
+
+// openTestArchiveWithRetention is openTestArchiveWithHandle with the event retention the server passes at startup; 0 keeps the
+// migration's TTL.
+func openTestArchiveWithRetention(t *testing.T, retentionDays int) (visibilityapi.EventArchive, *sqlx.DB) {
+	t.Helper()
 	dsn := clickhouseTestDSN(t)
 	ctx := context.Background()
 
@@ -119,7 +126,7 @@ func openTestArchiveWithHandle(t *testing.T) (visibilityapi.EventArchive, *sqlx.
 		_ = admin.Close()
 	})
 
-	vis, err := visibilitybootstrap.New(visibilitybootstrap.Deps{DB: testdb.Open(t), ClickHouseDB: chDB})
+	vis, err := visibilitybootstrap.New(visibilitybootstrap.Deps{DB: testdb.Open(t), ClickHouseDB: chDB, EventRetentionDays: retentionDays})
 	require.NoError(t, err)
 	require.NoError(t, vis.ApplySchema(ctx))
 	return vis.EventArchive(), chDB
@@ -225,6 +232,38 @@ func TestEventArchive_EventsByIDs(t *testing.T) {
 	empty, err := arch.EventsByIDs(ctx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, empty, "no ids requested returns no rows without a query")
+}
+
+// EventsByIDs reads the granules the event_id bloom filter selects, not the whole table: ClickHouse ignores skip indexes under FINAL
+// unless told otherwise, and a full scan of a production archive per alert took the dev ClickHouse down (issue #1461).
+func TestEventArchive_EventsByIDsUsesTheEventIDIndex(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	arch, chDB := openTestArchiveWithHandle(t)
+
+	const events = 60_000 // several 8192-row granules in one part
+	base := time.Now().UnixNano()
+	batch := make([]visibilityapi.Event, events)
+	for i := range batch {
+		batch[i] = archiveEvent("ev-"+strconv.Itoa(i), "h1", "exec", base+int64(i), i)
+	}
+	require.NoError(t, arch.Insert(ctx, batch))
+
+	var got []visibilityapi.Event
+	require.Eventually(t, func() bool {
+		var err error
+		got, err = arch.EventsByIDs(ctx, []string{"ev-31337"})
+		return err == nil && len(got) == 1
+	}, 5*time.Second, 100*time.Millisecond, "EventsByIDs finds the one event")
+
+	_, err := chDB.ExecContext(ctx, "SYSTEM FLUSH LOGS")
+	require.NoError(t, err)
+	var readRows uint64
+	require.NoError(t, chDB.QueryRowContext(ctx, `
+		SELECT read_rows FROM system.query_log
+		WHERE type = 'QueryFinish' AND current_database = currentDatabase() AND query LIKE 'SELECT event_id, host_id, timestamp_ns%'
+		ORDER BY event_time_microseconds DESC LIMIT 1`).Scan(&readRows))
+	assert.Less(t, readRows, uint64(events/2), "the read skips the granules that cannot hold the id")
 }
 
 // spec:server-event-ingestion/durable-event-archive-with-bounded-retention/a-re-delivered-event-is-not-duplicated-in-the-archive

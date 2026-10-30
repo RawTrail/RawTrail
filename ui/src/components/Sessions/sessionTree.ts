@@ -1,11 +1,11 @@
-// Shaping an AI agent session's process forest into what the session view shows (issue #1284): one group per command the agent ran,
-// labelled with that command, with the shell plumbing that ran it hidden unless the operator asks for it. A group is what the sensor
-// observed; the tool call the agent reported for it, read from its transcript, is paired with it separately (toolCallJoin.ts, #1333).
+// Shaping an AI agent session's processes into what the session view shows (issue #1284): one group per command the agent ran,
+// labelled with that command, with the shell plumbing that ran it hidden unless the operator asks for it. The server groups the
+// commands and pairs each with the tool call the agent reported for it (issue #1423); this lists each command's processes.
 //
 // The server reads the session as a forest built by creator. The agent process itself carries no session marker, so each command's
 // shell is a root, and everything that command started (a pipeline's commands, a daemon it double-forked or nohup'ed) hangs under it.
 
-import type { ProcessNode } from "../../types";
+import type { ProcessNode, SessionCommand, ToolCallMatch } from "../../types";
 import { commandLine, isShellPath, toolCommand } from "./toolCommand";
 
 // SessionRow is one process the view lists, with the rows under it.
@@ -48,6 +48,10 @@ export interface Command {
   // processIds are the rows of every process in the group, hidden plumbing included, so the view can count the group's alerts.
   processIds: number[];
   rows: SessionRow[];
+  // processesCut says rows lists only some of the group's processes; the rest are read on request.
+  processesCut: boolean;
+  // toolCall is the tool call the agent reported for the command, as the server paired it.
+  toolCall?: ToolCallMatch;
 }
 
 // RowShape is how rows are listed: verbose lists the shell plumbing too, and keep names processes never hidden as plumbing, so a
@@ -172,41 +176,22 @@ function rootRows(root: ProcessNode, shape: RowShape): SessionRow[] {
   return [row(root, undefined, shape)];
 }
 
-// buildCommands groups the session's forest by command, in the order the commands started. Each command's leader (the shell that
-// leads the process group keying it) starts a group. A root whose creator was not read joins the latest group its key names that
-// started before it, so a command stays one group even when part of its tree arrived without its parent. The key is a process-group id,
-// which a long session can reuse, so a later leader with the same key starts a group of its own rather than joining the earlier one.
-export function buildCommands(roots: readonly ProcessNode[], shape: RowShape): Command[] {
-  const groups: Command[] = [];
-  const latestByKey = new Map<number, Command>();
-  for (const root of [...roots].sort(byForkTime)) {
-    const key = root.tool_call_group;
-    let group = key === undefined || root.pid === key ? undefined : latestByKey.get(key);
-    if (group === undefined) {
-      const agentCommand = toolCommand(root.args);
-      group = {
-        key: `row:${String(root.id)}`,
-        command: agentCommand ?? commandLine(root.path, root.args),
-        fromAgent: agentCommand !== null,
-        uid: root.uid,
-        startNs: root.fork_time_ns,
-        lastNs: root.fork_time_ns,
-        processCount: 0,
-        processIds: [],
-        rows: [],
-      };
-      groups.push(group);
-      if (key !== undefined) latestByKey.set(key, group);
-    }
-    const into = group;
-    walk(root, (n) => {
-      into.processCount += 1;
-      into.processIds.push(n.id);
-      into.lastNs = Math.max(into.lastNs, lastActivityNs(n));
-    });
-    into.rows.push(...rootRows(root, shape));
-  }
-  return groups;
+// shapeCommand lists a command the server grouped (issue #1423) as the view shows it: each of its roots as the group's rows, a hidden
+// wrapper shell replaced by what it ran.
+export function shapeCommand(command: SessionCommand, shape: RowShape): Command {
+  return {
+    key: command.key,
+    command: command.command,
+    fromAgent: command.from_agent,
+    uid: command.uid,
+    startNs: command.start_ns,
+    lastNs: command.last_ns,
+    processCount: command.process_ids.length,
+    processIds: command.process_ids,
+    rows: command.roots.flatMap((root) => rootRows(root, shape)),
+    processesCut: command.processes_cut === true,
+    toolCall: command.tool_call,
+  };
 }
 
 // buildProcessForest lists every process a session ran as one tree for the Processes view (issue #1335): each agent process, with the

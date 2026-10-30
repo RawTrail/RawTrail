@@ -19,7 +19,7 @@
     },
     "event_type": {
       "type": "string",
-      "enum": ["exec", "fork", "exit", "open", "file_rename", "file_truncate", "file_delete", "file_activity", "agent_credential_would_block", "agent_tool_call", "network_connect", "dns_query", "application_control_block", "application_control_would_block", "application_control_undecided", "application_control_resync", "snapshot_heartbeat", "btm_launch_item_add", "sensor_provider_transition", "sensor_recovery_failed", "tcc_modify"],
+      "enum": ["exec", "fork", "exit", "open", "file_rename", "file_truncate", "file_delete", "file_activity", "agent_credential_would_block", "agent_tool_call", "agent_prompt", "agent_usage", "network_connect", "dns_query", "application_control_block", "application_control_would_block", "application_control_undecided", "application_control_resync", "snapshot_heartbeat", "btm_launch_item_add", "sensor_provider_transition", "sensor_recovery_failed", "tcc_modify"],
       "description": "Type of endpoint security event"
     },
     "platform": {
@@ -72,6 +72,14 @@
     {
       "if": { "properties": { "event_type": { "const": "agent_tool_call" } }, "required": ["event_type"] },
       "then": { "properties": { "payload": { "$ref": "#/definitions/agent_tool_call_payload" } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "agent_prompt" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/agent_prompt_payload" } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "agent_usage" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/agent_usage_payload" } } }
     },
     {
       "if": { "properties": { "event_type": { "const": "network_connect" } }, "required": ["event_type"] },
@@ -359,7 +367,7 @@
     "agent_tool_call_payload": {
       "type": "object",
       "required": ["agent_session_id", "tool_use_id", "tool_name", "uid"],
-      "description": "One tool call an AI agent recorded in its session transcript, read by the agent from the transcript on disk. The envelope timestamp_ns is the time the transcript gives the call. Only tool-call metadata is carried: never prompt text, model output or tool results.",
+      "description": "One tool call an AI agent recorded in its session transcript, read by the agent from the transcript on disk. The envelope timestamp_ns is the time the transcript gives the call. Only tool-call metadata is carried: never model output or tool results.",
       "properties": {
         "agent_session_id": { "type": "string", "description": "The agent's own session id, CLAUDE_CODE_SESSION_ID for Claude Code, which the exec events of the session's processes also carry." },
         "tool_use_id": { "type": "string", "description": "The agent's id for the call, unique within the session." },
@@ -370,9 +378,47 @@
         "cwd": { "type": "string", "description": "Optional. The session's working directory when the call was made." },
         "origin_session_id": { "type": "string", "description": "Optional. The session id the transcript line was written under, where it differs from agent_session_id. A forked session's copy of its parent's history keeps the parent's id, so a call that the named session also holds is a copy of it." },
         "forked_from_session_id": { "type": "string", "maxLength": 256, "description": "Optional. The session the call's session was forked from, as Claude Code's /fork job for the session names it (2.1.301 and later): direct evidence of the immediate parent." },
+        "prompt_id": { "type": "string", "description": "Optional. The turn the call was made in, which the agent_prompt that began it also names." },
         "sidechain": { "type": "boolean", "description": "Optional. True when a subagent made the call inside the session." },
         "truncated": { "type": "boolean", "description": "Optional. True when command was cut to its 8 KiB limit." },
         "uid": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "The uid of the transcript's owner, the user the call was read for. A transcript is its user's to write, so a call is trusted only for its owner's sessions." }
+      }
+    },
+    "agent_usage_payload": {
+      "type": "object",
+      "required": ["agent_session_id", "message_id", "model", "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "thinking_tokens", "uid"],
+      "description": "The tokens one assistant message of an AI agent session used, read by the agent from the session transcript on disk. One event per message however many transcript entries carry it, so the event_id is the same for each. The envelope timestamp_ns is the message's time in the transcript. Metadata only: no prompt or model text.",
+      "properties": {
+        "agent_session_id": { "type": "string", "description": "The agent's own session id, as on agent_tool_call." },
+        "message_id": { "type": "string", "description": "The message's id, as the model provider issued it." },
+        "model": { "type": "string", "description": "The model that wrote the message." },
+        "input_tokens": { "type": "integer", "minimum": 0, "description": "Input tokens not read from the prompt cache." },
+        "output_tokens": { "type": "integer", "minimum": 0, "description": "Output tokens, thinking included." },
+        "cache_creation_input_tokens": { "type": "integer", "minimum": 0, "description": "Input tokens written to the prompt cache." },
+        "cache_read_input_tokens": { "type": "integer", "minimum": 0, "description": "Input tokens read from the prompt cache." },
+        "thinking_tokens": { "type": "integer", "minimum": 0, "description": "The part of output_tokens spent thinking." },
+        "prompt_id": { "type": "string", "description": "Optional. The turn the message was made in, as on agent_tool_call." },
+        "permission_mode": { "type": "string", "description": "Optional. The permission mode the transcript last put in force, as the agent records it (such as auto, acceptEdits, plan or bypassPermissions)." },
+        "sidechain": { "type": "boolean", "description": "Optional. True for a message a subagent wrote." },
+        "origin_session_id": { "type": "string", "description": "Optional. The session the line names as its own where it differs from agent_session_id, as on agent_tool_call: a copy from it, or a message of a session /clear started." },
+        "forked_from_session_id": { "type": "string", "description": "Optional. The session this one was forked from, as its /fork job names it, as on agent_tool_call." },
+        "uid": { "type": "integer", "minimum": 0, "description": "The uid of the transcript's owner, as on agent_tool_call." }
+      }
+    },
+    "agent_prompt_payload": {
+      "type": "object",
+      "required": ["agent_session_id", "prompt_id", "text", "length", "uid"],
+      "description": "One prompt a person typed to an AI agent, read by the agent from the session transcript on disk unless prompt capture is off. The envelope timestamp_ns is the time the transcript gives the prompt. Known secrets are redacted and the text is cut to 16 KiB before it is sent.",
+      "properties": {
+        "agent_session_id": { "type": "string", "description": "The agent's own session id, as on agent_tool_call." },
+        "prompt_id": { "type": "string", "description": "The turn the prompt began; the agent_tool_call events of the turn carry the same id." },
+        "text": { "type": "string", "description": "What the person typed, each recognized credential replaced by [REDACTED:<kind>], at most 16 KiB. A slash command reads as /name args." },
+        "length": { "type": "integer", "minimum": 0, "description": "The prompt's length in bytes as typed, before redaction and the cut." },
+        "truncated": { "type": "boolean", "description": "Optional. True when text was cut to its 16 KiB limit." },
+        "redacted": { "type": "integer", "minimum": 1, "description": "Optional. How many credentials were replaced in text." },
+        "source": { "type": "string", "description": "Optional. How the prompt was entered, as the agent records it: typed, queued while the agent worked, or a suggestion accepted." },
+        "cwd": { "type": "string", "description": "Optional. The session's working directory when the prompt was sent." },
+        "uid": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "The uid of the transcript's owner, as on agent_tool_call." }
       }
     },
     "network_connect_payload": {

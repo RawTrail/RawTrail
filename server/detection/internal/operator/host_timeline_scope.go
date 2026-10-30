@@ -66,13 +66,15 @@ func (h *Handler) resolveTimelineScope(
 	if err != nil {
 		return nil, nil, err
 	}
-	generations, scope, _ := scopeGenerations(res.Roots, res.Truncated)
+	generations, scope, _ := scopeGenerations(res.Roots, res.Truncated, maxTimelineChain)
 	return generations, scope, nil
 }
 
-// scopeGenerations walks a scope's processes and returns the generations an archive read filters on, the report of how far they
-// reach, and the processes that carry one. Shared by the timeline and activity scopes so they count a scope alike.
-func scopeGenerations(roots []api.ProcessNode, truncated bool) ([]visibilityapi.ProcessGeneration, *timelineScope, []api.ProcessNode) {
+// scopeGenerations walks a scope's processes and returns up to bound generations an archive read filters on, the report of how far
+// they reach, and the processes that carry one. Shared by the timeline and activity scopes so they count a scope alike.
+func scopeGenerations(
+	roots []api.ProcessNode, truncated bool, bound int,
+) ([]visibilityapi.ProcessGeneration, *timelineScope, []api.ProcessNode) {
 	scope := &timelineScope{Truncated: truncated}
 	var generations []visibilityapi.ProcessGeneration
 	matched := []api.ProcessNode{}
@@ -91,8 +93,8 @@ func scopeGenerations(roots []api.ProcessNode, truncated bool) ([]visibilityapi.
 		}
 	}
 	walk(roots)
-	if len(generations) > maxTimelineChain {
-		generations, matched, scope.Truncated = generations[:maxTimelineChain], matched[:maxTimelineChain], true
+	if len(generations) > bound {
+		generations, matched, scope.Truncated = generations[:bound], matched[:bound], true
 	}
 	scope.Applied = len(generations) > 0
 	return generations, scope, matched

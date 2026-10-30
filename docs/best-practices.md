@@ -263,7 +263,7 @@ The observability stack is unusually strong here for an early-stage project; thi
 - [ ] **Encryption at rest** documented as a deployment requirement (and enforced via config validation in production mode)
 - [ ] **Schema-change CI gate** (`atlas migrate lint` or `skeema diff --safe`) that flags destructive operations before merge. Schema changes are versioned goose files (ADR-0009), so each one is a reviewable unit such a gate can lint
 - [ ] **Slow-query log review** runbook
-- [~] **Data retention by event type**: raw events (ClickHouse TTL), process records (`EDR_RETENTION_DAYS`), alerts (`EDR_ALERT_RETENTION_DAYS`, counted from last triage activity) and monitor records (`EDR_MONITOR_RETENTION_DAYS`) each have their own window. Raw events still share one fixed 30-day TTL whatever their type, set in a migration rather than configurable
+- [~] **Data retention by event type**: raw events (ClickHouse TTL), process records (`EDR_RETENTION_DAYS`), alerts (`EDR_ALERT_RETENTION_DAYS`, counted from last triage activity) and monitor records (`EDR_MONITOR_RETENTION_DAYS`) each have their own window. Raw events share one TTL whatever their type, set by `EDR_EVENT_RETENTION_DAYS`
 
 ## 11. Build, release, packaging
 

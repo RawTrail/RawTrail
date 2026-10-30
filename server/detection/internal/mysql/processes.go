@@ -944,6 +944,38 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter visibilityapi
 	return s.archive.ActivityForGenerations(ctx, filter)
 }
 
+// ActivityPage delegates a page of one activity class (issue #1424) to the visibility EventArchive.
+func (s *Store) ActivityPage(
+	ctx context.Context, filter visibilityapi.ActivityFilter, class, cursor string,
+) (visibilityapi.ActivityPage, error) {
+	return s.archive.ActivityPage(ctx, filter, class, cursor)
+}
+
+// ActivityTotalsForGenerations delegates the activity totals (issue #1422) to the visibility EventArchive.
+func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivitySummary, error) {
+	return s.archive.ActivityTotalsForGenerations(ctx, filter)
+}
+
+// ActivityDigest delegates a session's activity digest (issue #1429) to the visibility EventArchive.
+func (s *Store) ActivityDigest(ctx context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
+	return s.archive.ActivityDigest(ctx, filter)
+}
+
+// AgentPromptCount delegates the count of a session's prompts (issue #1429) to the visibility EventArchive.
+func (s *Store) AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error) {
+	return s.archive.AgentPromptCount(ctx, hostID, sessionID)
+}
+
+// AgentToolCallCounts delegates a session's tool calls counted by tool (issue #1422) to the visibility EventArchive.
+func (s *Store) AgentToolCallCounts(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error) {
+	return s.archive.AgentToolCallCounts(ctx, filter)
+}
+
+// AgentUsageTotals delegates a session's token totals (issue #1427) to the visibility EventArchive.
+func (s *Store) AgentUsageTotals(ctx context.Context, filter visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error) {
+	return s.archive.AgentUsageTotals(ctx, filter)
+}
+
 // SessionTouches delegates the transcripts a process generation touched (issue #1319) to the visibility EventArchive.
 func (s *Store) SessionTouches(
 	ctx context.Context, hostID string, generation visibilityapi.ProcessGeneration,
@@ -963,4 +995,9 @@ func (s *Store) AgentToolCalls(
 	ctx context.Context, filter visibilityapi.AgentToolCallFilter,
 ) ([]visibilityapi.AgentToolCall, bool, error) {
 	return s.archive.AgentToolCalls(ctx, filter)
+}
+
+// AgentPrompts reads a page of the prompts a person typed in one session (issue #1426) from the event archive.
+func (s *Store) AgentPrompts(ctx context.Context, filter visibilityapi.AgentPromptFilter) (visibilityapi.AgentPromptPage, error) {
+	return s.archive.AgentPrompts(ctx, filter)
 }
