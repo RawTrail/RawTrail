@@ -17,6 +17,7 @@ function session(over: Partial<AgentSessionSummary> = {}): AgentSessionSummary {
     last_seen_ns: 9_000_000_000,
     process_count: 16,
     alert_count: 1,
+    bypass: false,
     ...over,
   };
 }
@@ -109,6 +110,24 @@ describe("SessionList", () => {
     expect(screen.getByRole("link", { name: "claude-code" })).toBeVisible();
     expect(spy.mock.calls[1][1]).toBe("page-2");
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/sessions-list-bypass-filter/the-list-narrows-to-sessions-that-ran-bypassed
+  it("asks the server for the sessions that ran bypassed and badges them", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const spy = vi.spyOn(api, "listAgentSessions").mockResolvedValue({
+      rows: [session({ bypass: true }), session({ agent_session_id: "s2", agent_name: "codex" })], total_matched: 2,
+    });
+    renderList("/agent-sessions?bypass=true");
+    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
+    expect(spy.mock.calls[0][0]).toEqual({ bypass: "true" });
+    expect(screen.getByText("Permissions: Ran in bypass mode (or forked from a session that did)")).toBeVisible();
+    const bypassed = (await screen.findByRole("link", { name: "claude-code" })).closest("tr");
+    const badge = screen.getByText("Bypass permissions");
+    expect(badge).toBeVisible();
+    expect(bypassed).toContainElement(badge);
+    expect(badge.parentElement).toHaveAttribute("title", "Ran in bypass mode, or was forked from a session that did");
+    expect(screen.getAllByText("Bypass permissions")).toHaveLength(1);
   });
 
   it("says so when no session matches", async () => {

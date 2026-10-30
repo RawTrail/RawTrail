@@ -119,6 +119,7 @@ function record(over: Partial<AgentSessionSummary> = {}): AgentSessionSummary {
     last_seen_ns: 400_000_000_000,
     process_count: 16,
     alert_count: 1,
+    bypass: false,
     ...over,
   };
 }

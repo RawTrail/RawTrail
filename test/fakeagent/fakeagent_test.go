@@ -190,12 +190,13 @@ func TestEnvelopes_PayloadShapePerEventType(t *testing.T) {
 			{At: 0, Type: "network_connect", PID: 11, Protocol: "tcp", Direction: "outbound", RemoteAddress: "10.0.0.1", RemotePort: 443},
 			{At: 0, Type: "dns_query", PID: 11, QueryName: "x.y", QueryType: "A"},
 			{At: 0, Type: "snapshot_heartbeat", PID: 11},
+			{At: 0, Type: "agent_usage", AgentSessionID: "s", MessageID: "msg_01", Model: "claude-opus-5-5", PermissionMode: "auto", UID: 501},
 		},
 	}
 	require.NoError(t, scenario.Validate())
 	envs, err := scenario.Envelopes(WithStartTime(time.Unix(0, 0)))
 	require.NoError(t, err)
-	require.Len(t, envs, 10)
+	require.Len(t, envs, 11)
 
 	required := map[string][]string{
 		"fork": {"child_pid", "parent_pid"},
@@ -210,6 +211,8 @@ func TestEnvelopes_PayloadShapePerEventType(t *testing.T) {
 		"network_connect":    {"pid", "protocol", "direction", "remote_address", "remote_port"},
 		"dns_query":          {"pid", "query_name", "query_type"},
 		"snapshot_heartbeat": {"pid"},
+		"agent_usage": {"agent_session_id", "message_id", "model", "input_tokens", "output_tokens", "cache_creation_input_tokens",
+			"cache_read_input_tokens", "thinking_tokens", "uid", "permission_mode"},
 	}
 	for _, env := range envs {
 		var payload map[string]any

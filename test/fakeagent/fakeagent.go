@@ -121,6 +121,14 @@ type Event struct {
 	Command        string `json:"command,omitempty"`
 	Description    string `json:"description,omitempty"`
 
+	// agent_usage specifics (issue #1427): one assistant message's model, tokens and the permission mode in force. AgentSessionID and
+	// UID are shared with agent_tool_call.
+	MessageID      string `json:"message_id,omitempty"`
+	Model          string `json:"model,omitempty"`
+	InputTokens    int    `json:"input_tokens,omitempty"`
+	OutputTokens   int    `json:"output_tokens,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+
 	// network_connect specifics.
 	Protocol      string `json:"protocol,omitempty"`
 	Direction     string `json:"direction,omitempty"`
@@ -268,6 +276,7 @@ var knownEventTypes = map[string]bool{
 	// An AI agent's folded file activity (issue #1287) and the tool calls it recorded (#1288), for the session journeys.
 	"file_activity":       true,
 	"agent_tool_call":     true,
+	"agent_usage":         true,
 	"network_connect":     true,
 	"dns_query":           true,
 	"snapshot_heartbeat":  true,

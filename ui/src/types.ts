@@ -182,6 +182,8 @@ export interface AgentSessionSummary {
   last_seen_ns: number;
   process_count: number;
   alert_count: number;
+  // bypass says the session ran with permissions bypassed, or was forked from one that did, whose copied lines carry the mode.
+  bypass: boolean;
 }
 
 // AgentSessionResult is one page of the sessions list, most recently active first, with the keyset cursor for the next page (absent

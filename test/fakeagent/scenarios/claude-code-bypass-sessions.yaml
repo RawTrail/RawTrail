@@ -1,0 +1,62 @@
+# Two Claude Code sessions on one Mac, each running one Bash tool call, for the sessions list's bypass filter (issue #1427). Each call's
+# shell carries its session's markers, which is what records the session. The first session's assistant messages were written in the
+# bypassPermissions mode, after one in auto; the second's only in default.
+name: "Claude Code sessions: one ran with permissions bypassed"
+host:
+  id: AAAA0008-0000-0000-0000-000000000008
+  hostname: dev-laptop.local
+  os: macOS 26.0
+timeline:
+  - at: 0ms
+    type: exec
+    pid: 6001
+    ppid: 6000
+    path: /bin/zsh
+    args: ["/bin/zsh", "-c", "eval 'ls' < /dev/null"]
+    cwd: /Users/dev/bypassed
+    uid: 501
+    gid: 20
+    env:
+      CLAUDE_CODE_SESSION_ID: 5b2f6e3a-1c4d-4e8f-9a0b-7c6d5e4f3a21
+      CLAUDE_PID: "6000"
+      AI_AGENT: claude-code_2-1-296_agent
+  - at: 1ms
+    type: agent_usage
+    agent_session_id: 5b2f6e3a-1c4d-4e8f-9a0b-7c6d5e4f3a21
+    message_id: msg_e2e_bypassed_auto
+    model: claude-opus-5-5
+    input_tokens: 10
+    output_tokens: 20
+    permission_mode: auto
+    uid: 501
+  - at: 2ms
+    type: agent_usage
+    agent_session_id: 5b2f6e3a-1c4d-4e8f-9a0b-7c6d5e4f3a21
+    message_id: msg_e2e_bypassed
+    model: claude-opus-5-5
+    input_tokens: 10
+    output_tokens: 20
+    permission_mode: bypassPermissions
+    uid: 501
+  - at: 3ms
+    type: exec
+    pid: 7001
+    ppid: 7000
+    path: /bin/zsh
+    args: ["/bin/zsh", "-c", "eval 'pwd' < /dev/null"]
+    cwd: /Users/dev/careful
+    uid: 501
+    gid: 20
+    env:
+      CLAUDE_CODE_SESSION_ID: 8d9e0f1a-2b3c-4d5e-8f6a-7b8c9d0e1f2a
+      CLAUDE_PID: "7000"
+      AI_AGENT: claude-code_2-1-296_agent
+  - at: 4ms
+    type: agent_usage
+    agent_session_id: 8d9e0f1a-2b3c-4d5e-8f6a-7b8c9d0e1f2a
+    message_id: msg_e2e_careful
+    model: claude-opus-5-5
+    input_tokens: 10
+    output_tokens: 20
+    permission_mode: default
+    uid: 501

@@ -82,6 +82,12 @@ export interface ScenarioEvent {
   tool_name?: string;
   command?: string;
   description?: string;
+  // agent_usage (issue #1427): one assistant message's model, tokens and the permission mode in force.
+  message_id?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  permission_mode?: string;
   protocol?: string;
   direction?: string;
   local_address?: string;
@@ -352,6 +358,21 @@ function buildPayload(ev: ScenarioEvent): Record<string, unknown> {
       if (ev.command) p.command = ev.command;
       if (ev.description) p.description = ev.description;
       if (ev.path) p.file_path = ev.path;
+      return p;
+    }
+    case "agent_usage": {
+      const p: Record<string, unknown> = {
+        agent_session_id: ev.agent_session_id ?? "",
+        message_id: ev.message_id ?? "",
+        model: ev.model ?? "",
+        input_tokens: ev.input_tokens ?? 0,
+        output_tokens: ev.output_tokens ?? 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        thinking_tokens: 0,
+        uid: ev.uid ?? 0,
+      };
+      if (ev.permission_mode) p.permission_mode = ev.permission_mode;
       return p;
     }
     case "network_connect": {

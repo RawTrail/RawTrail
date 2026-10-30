@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import "../Search/SearchPage.scss";
 import { listAgentSessions, type AgentSessionFilter } from "../../api";
 import type { AgentSessionSummary } from "../../types";
+import { Badge } from "../ui/Badge";
 import { Table } from "../ui/Table";
 import { FilterChips, type FilterField } from "../Search/FilterChips";
 import { useCursorList, type CursorPage } from "../Search/useCursorList";
@@ -37,14 +38,20 @@ const FILTER_FIELDS: FilterField[] = [
       { value: "30d", label: "Last 30 days" },
     ],
   },
+  // A fork carries copies of its parent's lines, so a fork of a bypassed session is kept too, and the label says so (issue #1427).
+  { key: "bypass", label: "Permissions", options: [{ value: "true", label: "Ran in bypass mode (or forked from a session that did)" }] },
 ];
 
 const FILTER_KEYS = FILTER_FIELDS.map((f) => f.key);
+
+// BYPASS_TITLE explains a row's bypass badge, which a fork of a bypassed session carries without having bypassed itself.
+const BYPASS_TITLE = "Ran in bypass mode, or was forked from a session that did";
 
 // sessionFilter turns the URL's filter into the endpoint's. The active window resolves against the clock when the list is (re)loaded,
 // so a reload after the page has been open a while still means "the last week".
 function sessionFilter(active: Record<string, string>): AgentSessionFilter {
   const filter: AgentSessionFilter = { host_id: active.host_id, agent: active.agent };
+  if (active.bypass === "true") filter.bypass = "true";
   const windowMs = ACTIVE_WINDOWS[active.active] as number | undefined;
   if (windowMs !== undefined) filter.from = String((Date.now() - windowMs) * NANOSECONDS_PER_MILLISECOND);
   return filter;
@@ -100,6 +107,12 @@ export function SessionList() {
                 <td>
                   <Link to={sessionHref(s)}>{s.agent_name}</Link>
                   {s.agent_version ? ` ${s.agent_version}` : ""}
+                  {s.bypass && (
+                    <>
+                      {" "}
+                      <span title={BYPASS_TITLE}><Badge variant="high">Bypass permissions</Badge></span>
+                    </>
+                  )}
                 </td>
                 <td className="search-page__mono">{s.cwd ?? ""}</td>
                 <td>{hostNames.get(s.host_id) ?? s.host_id}</td>
