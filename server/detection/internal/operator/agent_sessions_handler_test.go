@@ -17,11 +17,16 @@ import (
 )
 
 type fakeSessionLister struct {
-	filter api.AgentSessionFilter
-	cursor string
-	limit  int
-	result api.AgentSessionResult
-	err    error
+	filter  api.AgentSessionFilter
+	cursor  string
+	limit   int
+	result  api.AgentSessionResult
+	err     error
+	alerted []int64
+}
+
+func (f *fakeSessionLister) AlertedSessionProcesses(context.Context, string, string) ([]int64, error) {
+	return f.alerted, f.err
 }
 
 func (f *fakeSessionLister) ListAgentSessions(_ context.Context, filter api.AgentSessionFilter, cursor string, limit int) (api.AgentSessionResult, error) {

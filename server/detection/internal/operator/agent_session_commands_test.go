@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,11 +73,12 @@ func newCommandsServer(t *testing.T, svc fakeService, reader *fakeToolCallReader
 // commandsPage is the response as a client reads it.
 type commandsPage struct {
 	Commands []struct {
-		Key        string  `json:"key"`
-		Command    string  `json:"command"`
-		FromAgent  bool    `json:"from_agent"`
-		ProcessIDs []int64 `json:"process_ids"`
-		Roots      []struct {
+		Key          string  `json:"key"`
+		Command      string  `json:"command"`
+		FromAgent    bool    `json:"from_agent"`
+		ProcessIDs   []int64 `json:"process_ids"`
+		ProcessesCut bool    `json:"processes_cut"`
+		Roots        []struct {
 			ID       int64 `json:"id"`
 			Children []struct {
 				ID       int64 `json:"id"`
@@ -202,4 +204,92 @@ func TestAgentSessionCommands_Failures(t *testing.T) {
 			assert.Equal(t, tc.want, status)
 		})
 	}
+}
+
+// buildTree is a session that ran one long build: its wrapper shell, make, and make's workers, the 140th of which an alert was
+// raised on.
+func buildTree(workers int) func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+	return func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+		var children []api.ProcessNode
+		for i := range workers {
+			id := int64(10 + i)
+			children = append(children, commandProc(id, 1000+i, int64(2000+i), "/usr/bin/cc", []string{"cc", "worker-" + strconv.Itoa(i)}))
+		}
+		makeProc := commandProc(2, 101, 1001, "/usr/bin/make", []string{"make", "-j"}, children...)
+		return api.ProcessTreeResult{Roots: []api.ProcessNode{toolCallShell(1, 100, 1000, "make -j", makeProc)}}, nil
+	}
+}
+
+// listedIDs are the rows a command's forest lists, three levels deep: the wrapper, make, and make's workers.
+func listedIDs(roots []struct {
+	ID       int64 `json:"id"`
+	Children []struct {
+		ID       int64 `json:"id"`
+		Children []struct {
+			ID int64 `json:"id"`
+		} `json:"children"`
+	} `json:"children"`
+}) []int64 {
+	var ids []int64
+	for _, r := range roots {
+		ids = append(ids, r.ID)
+		for _, c := range r.Children {
+			ids = append(ids, c.ID)
+			for _, g := range c.Children {
+				ids = append(ids, g.ID)
+			}
+		}
+	}
+	return ids
+}
+
+// spec:server-rest-api/session-commands-list-their-processes-in-part/a-large-command-lists-its-first-processes-and-its-alerted-ones
+// spec:server-rest-api/session-commands-list-their-processes-in-part/one-command-is-read-whole-on-request
+func TestAgentSessionCommands_ListALargeCommandInPart(t *testing.T) {
+	t.Parallel()
+	const workers = 150
+	alertedWorker := int64(10 + 140)
+	lister := summarySession()
+	lister.alerted = []int64{alertedWorker}
+	srv := newCommandsServer(t, fakeService{buildScopedTree: buildTree(workers)}, commandsCalls(), lister)
+
+	status, got := getCommands(t, srv, "")
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, got.Commands, 1)
+	build := got.Commands[0]
+	assert.True(t, build.ProcessesCut)
+	assert.Len(t, build.ProcessIDs, workers+2, "every process is still named")
+	listed := listedIDs(build.Roots)
+	assert.Len(t, listed, 100+1, "the first hundred and the alerted worker")
+	assert.Contains(t, listed, alertedWorker)
+
+	status, searched := getCommands(t, srv, "?q=worker-145")
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, searched.Commands, 1)
+	assert.Contains(t, listedIDs(searched.Commands[0].Roots), int64(10+145), "a search hit past the first hundred is listed")
+
+	status, whole := getCommands(t, srv, "?command="+build.Key)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, whole.Commands, 1)
+	assert.False(t, whole.Commands[0].ProcessesCut)
+	assert.Len(t, listedIDs(whole.Commands[0].Roots), workers+2, "one command asked for is listed whole")
+	assert.Equal(t, 1, whole.TotalMatched)
+
+	status, _ = getCommands(t, srv, "?command=row:999")
+	assert.Equal(t, http.StatusNotFound, status, "a command the session does not hold")
+}
+
+func TestAgentSessionCommands_AlertReadFailureFailsThePage(t *testing.T) {
+	t.Parallel()
+	lister := summarySession()
+	srv := newCommandsServer(t, fakeService{buildScopedTree: buildTree(3)}, commandsCalls(), &alertFailingLister{lister})
+	status, _ := getCommands(t, srv, "")
+	assert.Equal(t, http.StatusInternalServerError, status)
+}
+
+// alertFailingLister reads sessions but fails to list their alerted processes.
+type alertFailingLister struct{ *fakeSessionLister }
+
+func (alertFailingLister) AlertedSessionProcesses(context.Context, string, string) ([]int64, error) {
+	return nil, errors.New("mysql down")
 }

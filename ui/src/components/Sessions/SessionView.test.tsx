@@ -980,6 +980,42 @@ describe("SessionView", () => {
     expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
   });
 
+  // spec:web-ui/session-view-reads-a-large-command-whole/a-command-listed-in-part-is-read-whole-on-request
+  it("reads a large command whole when the operator asks for all its processes", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc f*'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    const whole = sessionCommands([call]);
+    const cut = { ...whole, commands: [{ ...whole.commands[0], roots: [{ ...call, children: children.slice(0, 5) }], processes_cut: true }] };
+    const spy = vi.spyOn(api, "getSessionCommands").mockImplementation((_h, _s, page) => Promise.resolve(page?.command ? whole : cut));
+    renderView();
+    const showAll = await screen.findByRole("button", { name: "Show all 26 processes" });
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(5);
+    fireEvent.click(showAll);
+    expect(await screen.findByRole("button", { name: "Show 5 more processes" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(20);
+    expect(spy).toHaveBeenCalledWith("H1", SESSION, { command: whole.commands[0].key });
+    expect(screen.queryByRole("button", { name: "Show all 26 processes" })).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/session-view-reads-a-large-command-whole/a-failed-read-of-a-whole-command-says-so
+  it("says so when a large command cannot be read whole, and lets the operator retry", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc f*'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    const whole = sessionCommands([call]);
+    const cut = { ...whole, commands: [{ ...whole.commands[0], roots: [{ ...call, children: children.slice(0, 5) }], processes_cut: true }] };
+    vi.spyOn(api, "getSessionCommands").mockImplementation((_h, _s, page) =>
+      (page?.command ? Promise.reject(new Error("down")) : Promise.resolve(cut)));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Show all 26 processes" }));
+    expect(await screen.findByText(/They could not be loaded\./)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Show all 26 processes" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(5);
+  });
+
   it("lists an alerted process past the cap, since the call opened to show it", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));

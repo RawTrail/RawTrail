@@ -420,6 +420,8 @@ export interface SessionCommandsQuery {
   cursor?: string;
   q?: string;
   limit?: number;
+  // command reads that one command of the session whole, by its key (issue #1443).
+  command?: string;
 }
 
 // getSessionCommands reads one page of the commands an AI agent session ran, as the server groups them and pairs each with the tool
@@ -444,6 +446,7 @@ function sessionPagePath(hostId: string, sessionId: string, leaf: string, page: 
   if (page.cursor) query.set("cursor", page.cursor);
   if (page.q) query.set("q", page.q);
   if (page.limit !== undefined) query.set("limit", String(page.limit));
+  if (page.command) query.set("command", page.command);
   const qs = queryString(query);
   return `/hosts/${encodeURIComponent(hostId)}/agent-sessions/${encodeURIComponent(sessionId)}/${leaf}${qs ? `?${qs}` : ""}`;
 }

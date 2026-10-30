@@ -6,7 +6,7 @@ import {
 } from "../../api";
 import type {
   AgentSessionLineage, AgentSessionSummary, AgentSessionTotals, AgentToolCall, Alert, ConversationTurn, ProcessNode, SessionCommand,
-  ToolCallMatch, TreeResponse,
+  SessionCommandsResponse, ToolCallMatch, TreeResponse,
 } from "../../types";
 import { useCursorList, type CursorPage } from "../Search/useCursorList";
 import { PageHeader } from "../ui/PageHeader";
@@ -129,6 +129,9 @@ interface SessionRows {
   hits: SearchHits;
   selectedId: number | null;
   onSelect: (node: ProcessNode) => void;
+  // wholeState is how far the read of a large command's whole list has got, and readWhole starts it (issue #1443).
+  wholeState: (commandKey: string) => "loading" | "failed" | undefined;
+  readWhole: (commandKey: string) => void;
 }
 
 const SessionRowsContext = createContext<SessionRows | null>(null);
@@ -176,6 +179,22 @@ async function readSession(key: string, hostId: string, sessionId: string): Prom
 interface ListedCommand extends SessionCommand {
   inferred: number[];
   services: number[];
+}
+
+// listedCommands are a commands page's commands, each with the rows the page names as moved under a launcher that are its own.
+function listedCommands(page: SessionCommandsResponse): ListedCommand[] {
+  const within = (ids: number[], command: SessionCommand) => {
+    const own = new Set(command.process_ids);
+    return ids.filter((id) => own.has(id));
+  };
+  return page.commands.map((c) => ({ ...c, inferred: within(page.inferred, c), services: within(page.services, c) }));
+}
+
+// WholeCommands are the large commands the operator asked to see whole (issue #1443), read one at a time, for the commands list they
+// were asked in: each read, loading, or failed.
+interface WholeCommands {
+  key: string;
+  read: ReadonlyMap<string, ListedCommand | "loading" | "failed">;
 }
 
 // CommandsMeta is what a commands page says about the whole read: whether the server's process read, or its tool-call read, was cut.
@@ -256,18 +275,26 @@ export function SessionView() {
     if (activeCommandsKey.current === commandsKey) {
       setCommandsMeta({ key: commandsKey, truncated: page.truncated, toolCallsTruncated: page.tool_calls_truncated });
     }
-    const within = (ids: number[], command: SessionCommand) => {
-      const own = new Set(command.process_ids);
-      return ids.filter((id) => own.has(id));
-    };
-    return {
-      rows: page.commands.map((c) => ({ ...c, inferred: within(page.inferred, c), services: within(page.services, c) })),
-      nextCursor: page.next_cursor,
-      total: page.total_matched,
-    };
+    return { rows: listedCommands(page), nextCursor: page.next_cursor, total: page.total_matched };
   }, [hostId, sessionId, searched, commandsKey]);
   const commands = useCursorList(commandsKey, fetchCommands);
   const meta = commandsMeta?.key === commandsKey ? commandsMeta : null;
+  // A large command lists only part of its processes; the operator reads the rest of one on request.
+  const [wholeCommands, setWholeCommands] = useState<WholeCommands | null>(null);
+  const whole = wholeCommands?.key === commandsKey ? wholeCommands.read : null;
+  const readWhole = useCallback((commandKey: string) => {
+    const mark = (state: ListedCommand | "loading" | "failed") => {
+      setWholeCommands((w) => {
+        const read = new Map(w?.key === commandsKey ? w.read : []);
+        read.set(commandKey, state);
+        return { key: commandsKey, read };
+      });
+    };
+    mark("loading");
+    getSessionCommands(hostId, sessionId, { command: commandKey })
+      .then((page) => { mark(listedCommands(page).find((c) => c.key === commandKey) ?? "failed"); })
+      .catch(() => { mark("failed"); });
+  }, [hostId, sessionId, commandsKey]);
 
   const alertsByProcess = useMemo(() => {
     const byProcess = new Map<number, Alert[]>();
@@ -284,11 +311,13 @@ export function SessionView() {
     () => {
       const incomplete = meta?.truncated === true || sessionIncomplete;
       const keep = new Set(alertsByProcess.keys());
-      return commands.rows.map((c) => shapeCommand(c, {
-        verbose, keep, incomplete, inferred: new Set(c.inferred), services: new Set(c.services),
-      }));
+      return commands.rows.map((listed) => {
+        const read = whole?.get(listed.key);
+        const c = typeof read === "object" ? read : listed;
+        return shapeCommand(c, { verbose, keep, incomplete, inferred: new Set(c.inferred), services: new Set(c.services) });
+      });
     },
-    [commands.rows, meta, verbose, alertsByProcess, sessionIncomplete],
+    [commands.rows, whole, meta, verbose, alertsByProcess, sessionIncomplete],
   );
   const forest = useMemo(
     () => (tree && logical
@@ -318,8 +347,13 @@ export function SessionView() {
         selection.current += 1;
         setSelected({ key: readKey, node });
       },
+      wholeState: (commandKey: string) => {
+        const read = whole?.get(commandKey);
+        return typeof read === "string" ? read : undefined;
+      },
+      readWhole,
     }),
-    [hostId, alertsByProcess, hits, selectedNode, readKey],
+    [hostId, alertsByProcess, hits, selectedNode, readKey, whole, readWhole],
   );
 
   const record = current?.record;
@@ -879,7 +913,8 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
   readonly alerts: readonly Alert[];
   readonly defaultOpen: boolean;
 }) {
-  const { hits } = useSessionRows();
+  const { hits, wholeState, readWhole } = useSessionRows();
+  const wholeRead = wholeState(group.key);
   // The group follows defaultOpen until the operator opens or closes it, so alerts read after the commands still open their groups.
   const [toggled, setToggled] = useState<boolean | null>(null);
   const found = hits.byGroup.get(group.key) ?? 0;
@@ -903,6 +938,15 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
         {match && <AgentCall match={match} />}
       </button>
       {expanded && group.rows.length > 0 && <ProcessRows rows={group.rows} />}
+      {expanded && group.processesCut && (
+        <p className="session-view__notice" role="status">
+          {"Some of this command's processes are not listed. "}
+          <Button variant="text-link" disabled={wholeRead === "loading"} onClick={() => { readWhole(group.key); }}>
+            {`Show all ${group.processCount.toLocaleString()} processes`}
+          </Button>
+          {wholeRead === "failed" && " They could not be loaded."}
+        </p>
+      )}
     </li>
   );
 }

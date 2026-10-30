@@ -325,6 +325,9 @@ export interface SessionCommand {
   // process_ids are every process the command started, shell plumbing included.
   process_ids: number[];
   roots: ProcessNode[];
+  // processes_cut says roots lists only some of a large command's processes: its first, its alerted ones and a search's hits
+  // (issue #1443). process_ids still names every one, and the command can be read whole.
+  processes_cut?: boolean;
   tool_call?: ToolCallMatch;
 }
 

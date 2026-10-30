@@ -92,6 +92,18 @@ func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string
 const sessionBypassed = `EXISTS (SELECT 1 FROM agent_session_bypass b
 	WHERE b.host_id = agent_sessions.host_id AND b.agent_session_id = agent_sessions.agent_session_id)`
 
+// AlertedSessionProcesses lists the rows of a session's processes that an alert, not a monitor record, was raised on (issue #1443),
+// served by idx_processes_host_agent_session_fork.
+func (s *Store) AlertedSessionProcesses(ctx context.Context, hostID, sessionID string) ([]int64, error) {
+	var ids []int64
+	if err := s.db.SelectContext(ctx, &ids, `
+		SELECT DISTINCT a.process_id FROM alerts a JOIN processes p ON p.id = a.process_id
+		WHERE p.host_id = ? AND p.agent_session_id = ? AND a.disposition = ?`, hostID, sessionID, api.AlertDispositionAlert); err != nil {
+		return nil, fmt.Errorf("list alerted session processes: %w", err)
+	}
+	return ids, nil
+}
+
 // ListAgentSessions returns one page of agent sessions (issue #1283), most recently active first, keyset-paged on (last_seen_ns,
 // host_id, agent_session_id), which is idx_agent_sessions_last_seen's order (InnoDB appends the primary key), so a page reads only
 // its rows. Each row carries its process and alert counts, read with one grouped query each over the page's sessions rather than one

@@ -14,7 +14,7 @@ import (
 // of its processes. The script of the wrapper shell that ran an agent's command is not searched apart from the command it ran, since
 // it is the same boilerplate for every call; the wrapper's path is. An empty query keeps every command.
 func Search(commands []Command, rawQuery string) []Command {
-	query := strings.ToLower(strings.TrimSpace(rawQuery))
+	query := normalize(rawQuery)
 	if query == "" {
 		return commands
 	}
@@ -29,6 +29,9 @@ func Search(commands []Command, rawQuery string) []Command {
 	}
 	return kept
 }
+
+// normalize is a query as Search matches it: lowercased and trimmed.
+func normalize(rawQuery string) string { return strings.ToLower(strings.TrimSpace(rawQuery)) }
 
 func processMatches(c Command, query string) bool {
 	found := false
