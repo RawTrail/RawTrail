@@ -344,6 +344,8 @@ func TestJoinToolCalls_AThousandsCallTieLabelsAsManyCommands(t *testing.T) {
 
 // A search cut short by its budget may have missed a call the nearest calls could still give, so the command is left unlabelled
 // rather than given an older call.
+//
+// spec:server-rest-api/tied-calls-label-no-more-commands-than-they-hold/a-search-that-reaches-its-bound-leaves-the-command-unlabelled
 func TestJoinToolCalls_ASearchCutShortLeavesTheCommandUnlabelled(t *testing.T) {
 	t.Parallel()
 	older := call("toolu_older", "ls", 500*ms)
