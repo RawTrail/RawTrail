@@ -71,6 +71,8 @@ On the same release-prep branch, alongside the archive from step 1:
 5. Open the release-prep PR and get it reviewed. The archive is where editing `openspec/specs/**` is expected and legitimate, unlike on a feature branch, so this is the diff a reviewer scrutinizes.
 6. Merge to `main`. Everything downstream tags off the merged commit.
 
+At `v1.0.0` only: replace the pre-1.0 "Supported versions" paragraph in `SECURITY.md` with the formal support window (which release lines get security fixes, and for how long) in this same PR. Until then that section names no version, so no other release needs to touch `SECURITY.md`.
+
 ## 3. Cut a release candidate
 
 1. Create the annotated RC tag on the merged commit: `git tag -a vX.Y.Z-rc.N -m "vX.Y.Z-rc.N"` and push it.

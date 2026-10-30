@@ -4,17 +4,11 @@ RawTrail is a security product. We take vulnerabilities seriously and welcome re
 
 ## Supported versions
 
-We patch the most recent released minor only. Pilot releases (`v0.x.y-rc.*`) are pre-GA and receive fixes on a best-effort basis; once `v1.0.0` ships we will publish a formal support window here.
-
-| Version    | Status         | Security fixes |
-| ---------- | -------------- | -------------- |
-| `0.2.x`    | Supported      | Yes            |
-| `0.2.x-rc` | Pilot / pre-GA | Best-effort    |
-| `< 0.2`    | Unsupported    | None           |
+RawTrail is pre-1.0. Only the latest release receives security fixes, so the supported version is whichever one the [Releases page](https://github.com/RawTrail/RawTrail/releases) marks as latest. If you can, reproduce a finding on that release, and name the version you tested in your report. Pilot builds (`v0.x.y-rc.*`) are pre-GA and receive fixes on a best-effort basis. Older releases are unsupported. Once `v1.0.0` ships, we will publish a formal support window here.
 
 ## Reporting a vulnerability
 
-**Please do not open a public GitHub issue for security bugs.** Use GitHub's private vulnerability reporting instead: visit <https://github.com/rawtrail/rawtrail/security/advisories/new>. This creates an embargoed draft advisory that only the maintainers and you can see, and is the only channel we accept reports through.
+**Please do not open a public GitHub issue for security bugs.** Use GitHub's private vulnerability reporting instead: visit <https://github.com/RawTrail/RawTrail/security/advisories/new>. This creates an embargoed draft advisory that only the maintainers and you can see, and is the only channel we accept reports through.
 
 When you report, please include:
 
