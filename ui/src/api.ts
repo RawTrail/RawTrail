@@ -555,6 +555,8 @@ export interface AgentSessionFilter {
   agent?: string;
   from?: string;
   to?: string;
+  // bypass "true" keeps the sessions that ran with permissions bypassed, or were forked from one that did.
+  bypass?: string;
 }
 
 export async function listAgentSessions(filter: AgentSessionFilter, cursor?: string): Promise<AgentSessionResult> {

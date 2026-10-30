@@ -281,6 +281,19 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			FilePath       string `json:"file_path,omitempty"`
 			UID            int    `json:"uid"`
 		}{ev.AgentSessionID, ev.ToolUseID, ev.ToolName, ev.Command, ev.Description, ev.Path, ev.UID})
+	case "agent_usage":
+		return json.Marshal(struct {
+			AgentSessionID string `json:"agent_session_id"`
+			MessageID      string `json:"message_id"`
+			Model          string `json:"model"`
+			InputTokens    int    `json:"input_tokens"`
+			OutputTokens   int    `json:"output_tokens"`
+			CacheCreation  int    `json:"cache_creation_input_tokens"`
+			CacheRead      int    `json:"cache_read_input_tokens"`
+			Thinking       int    `json:"thinking_tokens"`
+			PermissionMode string `json:"permission_mode,omitempty"`
+			UID            int    `json:"uid"`
+		}{ev.AgentSessionID, ev.MessageID, ev.Model, ev.InputTokens, ev.OutputTokens, 0, 0, 0, ev.PermissionMode, ev.UID})
 	case "network_connect":
 		out := struct {
 			PID           int     `json:"pid"`
