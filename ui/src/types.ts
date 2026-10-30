@@ -189,6 +189,27 @@ export interface AgentSessionSummary {
   tokens?: number;
 }
 
+// FoundAgentPrompt is a prompt a search across sessions found (issue #1428): the prompt as the session's own prompts list it, with
+// the host and session it was typed in.
+export interface FoundAgentPrompt {
+  host_id: string;
+  agent_session_id: string;
+  prompt_id: string;
+  text: string;
+  length: number;
+  truncated?: boolean;
+  redacted?: number;
+  source?: string;
+  at_ns: number;
+  uid: number;
+}
+
+// FoundAgentPromptPage is one page of a prompt search, newest first; next_cursor is absent on the last page.
+export interface FoundAgentPromptPage {
+  prompts: FoundAgentPrompt[];
+  next_cursor?: string;
+}
+
 // AgentSessionResult is one page of the sessions list, most recently active first, with the keyset cursor for the next page (absent
 // on the last) and the number of sessions the filter matched.
 export interface AgentSessionResult {

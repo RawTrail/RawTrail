@@ -13,6 +13,8 @@ import { formatNs } from "../Search/format";
 import { useHostNames } from "../useHostNames";
 import { MILLISECONDS_PER_DAY, NANOSECONDS_PER_MILLISECOND } from "../../constants";
 import { sessionPath } from "./sessionPath";
+import { PromptSearch } from "./PromptSearch";
+import { PermissionAction, useCan } from "../../permissions-core";
 import { formatTokens } from "./sessionUsage";
 
 // ACTIVE_WINDOWS are the "active in the last" choices, by the URL value the chip stores. The URL keeps the relative choice rather than
@@ -63,6 +65,8 @@ function sessionFilter(active: Record<string, string>): AgentSessionFilter {
 export function SessionList() {
   const { activeFilter, filterKey, setFilter } = useUrlFilter(FILTER_KEYS);
   const hostNames = useHostNames();
+  // Searching prompts reads what people typed, so it is offered only to an operator who may read prompts (issue #1428).
+  const canReadPrompts = useCan()(PermissionAction.AgentPromptRead);
 
   // The first page resolves the filter, and every later page reuses it: a cursor names a position in one result set, so "Load more"
   // must not move the active window's start to a later clock reading.
@@ -79,6 +83,7 @@ export function SessionList() {
 
   return (
     <div className="search-page">
+      {canReadPrompts && <PromptSearch />}
       <FilterChips fields={FILTER_FIELDS} active={activeFilter} onChange={setFilter} />
       <SearchResultsFrame
         loading={loading}

@@ -7,6 +7,7 @@ import {
   createAppControlRule,
   searchProcesses,
   listAgentSessions,
+  searchAgentPrompts,
   getSessionTree,
   searchEvents,
   getHostTimeline,
@@ -580,6 +581,23 @@ describe("listAgentSessions query-string composition", () => {
     await listAgentSessions({});
     const [target] = fetchMock.mock.calls[0] as [URL];
     expect(target.toString()).toMatch(/\/agent-sessions$/);
+  });
+});
+
+describe("searchAgentPrompts", () => {
+  it("sends the text and the window, and the host and cursor only when set", async () => {
+    const fetchMock = stubFetch({ prompts: [] });
+    await searchAgentPrompts({ q: "deploy to prod", from: "100", to: "200" });
+    const [first] = fetchMock.mock.calls[0] as [URL];
+    const url = new URL(first.toString());
+    expect(url.pathname).toMatch(/\/agent-prompts$/);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ q: "deploy to prod", from: "100", to: "200" });
+    expect(url.search).toContain("q=deploy%20to%20prod");
+
+    await searchAgentPrompts({ q: "deploy", from: "100", to: "200", host_id: "host-a", cursor: "C2" });
+    const [next] = fetchMock.mock.calls[1] as [URL];
+    expect(Object.fromEntries(new URL(next.toString()).searchParams))
+      .toEqual({ q: "deploy", from: "100", to: "200", host_id: "host-a", cursor: "C2" });
   });
 });
 

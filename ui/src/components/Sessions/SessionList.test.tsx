@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 
 import { SessionList } from "./SessionList";
+import { PermissionsContext } from "../../permissions-core";
 import * as api from "../../api";
 import type { AgentSessionSummary } from "../../types";
 
@@ -139,6 +140,26 @@ describe("SessionList", () => {
     const cell = row?.querySelectorAll("td")[7];
     expect(cell).toHaveTextContent(/^1\.2M$/);
     expect(cell).toHaveAttribute("title", `${(1_234_567).toLocaleString()} tokens`);
+  });
+
+  // spec:web-ui/agent-prompt-search/only-an-operator-who-may-read-prompts-can-search-them
+  it("offers the prompt search only to an operator who may read prompts", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
+    const page = (perms: string[]) => (
+      <PermissionsContext.Provider value={perms}>
+        <MemoryRouter initialEntries={["/agent-sessions"]}>
+          <Routes>
+            <Route path="/agent-sessions" element={<SessionList />} />
+          </Routes>
+        </MemoryRouter>
+      </PermissionsContext.Provider>
+    );
+    const { rerender } = render(page(["process.read"]));
+    expect(await screen.findByText("No AI agent sessions match.")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Search prompts" })).not.toBeInTheDocument();
+    rerender(page(["process.read", "agent_prompt.read"]));
+    expect(screen.getByRole("region", { name: "Search prompts" })).toBeVisible();
   });
 
   it("says so when no session matches", async () => {
