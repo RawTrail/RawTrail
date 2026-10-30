@@ -75,6 +75,22 @@ describe("PromptSearch", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it("refuses a query longer than the server searches, and does not send a search while one is being read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const spy = vi.spyOn(api, "searchAgentPrompts").mockReturnValue(new Promise(() => undefined));
+    renderSearch();
+    const box = screen.getByRole("searchbox", { name: "Prompt text" });
+    fireEvent.change(box, { target: { value: "é".repeat(128) } });
+    expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Search for 255 bytes of text at most.");
+
+    search("deploy");
+    await waitFor(() => { expect(spy).toHaveBeenCalledTimes(1); });
+    expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
+    fireEvent.submit(box);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it("says so when the search fails", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "searchAgentPrompts").mockRejectedValue(new Error("bad_window"));

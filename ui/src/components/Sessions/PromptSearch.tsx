@@ -23,6 +23,8 @@ const SEARCH_WINDOWS = [
 // searches for.
 const DEFAULT_WINDOW_DAYS = 7;
 const MIN_QUERY = 3;
+// MAX_QUERY_BYTES is the longest text the server searches for, in UTF-8 bytes: the audit row records it whole.
+const MAX_QUERY_BYTES = 255;
 // conversationHref opens a prompt's session on its Conversation, searched for what found the prompt, so its turn is listed however
 // far into the session it is, with what the agent did for it.
 function conversationHref(p: FoundAgentPrompt, query: string): string {
@@ -44,6 +46,13 @@ function characters(text: string): number {
   return Array.from(text).length;
 }
 
+// queryProblem is why the server would refuse a query, or null for one it searches: too short in characters or too long in bytes.
+function queryProblem(query: string): string | null {
+  if (characters(query) < MIN_QUERY) return "short";
+  if (new TextEncoder().encode(query).length > MAX_QUERY_BYTES) return `Search for ${String(MAX_QUERY_BYTES)} bytes of text at most.`;
+  return null;
+}
+
 // PromptSearch finds the prompts people typed to AI agents across every session (issue #1428): the text searched for, regardless of
 // case, within a window of at most thirty days, newest first, each with its host, time and a link to its session's conversation.
 // The server audits every search with its text; the page shows it only to an operator who may read prompts.
@@ -63,8 +72,11 @@ export function PromptSearch() {
   const found = useCursorList(submittedKey, fetchPage);
 
   const query = draft.trim();
+  const problem = queryProblem(query);
+  // A search still being read is not sent again: each search is audited, and a second would only replace the first.
+  const pending = submitted !== null && found.loading;
   const submit = () => {
-    if (characters(query) < MIN_QUERY) return;
+    if (problem !== null || pending) return;
     setSubmitted(windowEndingNow(query, days));
   };
 
@@ -91,8 +103,9 @@ export function PromptSearch() {
         >
           {SEARCH_WINDOWS.map((w) => <option key={w.days} value={w.days}>{w.label}</option>)}
         </select>
-        <Button type="submit" disabled={characters(query) < MIN_QUERY}>Search</Button>
+        <Button type="submit" disabled={problem !== null || pending}>Search</Button>
       </form>
+      {problem !== null && problem !== "short" && <p className="prompt-search__note" role="alert">{problem}</p>}
       <p className="prompt-search__note">Every search is recorded in the audit log with its text.</p>
       {submitted && (
         <SearchResultsFrame
