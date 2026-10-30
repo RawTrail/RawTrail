@@ -226,15 +226,16 @@ export function SessionView() {
   // showOwn lists the processes the agent ran for itself in the Processes view (issue #1361); off by default, so the session's own
   // work reads first, and their count says how many are one click away.
   const [showOwn, setShowOwn] = useState(false);
-  const [query, setQuery] = useState("");
+  // A link may name the lens to open on and a search to open with, as a prompt search's result opens the Conversation filtered to
+  // the turns holding what was searched for, wherever in the session they are (issue #1428).
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
   // view picks what the session's main column shows: its summary (issue #1429), its turns (issue #1322), its commands, every process it
   // ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary, including one
   // reached from another session's lineage, so the lens chosen is kept for the session it was chosen in.
   const [chosenLens, setChosenLens] = useState<{ key: string; lens: SessionLens } | null>(null);
-  // A link may name the lens to open on, as a prompt search's result opens the Conversation (issue #1428).
-  const [searchParams] = useSearchParams();
   const linkedLens = SESSION_LENSES.find(({ lens }) => lens === searchParams.get("view"))?.lens ?? "summary";
   const view: SessionLens = chosenLens?.key === readKey ? chosenLens.lens : linkedLens;
   const setView = useCallback((lens: SessionLens) => { setChosenLens({ key: readKey, lens }); }, [readKey]);

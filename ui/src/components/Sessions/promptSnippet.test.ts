@@ -16,6 +16,15 @@ describe("snippetAround", () => {
     expect(snippetAround("deploy it", "DEPLOY")).toEqual({ before: "", match: "deploy", after: " it" });
   });
 
+  it("marks the match in the prompt itself when lowercasing changes the prompt's length", () => {
+    expect(snippetAround("İ deploy now", "Deploy")).toEqual({ before: "İ ", match: "deploy", after: " now" });
+  });
+
+  it("matches a query's special characters as themselves", () => {
+    expect(snippetAround("it is 100% (done) now", "100% (done)")).toEqual({ before: "it is ", match: "100% (done)", after: " now" });
+    expect(snippetAround("a.b and axb", "x").match).toBe("x");
+  });
+
   it("shows the prompt's start when the query is not in it", () => {
     expect(snippetAround("run the tests", "deploy")).toEqual({ before: "run the tests", match: "", after: "" });
   });

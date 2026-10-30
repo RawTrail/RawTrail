@@ -40,7 +40,7 @@ describe("PromptSearch", () => {
     expect(await screen.findByText("mac-a.local")).toBeVisible();
     expect(screen.getByText("deploy", { selector: "mark" })).toBeVisible();
     expect(screen.getByRole("link")).toHaveAttribute(
-      "href", "/agent-sessions/H1/169b5bb1-29b5-41da-9a54-92cd72599ad9?view=conversation");
+      "href", "/agent-sessions/H1/169b5bb1-29b5-41da-9a54-92cd72599ad9?view=conversation&q=Deploy");
     expect(screen.getByText("Every search is recorded in the audit log with its text.")).toBeVisible();
   });
 
@@ -68,6 +68,8 @@ describe("PromptSearch", () => {
     const spy = vi.spyOn(api, "searchAgentPrompts");
     renderSearch();
     fireEvent.change(screen.getByRole("searchbox", { name: "Prompt text" }), { target: { value: " ab " } });
+    expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Prompt text" }), { target: { value: "😀a" } });
     expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
     fireEvent.submit(screen.getByRole("searchbox", { name: "Prompt text" }));
     expect(spy).not.toHaveBeenCalled();

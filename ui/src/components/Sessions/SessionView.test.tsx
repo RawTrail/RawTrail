@@ -614,6 +614,23 @@ describe("SessionView commands from the server", () => {
     expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  // spec:web-ui/agent-prompt-search/an-operator-finds-a-prompt-across-sessions
+  it("opens searched for what a link names, so a prompt past the first page of turns is listed", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    const spy = vi.spyOn(api, "getSessionConversation").mockReturnValue(new Promise(() => undefined));
+    render(
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}?view=conversation&q=deploy%20it`]}>
+        <Routes>
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("searchbox", { name: "Search this session" })).toHaveValue("deploy it");
+    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
+    expect(spy.mock.calls[0][2]).toMatchObject({ q: "deploy it" });
+  });
+
   it("opens on the Summary when a link names no view it has", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockReturnValue(new Promise(() => undefined));

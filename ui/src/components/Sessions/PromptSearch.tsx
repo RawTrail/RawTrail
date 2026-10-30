@@ -23,9 +23,25 @@ const SEARCH_WINDOWS = [
 // searches for.
 const DEFAULT_WINDOW_DAYS = 7;
 const MIN_QUERY = 3;
-// conversationHref opens a prompt's session on its Conversation, where the prompt reads with what the agent did for it.
-function conversationHref(p: FoundAgentPrompt): string {
-  return `${sessionPath(p.host_id, p.agent_session_id)}?view=conversation`;
+// conversationHref opens a prompt's session on its Conversation, searched for what found the prompt, so its turn is listed however
+// far into the session it is, with what the agent did for it.
+function conversationHref(p: FoundAgentPrompt, query: string): string {
+  return `${sessionPath(p.host_id, p.agent_session_id)}?view=conversation&q=${encodeURIComponent(query)}`;
+}
+
+// windowEndingNow is a search of query over the days ending now, both bounds in ns, so every page of it reads the same window.
+function windowEndingNow(query: string, days: number): PromptSearchQuery {
+  const toMs = Date.now();
+  return {
+    q: query,
+    from: String((toMs - days * MILLISECONDS_PER_DAY) * NANOSECONDS_PER_MILLISECOND),
+    to: String(toMs * NANOSECONDS_PER_MILLISECOND),
+  };
+}
+
+// characters counts a query's characters as the server does, not its UTF-16 code units.
+function characters(text: string): number {
+  return Array.from(text).length;
 }
 
 // PromptSearch finds the prompts people typed to AI agents across every session (issue #1428): the text searched for, regardless of
@@ -48,13 +64,8 @@ export function PromptSearch() {
 
   const query = draft.trim();
   const submit = () => {
-    if (query.length < MIN_QUERY) return;
-    const toMs = Date.now();
-    setSubmitted({
-      q: query,
-      from: String((toMs - days * MILLISECONDS_PER_DAY) * NANOSECONDS_PER_MILLISECOND),
-      to: String(toMs * NANOSECONDS_PER_MILLISECOND),
-    });
+    if (characters(query) < MIN_QUERY) return;
+    setSubmitted(windowEndingNow(query, days));
   };
 
   return (
@@ -80,7 +91,7 @@ export function PromptSearch() {
         >
           {SEARCH_WINDOWS.map((w) => <option key={w.days} value={w.days}>{w.label}</option>)}
         </select>
-        <Button type="submit" disabled={query.length < MIN_QUERY}>Search</Button>
+        <Button type="submit" disabled={characters(query) < MIN_QUERY}>Search</Button>
       </form>
       <p className="prompt-search__note">Every search is recorded in the audit log with its text.</p>
       {submitted && (
@@ -107,7 +118,7 @@ export function PromptSearch() {
                 return (
                   <tr key={`${p.host_id}/${p.agent_session_id}/${p.prompt_id}/${String(p.at_ns)}`}>
                     <td>
-                      <Link to={conversationHref(p)}>{formatNs(p.at_ns)}</Link>
+                      <Link to={conversationHref(p, submitted.q)}>{formatNs(p.at_ns)}</Link>
                     </td>
                     <td>{hostNames.get(p.host_id) ?? p.host_id}</td>
                     <td className="prompt-search__snippet">
