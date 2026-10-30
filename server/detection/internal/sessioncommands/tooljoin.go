@@ -65,14 +65,12 @@ type textKey struct {
 // callIndex holds a session's Bash calls oldest first, by owner and command for a call recorded whole, and by owner for a call cut
 // to the agent's limit, which matches every command that begins with its text.
 type callIndex struct {
-	whole   map[textKey][]visibilityapi.AgentToolCall
-	cut     map[int64][]visibilityapi.AgentToolCall
-	claimed map[callKey]bool
+	whole map[textKey][]visibilityapi.AgentToolCall
+	cut   map[int64][]visibilityapi.AgentToolCall
 }
 
 func newCallIndex(calls []visibilityapi.AgentToolCall) *callIndex {
-	idx := &callIndex{whole: map[textKey][]visibilityapi.AgentToolCall{}, cut: map[int64][]visibilityapi.AgentToolCall{},
-		claimed: map[callKey]bool{}}
+	idx := &callIndex{whole: map[textKey][]visibilityapi.AgentToolCall{}, cut: map[int64][]visibilityapi.AgentToolCall{}}
 	for _, c := range calls {
 		switch {
 		case c.ToolName != "Bash" || c.Command == "":
@@ -93,11 +91,11 @@ func newCallIndex(calls []visibilityapi.AgentToolCall) *callIndex {
 	return idx
 }
 
-// nearestIn returns the unclaimed calls of a list, oldest first, that were made at the latest time no later than startNs and within
-// the match window, and that time. It walks back from startNs, past claimed calls, and stops at the first time it finds.
-func (idx *callIndex) nearestIn(list []visibilityapi.AgentToolCall, startNs int64, ran func(visibilityapi.AgentToolCall) bool) (
-	[]visibilityapi.AgentToolCall, int64,
-) {
+// nearestIn returns the calls of a list not passed over, oldest first, that were made at the latest time no later than startNs and
+// within the match window, and that time. It walks back from startNs, past the calls passed over, and stops at the first time it finds.
+func nearestIn(
+	list []visibilityapi.AgentToolCall, startNs int64, passed map[callKey]bool, ran func(visibilityapi.AgentToolCall) bool,
+) ([]visibilityapi.AgentToolCall, int64) {
 	// A command no call ran has no list in the index.
 	if len(list) == 0 {
 		return nil, 0
@@ -110,7 +108,7 @@ func (idx *callIndex) nearestIn(list []visibilityapi.AgentToolCall, startNs int6
 		if startNs-c.CalledAtNs > matchWindow.Nanoseconds() || (found != nil && c.CalledAtNs != at) {
 			break
 		}
-		if idx.claimed[callKey{c.ToolUseID, c.UID}] || !ran(c) {
+		if passed[callKey{c.ToolUseID, c.UID}] || !ran(c) {
 			continue
 		}
 		found, at = append(found, c), c.CalledAtNs
@@ -119,12 +117,12 @@ func (idx *callIndex) nearestIn(list []visibilityapi.AgentToolCall, startNs int6
 	return found, at
 }
 
-// nearestCalls returns the unclaimed calls of the command's user that ran its text, before it and within the match window, made at
-// the latest such time: one call, or the tied calls of one turn.
-func (idx *callIndex) nearestCalls(c *Command) []visibilityapi.AgentToolCall {
+// nearestCalls returns the calls of the command's user that ran its text, before it and within the match window, made at the latest
+// such time, leaving out the calls passed over: one call, or the tied calls of one turn.
+func (idx *callIndex) nearestCalls(c *Command, passed map[callKey]bool) []visibilityapi.AgentToolCall {
 	uid := int64(*c.UID)
-	whole, wholeAt := idx.nearestIn(idx.whole[textKey{uid, c.Command}], c.StartNs, func(visibilityapi.AgentToolCall) bool { return true })
-	cut, cutAt := idx.nearestIn(idx.cut[uid], c.StartNs, func(call visibilityapi.AgentToolCall) bool {
+	whole, wholeAt := nearestIn(idx.whole[textKey{uid, c.Command}], c.StartNs, passed, func(visibilityapi.AgentToolCall) bool { return true })
+	cut, cutAt := nearestIn(idx.cut[uid], c.StartNs, passed, func(call visibilityapi.AgentToolCall) bool {
 		return strings.HasPrefix(c.Command, call.Command)
 	})
 	switch {
@@ -138,43 +136,119 @@ func (idx *callIndex) nearestCalls(c *Command) []visibilityapi.AgentToolCall {
 
 // JoinToolCalls sets ToolCall on each command an agent's wrapper shell started that a Bash call pairs with. The commands must be in
 // the order they started, as Build returns them.
+//
+// Each call starts one command at most, so the join keeps a call of its own for every command it labels: a matched command's is its
+// call, and the commands offered a tie share the tie's calls. A command takes its nearest calls only when every labelled command can
+// still have a call of its own; otherwise it passes over them and looks further back. A tie of n calls is so used up once n commands
+// have taken it, and calls whose ties overlap, as two cut calls do when one is a prefix of the other, cannot between them label more
+// commands than they are (issue #1442).
 func JoinToolCalls(commands []Command, calls []visibilityapi.AgentToolCall) {
-	idx := newCallIndex(calls)
-	// ties holds each set of tied calls once: the match its commands share, and how many commands have been offered it. A set of n
-	// calls ran n commands at most, so it is claimed whole once n commands have taken it, and a later command looks past it.
-	type tie struct {
-		match *ToolCallMatch
-		uses  int
-	}
-	ties := map[string]*tie{}
+	j := joiner{idx: newCallIndex(calls), ties: map[string]*ToolCallMatch{}, owner: map[callKey]int{},
+		options: map[int][]visibilityapi.AgentToolCall{}, heldUpTo: map[optionsHint]int{}}
 	for i := range commands {
 		c := &commands[i]
 		if !c.FromAgent || c.UID == nil {
 			continue
 		}
-		tied := idx.nearestCalls(c)
-		switch len(tied) {
-		case 0:
-		case 1:
-			idx.claimed[callKey{tied[0].ToolUseID, tied[0].UID}] = true
-			c.ToolCall = &ToolCallMatch{Kind: MatchMatched, Call: &tied[0]}
-		default:
-			key := tieKey(tied)
-			t := ties[key]
-			if t == nil {
-				t = &tie{match: &ToolCallMatch{Kind: MatchAmbiguous, Candidates: tied[:min(len(tied), maxListedCandidates)],
-					CandidateCount: len(tied), tied: tied}}
-				ties[key] = t
+		passed := map[callKey]bool{}
+		for {
+			nearest := j.idx.nearestCalls(c, passed)
+			if len(nearest) == 0 {
+				break
 			}
-			c.ToolCall = t.match
-			t.uses++
-			if t.uses == len(tied) {
-				for _, call := range tied {
-					idx.claimed[callKey{call.ToolUseID, call.UID}] = true
-				}
+			m := j.match(nearest)
+			// The commands of a tie share its calls as their options, so a large tie is held once however many commands it is offered.
+			j.options[i] = nearest
+			if m.Kind == MatchAmbiguous {
+				j.options[i] = m.tied
+			}
+			spent := 0
+			if j.assignFree(i) || j.assign(i, map[callKey]bool{}, &spent) {
+				c.ToolCall = m
+				break
+			}
+			for _, call := range nearest {
+				passed[callKey{call.ToolUseID, call.UID}] = true
 			}
 		}
 	}
+}
+
+// joiner pairs a session's commands with its calls. options are the calls each labelled command could be, and owner is the command
+// each of those calls is kept for, so every labelled command has a call of its own.
+type joiner struct {
+	idx     *callIndex
+	ties    map[string]*ToolCallMatch
+	owner   map[callKey]int
+	options map[int][]visibilityapi.AgentToolCall
+	// heldUpTo is how many leading options of a list of options are already held, for the commands of a large tie, which are offered
+	// the same calls one after another. A held call stays held, so the free search resumes there rather than rescanning the tie.
+	heldUpTo map[optionsHint]int
+}
+
+// optionsHint names a list of options by its ends and length, cheaply. Two lists it confuses only start the free search past a free
+// call, which the augmenting search still finds.
+type optionsHint struct {
+	first, last callKey
+	n           int
+}
+
+// assignBudget is how many calls one command's search for a call of its own may look at. A transcript is its user's to write, so a
+// tie can hold thousands of identical calls; past the budget the command is left unlabelled, which never labels it wrongly.
+const assignBudget = 4096
+
+// assignFree gives command i an option no command holds, the common case, without searching.
+func (j *joiner) assignFree(i int) bool {
+	options := j.options[i]
+	hint := optionsHint{callKey{options[0].ToolUseID, options[0].UID}, callKey{options[len(options)-1].ToolUseID,
+		options[len(options)-1].UID}, len(options)}
+	for at := j.heldUpTo[hint]; at < len(options); at++ {
+		k := callKey{options[at].ToolUseID, options[at].UID}
+		if _, held := j.owner[k]; !held {
+			j.owner[k] = i
+			j.heldUpTo[hint] = at + 1
+			return true
+		}
+	}
+	j.heldUpTo[hint] = len(options)
+	return false
+}
+
+// assign finds command i a call of its own among its options, moving a command that holds one to another of its options when that
+// frees it: an augmenting path, which keeps every command already assigned a call. It looks at no more than assignBudget calls.
+func (j *joiner) assign(i int, seen map[callKey]bool, spent *int) bool {
+	for _, call := range j.options[i] {
+		if *spent >= assignBudget {
+			return false
+		}
+		*spent++
+		k := callKey{call.ToolUseID, call.UID}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		if holder, held := j.owner[k]; !held || j.assign(holder, seen, spent) {
+			j.owner[k] = i
+			return true
+		}
+	}
+	return false
+}
+
+// match labels a command whose nearest calls are calls: the one call it matched, or the tie it shares with the other commands
+// offered the same calls.
+func (j *joiner) match(calls []visibilityapi.AgentToolCall) *ToolCallMatch {
+	if len(calls) == 1 {
+		return &ToolCallMatch{Kind: MatchMatched, Call: &calls[0]}
+	}
+	key := tieKey(calls)
+	if m := j.ties[key]; m != nil {
+		return m
+	}
+	m := &ToolCallMatch{Kind: MatchAmbiguous, Candidates: calls[:min(len(calls), maxListedCandidates)], CandidateCount: len(calls),
+		tied: calls}
+	j.ties[key] = m
+	return m
 }
 
 // tieKey names a set of tied calls by their ids and owners.
