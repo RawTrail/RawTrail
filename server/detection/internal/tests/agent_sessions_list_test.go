@@ -78,6 +78,14 @@ func TestAgentSessionsList_RowsAndCounts(t *testing.T) {
 	assert.Equal(t, int64(2), top.AlertCount, "the monitor record is not an alert")
 	assert.Equal(t, int64(1), res.Rows[1].ProcessCount, "the same session id on another host counts its own processes")
 	assert.Zero(t, res.Rows[1].AlertCount)
+
+	// The commands page keeps a large command's alerted processes listed (issue #1443): the alerts, not the monitor record.
+	alerted, err := store.AlertedProcesses(t.Context(), procs)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, procs[:2], alerted, "the monitor record is not an alert")
+	none, err := store.AlertedProcesses(t.Context(), procs[2:])
+	require.NoError(t, err)
+	assert.Empty(t, none, "only the rows asked about")
 	assert.Zero(t, res.Rows[2].ProcessCount)
 }
 

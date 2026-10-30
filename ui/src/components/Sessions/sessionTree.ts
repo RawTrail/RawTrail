@@ -48,6 +48,8 @@ export interface Command {
   // processIds are the rows of every process in the group, hidden plumbing included, so the view can count the group's alerts.
   processIds: number[];
   rows: SessionRow[];
+  // processesCut says rows lists only some of the group's processes; the rest are read on request.
+  processesCut: boolean;
   // toolCall is the tool call the agent reported for the command, as the server paired it.
   toolCall?: ToolCallMatch;
 }
@@ -187,6 +189,7 @@ export function shapeCommand(command: SessionCommand, shape: RowShape): Command 
     processCount: command.process_ids.length,
     processIds: command.process_ids,
     rows: command.roots.flatMap((root) => rootRows(root, shape)),
+    processesCut: command.processes_cut === true,
     toolCall: command.tool_call,
   };
 }

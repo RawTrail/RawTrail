@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,11 +73,12 @@ func newCommandsServer(t *testing.T, svc fakeService, reader *fakeToolCallReader
 // commandsPage is the response as a client reads it.
 type commandsPage struct {
 	Commands []struct {
-		Key        string  `json:"key"`
-		Command    string  `json:"command"`
-		FromAgent  bool    `json:"from_agent"`
-		ProcessIDs []int64 `json:"process_ids"`
-		Roots      []struct {
+		Key          string  `json:"key"`
+		Command      string  `json:"command"`
+		FromAgent    bool    `json:"from_agent"`
+		ProcessIDs   []int64 `json:"process_ids"`
+		ProcessesCut bool    `json:"processes_cut"`
+		Roots        []struct {
 			ID       int64 `json:"id"`
 			Children []struct {
 				ID       int64 `json:"id"`
@@ -202,4 +204,101 @@ func TestAgentSessionCommands_Failures(t *testing.T) {
 			assert.Equal(t, tc.want, status)
 		})
 	}
+}
+
+// buildTree is a session that ran one long build: its wrapper shell, make, and make's workers. With workers past the cap, the last
+// worker opened an app, which launchd started (row 9000) without the session's marker, and the link moves under that worker.
+func buildTree(workers int) func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+	return func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+		var children []api.ProcessNode
+		for i := range workers {
+			id := int64(10 + i)
+			children = append(children, commandProc(id, 1000+i, int64(2000+i), "/usr/bin/cc", []string{"cc", "worker-" + strconv.Itoa(i)}))
+		}
+		makeProc := commandProc(2, 101, 1001, "/usr/bin/make", []string{"make", "-j"}, children...)
+		roots := []api.ProcessNode{toolCallShell(1, 100, 1000, "make -j", makeProc)}
+		var links []api.ProcessLink
+		if workers > 100 {
+			roots = append(roots, commandProc(9000, 5000, 9000, "/Applications/Preview.app/Contents/MacOS/Preview", []string{"Preview"}))
+			links = []api.ProcessLink{{From: int64(10 + workers - 1), To: 9000, Kind: api.ProcessLinkInferredLaunch}}
+		}
+		return api.ProcessTreeResult{Roots: roots, Links: links}, nil
+	}
+}
+
+// listedIDs are the rows a command's forest lists, three levels deep: the wrapper, make, and make's workers.
+func listedIDs(roots []struct {
+	ID       int64 `json:"id"`
+	Children []struct {
+		ID       int64 `json:"id"`
+		Children []struct {
+			ID int64 `json:"id"`
+		} `json:"children"`
+	} `json:"children"`
+}) []int64 {
+	var ids []int64
+	for _, r := range roots {
+		ids = append(ids, r.ID)
+		for _, c := range r.Children {
+			ids = append(ids, c.ID)
+			for _, g := range c.Children {
+				ids = append(ids, g.ID)
+			}
+		}
+	}
+	return ids
+}
+
+// spec:server-rest-api/session-commands-list-their-processes-in-part/a-large-command-lists-its-first-processes-and-its-alerted-ones
+// spec:server-rest-api/session-commands-list-their-processes-in-part/one-command-is-read-whole-on-request
+func TestAgentSessionCommands_ListALargeCommandInPart(t *testing.T) {
+	t.Parallel()
+	const workers = 150
+	alertedWorker := int64(10 + 140)
+	lister := summarySession()
+	const launched = int64(9000)
+	lister.alerted = []int64{alertedWorker, launched}
+	srv := newCommandsServer(t, fakeService{buildScopedTree: buildTree(workers)}, commandsCalls(), lister)
+
+	status, got := getCommands(t, srv, "")
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, got.Commands, 1)
+	build := got.Commands[0]
+	assert.True(t, build.ProcessesCut)
+	assert.Len(t, build.ProcessIDs, workers+3, "every process is still named, the launched app among them")
+	assert.Contains(t, lister.askedAlerts, launched, "alerts are asked for by row, so a launch without the session's marker counts")
+	listed := listedIDs(build.Roots)
+	assert.Contains(t, listed, alertedWorker)
+	assert.Len(t, listed, 100+2, "the first hundred, the alerted worker, and the last worker the alerted app is listed under")
+	assert.Contains(t, listed, int64(10+workers-1), "the alerted app's launcher is listed, so the app is")
+
+	status, searched := getCommands(t, srv, "?q=worker-145")
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, searched.Commands, 1)
+	assert.Contains(t, listedIDs(searched.Commands[0].Roots), int64(10+145), "a search hit past the first hundred is listed")
+
+	status, whole := getCommands(t, srv, "?command="+build.Key)
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, whole.Commands, 1)
+	assert.False(t, whole.Commands[0].ProcessesCut)
+	assert.Len(t, listedIDs(whole.Commands[0].Roots), workers+2, "one command asked for is listed whole, three levels of it here")
+	assert.Equal(t, 1, whole.TotalMatched)
+
+	status, _ = getCommands(t, srv, "?command=row:999")
+	assert.Equal(t, http.StatusNotFound, status, "a command the session does not hold")
+}
+
+func TestAgentSessionCommands_AlertReadFailureFailsThePage(t *testing.T) {
+	t.Parallel()
+	lister := summarySession()
+	srv := newCommandsServer(t, fakeService{buildScopedTree: buildTree(3)}, commandsCalls(), &alertFailingLister{lister})
+	status, _ := getCommands(t, srv, "")
+	assert.Equal(t, http.StatusInternalServerError, status)
+}
+
+// alertFailingLister reads sessions but fails to list their alerted processes.
+type alertFailingLister struct{ *fakeSessionLister }
+
+func (alertFailingLister) AlertedProcesses(context.Context, []int64) ([]int64, error) {
+	return nil, errors.New("mysql down")
 }

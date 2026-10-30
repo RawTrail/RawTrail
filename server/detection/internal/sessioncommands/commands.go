@@ -123,6 +123,8 @@ type Command struct {
 	ProcessIDs []int64 `json:"process_ids"`
 	// Roots are the command's processes as a forest: its root, and any root that joined it because its creator was not read.
 	Roots []api.ProcessNode `json:"roots"`
+	// ProcessesCut says Roots lists only some of the command's processes (see Cap); ProcessIDs still names every one.
+	ProcessesCut bool `json:"processes_cut,omitempty"`
 	// ToolCall is the tool call the agent reported for the command, when one pairs with it.
 	ToolCall *ToolCallMatch `json:"tool_call,omitempty"`
 }

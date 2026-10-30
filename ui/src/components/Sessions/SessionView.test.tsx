@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Link } from "react-router";
 
 import { SessionView } from "./SessionView";
@@ -978,6 +978,74 @@ describe("SessionView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show 4 more processes" }));
     expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(25);
     expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/session-view-reads-a-large-command-whole/a-command-listed-in-part-is-read-whole-on-request
+  it("reads a large command whole when the operator asks for all its processes", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc f*'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    const whole = sessionCommands([call]);
+    const cut = { ...whole, commands: [{ ...whole.commands[0], roots: [{ ...call, children: children.slice(0, 5) }], processes_cut: true }] };
+    const spy = vi.spyOn(api, "getSessionCommands").mockImplementation((_h, _s, page) => Promise.resolve(page?.command ? whole : cut));
+    renderView();
+    const showAll = await screen.findByRole("button", { name: "Show all 26 processes" });
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(5);
+    fireEvent.click(showAll);
+    expect(await screen.findByRole("button", { name: "Show 5 more processes" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(20);
+    expect(spy).toHaveBeenCalledWith("H1", SESSION, { command: whole.commands[0].key });
+    expect(screen.queryByRole("button", { name: "Show all 26 processes" })).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/session-view-reads-a-large-command-whole/a-failed-read-of-a-whole-command-says-so
+  it("keeps the next session's whole command when the last session's read lands after it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc f*'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    const whole = sessionCommands([call]);
+    const cut = { ...whole, commands: [{ ...whole.commands[0], roots: [{ ...call, children: children.slice(0, 5) }], processes_cut: true }] };
+    let landFirst: (r: SessionCommandsResponse) => void = () => undefined;
+    vi.spyOn(api, "getSessionCommands").mockImplementation((_h, sessionId, page) => {
+      if (!page?.command) return Promise.resolve(cut);
+      if (sessionId === SESSION) return new Promise((resolve) => { landFirst = resolve; });
+      return Promise.resolve(whole);
+    });
+    render(
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
+        <Link to="/agent-sessions/H1/other-session">next</Link>
+        <Routes>
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    openLens("Commands");
+    fireEvent.click(await screen.findByRole("button", { name: "Show all 26 processes" }));
+    fireEvent.click(screen.getByRole("link", { name: "next" }));
+    openLens("Commands");
+    fireEvent.click(await screen.findByRole("button", { name: "Show all 26 processes" }));
+    expect(await screen.findByRole("button", { name: "Show 5 more processes" })).toBeVisible();
+    act(() => { landFirst(cut); });
+    await waitFor(() => { expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(20); });
+    expect(screen.getByRole("button", { name: "Show 5 more processes" })).toBeVisible();
+  });
+
+  it("says so when a large command cannot be read whole, and lets the operator retry", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc f*'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    const whole = sessionCommands([call]);
+    const cut = { ...whole, commands: [{ ...whole.commands[0], roots: [{ ...call, children: children.slice(0, 5) }], processes_cut: true }] };
+    vi.spyOn(api, "getSessionCommands").mockImplementation((_h, _s, page) =>
+      (page?.command ? Promise.reject(new Error("down")) : Promise.resolve(cut)));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Show all 26 processes" }));
+    expect(await screen.findByText(/They could not be loaded\./)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Show all 26 processes" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(5);
   });
 
   it("lists an alerted process past the cap, since the call opened to show it", async () => {

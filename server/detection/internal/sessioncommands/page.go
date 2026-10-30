@@ -14,7 +14,7 @@ import (
 // of its processes. The script of the wrapper shell that ran an agent's command is not searched apart from the command it ran, since
 // it is the same boilerplate for every call; the wrapper's path is. An empty query keeps every command.
 func Search(commands []Command, rawQuery string) []Command {
-	query := strings.ToLower(strings.TrimSpace(rawQuery))
+	query := normalize(rawQuery)
 	if query == "" {
 		return commands
 	}
@@ -30,6 +30,9 @@ func Search(commands []Command, rawQuery string) []Command {
 	return kept
 }
 
+// normalize is a query as Search matches it: lowercased and trimmed.
+func normalize(rawQuery string) string { return strings.ToLower(strings.TrimSpace(rawQuery)) }
+
 func processMatches(c Command, query string) bool {
 	found := false
 	for _, root := range c.Roots {
@@ -37,11 +40,15 @@ func processMatches(c Command, query string) bool {
 			if found {
 				return
 			}
-			found = matchesProcess(p, query, c.FromAgent && p.ID == c.RootID)
+			found = matchesProcess(p, query, pathOnly(c, p))
 		})
 	}
 	return found
 }
+
+// pathOnly is set for the agent's wrapper shell of a command, whose command line is the boilerplate around the command the agent
+// ran: only its path is searched, the command itself being the command's label.
+func pathOnly(c Command, p api.ProcessNode) bool { return c.FromAgent && p.ID == c.RootID }
 
 // matchesProcess reports whether a process's path, or its command line unless pathOnly, holds the lowercased query.
 func matchesProcess(p api.ProcessNode, query string, pathOnly bool) bool {

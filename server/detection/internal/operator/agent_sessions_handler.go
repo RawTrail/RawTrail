@@ -22,6 +22,8 @@ type AgentSessionLister interface {
 	ListAgentSessions(ctx context.Context, filter api.AgentSessionFilter, cursor string, limit int) (api.AgentSessionResult, error)
 	// GetAgentSession reads one session's record without its counts; nil when the host holds no such session.
 	GetAgentSession(ctx context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error)
+	// AlertedProcesses lists which of the given process rows an alert was raised on.
+	AlertedProcesses(ctx context.Context, processIDs []int64) ([]int64, error)
 }
 
 func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
@@ -212,10 +214,16 @@ func (h *Handler) handleAgentSessionCommands(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	q := r.URL.Query()
-	resp, err := h.sessionCommands(ctx, session, q.Get("q"), q.Get("cursor"), parseSearchLimit(q))
+	resp, err := h.sessionCommands(ctx, session, commandsRequest{
+		query: q.Get("q"), cursor: q.Get("cursor"), limit: parseSearchLimit(q), command: q.Get("command"),
+	})
 	if err != nil {
 		if errors.Is(err, api.ErrInvalidCursor) {
 			h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
+			return
+		}
+		if errors.Is(err, errNoSuchCommand) {
+			h.writeError(ctx, w, http.StatusNotFound, errNotFound)
 			return
 		}
 		h.logger.ErrorContext(ctx, "read agent session commands", "host_id", session.HostID, "err", err)
@@ -225,9 +233,20 @@ func (h *Handler) handleAgentSessionCommands(w http.ResponseWriter, r *http.Requ
 	h.writeJSON(w, r, resp)
 }
 
-// sessionCommands reads a session's processes and tool calls and returns one page of its commands.
+// commandsRequest is what a commands read asks for: a page of the commands a query finds, or, with command, that one command whole.
+type commandsRequest struct {
+	query, cursor string
+	limit         int
+	command       string
+}
+
+// errNoSuchCommand is a request for one command the session does not hold.
+var errNoSuchCommand = errors.New("no such command")
+
+// sessionCommands reads a session's processes and tool calls and returns one page of its commands, each listing up to
+// sessioncommands.InlineProcesses of its processes beside its alerted ones and the query's hits, or the one command asked for whole.
 func (h *Handler) sessionCommands(
-	ctx context.Context, session *api.AgentSessionSummary, query, cursor string, limit int,
+	ctx context.Context, session *api.AgentSessionSummary, req commandsRequest,
 ) (agentCommandsResponse, error) {
 	logical, commands, truncated, err := h.buildSessionCommands(ctx, session)
 	if err != nil {
@@ -238,7 +257,7 @@ func (h *Handler) sessionCommands(
 		return agentCommandsResponse{}, err
 	}
 	sessioncommands.JoinToolCalls(commands, calls)
-	page, err := sessioncommands.PageOf(sessioncommands.Search(commands, query), cursor, limit)
+	page, err := h.commandsPage(ctx, commands, req)
 	if err != nil {
 		return agentCommandsResponse{}, err
 	}
@@ -257,6 +276,46 @@ func (h *Handler) sessionCommands(
 		}
 	}
 	return resp, nil
+}
+
+// commandsPage is the page a commands read returns: the one command asked for, whole, or a page of what the query finds, each command
+// cut to its first processes beside the alerted ones and the query's hits.
+func (h *Handler) commandsPage(
+	ctx context.Context, commands []sessioncommands.Command, req commandsRequest,
+) (sessioncommands.Page, error) {
+	if req.command != "" {
+		for _, c := range commands {
+			if c.Key == req.command {
+				return sessioncommands.Page{Commands: []sessioncommands.Command{c}, TotalMatched: 1}, nil
+			}
+		}
+		return sessioncommands.Page{}, errNoSuchCommand
+	}
+	page, err := sessioncommands.PageOf(sessioncommands.Search(commands, req.query), req.cursor, req.limit)
+	if err != nil {
+		return sessioncommands.Page{}, err
+	}
+	var cut []int64
+	for _, c := range page.Commands {
+		if len(c.ProcessIDs) > sessioncommands.InlineProcesses {
+			cut = append(cut, c.ProcessIDs...)
+		}
+	}
+	alerted, err := h.agentSessions.AlertedProcesses(ctx, cut)
+	if err != nil {
+		return sessioncommands.Page{}, err
+	}
+	isAlerted := make(map[int64]bool, len(alerted))
+	for _, id := range alerted {
+		isAlerted[id] = true
+	}
+	for i, c := range page.Commands {
+		hit := sessioncommands.Matching(c, req.query)
+		page.Commands[i] = sessioncommands.Cap(c, sessioncommands.InlineProcesses, func(p api.ProcessNode) bool {
+			return isAlerted[p.ID] || hit(p)
+		})
+	}
+	return page, nil
 }
 
 // agentProcessesResponse is one page of the processes a search found in a session, in fork order, each listed alone. Truncated
