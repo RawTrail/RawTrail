@@ -13,14 +13,21 @@ function tree(over: Partial<TreeResponse> = {}): TreeResponse {
   return { roots: realSession(), returned: 16, total_matched: 16, total_matched_capped: false, truncated: false, ...over };
 }
 
-function renderView() {
-  return render(
+// renderView opens the session and switches to lens, Commands unless told otherwise; a session opens on its Summary.
+function renderView(lens: string | null = "Commands") {
+  const result = render(
     <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
       <Routes>
         <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
       </Routes>
     </MemoryRouter>,
   );
+  if (lens) openLens(lens);
+  return result;
+}
+
+function openLens(lens: string) {
+  fireEvent.click(within(screen.getByRole("group", { name: "Session view" })).getByRole("button", { name: lens }));
 }
 
 // names returns the process names listed in an element, in order. A process's name is the button that selects it.
@@ -513,9 +520,11 @@ describe("SessionView commands from the server", () => {
         </Routes>
       </MemoryRouter>,
     );
+    openLens("Commands");
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
     fireEvent.click(await screen.findByRole("button", { name: "Load more processes" }));
     fireEvent.click(screen.getByRole("link", { name: "next" }));
+    openLens("Processes");
     await waitFor(() => { expect(api.getSessionTree).toHaveBeenCalledWith("H1", "other-session"); });
     const more = await screen.findByRole("button", { name: "Load more processes" });
     await waitFor(() => { expect(more).toBeEnabled(); });
@@ -561,7 +570,7 @@ describe("SessionView commands from the server", () => {
   });
 
   // spec:web-ui/agent-session-summary-tab/the-summary-is-the-first-view
-  it("lists the Summary first among the session's views and shows it from the session's summary", async () => {
+  it("opens on the Summary, listed first among the session's views, and shows it from the session's summary", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
     vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({
@@ -571,11 +580,12 @@ describe("SessionView commands from the server", () => {
         timeline: [], command_timeline: [], timeline_start_ns: 0, timeline_bucket_ns: 1,
       },
     });
-    renderView();
+    renderView(null);
     const views = screen.getByRole("group", { name: "Session view" });
     expect(within(views).getAllByRole("button").map((b) => b.textContent))
       .toEqual(["Summary", "Conversation", "Commands", "Processes", "Activity"]);
-    expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(views).getByRole("button", { name: "Summary" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(views).getByRole("button", { name: "Commands" }));
     // A search left over from Commands would hide the commands the alerts link leads to, so following it clears the search.
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "nothing alerted" } });
     fireEvent.click(within(views).getByRole("button", { name: "Summary" }));
@@ -590,8 +600,7 @@ describe("SessionView commands from the server", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockReturnValue(new Promise(() => undefined));
     vi.spyOn(api, "getAgentSessionTotals").mockReturnValue(new Promise(() => undefined));
-    renderView();
-    fireEvent.click(within(screen.getByRole("group", { name: "Session view" })).getByRole("button", { name: "Summary" }));
+    renderView(null);
     expect(screen.getByText("Loading...")).toBeVisible();
   });
 
@@ -1316,13 +1325,16 @@ describe("SessionView", () => {
         </Routes>
       </MemoryRouter>,
     );
+    openLens("Commands");
     expect(await screen.findByText("ls /private/tmp | head -3")).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
+    openLens("Commands");
     expect(await screen.findByText("Loading...")).toBeVisible();
     expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
   });
 
-  it("closes a process's detail when moving to another session", async () => {
+  // spec:web-ui/agent-session-summary-tab/the-summary-is-the-first-view
+  it("closes a process's detail and opens on the Summary when moving to another session", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
     vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
@@ -1335,9 +1347,13 @@ describe("SessionView", () => {
         </Routes>
       </MemoryRouter>,
     );
+    openLens("Commands");
     fireEvent.click(await screen.findByRole("button", { name: "ls" }));
     expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
+    // A session reached from another opens on its Summary, whichever view the operator had open.
+    expect(screen.getByRole("button", { name: "Summary", pressed: true })).toBeVisible();
+    openLens("Commands");
     expect(await screen.findByRole("button", { name: "ls" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Process detail" })).not.toBeInTheDocument();
   });
@@ -1360,8 +1376,10 @@ describe("SessionView", () => {
         </Routes>
       </MemoryRouter>,
     );
+    openLens("Commands");
     expect(await screen.findByText("Error: boom")).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
+    openLens("Commands");
     expect(await screen.findByText("Loading...")).toBeVisible();
     expect(screen.queryByText("Error: boom")).not.toBeInTheDocument();
     resolveNext(tree());

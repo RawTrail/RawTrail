@@ -104,8 +104,9 @@ test.describe("a session larger than one page", () => {
   test("pages and searches its commands, processes and activity", async ({ page }) => {
     await signInAsAdminViaForgedSession(page);
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
-    await expect(page.getByText(`${String(COMMANDS)} commands`)).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("header").getByText(`${String(COMMANDS)} commands`)).toBeVisible({ timeout: 20_000 });
     const search = page.getByRole("searchbox", { name: "Search this session" });
+    await page.getByRole("button", { name: "Commands", exact: true }).click();
 
     // Commands: a page of 50, the rest on request, and a search the server answers.
     const commands = page.locator(".session-view__call");

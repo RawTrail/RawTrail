@@ -2,6 +2,7 @@
 
 - [x] 1.1 Shape the digest: domains by organization, directories relative to the project, file operations, timeline bars
 - [x] 1.2 Render the Summary's sections and list it first among the session's views
+- [x] 1.3 Open a session on its Summary
 
 ## 2. Tests
 

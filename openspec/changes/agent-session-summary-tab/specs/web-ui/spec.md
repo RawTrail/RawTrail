@@ -2,13 +2,14 @@
 
 ### Requirement: Agent session summary tab
 
-The agent session view SHALL list a Summary first among its views, built only on the session summary. It SHALL describe the session's prompts and commands, tools and programs, files by directory and outside its project, destinations by organization with domains new to the host marked, tokens and permission modes, and a timeline. Alerts SHALL be a count with a link, not the headline.
+The agent session view SHALL list a Summary first among its views and open on it, built only on the session summary. It SHALL describe the session's prompts and commands, tools and programs, files by directory and outside its project, destinations by organization with domains new to the host marked, tokens and permission modes, and a timeline. Alerts SHALL be a count with a link, not the headline.
 
 #### Scenario: The summary is the first view
 
 - **GIVEN** an agent session
 - **WHEN** the operator opens it
-- **THEN** Summary is listed first among its views, and choosing it shows the session from its summary
+- **THEN** it opens on its Summary, listed first among its views, which shows the session from its summary
+- **AND** a session reached from another session's lineage opens on its Summary too, whichever view was open
 
 #### Scenario: The summary describes the session
 
