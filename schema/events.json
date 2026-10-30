@@ -19,7 +19,7 @@
     },
     "event_type": {
       "type": "string",
-      "enum": ["exec", "fork", "exit", "open", "file_rename", "file_truncate", "file_delete", "file_activity", "agent_tool_call", "agent_prompt", "agent_usage", "network_connect", "dns_query", "application_control_block", "application_control_would_block", "application_control_undecided", "application_control_resync", "snapshot_heartbeat", "btm_launch_item_add", "sensor_provider_transition", "sensor_recovery_failed", "tcc_modify"],
+      "enum": ["exec", "fork", "exit", "open", "file_rename", "file_truncate", "file_delete", "file_activity", "agent_credential_would_block", "agent_tool_call", "agent_prompt", "agent_usage", "network_connect", "dns_query", "application_control_block", "application_control_would_block", "application_control_undecided", "application_control_resync", "snapshot_heartbeat", "btm_launch_item_add", "sensor_provider_transition", "sensor_recovery_failed", "tcc_modify"],
       "description": "Type of endpoint security event"
     },
     "platform": {
@@ -64,6 +64,10 @@
     {
       "if": { "properties": { "event_type": { "const": "file_activity" } }, "required": ["event_type"] },
       "then": { "properties": { "payload": { "$ref": "#/definitions/file_activity_payload" } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "agent_credential_would_block" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/agent_credential_would_block_payload" } } }
     },
     {
       "if": { "properties": { "event_type": { "const": "agent_tool_call" } }, "required": ["event_type"] },
@@ -331,6 +335,18 @@
           "type": "string",
           "description": "Absolute path that was unlinked."
         }
+      }
+    },
+    "agent_credential_would_block_payload": {
+      "type": "object",
+      "required": ["pid", "pidversion", "path", "credential", "flags"],
+      "description": "An AI agent's process opened a credential file that is not its tool's, and the credential guard, in detect mode, let the open through. Only opens of the guarded files reach the guard, and only an agent's process that is not one of the credential's owner tools (matched by signing identity) is reported, so ssh reading a key for git push is not.",
+      "properties": {
+        "pid": { "type": "integer" },
+        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Kernel PID generation of the opening process, which joins the event to its exec row and so to its path, signing and agent session." },
+        "path": { "type": "string", "description": "Absolute path of the credential file opened." },
+        "credential": { "type": "string", "enum": ["ssh_private_key", "aws_credentials", "github_cli_token", "netrc", "docker_config", "kube_config"], "description": "What the file holds: an SSH private key under ~/.ssh/id_*, ~/.aws/credentials, the GitHub CLI's ~/.config/gh/hosts.yml, ~/.netrc, ~/.docker/config.json or ~/.kube/config." },
+        "flags": { "type": "integer", "enum": [0, 1, 2], "description": "The open's access mode as open(2) spells it: 0 O_RDONLY, 1 O_WRONLY, 2 O_RDWR." }
       }
     },
     "file_activity_payload": {

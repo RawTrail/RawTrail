@@ -51,14 +51,16 @@ func envelopeJSON(t *testing.T, eventType, payload string) []byte {
 // payloadFixtures carries one minimally-valid payload per event_type. TestEventSchema_EveryEventTypeValidates asserts the key set
 // equals the schema's event_type enum, so a new event type without a fixture fails rather than going unexercised.
 var payloadFixtures = map[string]string{
-	"exec":            `{"pid":100,"ppid":1,"path":"/bin/zsh","args":["zsh","-c","id"],"cwd":"/","uid":501,"gid":20}`,
-	"fork":            `{"child_pid":101,"parent_pid":100}`,
-	"exit":            `{"pid":101,"exit_code":0}`,
-	"open":            `{"pid":101,"path":"/etc/sudoers","flags":1}`,
-	"file_rename":     `{"pid":101,"source_path":"/tmp/staged","path":"/etc/sudoers"}`,
-	"file_truncate":   `{"pid":101,"path":"/etc/sudoers"}`,
-	"file_delete":     `{"pid":101,"path":"/etc/sudoers.d/admins"}`,
-	"file_activity":   `{"pid":101,"pidversion":5445,"operation":"modify","path":"/Users/dev/repo/main.go"}`,
+	"exec":          `{"pid":100,"ppid":1,"path":"/bin/zsh","args":["zsh","-c","id"],"cwd":"/","uid":501,"gid":20}`,
+	"fork":          `{"child_pid":101,"parent_pid":100}`,
+	"exit":          `{"pid":101,"exit_code":0}`,
+	"open":          `{"pid":101,"path":"/etc/sudoers","flags":1}`,
+	"file_rename":   `{"pid":101,"source_path":"/tmp/staged","path":"/etc/sudoers"}`,
+	"file_truncate": `{"pid":101,"path":"/etc/sudoers"}`,
+	"file_delete":   `{"pid":101,"path":"/etc/sudoers.d/admins"}`,
+	"file_activity": `{"pid":101,"pidversion":5445,"operation":"modify","path":"/Users/dev/repo/main.go"}`,
+	"agent_credential_would_block": `{"pid":101,"pidversion":5445,"path":"/Users/dev/.ssh/id_ed25519","credential":"ssh_private_key",` +
+		`"flags":0}`,
 	"agent_tool_call": `{"agent_session_id":"47abb2a1","tool_use_id":"toolu_01","tool_name":"Bash","command":"ls","uid":501}`,
 	"agent_prompt":    `{"agent_session_id":"47abb2a1","prompt_id":"p-1","text":"run the tests","length":13,"uid":501}`,
 	"agent_usage": `{"agent_session_id":"47abb2a1","message_id":"msg_01","model":"claude-opus-5-5","input_tokens":3,` +
@@ -247,6 +249,45 @@ func TestEventSchema_FileActivity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := validateEnvelope(t, sch, envelopeJSON(t, "file_activity", tc.payload))
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+// TestEventSchema_AgentCredentialWouldBlock pins the credential guard's detect-mode payload (issue #1431): each credential kind and
+// access mode validates, and a payload without its generation, with a credential outside the six, or with a flag that is not an
+// access mode is refused.
+//
+// spec:extension-credential-guard/credential-would-block-event/the-payload-round-trips-and-validates
+func TestEventSchema_AgentCredentialWouldBlock(t *testing.T) {
+	t.Parallel()
+	sch := compileEnvelopeSchema(t)
+
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{name: "ssh key read", payload: `{"pid":7,"pidversion":9,"path":"/Users/a/.ssh/id_rsa","credential":"ssh_private_key","flags":0}`},
+		{name: "aws credentials written", payload: `{"pid":7,"pidversion":9,"path":"/Users/a/.aws/credentials",` +
+			`"credential":"aws_credentials","flags":1}`},
+		{name: "kube config read-write", payload: `{"pid":7,"pidversion":9,"path":"/var/root/.kube/config","credential":"kube_config",` +
+			`"flags":2}`},
+		{name: "no generation", payload: `{"pid":7,"path":"/Users/a/.netrc","credential":"netrc","flags":0}`, want: "pidversion"},
+		{name: "unknown credential", payload: `{"pid":7,"pidversion":9,"path":"/Users/a/.env","credential":"dotenv","flags":0}`,
+			want: "credential"},
+		{name: "not an access mode", payload: `{"pid":7,"pidversion":9,"path":"/Users/a/.netrc","credential":"netrc","flags":1026}`,
+			want: "flags"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateEnvelope(t, sch, envelopeJSON(t, "agent_credential_would_block", tc.payload))
 			if tc.want == "" {
 				require.NoError(t, err)
 				return

@@ -84,32 +84,18 @@ final class AgentFileSubscriber: Sendable {
         logger.info("agent-file client active: FORK/EXEC/EXIT/CREATE/RENAME/UNLINK/CLOSE/UIPC_CONNECT, filtered to agent subtrees")
     }
 
-    private static func key(_ token: audit_token_t) -> ProcessKey {
-        ProcessKey(pid: audit_token_to_pid(token), pidVersion: UInt32(bitPattern: audit_token_to_pidversion(token)))
-    }
-
     private func handleMessage(_ message: UnsafePointer<es_message_t>) {
         let msg = message.pointee
-        let actor = Self.key(msg.process.pointee.audit_token)
-        switch msg.event_type {
-        case ES_EVENT_TYPE_NOTIFY_FORK:
-            let child = Self.key(msg.event.fork.child.pointee.audit_token)
-            queue.sync { processes.fork(parent: actor, child: child) }
-        case ES_EVENT_TYPE_NOTIFY_EXEC:
-            var exec = msg.event.exec
-            let target = exec.target.pointee
-            let signing = ESFSubscriber.extractCodeSigning(from: target)
-            let root = isAgentRoot(codeSigning: signing, env: ESFSubscriber.sessionMarkers(of: &exec))
-            queue.sync { processes.exec(from: actor, to: Self.key(target.audit_token), root: root) }
-        case ES_EVENT_TYPE_NOTIFY_EXIT:
-            queue.sync { processes.exit(actor) }
-        default:
-            // Most closes and socket connects on the host belong to no agent; the set lookup settles them before any path is read.
-            guard queue.sync(execute: { processes.contains(actor) }), let record = Self.record(of: msg) else {
-                return
-            }
-            queue.sync { rollup.add(record) }
+        if let change = AgentProcessSet.Change(of: msg) {
+            queue.sync { processes.apply(change) }
+            return
         }
+        // Most closes and socket connects on the host belong to no agent; the set lookup settles them before any path is read.
+        let actor = ProcessKey(msg.process.pointee.audit_token)
+        guard queue.sync(execute: { processes.contains(actor) }), let record = Self.record(of: msg) else {
+            return
+        }
+        queue.sync { rollup.add(record) }
     }
 
     /// record reads a file event into a FileActivityRecord, or nil for a close that changed nothing and for a path not worth sending.
@@ -118,7 +104,7 @@ final class AgentFileSubscriber: Sendable {
             return nil
         }
         return FileActivityRecord(
-            process: key(msg.process.pointee.audit_token), operation: observed.operation, path: observed.path,
+            process: ProcessKey(msg.process.pointee.audit_token), operation: observed.operation, path: observed.path,
             sourcePath: observed.sourcePath, timeNs: kernelEventTimeNs(msg.time)
         )
     }
@@ -196,5 +182,54 @@ final class AgentFileSubscriber: Sendable {
         flushQueue.sync { flushTimer?.cancel() }
         es_unsubscribe_all(client)
         es_delete_client(client)
+    }
+}
+
+extension ProcessKey {
+    init(_ token: audit_token_t) {
+        self.init(pid: audit_token_to_pid(token), pidVersion: UInt32(bitPattern: audit_token_to_pidversion(token)))
+    }
+}
+
+/// The ES half of AgentProcessSet, shared by the clients that keep one from their own fork, exec and exit stream: this one and the
+/// credential guard. Each keeps its own set, because a set fed by another client's stream would trail the events it is asked about.
+extension AgentProcessSet {
+    /// Change is what one FORK, EXEC or EXIT does to the set, read from the message while it is valid.
+    enum Change {
+        case fork(parent: ProcessKey, child: ProcessKey, root: Bool)
+        case exec(from: ProcessKey, to: ProcessKey, root: Bool)
+        case exit(ProcessKey)
+
+        /// init reads the change a message makes, or is nil for a message that is not a FORK, EXEC or EXIT.
+        init?(of msg: es_message_t) {
+            let actor = ProcessKey(msg.process.pointee.audit_token)
+            switch msg.event_type {
+            case ES_EVENT_TYPE_NOTIFY_FORK:
+                let root = isAgentRoot(codeSigning: ESFSubscriber.extractCodeSigning(from: msg.process.pointee), env: nil)
+                self = .fork(parent: actor, child: ProcessKey(msg.event.fork.child.pointee.audit_token), root: root)
+            case ES_EVENT_TYPE_NOTIFY_EXEC:
+                var exec = msg.event.exec
+                let target = exec.target.pointee
+                let root = isAgentRoot(
+                    codeSigning: ESFSubscriber.extractCodeSigning(from: target), env: ESFSubscriber.sessionMarkers(of: &exec)
+                )
+                self = .exec(from: actor, to: ProcessKey(target.audit_token), root: root)
+            case ES_EVENT_TYPE_NOTIFY_EXIT:
+                self = .exit(actor)
+            default:
+                return nil
+            }
+        }
+    }
+
+    mutating func apply(_ change: Change) {
+        switch change {
+        case let .fork(parent, child, root):
+            fork(parent: parent, child: child, root: root)
+        case let .exec(old, new, root):
+            exec(from: old, to: new, root: root)
+        case let .exit(key):
+            exit(key)
+        }
     }
 }
