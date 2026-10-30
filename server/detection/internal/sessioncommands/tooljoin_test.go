@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
@@ -340,4 +341,38 @@ func TestJoinToolCalls_AThousandsCallTieLabelsAsManyCommands(t *testing.T) {
 	}
 	assert.Equal(t, n, labelled)
 	assert.Nil(t, commands[n].ToolCall, "a command past the calls is left unlabelled")
+}
+
+// A search cut short by its budget may have missed a call the nearest calls could still give, so the command is left unlabelled
+// rather than given an older call.
+func TestJoinToolCalls_ASearchCutShortLeavesTheCommandUnlabelled(t *testing.T) {
+	t.Parallel()
+	older := call("toolu_older", "ls", 500*ms)
+	first, second := call("toolu_a", "ls", 1_000*ms), call("toolu_b", "ls", 1_000*ms)
+	commands := []Command{command("g1", "ls", 1_010*ms), command("g2", "ls", 1_020*ms), command("g3", "ls", 1_030*ms)}
+	joinWithBudget(commands, []visibilityapi.AgentToolCall{older, first, second}, 1)
+	for _, c := range commands[:2] {
+		require.NotNil(t, c.ToolCall, c.Key)
+		assert.Equal(t, MatchAmbiguous, c.ToolCall.Kind)
+	}
+	assert.Nil(t, commands[2].ToolCall, "not the older call, which a full search might have shown was not the nearest")
+}
+
+// Calls of one text at their own times, then as many commands of it: each command pairs with the newest call left, and its search
+// does not rescan the calls the commands before it took (a matched command's call is skipped at once), so the join stays quadratic.
+func TestJoinToolCalls_ManyCallsAtTheirOwnTimesPairNewestFirst(t *testing.T) {
+	t.Parallel()
+	const n = 3_000
+	calls := make([]visibilityapi.AgentToolCall, 0, n)
+	commands := make([]Command, 0, n)
+	for i := range n {
+		calls = append(calls, call(fmt.Sprintf("toolu_%d", i), "ls", int64(i)*ms))
+		commands = append(commands, command(fmt.Sprintf("g_%d", i), "ls", int64(n+i)*ms))
+	}
+	start := time.Now()
+	got := joined(commands, calls...)
+	assert.Less(t, time.Since(start), 5*time.Second)
+	for i := range n {
+		require.Equal(t, matched(calls[n-1-i]), got[fmt.Sprintf("g_%d", i)])
+	}
 }
