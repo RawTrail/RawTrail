@@ -2695,6 +2695,112 @@ paths:
               schema:
                 $ref: "#/components/schemas/DetectionConfigError"
 
+  /api/v1/detection-config/credential-guard:
+    get:
+      tags: [Detection tuning]
+      summary: Read the credential guard policy
+      description: |
+        Returns the credential guard's mode and the credential files it protects
+        from AI agents' processes. Version 0 is the policy no operator has
+        changed: detect mode over the built-in credentials, each marked `default`.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      responses:
+        "200":
+          description: Credential guard policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialGuardPolicy"
+        "403":
+          description: Caller lacks detection_config.read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+    put:
+      tags: [Detection tuning]
+      summary: Change the credential guard policy
+      description: |
+        Stores the policy as the next version and queues a
+        `set_credential_guard` command for every host with an active enrollment.
+        Hosts that miss it are sent it by a periodic catch-up. The whole list is
+        replaced: send every credential to keep. `credentials` is required, so a
+        misspelled field cannot stop the guard protecting anything; send `[]` to
+        protect nothing. `reason` is required and audited with the previous and
+        new policy. A command that cannot be queued for some hosts does not fail
+        the change; the response counts them.
+
+        `expected_version`, when sent, is the version the edit started from. If
+        the policy has been changed since, the change is refused with 409 and
+        nothing is stored or queued.
+      security:
+        - SessionCookie: []
+          CSRF: []
+        - ServiceAccountToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode, credentials, reason]
+              properties:
+                mode:
+                  type: string
+                  enum: [detect, protect, off]
+                credentials:
+                  type: array
+                  maxItems: 64
+                  items:
+                    $ref: "#/components/schemas/ProtectedCredential"
+                reason:
+                  type: string
+                expected_version:
+                  type: integer
+                  format: int64
+                  description: The version this edit started from; the change is refused if the policy is at another version.
+      responses:
+        "200":
+          description: Policy changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [policy, fanout_hosts, fanout_failed]
+                properties:
+                  policy:
+                    $ref: "#/components/schemas/CredentialGuardPolicy"
+                  fanout_hosts:
+                    type: integer
+                    description: Enrolled hosts the command was queued for.
+                  fanout_failed:
+                    type: integer
+                    description: Of those, hosts the command could not be queued for.
+                  fanout_skipped_reason:
+                    type: string
+                    enum: [host_lister_error]
+                    description: Present when the policy was queued for no host because the enrolled hosts could not be listed.
+        "400":
+          description: A missing `credentials`, a blank reason, an invalid mode or credential (the message names the field), or invalid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+        "403":
+          description: Caller lacks detection_config.write
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+        "409":
+          description: The policy is no longer at `expected_version`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectionConfigError"
+
   /api/v1/detection-config/rule-match-counts:
     get:
       tags: [Detection tuning]
@@ -4543,6 +4649,67 @@ components:
             Display label resolved from updated_by at read time (a user's email, a
             service account's name, or "system"). Absent until the first change, or
             when the principal cannot be resolved; clients fall back to updated_by.
+    CredentialGuardPolicy:
+      type: object
+      required: [version, mode, credentials]
+      properties:
+        version:
+          type: integer
+          format: int64
+        mode:
+          type: string
+          enum: [detect, protect, off]
+          description: >-
+            detect reports an AI agent's process reading a protected credential with a tool that is not one of its owners, protect
+            denies the read as well, and off watches nothing.
+        credentials:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProtectedCredential"
+        updated_at:
+          type: string
+          format: date-time
+          description: Absent until the first change.
+        updated_by:
+          type: string
+          description: Principal id of whoever made the last change; absent until the first change.
+        updated_by_label:
+          type: string
+          description: Display label resolved from updated_by at read time; absent until the first change or when it cannot be resolved.
+    ProtectedCredential:
+      type: object
+      required: [kind, path, match, owners]
+      properties:
+        kind:
+          type: string
+          enum: [ssh_private_key, aws_credentials, github_cli_token, netrc, docker_config, kube_config]
+        path:
+          type: string
+          maxLength: 512
+          description: >-
+            The file below every home, without a leading slash or `~`, such as `.aws/credentials`. No empty, `.` or `..` segments.
+        match:
+          type: string
+          enum: [literal, prefix]
+          description: prefix covers every file in the path's directory whose name starts with its last segment, public keys (`.pub`) excepted.
+        owners:
+          type: array
+          maxItems: 32
+          description: >-
+            The tools allowed to read the file, by signing identity: a signing_id alone is an Apple platform binary, a team_id is that
+            Developer ID team, and both are that one binary of the team's. An ad hoc signed tool cannot be an owner.
+          items:
+            type: object
+            properties:
+              team_id:
+                type: string
+                pattern: "^[A-Z0-9]{10}$"
+              signing_id:
+                type: string
+                maxLength: 255
+        default:
+          type: boolean
+          description: True for a built-in credential the server seeded.
     DetectionConfigError:
       type: object
       required: [error, message]

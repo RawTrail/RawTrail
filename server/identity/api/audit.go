@@ -107,6 +107,8 @@ const (
 	AuditDetectionConfigRuleSettingUpdate   AuditAction = "detection_config.rule_setting_update"
 	AuditDetectionConfigWatchedPathsUpdate  AuditAction = "detection_config.watched_paths_update"
 	AuditDetectionConfigAgentSettingsUpdate AuditAction = "detection_config.agent_settings_update"
+	// AuditDetectionConfigCredentialGuardUpdate is a change to the credential guard's mode or protected credentials (issue #1432).
+	AuditDetectionConfigCredentialGuardUpdate AuditAction = "detection_config.credential_guard_update"
 
 	// Rule content authoring (issue #767). Records a change to the rule DOCUMENTS the detection engine loads, as distinct from the
 	// detection_config actions above, which record a change to how an existing rule behaves. Both matter, and conflating them
