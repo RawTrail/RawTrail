@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/rawtrail/rawtrail/server/rules/api"
 )
@@ -106,6 +107,7 @@ func (r *AgentCredentialRead) evalEvent(
 	}
 	var p struct {
 		PID        int    `json:"pid"`
+		PIDVersion uint32 `json:"pidversion"`
 		Path       string `json:"path"`
 		Credential string `json:"credential"`
 	}
@@ -117,11 +119,17 @@ func (r *AgentCredentialRead) evalEvent(
 	if !ok {
 		words = "a credential file"
 	}
-	proc, err := resolveSubjectProcess(ctx, s, evt, p.PID)
+	// The opener by its exact generation, which the report carries: the guard's client can report before the exec that started the
+	// image is recorded, and a lookup by pid and time would then find the image before it, with another session or exclusion.
+	proc, err := s.GetProcessByPIDVersion(ctx, evt.HostID, p.PID, p.PIDVersion, evt.TimestampNs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get process pid %d generation %d: %w", p.PID, p.PIDVersion, err)
 	}
 	if proc == nil {
+		if withinMaterializationGrace(evt.IngestedAtNs, time.Now().UnixNano()) {
+			return nil, fmt.Errorf("event %s references pid %d generation %d: %w", evt.EventID, p.PID, p.PIDVersion,
+				api.ErrProcessNotYetMaterialized)
+		}
 		scope.RecordMaterializationAbandoned(r.ID(), p.PID)
 		return nil, nil
 	}
@@ -140,7 +148,7 @@ func (r *AgentCredentialRead) evalEvent(
 	// One alert per session and kind of credential: the session's later reads of it join the first. A process the graph holds no
 	// session for (the agent's own) is alerted on its own, by the default per-process subject.
 	if id := proc.AgentSessionID; id != nil && *id != "" {
-		finding.Subject = "agentcredential:" + *id + ":" + p.Credential
+		finding.Subject = pathSubject("agentcredential", *id+":"+p.Credential)
 	}
 	return finding, nil
 }

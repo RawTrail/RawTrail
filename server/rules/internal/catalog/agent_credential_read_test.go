@@ -1,9 +1,12 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,9 +25,20 @@ func guardEvent(t *testing.T, pid int, path, kind string) api.Event {
 		EventType: "agent_credential_would_block", Payload: raw}
 }
 
-// agentProcesses are a Claude Code session's processes by pid: two of its commands, which carry the session, and the agent itself,
-// which does not.
-func agentProcesses() *perPIDGraphReader {
+// generationReader answers the guard rule's lookup, by pid and the kernel generation its report carries.
+type generationReader struct {
+	perPIDGraphReader
+	byGeneration map[[2]int64]*api.Process
+}
+
+func (r *generationReader) GetProcessByPIDVersion(_ context.Context, _ string, pid int, pidversion uint32, _ int64) (*api.Process, error) {
+	return r.byGeneration[[2]int64{int64(pid), int64(pidversion)}], nil
+}
+
+// agentProcesses are a Claude Code session's processes, by pid and generation (pid*10, as guardEvent reports): two of its
+// commands, which carry the session, and the agent itself, which does not. Pid 6991's earlier image, generation 69909, is the
+// shell that execed cat, recorded with another session.
+func agentProcesses() *generationReader {
 	session := agentCredentialSession
 	sig := func(team, signingID string, platform bool) api.NullRawJSON {
 		raw, _ := json.Marshal(map[string]any{"team_id": team, "signing_id": signingID, "flags": 0, "is_platform_binary": platform})
@@ -33,10 +47,16 @@ func agentProcesses() *perPIDGraphReader {
 	cat := &api.Process{ID: 1, PID: 6991, Path: "/bin/cat", CodeSigning: sig("", "com.apple.cat", true)}
 	gh := &api.Process{ID: 2, PID: 7200, Path: "/opt/homebrew/bin/gh", CodeSigning: sig("", "a.out", false)}
 	cat.AgentSessionID, gh.AgentSessionID = &session, &session
-	return &perPIDGraphReader{procByPID: map[int]*api.Process{
-		6991: cat, 7200: gh,
-		6833: {ID: 3, PID: 6833, Path: "/Users/victor/.local/share/claude/versions/2.1.302", CodeSigning: sig("", "a.out", false)},
-	}}
+	other := "another-session"
+	shell := &api.Process{ID: 9, PID: 6991, Path: "/bin/zsh", CodeSigning: sig("", "com.apple.zsh", true)}
+	shell.AgentSessionID = &other
+	agent := &api.Process{ID: 3, PID: 6833, Path: "/Users/victor/.local/share/claude/versions/2.1.302", CodeSigning: sig("", "a.out", false)}
+	return &generationReader{
+		perPIDGraphReader: perPIDGraphReader{procByPID: map[int]*api.Process{6991: shell, 7200: gh, 6833: agent}},
+		byGeneration: map[[2]int64]*api.Process{
+			{6991, 69910}: cat, {6991, 69909}: shell, {7200, 72000}: gh, {6833, 68330}: agent,
+		},
+	}
 }
 
 func evaluateAgentCredentialRead(t *testing.T, excl api.ExclusionResolver, events ...api.Event) []api.Finding {
@@ -117,5 +137,40 @@ func TestAgentCredentialRead_IgnoresWhatIsNotAReport(t *testing.T) {
 	open.EventType = "open"
 	unknownProcess := guardEvent(t, 4242, "/Users/victor/.ssh/id_ed25519", "ssh_private_key")
 	assert.Empty(t, evaluateAgentCredentialRead(t, nil, open, unknownProcess),
-		"another event type, and a process the graph never recorded, raise nothing")
+		"another event type, and a long-ingested report whose process the graph never recorded, raise nothing")
+}
+
+// The opener is the generation the report names, never the pid's image at the report's time: the report can arrive before the
+// exec that started it is recorded, when a lookup by pid and time finds the shell that execed it.
+//
+// spec:server-detection-rules-engine/an-ai-agent-reading-credentials-is-reported/a-report-is-the-generation-it-names
+func TestAgentCredentialRead_ResolvesTheGenerationTheReportNames(t *testing.T) {
+	t.Parallel()
+	findings := evaluateAgentCredentialRead(t, nil, guardEvent(t, 6991, "/Users/victor/.ssh/id_ed25519", "ssh_private_key"))
+	require.Len(t, findings, 1)
+	assert.Equal(t, int64(1), findings[0].ProcessID, "cat's generation, not the shell's")
+	assert.Contains(t, findings[0].Subject, agentCredentialSession)
+
+	early := guardEvent(t, 6991, "/Users/victor/.ssh/id_ed25519", "ssh_private_key")
+	early.EventID = "early"
+	early.Payload = json.RawMessage(`{"pid":6991,"pidversion":69911,"path":"/Users/victor/.ssh/id_ed25519","credential":"ssh_private_key"}`)
+	early.IngestedAtNs = time.Now().UnixNano()
+	_, err := (&AgentCredentialRead{}).Evaluate(t.Context(), []api.Event{early}, agentProcesses())
+	assert.ErrorIs(t, err, api.ErrProcessNotYetMaterialized, "a generation not recorded yet is retried, not guessed")
+}
+
+// A session id at the 256-byte marker limit still makes a subject the alert column holds.
+func TestAgentCredentialRead_ALongSessionIDStillFitsTheSubject(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("s", 256)
+	reader := agentProcesses()
+	cat, ok := reader.byGeneration[[2]int64{6991, 69910}]
+	require.True(t, ok)
+	cat.AgentSessionID = &long
+	findings, err := (&AgentCredentialRead{}).Evaluate(t.Context(),
+		[]api.Event{guardEvent(t, 6991, "/Users/victor/.ssh/id_ed25519", "ssh_private_key")}, reader)
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	assert.LessOrEqual(t, len(findings[0].Subject), subjectColumnLimit)
+	assert.True(t, strings.HasPrefix(findings[0].Subject, "agentcredential:sha256:"))
 }
