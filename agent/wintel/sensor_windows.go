@@ -207,6 +207,13 @@ var ErrWatchedPathsUnsupported = errors.New("wintel: watched file paths are not 
 // SendWatchedPaths is unsupported on the driverless sensor.
 func (s *Sensor) SendWatchedPaths(_ []byte) error { return ErrWatchedPathsUnsupported }
 
+// ErrCredentialGuardUnsupported is returned by SendCredentialGuard: the credential guard is a macOS Endpoint Security client, which
+// has no counterpart on the driverless sensor.
+var ErrCredentialGuardUnsupported = errors.New("wintel: the credential guard is not supported on the driverless Windows sensor")
+
+// SendCredentialGuard is unsupported on the driverless sensor.
+func (s *Sensor) SendCredentialGuard(_ []byte) error { return ErrCredentialGuardUnsupported }
+
 // ErrNetworkContainmentUnsupported is returned by SendNetworkContainment: host network containment is enforced by the macOS network
 // extension's content filter, which has no counterpart on the driverless sensor.
 var ErrNetworkContainmentUnsupported = errors.New("wintel: network containment is not supported on the driverless Windows sensor")

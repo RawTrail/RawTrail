@@ -14,7 +14,9 @@ import (
 // `~/.aws/credentials` and send it out (issue #1432).
 //
 // The events are the security extension's credential guard's (issue #1431), which sees only opens of the guarded files, only by a
-// process in an agent session, and drops an open by the credential's own tool (ssh reading a key for git push) before it is sent.
+// process in an agent session, and drops an open by the credential's own tool (ssh reading a key for git push) before it is sent. In
+// detect mode the read went through (agent_credential_would_block); in protect mode the guard refused it (agent_credential_block), and
+// the alert says so.
 // The rule names the credential in plain words and raises one alert per session and kind of credential, however many processes of
 // the session open it: the agent itself opens a file a command names before it runs the command.
 type AgentCredentialRead struct {
@@ -33,6 +35,12 @@ var agentCredentialWords = map[string]string{
 	"netrc":            "the logins in your .netrc",
 	"docker_config":    "your Docker registry logins",
 	"kube_config":      "your Kubernetes credentials",
+}
+
+// agentCredentialVerbs is what the agent did, by the guard's event: in detect mode the read went through, in protect mode it did not.
+var agentCredentialVerbs = map[string]string{
+	"agent_credential_would_block": "tried to read",
+	"agent_credential_block":       "was stopped from reading",
 }
 
 func (r *AgentCredentialRead) ID() string { return "agent_credential_read" }
@@ -62,12 +70,15 @@ func (r *AgentCredentialRead) Doc() api.Documentation {
 		Description: "Detects an AI coding agent session reading credential files (T1552.004, T1552.001), the step a prompt " +
 			"injection takes before it sends them out: a poisoned README, issue, web page or tool description tells the agent to " +
 			"read `~/.ssh/id_*` or `~/.aws/credentials`, and the agent's own deny rules do not stop a shell command.\n\n" +
-			"The security extension's credential guard watches SSH private keys, `~/.aws/credentials`, the GitHub CLI's " +
-			"`hosts.yml`, `~/.netrc`, `~/.docker/config.json` and `~/.kube/config`, and reports an open only by a process in an " +
+			"By default the security extension's credential guard watches SSH private keys, `~/.aws/credentials`, the GitHub " +
+			"CLI's `hosts.yml`, `~/.netrc`, `~/.docker/config.json` and `~/.kube/config`; the files, their owner tools and the " +
+			"guard's mode are set fleet-wide in the credential guard policy. It reports an open only by a process in an " +
 			"agent session that is not the credential's own tool, judged by its signature: `ssh` reading a key for `git push` is " +
-			"not reported. One alert is raised per session and kind of credential.",
+			"not reported. One alert is raised per session and kind of credential.\n\n" +
+			"In detect mode the read goes through and the alert says the agent tried to read the file; in protect mode the " +
+			"guard refuses it and the alert says the agent was stopped.",
 		Severity:   api.SeverityHigh,
-		EventTypes: []string{"agent_credential_would_block"},
+		EventTypes: []string{"agent_credential_would_block", "agent_credential_block"},
 		FalsePositives: []string{
 			"A person asking their agent to work on their SSH or cloud configuration. Confirm with them; the session's prompts say " +
 				"what was asked.",
@@ -76,7 +87,6 @@ func (r *AgentCredentialRead) Doc() api.Documentation {
 		},
 		Limitations: []string{
 			"Only Claude Code sessions are recognized, by the markers it sets in the environment of the commands it runs.",
-			"Detect mode only: the read is reported, not prevented.",
 			"The agent's own process carries no session marker, so its reads are alerted apart from its commands'.",
 			"Needs an agent whose extension runs the credential guard.",
 		},
@@ -102,7 +112,8 @@ func (r *AgentCredentialRead) EvaluateScoped(
 func (r *AgentCredentialRead) evalEvent(
 	ctx context.Context, scope *api.BatchScope, evt api.Event, s api.GraphReader,
 ) (*api.Finding, error) {
-	if evt.EventType != "agent_credential_would_block" {
+	verb, ok := agentCredentialVerbs[evt.EventType]
+	if !ok {
 		return nil, nil
 	}
 	var p struct {
@@ -141,7 +152,7 @@ func (r *AgentCredentialRead) evalEvent(
 		RuleID:      r.ID(),
 		Severity:    api.SeverityHigh,
 		Title:       r.DisplayName(),
-		Description: fmt.Sprintf("An AI agent's %s tried to read %s (%s)", proc.Path, words, p.Path),
+		Description: fmt.Sprintf("An AI agent's %s %s %s (%s)", proc.Path, verb, words, p.Path),
 		ProcessID:   proc.ID,
 		EventIDs:    []string{evt.EventID},
 	}

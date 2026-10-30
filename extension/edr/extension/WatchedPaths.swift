@@ -243,57 +243,88 @@ enum WatchedPaths {
     }
 }
 
-/// WatchedPathStore keeps the last accepted set: on disk, so a restarted extension watches it from its first event rather than falling
-/// back to the built-in paths until the agent next pushes, and in memory, so a delayed older set is recognised and turned away.
-final class WatchedPathStore: Sendable {
+/// PushedDocument is a document the server pushes through the agent and the extension keeps the newest of: the watched-path set and the
+/// credential guard's policy.
+protocol PushedDocument: Sendable {
+    /// storageName names the document in the log, and its file in the directory the extension owns.
+    static var storageName: String { get }
+    /// decode reads a pushed payload, or returns nil for one that is not this document.
+    static func decode(_ data: Data) -> Self?
+    /// supersedes reports whether this document should replace `current`, the last one accepted.
+    func supersedes(_ current: Self?) -> Bool
+}
+
+extension WatchedPathsUpdate: PushedDocument {
+    static let storageName = "watched-paths"
+
+    static func decode(_ data: Data) -> WatchedPathsUpdate? {
+        WatchedPaths.decode(data)
+    }
+}
+
+extension CredentialGuardUpdate: PushedDocument {
+    static let storageName = "credential-guard"
+}
+
+/// WatchedPathStore keeps the last watched-path set the server pushed.
+typealias WatchedPathStore = PushedDocumentStore<WatchedPathsUpdate>
+/// CredentialGuardStore keeps the last credential guard policy the server pushed (issue #1432).
+typealias CredentialGuardStore = PushedDocumentStore<CredentialGuardUpdate>
+
+/// PushedDocumentStore keeps the last accepted document: on disk, so a restarted extension applies it from its first event rather than
+/// falling back to its built-in one until the agent next pushes, and in memory, so a delayed older document is recognised and turned
+/// away.
+final class PushedDocumentStore<Document: PushedDocument>: Sendable {
     /// defaultStoragePath sits beside the application-control snapshot, in the directory the extension already owns.
-    static let defaultStoragePath = "/var/db/io.rawtrail/watched-paths.json"
+    static var defaultStoragePath: String {
+        "/var/db/io.rawtrail/\(Document.storageName).json"
+    }
 
     let storagePath: String
-    private let accepted: OSAllocatedUnfairLock<WatchedPathsUpdate?>
+    private let accepted: OSAllocatedUnfairLock<Document?>
 
-    /// init reads the persisted set, which becomes the baseline a pushed set must supersede.
-    init(storagePath: String = WatchedPathStore.defaultStoragePath) {
+    /// init reads the persisted document, which becomes the baseline a pushed one must supersede.
+    init(storagePath: String = PushedDocumentStore.defaultStoragePath) {
         self.storagePath = storagePath
         self.accepted = OSAllocatedUnfairLock(initialState: nil)
         let persisted = load()
         accepted.withLock { $0 = persisted }
     }
 
-    /// current is the last accepted set, or nil when none has been.
-    var current: WatchedPathsUpdate? {
+    /// current is the last accepted document, or nil when none has been.
+    var current: Document? {
         accepted.withLock { $0 }
     }
 
-    /// accept decodes a pushed payload and, when it supersedes the last accepted set and has been persisted, records it and returns it
-    /// for the caller to apply. It returns nil, changing nothing, for a payload that is not a watched-path document, a set that does not
-    /// supersede the current one, or a set that could not be written to disk.
+    /// accept decodes a pushed payload and, when it supersedes the last accepted document and has been persisted, records it and
+    /// returns it for the caller to apply. It returns nil, changing nothing, for a payload that does not decode, a document that does
+    /// not supersede the current one, or one that could not be written to disk.
     ///
-    /// Persisting comes before accepting so the running set and the one a restart loads never disagree: a set applied without being
-    /// written would vanish at the next restart, and, already accepted, could not be retried by a redelivery. Refused instead, it is
-    /// retried by the next delivery of the same set.
+    /// Persisting comes before accepting so the running document and the one a restart loads never disagree: a document applied without
+    /// being written would vanish at the next restart, and, already accepted, could not be retried by a redelivery. Refused instead, it
+    /// is retried by the next delivery of the same document.
     ///
     /// Called from the XPC server's serial queue, which is what makes the check, the write and the commit a sequence nothing else
     /// interleaves with.
-    func accept(_ data: Data) -> WatchedPathsUpdate? {
-        guard let update = WatchedPaths.decode(data), update.supersedes(current), save(data) else {
+    func accept(_ data: Data) -> Document? {
+        guard let document = Document.decode(data), document.supersedes(current), save(data) else {
             return nil
         }
-        accepted.withLock { $0 = update }
-        return update
+        accepted.withLock { $0 = document }
+        return document
     }
 
-    /// load returns the persisted set, or nil when there is none or it cannot be read, in which case the client watches the built-in
-    /// paths alone until the agent pushes a set.
-    private func load() -> WatchedPathsUpdate? {
+    /// load returns the persisted document, or nil when there is none or it cannot be read, in which case the extension applies its
+    /// built-in one until the agent pushes.
+    private func load() -> Document? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: storagePath)) else {
             return nil
         }
-        guard let update = WatchedPaths.decode(data) else {
-            logger.warning("persisted watched-path set could not be decoded; watching the built-in paths")
+        guard let document = Document.decode(data) else {
+            logger.warning("persisted \(Document.storageName, privacy: .public) could not be decoded; applying the built-in one")
             return nil
         }
-        return update
+        return document
     }
 
     /// save persists a payload exactly as it was pushed, written atomically so a crash mid-write cannot leave a torn file, and reports
@@ -303,7 +334,8 @@ final class WatchedPathStore: Sendable {
             try AtomicFile.write(data, toPath: storagePath)
             return true
         } catch {
-            logger.error("watched-path set not applied, persist failed: \(error.localizedDescription, privacy: .public)")
+            let reason = "\(Document.storageName) not applied, persist failed: \(error.localizedDescription)"
+            logger.error("\(reason, privacy: .public)")
             return false
         }
     }

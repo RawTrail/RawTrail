@@ -5,8 +5,9 @@ import os.log
 private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "ESFCredentialGuard")
 
 /// CredentialGuardSubscriber is the fifth Endpoint Security client, and the second to authorize: it decides each open of a credential
-/// file by an AI agent's process (issue #1431). It runs in detect mode, so every open is allowed, and an agent's process opening a
-/// credential that is not its tool's is reported as an `agent_credential_would_block` event. CredentialGuard holds the decision.
+/// file by an AI agent's process (issue #1431), under the policy the server pushed (issue #1432). An agent's process opening a credential
+/// that is not its tool's is reported: in detect mode the open is allowed and reported as `agent_credential_would_block`, in protect mode
+/// it is denied and reported as `agent_credential_block`, and off watches nothing. CredentialGuardPolicy holds the decision.
 ///
 /// It subscribes to AUTH_OPEN with target-path muting inverted to the credential files in every home, so the opens it is asked about
 /// are those files' and nothing else on the host, a handful a minute. The verdict depends on the process, not the file, so it is
@@ -22,8 +23,8 @@ final class CredentialGuardSubscriber: Sendable {
     private let serializer = EventSerializer()
     nonisolated(unsafe) var onEvent: ((Data) -> Void)?
 
-    /// mode is detect until the guard can be switched to protect (issue #1433).
-    private let mode = CredentialGuardMode.detect
+    /// policy is the one in force. The handler reads it for every open it decides; apply replaces it from the XPC server's queue.
+    private let policy: OSAllocatedUnfairLock<CredentialGuardPolicy>
 
     /// processes is the observed agent subtrees. ES calls the handler serially, and only the handler reads or writes the set.
     private nonisolated(unsafe) var processes = AgentProcessSet(capacity: maxProcesses)
@@ -39,7 +40,8 @@ final class CredentialGuardSubscriber: Sendable {
     /// refreshSeconds is how long an account added to the host goes unguarded at most, as for the other home-scoped clients.
     private static let refreshSeconds = 300
 
-    init() {
+    init(policy: CredentialGuardPolicy) {
+        self.policy = OSAllocatedUnfairLock(initialState: policy)
         var rawClient: OpaquePointer?
         let result = es_new_client(&rawClient) { [weak self] client, message in
             self?.handleMessage(client, message)
@@ -84,7 +86,18 @@ final class CredentialGuardSubscriber: Sendable {
         timer.setEventHandler { [weak self] in self?.refresh() }
         timer.resume()
         refreshTimer = timer
-        logger.info("credential-guard client active in detect mode: \(self.appliedCount, privacy: .public) credential paths guarded")
+        let summary = "credential-guard client active in \(policy.withLock { $0.mode }.rawValue) mode: \(appliedCount) paths guarded"
+        logger.info("\(summary, privacy: .public)")
+    }
+
+    /// apply puts a pushed policy in force: the next open is decided by it, and the muted set follows its credentials, so a credential
+    /// the server stopped protecting stops reaching the guard and one it added starts to. Off unmutes every credential.
+    func apply(_ next: CredentialGuardPolicy) {
+        policy.withLock { $0 = next }
+        guard client != nil else {
+            return
+        }
+        queue.async { [weak self] in self?.refresh() }
     }
 
     private var appliedCount: Int {
@@ -99,7 +112,8 @@ final class CredentialGuardSubscriber: Sendable {
             logger.error("credential-guard client could not read the accounts; keeping \(self.applied.count) guarded paths")
             return
         }
-        let (mute, unmute) = WatchedPaths.changes(from: applied, to: CredentialGuard.targets(homes: homes))
+        let targets = policy.withLock { $0 }.targets(homes: homes)
+        let (mute, unmute) = WatchedPaths.changes(from: applied, to: targets)
         var failed = 0
         for target in mute {
             guard es_mute_path(client, target.path, Self.muteType(target.match)) == ES_RETURN_SUCCESS else {
@@ -147,8 +161,8 @@ final class CredentialGuardSubscriber: Sendable {
         let opener = msg.process.pointee
         let path = esTokenString(msg.event.open.file.pointee.path)
         let key = ProcessKey(opener.audit_token)
-        let decision = CredentialGuard.decide(
-            path: path, opener: ESFSubscriber.extractCodeSigning(from: opener), inAgentProcessSet: processes.contains(key), mode: mode
+        let decision = policy.withLock { $0 }.decide(
+            path: path, opener: ESFSubscriber.extractCodeSigning(from: opener), inAgentProcessSet: processes.contains(key)
         )
         // An allowed open is answered with the access it asked for, in the kernel's FREAD and FWRITE flags as the open reports them.
         let requested = UInt32(bitPattern: msg.event.open.fflag)
@@ -165,16 +179,17 @@ final class CredentialGuardSubscriber: Sendable {
         if answered != ES_RESPOND_RESULT_SUCCESS {
             logger.error("credential-guard could not answer an open: \(answered.rawValue, privacy: .public)")
         }
-        guard case let .wouldBlock(credential) = decision else {
+        guard let (eventType, credential) = decision.report else {
             return
         }
         let payload = AgentCredentialAccessPayload(
             pid: key.pid, pidVersion: key.pidVersion, path: path, credential: credential,
             flags: CredentialStores.openFlags(fflag: msg.event.open.fflag)
         )
-        logger.info("credential-guard would block pid=\(key.pid, privacy: .public) credential=\(credential.rawValue, privacy: .public)")
+        let reported = "credential-guard \(verdict) pid=\(key.pid) credential=\(credential.rawValue)"
+        logger.info("\(reported, privacy: .public)")
         let kernelTimeNs = kernelEventTimeNs(msg.time)
-        if let data = serializer.serialize(eventType: "agent_credential_would_block", payload: payload, kernelTimeNs: kernelTimeNs) {
+        if let data = serializer.serialize(eventType: eventType, payload: payload, kernelTimeNs: kernelTimeNs) {
             onEvent?(data)
         }
     }

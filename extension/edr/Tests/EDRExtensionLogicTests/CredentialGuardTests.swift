@@ -84,7 +84,8 @@ final class CredentialGuardTests: XCTestCase {
                  mode: .protect, want: .allow)
         ]
         for tc in cases {
-            let got = CredentialGuard.decide(path: tc.path, opener: tc.opener, inAgentProcessSet: tc.inAgentProcessSet, mode: tc.mode)
+            let policy = CredentialGuardPolicy(mode: tc.mode, credentials: CredentialGuard.builtIn)
+            let got = policy.decide(path: tc.path, opener: tc.opener, inAgentProcessSet: tc.inAgentProcessSet)
             XCTAssertEqual(got, tc.want, tc.name)
             let refused = tc.mode == .protect && tc.want != .allow
             XCTAssertEqual(got.deniesOpen, refused, "\(tc.name): only a protect-mode block refuses the open")
@@ -109,13 +110,13 @@ final class CredentialGuardTests: XCTestCase {
             ("/private/var/root/.docker/config.json", .dockerConfig)
         ]
         for tc in cases {
-            XCTAssertEqual(CredentialGuard.credential(at: tc.path)?.kind, tc.want, tc.path)
+            XCTAssertEqual(CredentialGuardPolicy.builtIn.credential(at: tc.path)?.kind, tc.want, tc.path)
         }
     }
 
     // spec:extension-credential-guard/credential-files-are-guarded-in-every-home/every-home-s-credential-files-are-guarded
     func testTargetsAreEveryCredentialInEveryHome() {
-        let targets = CredentialGuard.targets(homes: ["/Users/alice", "/var/root"])
+        let targets = CredentialGuardPolicy.builtIn.targets(homes: ["/Users/alice", "/var/root"])
         let homePaths = [".ssh/id_", ".aws/credentials", ".config/gh/hosts.yml", ".netrc", ".docker/config.json", ".kube/config"]
         var expected: [WatchedPath] = []
         for home in ["/Users/alice", "/private/var/root", "/var/root"] {
@@ -129,7 +130,120 @@ final class CredentialGuardTests: XCTestCase {
     }
 
     func testTargetsAreEmptyWithNoHomes() {
-        XCTAssertEqual(CredentialGuard.targets(homes: []), [])
+        XCTAssertEqual(CredentialGuardPolicy.builtIn.targets(homes: []), [])
+    }
+
+    // MARK: Pushed policy
+
+    private static let pushedPolicy = """
+    {"version":3,"epoch":1789300000000000,"mode":"protect","credentials":[
+      {"kind":"aws_credentials","path":".aws/credentials","match":"literal","owners":[{"team_id":"94KV3E626L"}],"default":true},
+      {"kind":"netrc","path":"work/.netrc","match":"literal","owners":[{"signing_id":"com.apple.curl"},
+        {"team_id":"59GAB85EFG","signing_id":"com.apple.git-remote-http"}]},
+      {"kind":"ssh_private_key","path":".ssh/deploy_","match":"prefix","owners":[]}
+    ]}
+    """
+
+    // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/a-pushed-policy-replaces-the-built-in-one
+    func testAPushedPolicyDecodesIntoWhatTheGuardEnforces() throws {
+        let update = try XCTUnwrap(CredentialGuardUpdate.decode(Data(Self.pushedPolicy.utf8)))
+        XCTAssertEqual(update.version, 3)
+        XCTAssertEqual(update.epoch, 1_789_300_000_000_000)
+        XCTAssertEqual(update.skipped, 0)
+        XCTAssertEqual(update.policy, CredentialGuardPolicy(mode: .protect, credentials: [
+            ProtectedCredential(kind: .awsCredentials, homePath: ".aws/credentials", match: .literal, owners: [.team("94KV3E626L")]),
+            ProtectedCredential(kind: .netrc, homePath: "work/.netrc", match: .literal, owners: [
+                .platform("com.apple.curl"), .team("59GAB85EFG", signingID: "com.apple.git-remote-http")
+            ]),
+            ProtectedCredential(kind: .sshPrivateKey, homePath: ".ssh/deploy_", match: .prefix, owners: [])
+        ]))
+
+        // The guard follows the list it was given: a credential added is guarded, one removed is not, and protect refuses the read.
+        let policy = update.policy
+        XCTAssertEqual(policy.decide(path: "/Users/alice/.ssh/deploy_prod", opener: Self.ssh, inAgentProcessSet: true),
+                       .block(.sshPrivateKey), "a pushed credential with no owners is read by no tool in a session")
+        XCTAssertEqual(policy.decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true), .allow,
+                       "a credential the policy no longer lists is not guarded")
+        XCTAssertEqual(policy.decide(path: "/Users/alice/work/.netrc", opener: Self.cat, inAgentProcessSet: true), .block(.netrc))
+        XCTAssertEqual(Set(policy.targets(homes: ["/Users/alice"])), [
+            WatchedPath(path: "/Users/alice/.aws/credentials", match: .literal),
+            WatchedPath(path: "/Users/alice/work/.netrc", match: .literal),
+            WatchedPath(path: "/Users/alice/.ssh/deploy_", match: .prefix)
+        ])
+    }
+
+    // spec:extension-credential-guard/credential-block-event/a-refused-read-is-reported
+    func testARefusedReadIsReportedAsABlock() throws {
+        let protect = CredentialGuardPolicy(mode: .protect, credentials: CredentialGuard.builtIn)
+        let decision = protect.decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true)
+        XCTAssertTrue(decision.deniesOpen)
+        let report = try XCTUnwrap(decision.report)
+        XCTAssertEqual(report.eventType, "agent_credential_block")
+        XCTAssertEqual(report.credential, .sshPrivateKey)
+
+        let detect = CredentialGuardPolicy.builtIn.decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true)
+        XCTAssertEqual(detect.report?.eventType, "agent_credential_would_block")
+        XCTAssertNil(CredentialGuardDecision.allow.report)
+    }
+
+    // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/off-watches-nothing
+    func testOffWatchesNothingAndDecidesNothing() {
+        let off = CredentialGuardPolicy(mode: .off, credentials: CredentialGuard.builtIn)
+        XCTAssertEqual(off.targets(homes: ["/Users/alice"]), [], "nothing is muted, so no open reaches the guard")
+        XCTAssertEqual(off.decide(path: "/Users/alice/.ssh/id_ed25519", opener: Self.cat, inAgentProcessSet: true), .allow)
+    }
+
+    // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/a-policy-the-extension-cannot-read-is-turned-away
+    func testAPolicyWithAnUnknownModeOrNotAPolicyIsTurnedAway() {
+        for payload in [
+            #"{"version":2,"mode":"quarantine","credentials":[]}"#,
+            #"{"version":2,"credentials":[]}"#,
+            #"{"version":2,"mode":"detect"}"#,
+            #"{"paths":[]}"#,
+            "not json"
+        ] {
+            XCTAssertNil(CredentialGuardUpdate.decode(Data(payload.utf8)), payload)
+        }
+    }
+
+    // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/a-credential-the-extension-cannot-guard-is-skipped
+    func testACredentialTheExtensionCannotGuardIsSkippedAndCounted() throws {
+        let entries = [
+            #"{"kind":"netrc","path":".netrc","match":"literal","owners":[{}]}"#,
+            #"{"kind":"gcloud_token","path":".config/gcloud/credentials.db","match":"literal","owners":[]}"#,
+            #"{"kind":"netrc","path":".netrc2","match":"glob","owners":[]}"#,
+            #"{"kind":"netrc","path":"/etc/netrc","match":"literal","owners":[]}"#,
+            #"{"kind":"netrc","path":"../other/.netrc","match":"literal","owners":[]}"#,
+            #"{"kind":"netrc","path":".ssh/","match":"prefix","owners":[]}"#,
+            #"{"kind":"netrc","path":".net\u0000rc","match":"literal","owners":[]}"#,
+            #"{"kind":"netrc","path":"a//b","match":"literal","owners":[]}"#
+        ]
+        let payload = #"{"version":1,"epoch":7,"mode":"detect","credentials":["# + entries.joined(separator: ",") + "]}"
+        let update = try XCTUnwrap(CredentialGuardUpdate.decode(Data(payload.utf8)))
+        XCTAssertEqual(update.skipped, entries.count - 1)
+        XCTAssertEqual(update.policy.credentials,
+                       [ProtectedCredential(kind: .netrc, homePath: ".netrc", match: .literal, owners: [])],
+                       "only the first is kept, and its owner naming neither a team nor a signing identifier is dropped")
+    }
+
+    // spec:extension-credential-guard/the-guard-enforces-the-pushed-policy/an-older-policy-does-not-replace-a-newer-one
+    func testAPolicyIsAcceptedOnlyWhenNewerAndSurvivesARestart() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = CredentialGuardStore(storagePath: directory.appendingPathComponent("credential-guard.json").path)
+        XCTAssertNil(store.current, "nothing pushed yet, so the built-in policy is in force")
+
+        let first = #"{"version":0,"epoch":0,"mode":"detect","credentials":[]}"#
+        let newer = #"{"version":1,"epoch":100,"mode":"off","credentials":[]}"#
+        XCTAssertEqual(store.accept(Data(first.utf8))?.policy.mode, .detect, "the policy no operator has changed is the first push")
+        XCTAssertEqual(store.accept(Data(newer.utf8))?.policy.mode, .off)
+        XCTAssertNil(store.accept(Data(first.utf8)), "an older policy arriving later is turned away")
+        XCTAssertNil(store.accept(Data(newer.utf8)), "a redelivery is not newer")
+
+        let restarted = CredentialGuardStore(storagePath: store.storagePath)
+        XCTAssertEqual(restarted.current?.policy.mode, .off, "a restarted extension enforces the last policy pushed")
+        XCTAssertEqual(restarted.current?.version, 1)
     }
 
     // An owner without a team must be a platform binary; one with a team must carry it, and its signing identifier when named.

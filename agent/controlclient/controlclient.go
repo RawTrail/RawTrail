@@ -45,7 +45,7 @@ type Config struct {
 	TokenFn func() string
 	// OnAuthFail is invoked when the server rejects the stream as unauthenticated, so the agent can re-enroll. Nil is allowed.
 	OnAuthFail func(ctx context.Context)
-	// ExtensionSender is the XPC bridge handed to the shared executor; nil means set_application_control and set_watched_paths commands
+	// ExtensionSender is the XPC bridge handed to the shared executor; nil means the commands addressed to the extension
 	// fail with a clear reason, matching the poll path.
 	ExtensionSender commander.ExtensionSender
 	// Ledger is the durable dedup store shared with the poll path so a command executed over the stream is not re-executed on a restart

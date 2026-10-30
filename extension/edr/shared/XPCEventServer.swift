@@ -52,6 +52,7 @@ enum XPCMessageType {
     static let helloAck = "hello-ack"
     static let applicationControlUpdate = "application_control.update"
     static let watchedPathsUpdate = "watched_paths.update"
+    static let credentialGuardUpdate = "credential_guard.update"
     static let networkContainmentUpdate = "network_containment.update"
 }
 
@@ -117,6 +118,8 @@ enum XPCInboundDispatch: Equatable {
     case applyApplicationControl(Data)
     /// `type = watched_paths.update` with non-empty `data`: pass the bytes to the onWatchedPaths hook.
     case applyWatchedPaths(Data)
+    /// `type = credential_guard.update` with non-empty `data`: pass the bytes to the onCredentialGuard hook.
+    case applyCredentialGuard(Data)
     /// `type = network_containment.update` with non-empty `data`: pass the bytes to the onNetworkContainment hook. An update
     /// over networkContainmentMaxBytes never gets here, see isOversizedInbound.
     case applyNetworkContainment(Data)
@@ -144,32 +147,31 @@ func isOversizedInbound(type: String?, dataLength: Int) -> Bool {
 /// covered by the unit-test suite.
 func dispatchInbound(type: String?, data: Data?) -> XPCInboundDispatch {
     guard let type else { return .ignore }
-    switch type {
-    case XPCMessageType.hello:
+    if type == XPCMessageType.hello {
         return .helloAck
-    case XPCMessageType.applicationControlUpdate:
-        guard let data, !data.isEmpty else { return .rejectMissingData }
-        return .applyApplicationControl(data)
-    case XPCMessageType.watchedPathsUpdate:
-        guard let data, !data.isEmpty else { return .rejectMissingData }
-        return .applyWatchedPaths(data)
-    case XPCMessageType.networkContainmentUpdate:
-        guard let data, !data.isEmpty else { return .rejectMissingData }
-        return .applyNetworkContainment(data)
-    default:
-        return .ignore
     }
+    guard let apply = inboundUpdates[type] else { return .ignore }
+    guard let data, !data.isEmpty else { return .rejectMissingData }
+    return apply(data)
 }
+
+/// inboundUpdates is each update type the agent pushes, by its XPC type, and the dispatch that applies its data.
+private let inboundUpdates: [String: (Data) -> XPCInboundDispatch] = [
+    XPCMessageType.applicationControlUpdate: XPCInboundDispatch.applyApplicationControl,
+    XPCMessageType.watchedPathsUpdate: XPCInboundDispatch.applyWatchedPaths,
+    XPCMessageType.credentialGuardUpdate: XPCInboundDispatch.applyCredentialGuard,
+    XPCMessageType.networkContainmentUpdate: XPCInboundDispatch.applyNetworkContainment
+]
 
 /// XPCEventServer vends a Mach service that the Go agent connects to. Serialized events are broadcast to all connected
 /// peers as XPC dictionaries with a "data" key containing raw JSON bytes.
 ///
 /// Shared by the security extension AND the network extension. Each extension instantiates one with its own service
-/// name + logger; the security extension also passes `onApplicationControl` and `onWatchedPaths` hooks to apply inbound
-/// app-control policy and the file-tamper client's watched set, while the network extension passes `onNetworkContainment`
-/// to apply host network containment. Both get the identical hello-ack
-/// handshake, pending buffer, and peer code-signing. Single-sourcing the handshake means it can no longer drift between
-/// the two extensions (the network extension previously lacked the handshake entirely; see the hello-ack fix).
+/// name + logger; the security extension also passes `onApplicationControl`, `onWatchedPaths` and `onCredentialGuard` hooks to apply
+/// inbound app-control policy, the file-tamper client's watched set and the credential guard's policy, while the network extension
+/// passes `onNetworkContainment` to apply host network containment. Both get the identical hello-ack handshake, pending buffer,
+/// and peer code-signing. Single-sourcing the handshake means it can no longer drift between the two extensions (the network
+/// extension previously lacked the handshake entirely; see the hello-ack fix).
 ///
 /// Startup race the buffer handles (issue #11 + #173 review): on extension restart a phantom XPC peer can
 /// connect-and-immediately-disconnect within a few ms: observed empirically as "Peer connected (total: 1)" followed
@@ -187,6 +189,9 @@ final class XPCEventServer {
     /// Inbound watched-path handler. The security extension wires this to the file-tamper client; nil in the network
     /// extension, for the same reason as onApplicationControl.
     private let onWatchedPaths: ((Data) -> Void)?
+    /// Inbound credential guard policy handler. The security extension wires this to the credential guard; nil in the network
+    /// extension, for the same reason as onApplicationControl.
+    private let onCredentialGuard: ((Data) -> Void)?
     /// Inbound network containment handler. The network extension wires this to NetworkContainmentController; nil in the
     /// security extension, which has no content filter to apply it to.
     private let onNetworkContainment: ((Data) -> Void)?
@@ -213,12 +218,14 @@ final class XPCEventServer {
         logger: Logger,
         onApplicationControl: ((Data) -> Void)? = nil,
         onWatchedPaths: ((Data) -> Void)? = nil,
+        onCredentialGuard: ((Data) -> Void)? = nil,
         onNetworkContainment: ((Data) -> Void)? = nil
     ) {
         self.serviceName = serviceName
         self.log = logger
         self.onApplicationControl = onApplicationControl
         self.onWatchedPaths = onWatchedPaths
+        self.onCredentialGuard = onCredentialGuard
         self.onNetworkContainment = onNetworkContainment
     }
 
@@ -358,6 +365,8 @@ final class XPCEventServer {
             onApplicationControl?(data)
         case .applyWatchedPaths(let data):
             onWatchedPaths?(data)
+        case .applyCredentialGuard(let data):
+            onCredentialGuard?(data)
         case .applyNetworkContainment(let data):
             onNetworkContainment?(data)
         case .rejectMissingData:

@@ -183,6 +183,20 @@ final class XPCServerLogicTests: XCTestCase {
         XCTAssertEqual(dispatchInbound(type: "watched_paths.update", data: Data()), .rejectMissingData)
     }
 
+    // MARK: Requirement: Inbound credential guard update
+
+    // spec:extension-xpc-server/inbound-credential-guard-update/the-agent-pushes-a-credential-guard-policy
+    func testCredentialGuardUpdateWithDataDispatchesToApplyCredentialGuard() {
+        let payload = Data(#"{"version":2,"epoch":9,"mode":"protect","credentials":[]}"#.utf8)
+        XCTAssertEqual(dispatchInbound(type: "credential_guard.update", data: payload), .applyCredentialGuard(payload))
+    }
+
+    // spec:extension-xpc-server/inbound-credential-guard-update/a-credential-guard-update-with-no-data-is-rejected
+    func testCredentialGuardUpdateWithoutDataDispatchesToRejectMissingData() {
+        XCTAssertEqual(dispatchInbound(type: "credential_guard.update", data: nil), .rejectMissingData)
+        XCTAssertEqual(dispatchInbound(type: "credential_guard.update", data: Data()), .rejectMissingData)
+    }
+
     // spec:extension-xpc-server/inbound-network-containment-update/the-agent-pushes-a-containment-update
     func testNetworkContainmentUpdateWithDataDispatchesToApplyNetworkContainment() {
         let payload = Data(#"{"version":2,"contained":false}"#.utf8)
