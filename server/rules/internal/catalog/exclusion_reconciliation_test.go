@@ -58,6 +58,10 @@ func TestExclusionMatchTypes_Reconciled(t *testing.T) {
 		"credential_browser_store_read": {
 			api.ExclusionMatchPathGlob, api.ExclusionMatchTeamID, api.ExclusionMatchSigningID, api.ExclusionMatchCDHash,
 		},
+		// The agent's process, the same way: an unsigned credential tool it runs (Homebrew's gh) is waived by cdhash or path.
+		"agent_credential_read": {
+			api.ExclusionMatchPathGlob, api.ExclusionMatchTeamID, api.ExclusionMatchSigningID, api.ExclusionMatchCDHash,
+		},
 		// The granted app by its signer, and by its path for an unsigned in-house tool.
 		"tcc_sensitive_grant":             {api.ExclusionMatchTeamID, api.ExclusionMatchSigningID, api.ExclusionMatchPathGlob},
 		"trusted_root_certificate":        {},

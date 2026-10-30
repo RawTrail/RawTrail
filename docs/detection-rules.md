@@ -34,6 +34,7 @@ These rules are carried in the vendored upstream corpus but are not registered, 
 | [`osascript_network_exec`](#osascript_network_exec) | AppleScript dropper | critical | alert | T1059.002 |
 | [`credential_keychain_dump`](#credential_keychain_dump) | Keychain credential dump | high | alert | T1555.001 |
 | [`credential_browser_store_read`](#credential_browser_store_read) | Browser credential store read | high | alert | T1555.003 |
+| [`agent_credential_read`](#agent_credential_read) | AI agent read a credential file | high | alert | T1552.004, T1552.001 |
 | [`tcc_sensitive_grant`](#tcc_sensitive_grant) | Sensitive permission granted | medium | alert | T1548.006 |
 | [`trusted_root_certificate`](#trusted_root_certificate) | Certificate trusted from the command line | high | alert | T1553.004 |
 | [`privilege_launchd_plist_write`](#privilege_launchd_plist_write) | LaunchDaemon persistence | high | alert | T1543.004 |
@@ -401,6 +402,38 @@ The browser's own reads are not reported, judged by the team that signs it, and 
 - Safari's cookies are not watched.
 - A browser at a custom profile location, or a Chromium browser not listed here, is not watched.
 - Needs an agent whose extension reports reads of these files.
+
+## agent_credential_read
+
+**AI agent read a credential file**  
+Flags an AI coding agent's process reading an SSH key, cloud or registry credentials it does not own.
+
+| | |
+| --- | --- |
+| Rule ID | `agent_credential_read` |
+| Severity | `high` |
+| Default mode | `alert` |
+| Source | RawTrail |
+| ATT&CK | [`T1552.004`](https://attack.mitre.org/techniques/T1552/004/), [`T1552.001`](https://attack.mitre.org/techniques/T1552/001/) |
+| Event types | `agent_credential_would_block` |
+
+### Description
+
+Detects an AI coding agent session reading credential files (T1552.004, T1552.001), the step a prompt injection takes before it sends them out: a poisoned README, issue, web page or tool description tells the agent to read `~/.ssh/id_*` or `~/.aws/credentials`, and the agent's own deny rules do not stop a shell command.
+
+The security extension's credential guard watches SSH private keys, `~/.aws/credentials`, the GitHub CLI's `hosts.yml`, `~/.netrc`, `~/.docker/config.json` and `~/.kube/config`, and reports an open only by a process in an agent session that is not the credential's own tool, judged by its signature: `ssh` reading a key for `git push` is not reported. One alert is raised per session and kind of credential.
+
+### Known false-positive sources
+
+- A person asking their agent to work on their SSH or cloud configuration. Confirm with them; the session's prompts say what was asked.
+- A credential tool installed without a vendor signature, such as Homebrew's `gh` or `kubectl`, run by the agent. Exclude it by `cdhash` or `path_glob`.
+
+### Limitations
+
+- Only Claude Code sessions are recognized, by the markers it sets in the environment of the commands it runs.
+- Detect mode only: the read is reported, not prevented.
+- The agent's own process carries no session marker, so its reads are alerted apart from its commands'.
+- Needs an agent whose extension runs the credential guard.
 
 ## tcc_sensitive_grant
 

@@ -1,0 +1,38 @@
+# T1552.004 Unsecured Credentials: Private Keys, read by an AI coding agent.
+#
+# A prompt injection tells Claude Code to print the user's SSH key, and the agent runs `cat ~/.ssh/id_ed25519` as a Bash call. The
+# call's process carries the session's markers; the security extension's credential guard reports the open, since cat is not one of
+# the key's owner tools, and agent_credential_read fires on it. Mirrors the positive_cat_ssh_key fixture and the edr-dev run of
+# issue #1431.
+name: "T1552.004 an agent session's cat reads the SSH private key"
+host:
+  id: AAAA1552-0004-0000-0000-000000000001
+  hostname: efficacy-t1552-004.local
+  os: macOS 26.0
+timeline:
+  - at: 0ms
+    type: fork
+    child_pid: 6991
+    parent_pid: 1
+    pidversion: 69910
+  - at: 10ms
+    type: exec
+    pid: 6991
+    ppid: 1
+    pidversion: 69910
+    path: /bin/cat
+    args: ["cat", "/Users/victor/.ssh/id_ed25519"]
+    cwd: /Users/victor/project
+    uid: 501
+    gid: 20
+    env:
+      CLAUDE_CODE_SESSION_ID: 6662f20d-55c2-4a1e-9f3b-0c1d2e3f4a5b
+      CLAUDE_PID: "6833"
+      AI_AGENT: claude-code_2-1-302_agent
+  - at: 60ms
+    type: agent_credential_would_block
+    pid: 6991
+    pidversion: 69910
+    path: /Users/victor/.ssh/id_ed25519
+    credential: ssh_private_key
+    flags: 0

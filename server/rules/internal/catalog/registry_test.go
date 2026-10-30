@@ -45,6 +45,7 @@ func TestAll_RegisterEveryShippedRule(t *testing.T) {
 		"osascript_network_exec",
 		"credential_keychain_dump",
 		"credential_browser_store_read",
+		"agent_credential_read",
 		"tcc_sensitive_grant",
 		"trusted_root_certificate",
 		"privilege_launchd_plist_write",
@@ -175,6 +176,7 @@ func TestAll_ThreadsExclusionResolver(t *testing.T) {
 	}
 	assert.Same(t, res, byID["suspicious_exec"].(*SuspiciousExec).Exclusions)
 	assert.Same(t, res, byID["credential_browser_store_read"].(*CredentialBrowserStoreRead).Exclusions)
+	assert.Same(t, res, byID["agent_credential_read"].(*AgentCredentialRead).Exclusions)
 	assert.Same(t, res, byID["tcc_sensitive_grant"].(*TccSensitiveGrant).Exclusions)
 	assert.Same(t, res, byID["persistence_launchagent"].(*PersistenceLaunchAgent).Exclusions)
 	assert.Same(t, res, byID["persistence_login_item"].(*PersistenceLoginItem).Exclusions)
@@ -294,6 +296,8 @@ func TestAll_AuthoredTechniquesArePinned(t *testing.T) {
 		"credential_keychain_dump": {"T1555.001"},
 		// Observes a browser credential store being opened by another program, which is exactly the sub-technique.
 		"credential_browser_store_read": {"T1555.003"},
+		// Observes an AI agent's process opening a private key or a credentials file, which are exactly the two sub-techniques.
+		"agent_credential_read": {"T1552.004", "T1552.001"},
 		// Observes a sensitive TCC permission being granted, which is exactly the sub-technique.
 		"tcc_sensitive_grant": {"T1548.006"},
 		// Observes the command that writes trust settings, which is exactly the sub-technique.
@@ -453,6 +457,7 @@ func TestAll_DetectionsSayWhatDecidesThem(t *testing.T) {
 		"absence_within_window":           {},
 		"btm_item_signing_verdict":        {},
 		"credential_store_opener_verdict": {},
+		"agent_credential_guard_verdict":  {},
 		"tcc_grant_signing_verdict":       {},
 		"installer_package_signature":     {},
 	}

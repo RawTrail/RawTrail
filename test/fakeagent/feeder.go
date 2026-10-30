@@ -281,6 +281,14 @@ func buildPayload(ev Event) (json.RawMessage, error) {
 			FilePath       string `json:"file_path,omitempty"`
 			UID            int    `json:"uid"`
 		}{ev.AgentSessionID, ev.ToolUseID, ev.ToolName, ev.Command, ev.Description, ev.Path, ev.UID})
+	case "agent_credential_would_block":
+		return json.Marshal(struct {
+			PID        int     `json:"pid"`
+			PIDVersion *uint32 `json:"pidversion"`
+			Path       string  `json:"path"`
+			Credential string  `json:"credential"`
+			Flags      int     `json:"flags"`
+		}{ev.PID, ev.PIDVersion, ev.Path, ev.Credential, ev.Flags})
 	case "agent_usage":
 		return json.Marshal(struct {
 			AgentSessionID string `json:"agent_session_id"`

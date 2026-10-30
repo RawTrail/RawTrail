@@ -11,6 +11,7 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 
 ### Added
 
+- **An alert when an AI coding agent reads your credentials.** If an agent session reads an SSH private key, AWS credentials, the GitHub CLI token, `.netrc`, Docker registry logins or Kubernetes credentials with anything but that credential's own tool, the new `agent_credential_read` rule raises one alert per session and credential, in plain words. `ssh` reading a key for `git push` is not reported. Reads are reported, not prevented.
 - **A Conversation view of each AI agent session.** It lists each prompt the person typed with the commands and tool calls the agent made for it, and what belongs to no prompt last. Operators without permission to read prompts see the turns with each prompt hidden.
 - **An AI agent session has a Summary.** It describes the session at a glance: what it was asked and ran, the files it changed by directory and outside its project, where it connected to by organization (with domains new to the host marked), its tokens and permission modes, and when it was busy. Alerts are a count with a link. A session opens on its Summary.
 - **An AI agent session's header shows its models, tokens and permission modes.** Each mode the agent ran in is listed with how many replies and for how long, and bypass permissions is flagged. The Agent sessions page lists each session's tokens.
