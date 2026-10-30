@@ -124,11 +124,15 @@ enum CredentialGuard {
     /// both spellings of a firmlinked root (root's home is under /var), in a stable order. The homes are distinct, as
     /// WatchedPaths.homeDirectories returns them, so the targets are too.
     static func targets(homes: [String]) -> [WatchedPath] {
-        homes.flatMap { home in
-            builtIn.flatMap { credential in
-                WatchedPaths.spellings(of: home + "/" + credential.homePath).map { WatchedPath(path: $0, match: credential.match) }
+        var out: [WatchedPath] = []
+        for home in homes {
+            for credential in builtIn {
+                for spelling in WatchedPaths.spellings(of: home + "/" + credential.homePath) {
+                    out.append(WatchedPath(path: spelling, match: credential.match))
+                }
             }
         }
+        return out
     }
 
     /// credential is the protected credential an opened path is, or nil for any other file the muting delivers: a public key under

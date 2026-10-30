@@ -154,7 +154,12 @@ final class CredentialGuardSubscriber: Sendable {
         let requested = UInt32(bitPattern: msg.event.open.fflag)
         let answered = es_respond_flags_result(client, message, decision.deniesOpen ? 0 : requested, false)
         // The time from the open to its answer, logged for every open so the guard's cost to the tools it allows is measurable too.
-        let verdict = decision.deniesOpen ? "deny" : decision == .allow ? "allow" : "allow, would block"
+        let verdict: String
+        switch decision {
+        case .allow: verdict = "allow"
+        case .wouldBlock: verdict = "allow, would block"
+        case .block: verdict = "deny"
+        }
         let latency = "credential-guard answered pid=\(key.pid) in \(Self.microseconds(since: msg.mach_time))us: \(verdict)"
         logger.debug("\(latency, privacy: .public)")
         if answered != ES_RESPOND_RESULT_SUCCESS {
