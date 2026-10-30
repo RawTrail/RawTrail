@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,16 @@ type failingTokens struct{ visibilityapi.EventArchive }
 
 func (failingTokens) AgentSessionTokens(context.Context, []visibilityapi.AgentSessionRef) (map[visibilityapi.AgentSessionRef]int64, error) {
 	return nil, errors.New("clickhouse unreachable")
+}
+
+// stalledTokens is an archive whose token read never returns until its context ends, as a stalled ClickHouse does.
+type stalledTokens struct{ visibilityapi.EventArchive }
+
+func (stalledTokens) AgentSessionTokens(
+	ctx context.Context, _ []visibilityapi.AgentSessionRef,
+) (map[visibilityapi.AgentSessionRef]int64, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 // spec:server-rest-api/sessions-list-token-total/each-session-is-listed-with-its-tokens
@@ -53,15 +64,21 @@ func TestAgentSessionsList_Tokens(t *testing.T) {
 		assert.Equal(t, map[string]*int64{sessionOne: new(int64(4)), sessionTwo: nil}, tokens)
 	})
 
-	t.Run("an archive that cannot be read leaves the totals out and still lists the sessions", func(t *testing.T) {
-		t.Parallel()
-		degraded, err := mysql.New(db, failingTokens{archive}, nil)
-		require.NoError(t, err)
-		page, err := degraded.ListAgentSessions(t.Context(), api.AgentSessionFilter{HostID: host}, "", 10)
-		require.NoError(t, err)
-		require.Len(t, page.Rows, 2)
-		for _, r := range page.Rows {
-			assert.Nil(t, r.Tokens, r.AgentSessionID)
-		}
-	})
+	for name, unreadable := range map[string]visibilityapi.EventArchive{
+		"an archive that fails": failingTokens{archive}, "an archive that stalls": stalledTokens{archive},
+	} {
+		t.Run(name+" leaves the totals out and still lists the sessions", func(t *testing.T) {
+			t.Parallel()
+			degraded, err := mysql.New(db, unreadable, nil)
+			require.NoError(t, err)
+			start := time.Now()
+			page, err := degraded.ListAgentSessions(t.Context(), api.AgentSessionFilter{HostID: host}, "", 10)
+			require.NoError(t, err)
+			assert.Less(t, time.Since(start), 10*time.Second, "within the token read's bound, well inside the write timeout")
+			require.Len(t, page.Rows, 2)
+			for _, r := range page.Rows {
+				assert.Nil(t, r.Tokens, r.AgentSessionID)
+			}
+		})
+	}
 }

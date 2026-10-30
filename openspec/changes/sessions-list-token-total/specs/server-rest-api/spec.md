@@ -2,7 +2,7 @@
 
 ### Requirement: Sessions list token total
 
-`GET /api/agent-sessions` SHALL give each row the input, cache-write, cache-read and output tokens of the session's messages, counted as the session summary's `usage` counts them, and SHALL leave the total out for a session that sent no usage. When the event archive cannot be read, the list SHALL still be served, without the totals.
+`GET /api/agent-sessions` SHALL give each row the input, cache-write, cache-read and output tokens of the session's messages, counted as the session summary's `usage` counts them, and SHALL leave the total out for a session that sent no usage. When the event archive cannot be read, or does not answer within a few seconds, the list SHALL still be served, without the totals.
 
 #### Scenario: A session's total agrees with its header
 
@@ -15,4 +15,4 @@
 - **GIVEN** a session that sent usage and one that sent none
 - **WHEN** the sessions list is read
 - **THEN** the first carries its tokens and the second none
-- **AND** when the event archive cannot be read, both are listed without tokens
+- **AND** when the event archive fails, or stalls, both are listed without tokens, well inside the server's write timeout

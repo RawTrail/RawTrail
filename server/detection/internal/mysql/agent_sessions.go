@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
@@ -153,12 +154,18 @@ func (s *Store) ListAgentSessions(
 	return result, nil
 }
 
+// sessionTokensTimeout bounds the sessions list's token read, so a stalled event archive delays the list by seconds rather than
+// holding it past the server's write timeout.
+const sessionTokensTimeout = 3 * time.Second
+
 // fillSessionTokens fills each row's token total from the event archive with one read over the page's sessions. The list is served
-// from MySQL, so an archive that cannot be read leaves the totals out rather than failing the list.
+// from MySQL, so an archive that cannot be read in time leaves the totals out rather than failing the list.
 func (s *Store) fillSessionTokens(ctx context.Context, rows []api.AgentSessionSummary) {
 	if len(rows) == 0 {
 		return
 	}
+	ctx, cancel := context.WithTimeout(ctx, sessionTokensTimeout)
+	defer cancel()
 	refs := make([]visibilityapi.AgentSessionRef, len(rows))
 	for i, r := range rows {
 		refs[i] = visibilityapi.AgentSessionRef{HostID: r.HostID, SessionID: r.AgentSessionID}
