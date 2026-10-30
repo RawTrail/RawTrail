@@ -121,6 +121,10 @@ type Event struct {
 	Command        string `json:"command,omitempty"`
 	Description    string `json:"description,omitempty"`
 
+	// agent_credential_would_block specifics (issue #1431): the kind of credential the guard watched opened. Path and PID name the
+	// file and its opener.
+	Credential string `json:"credential,omitempty"`
+
 	// agent_usage specifics (issue #1427): one assistant message's model, tokens and the permission mode in force. AgentSessionID and
 	// UID are shared with agent_tool_call.
 	MessageID      string `json:"message_id,omitempty"`
@@ -274,13 +278,15 @@ var knownEventTypes = map[string]bool{
 	"file_truncate": true,
 	"file_delete":   true,
 	// An AI agent's folded file activity (issue #1287) and the tool calls it recorded (#1288), for the session journeys.
-	"file_activity":       true,
-	"agent_tool_call":     true,
-	"agent_usage":         true,
-	"network_connect":     true,
-	"dns_query":           true,
-	"snapshot_heartbeat":  true,
-	"btm_launch_item_add": true,
+	"file_activity":   true,
+	"agent_tool_call": true,
+	"agent_usage":     true,
+	// An AI agent's process opening a credential file that is not its tool's (issue #1431), for the credential guard's scenario.
+	"agent_credential_would_block": true,
+	"network_connect":              true,
+	"dns_query":                    true,
+	"snapshot_heartbeat":           true,
+	"btm_launch_item_add":          true,
 	// A capture provider of the agent's own network extension starting or stopping (issue #684). Corpus scenarios use it
 	// for the tamper case and, in the noise lane, for the upgrade cutover it must not be confused with.
 	"sensor_provider_transition": true,
