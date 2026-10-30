@@ -28,6 +28,17 @@ type fakeToolCallReader struct {
 	prompts      visibilityapi.AgentPromptPage
 	promptsErr   error
 	promptFilter visibilityapi.AgentPromptFilter
+	// found answers SearchAgentPrompts, searchErr fails it, and search is what it was asked.
+	found     visibilityapi.FoundAgentPromptPage
+	searchErr error
+	search    *visibilityapi.AgentPromptSearch
+}
+
+func (f *fakeToolCallReader) SearchAgentPrompts(
+	_ context.Context, search visibilityapi.AgentPromptSearch,
+) (visibilityapi.FoundAgentPromptPage, error) {
+	f.search = &search
+	return f.found, f.searchErr
 }
 
 // lineageAsk is the lineage read a handler made.

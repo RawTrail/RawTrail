@@ -997,6 +997,13 @@ func (s *Store) AgentToolCalls(
 	return s.archive.AgentToolCalls(ctx, filter)
 }
 
+// SearchAgentPrompts delegates a search of prompt text across sessions (issue #1428) to the visibility EventArchive.
+func (s *Store) SearchAgentPrompts(
+	ctx context.Context, search visibilityapi.AgentPromptSearch,
+) (visibilityapi.FoundAgentPromptPage, error) {
+	return s.archive.SearchAgentPrompts(ctx, search)
+}
+
 // AgentPrompts reads a page of the prompts a person typed in one session (issue #1426) from the event archive.
 func (s *Store) AgentPrompts(ctx context.Context, filter visibilityapi.AgentPromptFilter) (visibilityapi.AgentPromptPage, error) {
 	return s.archive.AgentPrompts(ctx, filter)

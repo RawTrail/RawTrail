@@ -28,6 +28,7 @@ type AgentSessionLister interface {
 
 func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 	mux.HandleFunc("GET /api/agent-sessions", h.handleListAgentSessions)
+	mux.HandleFunc("GET /api/agent-prompts", h.handleSearchAgentPrompts)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/tool-calls", h.handleAgentToolCalls)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/lineage", h.handleAgentSessionLineage)
 	mux.HandleFunc("GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary", h.handleAgentSessionSummary)
@@ -38,11 +39,13 @@ func (h *Handler) registerAgentSessionRoutes(mux httpserver.Router) {
 }
 
 // AgentToolCallReader is the read of what a session's transcript recorded, from the event archive: its tool calls (issue #1288), the
-// sessions forked from each other that their copied calls show (issue #1347), and the prompts the person typed (issue #1426).
+// sessions forked from each other that their copied calls show (issue #1347), and the prompts the person typed (issue #1426), in one
+// session or searched across them (issue #1428).
 // mysql.Store satisfies it.
 type AgentToolCallReader interface {
 	AgentToolCalls(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.AgentToolCall, bool, error)
 	AgentPrompts(ctx context.Context, filter visibilityapi.AgentPromptFilter) (visibilityapi.AgentPromptPage, error)
+	SearchAgentPrompts(ctx context.Context, search visibilityapi.AgentPromptSearch) (visibilityapi.FoundAgentPromptPage, error)
 	AgentSessionLineage(ctx context.Context, hostID, sessionID string, ownerUID int64) (visibilityapi.AgentSessionLineage, error)
 }
 
