@@ -37,7 +37,7 @@ The extension SHALL enforce the newest credential guard policy pushed (by epoch,
 
 #### Scenario: A credential the extension cannot guard is skipped
 
-- **GIVEN** a pushed policy with an unknown kind, an unknown match, an absolute path, a path with a `..`, empty or control character segment, or a prefix ending in `/`
+- **GIVEN** a pushed policy with an unknown kind, an unknown match, an absolute path, a path with a `..`, empty or control character segment, a prefix ending in `/`, or a prefix at the top of the home
 - **WHEN** the extension receives it
 - **THEN** those credentials are skipped and counted, the rest are enforced, and an owner naming neither a team nor a signing identifier is dropped
 

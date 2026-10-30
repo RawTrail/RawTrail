@@ -410,7 +410,10 @@ func (e *Executor) runSetCredentialGuard(ctx context.Context, cmd Command) (stri
 	if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
 		return StatusFailed, marshalResult(invalidPayloadPrefix + err.Error())
 	}
-	if payload.Version < 0 {
+	if payload.Version == nil {
+		return StatusFailed, marshalResult("payload missing version")
+	}
+	if *payload.Version < 0 {
 		return StatusFailed, marshalResult("payload has a negative version")
 	}
 	if payload.Mode == "" {
@@ -428,9 +431,9 @@ func (e *Executor) runSetCredentialGuard(ctx context.Context, cmd Command) (stri
 	// The outer decode and isJSONArray make this decode infallible, as for the path count in runSetWatchedPaths.
 	var credentials []json.RawMessage
 	_ = json.Unmarshal(payload.Credentials, &credentials)
-	e.logger.InfoContext(ctx, "commander set_credential_guard", "cmd_id", cmd.ID, "edr.credential_guard.version", payload.Version,
+	e.logger.InfoContext(ctx, "commander set_credential_guard", "cmd_id", cmd.ID, "edr.credential_guard.version", *payload.Version,
 		"edr.credential_guard.mode", payload.Mode, "edr.credential_guard.count", len(credentials))
-	result, _ := json.Marshal(map[string]any{"version": payload.Version, "mode": payload.Mode, "credentials": len(credentials)})
+	result, _ := json.Marshal(map[string]any{"version": *payload.Version, "mode": payload.Mode, "credentials": len(credentials)})
 	return StatusCompleted, result
 }
 
@@ -482,7 +485,8 @@ type setWatchedPathsPayload struct {
 // setCredentialGuardPayload is the part of a set_credential_guard command the agent checks; the rest, epoch included, is the
 // extension's, for the reason setWatchedPathsPayload gives.
 type setCredentialGuardPayload struct {
-	Version     int64           `json:"version"`
+	// Version is a pointer so a missing version is refused rather than read as 0, the policy no operator has changed.
+	Version     *int64          `json:"version"`
 	Mode        string          `json:"mode"`
 	Credentials json.RawMessage `json:"credentials"`
 }

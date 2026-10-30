@@ -66,6 +66,8 @@ func TestExecuteSetCredentialGuard_RejectsAnInvalidEnvelope(t *testing.T) {
 		reason  string
 	}{
 		{"not JSON", `{`, "invalid payload"},
+		{"no version", `{"mode":"detect","credentials":[]}`, "payload missing version"},
+		{"a null version", `{"version":null,"mode":"detect","credentials":[]}`, "payload missing version"},
 		{"a negative version", `{"version":-1,"mode":"detect","credentials":[]}`, "payload has a negative version"},
 		{"no mode", `{"version":1,"credentials":[]}`, "payload missing mode"},
 		{"no credentials", `{"version":1,"mode":"detect"}`, "payload missing or invalid credentials array"},

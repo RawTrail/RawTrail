@@ -261,7 +261,8 @@ final class CredentialGuardTests: XCTestCase {
             #"{"kind":"netrc","path":"../other/.netrc","match":"literal","owners":[]}"#,
             #"{"kind":"netrc","path":".ssh/","match":"prefix","owners":[]}"#,
             #"{"kind":"netrc","path":".net\u0000rc","match":"literal","owners":[]}"#,
-            #"{"kind":"netrc","path":"a//b","match":"literal","owners":[]}"#
+            #"{"kind":"netrc","path":"a//b","match":"literal","owners":[]}"#,
+            #"{"kind":"netrc","path":".n","match":"prefix","owners":[]}"#
         ]
         let payload = #"{"version":1,"epoch":7,"mode":"detect","credentials":["# + entries.joined(separator: ",") + "]}"
         let update = try XCTUnwrap(CredentialGuardUpdate.decode(Data(payload.utf8)))

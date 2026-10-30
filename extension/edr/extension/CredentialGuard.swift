@@ -195,7 +195,7 @@ struct CredentialGuardUpdate: Equatable, Sendable {
         var credentials: [ProtectedCredential] = []
         for entry in document.credentials {
             guard let kind = CredentialKind(rawValue: entry.kind), let match = WatchedPathMatch(rawValue: entry.match),
-                  isAcceptable(homePath: entry.path) else {
+                  isAcceptable(homePath: entry.path, match: match) else {
                 continue
             }
             let owners = (entry.owners ?? []).filter { $0.teamID != nil || $0.signingID != nil }
@@ -211,8 +211,12 @@ struct CredentialGuardUpdate: Equatable, Sendable {
     /// WatchedPaths.isAcceptable gives: relative, and judged as the file it names in a home at the top of the filesystem, so it has no
     /// empty, `.` or `..` segment, no control character, and does not end in "/". A prefix credential names the start of a file name,
     /// not a directory, so it is judged the same way.
-    static func isAcceptable(homePath: String) -> Bool {
-        !homePath.hasPrefix("/") && WatchedPaths.isAcceptable(WatchedPaths.homePrefix + homePath, .literal)
+    ///
+    /// A prefix must lie below a directory in the home, not at its top: Endpoint Security delivers every open under a muted prefix at
+    /// any depth, so a prefix such as `.c` would put every open in `~/.config` and `~/.cache` through the guard.
+    static func isAcceptable(homePath: String, match: WatchedPathMatch) -> Bool {
+        !homePath.hasPrefix("/") && (match == .literal || homePath.contains("/"))
+            && WatchedPaths.isAcceptable(WatchedPaths.homePrefix + homePath, .literal)
     }
 
     /// supersedes reports whether this update should replace `current`, the last one accepted, in PushOrder, as a watched-path set

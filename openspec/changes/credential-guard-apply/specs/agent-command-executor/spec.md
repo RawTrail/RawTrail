@@ -2,7 +2,7 @@
 
 ### Requirement: Set-credential-guard command
 
-The agent SHALL forward a `set_credential_guard` command's payload to the security extension as `credential_guard.update`, byte for byte, after checking only its envelope: a version that is not negative, a mode, and a credentials array. Which modes and credentials apply is the extension's to decide. The command SHALL complete with the version, mode and credential count, and SHALL fail with the reason when the envelope is invalid or the send fails.
+The agent SHALL forward a `set_credential_guard` command's payload to the security extension as `credential_guard.update`, byte for byte, after checking only its envelope: a version present and not negative, a mode, and a credentials array. Which modes and credentials apply is the extension's to decide. The command SHALL complete with the version, mode and credential count, and SHALL fail with the reason when the envelope is invalid or the send fails.
 
 #### Scenario: A credential guard policy is forwarded
 
@@ -13,6 +13,6 @@ The agent SHALL forward a `set_credential_guard` command's payload to the securi
 
 #### Scenario: A credential guard payload is invalid
 
-- **GIVEN** a `set_credential_guard` command that is not JSON, has a negative version, no mode, or credentials that are not an array
+- **GIVEN** a `set_credential_guard` command that is not JSON, has no version or a negative one, no mode, or credentials that are not an array
 - **WHEN** the agent executes it
 - **THEN** the command fails with the reason and nothing reaches the extension
