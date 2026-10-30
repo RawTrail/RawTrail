@@ -77,7 +77,6 @@ func TestCap_ListsTheFirstProcessesAndTheKeptOnesUnderTheirParents(t *testing.T)
 			require.Equal(rt, c, got, "a command within the cap is listed whole")
 			return
 		}
-		require.True(rt, got.ProcessesCut)
 
 		// The rows that must be listed: the first limit in order, the kept ones, and every row above either.
 		want := map[int64]bool{}
@@ -96,6 +95,7 @@ func TestCap_ListsTheFirstProcessesAndTheKeptOnesUnderTheirParents(t *testing.T)
 			}
 		}
 		require.Equal(rt, wantInOrder, listed, "exactly those rows, in the forest's order")
+		require.Equal(rt, len(listed) < n, got.ProcessesCut, "marked cut exactly when a process is left out")
 		for _, id := range listed {
 			require.Equal(rt, parent[id], listedParent[id], "row %d stays under its parent", id)
 		}

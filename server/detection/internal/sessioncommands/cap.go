@@ -9,12 +9,12 @@ const InlineProcesses = 100
 
 // Cap lists a command's processes in part when it holds more than limit: the first limit in its forest's order, and every process
 // keep holds, each with the processes above it so the forest keeps its shape. ProcessIDs stay whole, since what is not listed still
-// counts toward the command's alerts and size. A command cut this way is marked ProcessesCut.
+// counts toward the command's alerts and size. A command that so leaves any process out is marked ProcessesCut.
 func Cap(c Command, limit int, keep func(api.ProcessNode) bool) Command {
 	if len(c.ProcessIDs) <= limit {
 		return c
 	}
-	listed := 0
+	listed, omitted := 0, false
 	var prune func(p api.ProcessNode) (api.ProcessNode, bool)
 	prune = func(p api.ProcessNode) (api.ProcessNode, bool) {
 		inFirst := listed < limit
@@ -26,6 +26,7 @@ func Cap(c Command, limit int, keep func(api.ProcessNode) bool) Command {
 			}
 		}
 		if !inFirst && !keep(p) && len(children) == 0 {
+			omitted = true
 			return api.ProcessNode{}, false
 		}
 		p.Children = children
@@ -38,7 +39,7 @@ func Cap(c Command, limit int, keep func(api.ProcessNode) bool) Command {
 		}
 	}
 	c.Roots = roots
-	c.ProcessesCut = true
+	c.ProcessesCut = omitted
 	return c
 }
 
@@ -47,6 +48,6 @@ func Cap(c Command, limit int, keep func(api.ProcessNode) bool) Command {
 func Matching(c Command, rawQuery string) func(api.ProcessNode) bool {
 	query := normalize(rawQuery)
 	return func(p api.ProcessNode) bool {
-		return query != "" && matchesProcess(p, query, c.FromAgent && p.ID == c.RootID)
+		return query != "" && matchesProcess(p, query, pathOnly(c, p))
 	}
 }

@@ -40,11 +40,15 @@ func processMatches(c Command, query string) bool {
 			if found {
 				return
 			}
-			found = matchesProcess(p, query, c.FromAgent && p.ID == c.RootID)
+			found = matchesProcess(p, query, pathOnly(c, p))
 		})
 	}
 	return found
 }
+
+// pathOnly is set for the agent's wrapper shell of a command, whose command line is the boilerplate around the command the agent
+// ran: only its path is searched, the command itself being the command's label.
+func pathOnly(c Command, p api.ProcessNode) bool { return c.FromAgent && p.ID == c.RootID }
 
 // matchesProcess reports whether a process's path, or its command line unless pathOnly, holds the lowercased query.
 func matchesProcess(p api.ProcessNode, query string, pathOnly bool) bool {
