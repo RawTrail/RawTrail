@@ -23,6 +23,7 @@ import (
 	"github.com/rawtrail/rawtrail/server/rules/internal/agentsettings"
 	"github.com/rawtrail/rawtrail/server/rules/internal/appcontrol"
 	"github.com/rawtrail/rawtrail/server/rules/internal/catalog"
+	"github.com/rawtrail/rawtrail/server/rules/internal/credentialguard"
 	"github.com/rawtrail/rawtrail/server/rules/internal/detectionconfig"
 	"github.com/rawtrail/rawtrail/server/rules/internal/export"
 	"github.com/rawtrail/rawtrail/server/rules/internal/operator"
@@ -136,6 +137,8 @@ type Rules struct {
 	watchedPathConverger *watchedpaths.Converger
 	// agentSettingsConverger is the agent settings' catch-up (issue #1426), wired alongside the watched-path one.
 	agentSettingsConverger *agentsettings.Converger
+	// credentialGuardConverger is the credential guard policy's catch-up (issue #1432), wired alongside the agent settings'.
+	credentialGuardConverger *credentialguard.Converger
 	// watchedPathConvergeInterval is how often it runs. See Deps.WatchedPathConvergeInterval.
 	watchedPathConvergeInterval time.Duration
 	// auditSweepInterval is how often both audit outbox sweeps run. See Deps.AuditSweepInterval.
@@ -249,7 +252,15 @@ func New(ctx context.Context, deps Deps) (*Rules, error) {
 	}
 	var watchedPathConverger *watchedpaths.Converger
 	var agentSettingsConverger *agentsettings.Converger
+	var credentialGuardConverger *credentialguard.Converger
 	if deps.CommandBatchInserter != nil && deps.EnrolledHostLister != nil {
+		credentialGuardStore := credentialguard.NewStore(deps.DB)
+		detectionConfigH.SetCredentialGuard(credentialguard.NewService(
+			credentialGuardStore, deps.CommandBatchInserter, deps.EnrolledHostLister, detectionConfigAuditDrain, logger))
+		if deps.HostEnrollments != nil && deps.HostLatestCommands != nil {
+			credentialGuardConverger = credentialguard.NewConverger(credentialGuardStore, deps.CommandBatchInserter,
+				deps.HostEnrollments, deps.HostLatestCommands, logger)
+		}
 		agentSettingsStore := agentsettings.NewStore(deps.DB)
 		detectionConfigH.SetAgentSettings(agentsettings.NewService(
 			agentSettingsStore, deps.CommandBatchInserter, deps.EnrolledHostLister, detectionConfigAuditDrain, logger))
@@ -283,6 +294,7 @@ func New(ctx context.Context, deps Deps) (*Rules, error) {
 		ruleAuthoringH:              ruleAuthoringH,
 		watchedPathConverger:        watchedPathConverger,
 		agentSettingsConverger:      agentSettingsConverger,
+		credentialGuardConverger:    credentialGuardConverger,
 		watchedPathConvergeInterval: deps.WatchedPathConvergeInterval,
 		auditSweepInterval:          deps.AuditSweepInterval,
 		db:                          deps.DB,
@@ -399,6 +411,12 @@ func (r *Rules) Run(ctx context.Context) {
 		func(ctx context.Context) {
 			if r.agentSettingsConverger != nil {
 				r.agentSettingsConverger.Loop(ctx, r.watchedPathConvergeInterval)
+			}
+		},
+		// And for the credential guard's policy (issue #1432).
+		func(ctx context.Context) {
+			if r.credentialGuardConverger != nil {
+				r.credentialGuardConverger.Loop(ctx, r.watchedPathConvergeInterval)
 			}
 		},
 	}

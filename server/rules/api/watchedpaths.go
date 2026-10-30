@@ -231,7 +231,7 @@ func validateWatchedPath(p WatchedPath) error {
 	case len(privateSpelling(p.Path)) > MaxWatchedPathBytes:
 		// The extension also mutes a firmlinked path in its /private spelling, the one the kernel reports, which is the longer.
 		return fmt.Errorf("the path is longer than %d bytes in its /private spelling", MaxWatchedPathBytes)
-	case strings.ContainsFunc(p.Path, func(r rune) bool { return r < 0x20 || r == 0x7f }):
+	case hasControlCharacter(p.Path):
 		return errors.New("the path contains an ASCII control character")
 	}
 	for s := range strings.SplitSeq(strings.TrimSuffix(p.Path[1:], "/"), "/") {

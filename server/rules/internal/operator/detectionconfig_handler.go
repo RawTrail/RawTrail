@@ -65,7 +65,9 @@ type DetectionConfigHandler struct {
 	watchedPaths watchedPathsService
 	// agentSettings serves the agent-settings routes; nil leaves them unregistered (see SetAgentSettings).
 	agentSettings agentSettingsService
-	logger        *slog.Logger
+	// credentialGuard serves the credential-guard routes; nil leaves them unregistered (see SetCredentialGuard).
+	credentialGuard credentialGuardService
+	logger          *slog.Logger
 	// matchCountCap is the furthest back a match-count read may reach. Seeded with the constant maximum at construction and
 	// narrowed by SetCounterRetentionCap once the deployment's retention is known, so there is exactly ONE place that decides what an
 	// unconfigured or disabled retention means (api.EffectiveMatchCountCap) rather than a second fallback here that agrees with
@@ -188,6 +190,10 @@ func (h *DetectionConfigHandler) RegisterRoutes(mux httpserver.Router) {
 	if h.agentSettings != nil {
 		mux.HandleFunc("GET /api/v1/detection-config/agent-settings", h.handleGetAgentSettings)
 		mux.HandleFunc("PUT /api/v1/detection-config/agent-settings", h.handleReplaceAgentSettings)
+	}
+	if h.credentialGuard != nil {
+		mux.HandleFunc("GET /api/v1/detection-config/credential-guard", h.handleGetCredentialGuard)
+		mux.HandleFunc("PUT /api/v1/detection-config/credential-guard", h.handleReplaceCredentialGuard)
 	}
 }
 
