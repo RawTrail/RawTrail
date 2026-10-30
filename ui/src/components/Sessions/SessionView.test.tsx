@@ -1327,6 +1327,7 @@ describe("SessionView", () => {
     openLens("Commands");
     expect(await screen.findByText("ls /private/tmp | head -3")).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
+    openLens("Commands");
     expect(await screen.findByText("Loading...")).toBeVisible();
     expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
   });
