@@ -95,24 +95,50 @@ func TestEventArchive_SearchAgentPrompts(t *testing.T) {
 	})
 }
 
-// A search reads the granules the prompt-text ngram index selects, not every prompt in its window.
+// A prompt the agent sent again with changed text is matched by its newest text only, however the two versions sit in parts: the
+// search reads under FINAL with no skip index, which could pass over the newer version and leave the older one standing.
+//
+// spec:server-rest-api/agent-prompt-search/a-search-finds-prompts-across-sessions-newest-first
+func TestEventArchive_SearchAgentPromptsMatchesARedeliveredPromptByItsNewText(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	// Two inserts, so the versions land in separate parts.
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{promptEvent("same", "h1", "s1", "p-1", "rotate the zanzibar keys", base)}))
+	resent := promptEvent("same", "h1", "s1", "p-1", "rotate the [REDACTED] keys", base)
+	resent.IngestedAtNs++
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{resent}))
+	window := func(q string) visibilityapi.AgentPromptSearch {
+		return visibilityapi.AgentPromptSearch{Query: q, FromNs: base - 1, ToNs: base + 1, Limit: 10}
+	}
+	require.Eventually(t, func() bool {
+		page, err := arch.SearchAgentPrompts(ctx, window("redacted"))
+		return err == nil && len(page.Prompts) == 1
+	}, 5*time.Second, 100*time.Millisecond, "the new text is found")
+	page, err := arch.SearchAgentPrompts(ctx, window("zanzibar"))
+	require.NoError(t, err)
+	assert.Empty(t, page.Prompts, "the old text is not")
+}
+
+// A search reads the window's agent_prompt rows, which the primary key narrows the read to, not the host's other events.
 //
 // spec:server-rest-api/a-prompt-search-is-bounded/a-search-is-bounded
-func TestEventArchive_SearchAgentPromptsUsesThePromptTextIndex(t *testing.T) {
+func TestEventArchive_SearchAgentPromptsReadsOnlyPrompts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	arch, chDB := openTestArchiveWithHandle(t)
 
-	const prompts = 60_000 // several 8192-row granules in one part
+	const events = 60_000 // several 8192-row granules of execs beside a few prompts
 	base := time.Now().UnixNano()
-	batch := make([]visibilityapi.Event, prompts)
-	for i := range batch {
-		batch[i] = promptEvent("pr-"+strconv.Itoa(i), "h1", "s1", "p-"+strconv.Itoa(i), "run the tests again "+strconv.Itoa(i%97), base+int64(i))
+	batch := make([]visibilityapi.Event, 0, events+1)
+	for i := range events {
+		batch = append(batch, archiveEvent("ev-"+strconv.Itoa(i), "h1", "exec", base+int64(i), i))
 	}
-	batch[31337] = promptEvent("needle", "h1", "s1", "p-needle", "rotate the zanzibar credentials", base+31337)
+	batch = append(batch, promptEvent("needle", "h1", "s1", "p-needle", "rotate the zanzibar credentials", base+31337))
 	require.NoError(t, arch.Insert(ctx, batch))
 
-	search := visibilityapi.AgentPromptSearch{Query: "zanzibar", FromNs: base, ToNs: base + prompts, Limit: 10}
+	search := visibilityapi.AgentPromptSearch{Query: "zanzibar", FromNs: base, ToNs: base + events, Limit: 10}
 	require.Eventually(t, func() bool {
 		page, err := arch.SearchAgentPrompts(ctx, search)
 		return err == nil && len(page.Prompts) == 1
@@ -125,5 +151,5 @@ func TestEventArchive_SearchAgentPromptsUsesThePromptTextIndex(t *testing.T) {
 		SELECT read_rows FROM system.query_log
 		WHERE type = 'QueryFinish' AND current_database = currentDatabase() AND query LIKE '%prompt_text LIKE%'
 		ORDER BY event_time_microseconds DESC LIMIT 1`).Scan(&readRows))
-	assert.Less(t, readRows, uint64(prompts/2), "the read skips the granules that cannot hold the query")
+	assert.Less(t, readRows, uint64(events/2), "the read passes over the granules of other event types")
 }

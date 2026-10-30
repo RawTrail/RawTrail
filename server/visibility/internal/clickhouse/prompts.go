@@ -60,8 +60,8 @@ func (s *Store) AgentPrompts(ctx context.Context, filter api.AgentPromptFilter) 
 }
 
 // SearchAgentPrompts finds prompts by their text across sessions (issue #1428), newest first. It reads the prompt_text column, the
-// prompt's text lowercased, whose ngram skip index lets ClickHouse pass over granules that cannot hold the query, within the window,
-// which bounds the read.
+// prompt's text lowercased, of the agent_prompt rows in the window, which the primary key narrows the read to. It reads under FINAL
+// with no skip index, so a prompt whose text a redelivery changed is matched by its newest text only.
 func (s *Store) SearchAgentPrompts(ctx context.Context, search api.AgentPromptSearch) (api.FoundAgentPromptPage, error) {
 	where := `event_type = 'agent_prompt' AND timestamp_ns >= ? AND timestamp_ns <= ? AND prompt_text LIKE ?`
 	args := []any{search.FromNs, search.ToNs, "%" + escapeLike(strings.ToLower(search.Query)) + "%"}
@@ -84,8 +84,7 @@ func (s *Store) SearchAgentPrompts(ctx context.Context, search api.AgentPromptSe
 		FROM events FINAL
 		WHERE `+where+`
 		ORDER BY timestamp_ns DESC, event_id DESC
-		LIMIT ?
-		SETTINGS use_skip_indexes_if_final = 1`, append(args, search.Limit+1)...)
+		LIMIT ?`, append(args, search.Limit+1)...)
 	if err != nil {
 		return api.FoundAgentPromptPage{}, fmt.Errorf("clickhouse search agent prompts: %w", err)
 	}
@@ -115,8 +114,7 @@ func (s *Store) SearchAgentPrompts(ctx context.Context, search api.AgentPromptSe
 // likeEscaper escapes the characters LIKE gives a meaning, so a query is matched as the text it is.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-// escapeLike is text as a LIKE pattern that matches it literally. A search reads LIKE rather than position, since only LIKE lets the
-// ngram skip index pass over granules.
+// escapeLike is text as a LIKE pattern that matches it literally.
 func escapeLike(text string) string { return likeEscaper.Replace(text) }
 
 // DecodePromptCursor reads a prompt page's cursor, the event search's own (timestamp_ns, event_id) token, and is an

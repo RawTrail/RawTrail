@@ -31,24 +31,36 @@ func TestSearchAgentPrompts_FindsAndAudits(t *testing.T) {
 	srv := newPromptsServer(t, az, reader)
 
 	before := time.Now().UnixNano()
-	resp := doGet(t, srv, promptSearchPath+"?q=+Deploy+&host_id=h1&cursor=c1&limit=10")
+	resp := doGet(t, srv, promptSearchPath+"?q=+Deploy+&host_id=h1&limit=10")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"), "prompt text is never cached")
 	var got visibilityapi.FoundAgentPromptPage
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-	assert.Equal(t, reader.found, got)
+	assert.Equal(t, reader.found.Prompts, got.Prompts)
+	require.NotEmpty(t, got.NextCursor)
+	assert.NotEqual(t, "c2", got.NextCursor, "the archive's cursor travels inside the search's, with its window")
 
 	require.NotNil(t, reader.search)
 	asked := *reader.search
 	assert.Equal(t, "Deploy", asked.Query, "the query is trimmed and keeps its case; the archive matches it regardless of case")
 	assert.Equal(t, "h1", asked.HostID)
-	assert.Equal(t, "c1", asked.Cursor)
+	assert.Empty(t, asked.Cursor)
 	assert.Equal(t, 10, asked.Limit)
 	assert.GreaterOrEqual(t, asked.ToNs, before, "with no window, the search ends now")
 	assert.Equal(t, (7 * 24 * time.Hour).Nanoseconds(), asked.ToNs-asked.FromNs, "and looks back a week")
 	assert.Equal(t, []identityapi.Resource{{Type: "agent_prompt_search", ID: "Deploy"}}, az.asked,
 		"prompt read is asked for the search, named by its query, which the audit row records")
+
+	// The next page, asked for later, reads the window the first resolved rather than a week ending at its own now.
+	time.Sleep(2 * time.Millisecond)
+	next := doGet(t, srv, promptSearchPath+"?q=Deploy&host_id=h1&limit=10&cursor="+got.NextCursor)
+	defer next.Body.Close()
+	require.Equal(t, http.StatusOK, next.StatusCode)
+	require.NotNil(t, reader.search)
+	assert.Equal(t, "c2", reader.search.Cursor, "the archive is given its own cursor back")
+	assert.Equal(t, [2]int64{asked.FromNs, asked.ToNs}, [2]int64{reader.search.FromNs, reader.search.ToNs},
+		"a later page keeps the first page's window")
 }
 
 // spec:server-rest-api/a-prompt-search-is-bounded/a-search-is-bounded
@@ -63,6 +75,10 @@ func TestSearchAgentPrompts_Rejects(t *testing.T) {
 		{name: "no query", query: "", code: "invalid_query"},
 		{name: "a query shorter than three characters", query: "?q=ab", code: "invalid_query"},
 		{name: "a query longer than an audit target", query: "?q=" + strings.Repeat("x", 256), code: "invalid_query"},
+		{name: "a query that is not UTF-8", query: "?q=%FF%FF%FF", code: "invalid_query"},
+		{name: "a cursor that does not decode", query: "?q=deploy&cursor=not-a-cursor", code: "invalid_cursor"},
+		{name: "a cursor missing its window", query: "?q=deploy&cursor=" + encodePromptSearchCursor(promptSearchBounds{}, "c2"),
+			code: "invalid_cursor"},
 		{name: "a window wider than thirty days", query: "?q=deploy&from=1&to=" + strconv.FormatInt(31*day, 10), code: "bad_window"},
 		{name: "a window that ends before it starts", query: "?q=deploy&from=200&to=100", code: "bad_window"},
 		{name: "a negative bound", query: "?q=deploy&from=-1", code: "bad_window"},
