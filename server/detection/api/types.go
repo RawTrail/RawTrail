@@ -212,6 +212,7 @@ type AgentSessionSummary struct {
 	ProcessCount int64 `db:"-" json:"process_count"`
 	AlertCount   int64 `db:"-" json:"alert_count"`
 	// Bypass says the session ran in the bypassPermissions mode, or was forked from one that did, whose copied lines carry the mode.
+	// Read by ListAgentSessions only.
 	Bypass bool `db:"bypass" json:"bypass"`
 	// OwnerUID is the uid of the session's earliest retained process, the user who ran it, which the kernel stamped and a transcript
 	// cannot restate. Read by GetAgentSession only, and nil when no process of the session is retained (issue #1347).

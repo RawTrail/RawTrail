@@ -2,7 +2,7 @@
 
 ### Requirement: Agent sessions list bypass filter
 
-`GET /api/agent-sessions` SHALL accept `bypass=true`, listing only the sessions the graph builder recorded as bypassed, with the filtered total and paging, and SHALL mark each row with `bypass`. Any other value of `bypass` SHALL be rejected with `invalid_bypass`.
+`GET /api/agent-sessions` SHALL accept `bypass=true`, listing only the sessions the graph builder recorded as bypassed, with the filtered total and paging, and SHALL mark each row with `bypass`. Any other non-empty value of `bypass` SHALL be rejected with `invalid_bypass`; an empty one is absent, as for the list's other filters.
 
 #### Scenario: The list keeps the sessions that ran bypassed
 
