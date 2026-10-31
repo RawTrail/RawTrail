@@ -33,16 +33,26 @@ UNINSTALLER="$ROOT/Library/Application Support/io.rawtrail/uninstall.sh"
 RELEASES="https://github.com/RawTrail/RawTrail/releases"
 # MARKER says a directory is this tool's, so uninstall removes only a state directory it made.
 MARKER="$STATE/.rawtrail-laptop"
+# SELECTION records the server image install chose, so later commands run the same one.
+SELECTION="$STATE/install.env"
 
 say() { printf '\033[1;36m==> %s\033[0m\n' "$1"; }
 sub() { printf '    %s\n' "$1"; }
 die() { printf '\033[1;31mrawtrail-laptop: %s\033[0m\n' "$1" >&2; exit 1; }
 
 BUILD=""
+EDR_VERSION="${EDR_VERSION:-}"
+# load_selection reads back the image install chose: the release, or a build from this checkout.
+load_selection() {
+  [ -s "$SELECTION" ] || return 0
+  EDR_VERSION=$(sed -n 's/^EDR_VERSION=//p' "$SELECTION")
+  BUILD=$(sed -n 's/^BUILD=//p' "$SELECTION")
+}
+
 compose() {
   local files=(-f "$REPO/docker-compose.laptop.yml")
   [ -z "$BUILD" ] || files+=(-f "$REPO/docker-compose.prod.build.yml")
-  RAWTRAIL_LAPTOP_HOME="$STATE" RAWTRAIL_LAPTOP_PORT="$PORT" docker compose "${files[@]}" "$@"
+  RAWTRAIL_LAPTOP_HOME="$STATE" RAWTRAIL_LAPTOP_PORT="$PORT" EDR_VERSION="${EDR_VERSION:-latest}" docker compose "${files[@]}" "$@"
 }
 
 preflight() {
@@ -70,6 +80,10 @@ secret() {
 }
 
 secrets() {
+  # A directory that already holds something and is not this tool's is never adopted: uninstall removes the whole directory.
+  if [ -d "$STATE" ] && [ ! -e "$MARKER" ] && [ -n "$(ls -A "$STATE")" ]; then
+    die "$STATE already exists and is not a laptop install's; set RAWTRAIL_LAPTOP_HOME to a new directory"
+  fi
   mkdir -p "$STATE/secrets"
   chmod 700 "$STATE"
   touch "$MARKER"
@@ -87,7 +101,7 @@ secrets() {
 
 # certificate makes the server's certificate for localhost, trusted by this Mac's browsers so the passkey setup page is a secure
 # context. mkcert, when installed, signs it with its local CA; otherwise it is self-signed and trusted in the login keychain, which
-# macOS asks you to approve.
+# macOS asks you to approve. Trust is its own step, so a declined approval is asked again on the next run with the same key pair.
 certificate() {
   local dir="$STATE/tls"
   mkdir -p "$dir"
@@ -103,10 +117,15 @@ certificate() {
       openssl ecparam -name prime256v1 -genkey -noout -param_enc named_curve -out "$dir/server.key"
       openssl req -new -x509 -key "$dir/server.key" -days 825 -subj "/CN=localhost" \
         -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1" -addext "extendedKeyUsage=serverAuth" -out "$dir/server.crt"
-      sub "Made a self-signed certificate for localhost. macOS asks you to approve trusting it."
-      security add-trusted-cert -r trustRoot -p ssl -k "$HOME/Library/Keychains/login.keychain-db" "$dir/server.crt"
-      touch "$dir/trusted-in-keychain"
+      touch "$dir/self-signed"
+      sub "Made a self-signed certificate for localhost."
     fi
+  fi
+  if [ -e "$dir/self-signed" ] && [ ! -e "$dir/trusted-in-keychain" ]; then
+    sub "macOS asks you to approve trusting it in your login keychain."
+    security add-trusted-cert -r trustRoot -p ssl -k "$HOME/Library/Keychains/login.keychain-db" "$dir/server.crt" ||
+      die "the certificate was not trusted, so the browser would refuse the passkey setup page; run install again to retry"
+    touch "$dir/trusted-in-keychain"
   fi
   # The server runs as a non-root user and reads the key through a bind mount inside the private state directory.
   chmod 644 "$dir/server.key" "$dir/server.crt"
@@ -118,6 +137,10 @@ fingerprint() {
 
 start_stack() {
   compose up -d --wait ${BUILD:+--build}
+  wait_ready
+}
+
+wait_ready() {
   for _ in $(seq 1 60); do
     curl -skf -o /dev/null "$URL/readyz" && return 0
     sleep 2
@@ -130,8 +153,21 @@ latest_version() {
   curl -sfI "$RELEASES/latest" | tr -d '\r' | sed -n 's|^[Ll]ocation: .*/tag/\(v[^/]*\)$|\1|p'
 }
 
+# conf_url is the server the agent config names, read by the agent's rules (agent/config/conffile.go): lines trimmed, # comments
+# skipped, keys upper-cased and trimmed, values trimmed and stripped of matching outer quotes, the last entry winning.
 conf_url() {
-  sudo sed -n 's/^EDR_SERVER_URL=//p' "$CONF" 2> /dev/null | tr -d "\"'" || true
+  sudo cat "$CONF" 2> /dev/null | awk '
+    { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line) }
+    line == "" || substr(line, 1, 1) == "#" { next }
+    {
+      eq = index(line, "="); if (eq <= 1) next
+      key = toupper(substr(line, 1, eq - 1)); gsub(/^[ \t]+|[ \t]+$/, "", key)
+      val = substr(line, eq + 1); gsub(/^[ \t]+|[ \t]+$/, "", val)
+      q = substr(val, 1, 1)
+      if (length(val) >= 2 && (q == "\"" || q == "\047") && substr(val, length(val), 1) == q) val = substr(val, 2, length(val) - 2)
+      if (key == "EDR_SERVER_URL") url = val
+    }
+    END { print url }' || true
 }
 
 # need_sudo asks for the password once, up front, so a sudo that cannot run stops the command instead of reading as an absent config.
@@ -140,21 +176,17 @@ need_sudo() {
 }
 
 install_agent() {
-  local pkg="$1" replace="$2" current
+  local pkg="$1" replace="$2" current="" had_conf=""
   need_sudo
-  if sudo test -e "$CONF"; then
+  if [ -e "$CONF" ]; then
+    had_conf=1
     current=$(conf_url)
-    if [ "$current" != "$URL" ]; then
-      [ -n "$replace" ] || die "this Mac's agent reports to ${current:-a server its config does not name}. Run again with
+    if [ "$current" != "$URL" ] && [ -z "$replace" ]; then
+      die "this Mac's agent reports to ${current:-a server its config does not name}. Run again with
     --replace-config to point it at the laptop server (its config is kept and restored on uninstall), or with --no-agent."
-      sudo test -e "$KEPT_CONF" || sudo cp -p "$CONF" "$KEPT_CONF"
-      sub "Kept the agent's config for ${current:-its server} at $KEPT_CONF."
     fi
   fi
-  # Written before the package, whose postinstall starts the agent with it.
-  printf 'EDR_SERVER_URL=%s\nEDR_ENROLL_SECRET=%s\nEDR_SERVER_FINGERPRINT=%s\n' "$URL" "$(cat "$STATE/secrets/enroll_secret")" \
-    "$(fingerprint)" | sudo sh -c "umask 077; mkdir -p '$(dirname "$CONF")'; cat > '$CONF'"
-  sub "Wrote $CONF for $URL, pinned to the server certificate."
+  # The package is fetched and checked before anything about the agent changes, so a failure here leaves it as it was.
   if [ -z "$pkg" ]; then
     pkg="$STATE/downloads/rawtrail-$VERSION.pkg"
     mkdir -p "$STATE/downloads"
@@ -163,26 +195,55 @@ install_agent() {
   fi
   # Gatekeeper's check: the package is signed with a Developer ID and notarized by Apple.
   spctl --assess --type install "$pkg" 2> /dev/null || die "$pkg is not a notarized package; it was not installed"
-  sudo installer -pkg "$pkg" -target / > /dev/null
+  local replacing=""
+  if [ -n "$had_conf" ] && [ "$current" != "$URL" ]; then
+    replacing=1
+    [ -e "$KEPT_CONF" ] || sudo cp -p "$CONF" "$KEPT_CONF"
+    sub "Kept the agent's config for ${current:-its server} at $KEPT_CONF."
+  fi
+  # Written before the package, whose postinstall starts the agent with it. A new file renamed into place is 0600 whatever mode
+  # the old one had.
+  printf 'EDR_SERVER_URL=%s\nEDR_ENROLL_SECRET=%s\nEDR_SERVER_FINGERPRINT=%s\n' "$URL" "$(cat "$STATE/secrets/enroll_secret")" \
+    "$(fingerprint)" | sudo sh -c "umask 077; mkdir -p '$(dirname "$CONF")' && cat > '$CONF.new' && chmod 600 '$CONF.new' &&
+      mv -f '$CONF.new' '$CONF'"
+  sub "Wrote $CONF for $URL, pinned to the server certificate."
+  if ! sudo installer -pkg "$pkg" -target / > /dev/null; then
+    # Put the agent back as it was: its previous config, or none, and its enrollment untouched.
+    if [ -n "$replacing" ]; then
+      sudo mv -f "$KEPT_CONF" "$CONF"
+    elif [ -z "$had_conf" ]; then
+      sudo rm -f "$CONF"
+    fi
+    die "the agent package did not install; the agent's config is as it was"
+  fi
   # An agent enrolled with another server holds a token bound to that server's URL; it enrolls again without it.
-  if [ "${current:-$URL}" != "$URL" ]; then
+  if [ -n "$replacing" ]; then
     sudo rm -f "$ENROLLED"
   fi
   sudo launchctl kickstart -k system/io.rawtrail.agent > /dev/null 2>&1 || true
   sub "Installed the agent. macOS asks you to allow its system extensions in System Settings."
 }
 
-# setup_link is the one-time admin setup link the server printed when it started, if its admin has not registered a passkey yet.
+# setup_link is the one-time admin setup link the running server printed since it last started. A server whose admin has a passkey
+# prints none, and an earlier start's link may have been used, so only this start's log is read.
 setup_link() {
-  compose logs --no-log-prefix server 2> /dev/null | sed -n "s|^ *URL: *\($URL/admin/break-glass/setup?token=[A-Za-z0-9_-]*\).*|\1|p" |
-    tail -1
+  local started
+  started=$(docker inspect -f '{{.State.StartedAt}}' "$(compose ps -q server)")
+  compose logs --no-log-prefix --since "$started" server 2> /dev/null |
+    sed -n "s|^ *URL: *\($URL/admin/break-glass/setup?token=[A-Za-z0-9_-]*\).*|\1|p" | tail -1
 }
 
 open_setup() {
-  local link
-  link=$(setup_link)
+  local link=""
+  # The server prints the link once it holds the leader lock, which can come a moment after it reports ready.
+  for _ in $(seq 1 10); do
+    link=$(setup_link)
+    [ -z "$link" ] || break
+    sleep 1
+  done
   if [ -z "$link" ]; then
-    sub "The admin is already set up: sign in at $URL"
+    sub "The admin is already set up: opening the sign-in page."
+    open "$URL"
     return
   fi
   sub "Opening the one-time link that registers your admin passkey (valid for an hour; rawtrail-laptop login makes a new one)."
@@ -213,9 +274,10 @@ cmd_install() {
     VERSION=$(latest_version)
     [ -n "$VERSION" ] || die "could not find the latest release; pass --version"
   fi
-  export EDR_VERSION="${VERSION:-dev}"
+  EDR_VERSION="${VERSION:-dev}"
   say "Preparing secrets and a certificate in $STATE"
   secrets
+  printf 'EDR_VERSION=%s\nBUILD=%s\n' "$EDR_VERSION" "$BUILD" > "$SELECTION"
   certificate
   say "Starting the server on $URL"
   start_stack
@@ -230,15 +292,18 @@ cmd_install() {
 }
 
 cmd_login() {
+  load_selection
   say "Restarting the server for a fresh setup link"
+  # A restart, not an up: the stack keeps the image install chose.
   compose restart server > /dev/null
-  start_stack
+  wait_ready
   open_setup
 }
 
 cmd_status() {
+  load_selection
   compose ps
-  if sudo test -e "$CONF"; then
+  if [ -e "$CONF" ]; then
     sub "Agent config: reports to $(conf_url)"
   else
     sub "Agent config: none"
@@ -247,14 +312,20 @@ cmd_status() {
 }
 
 cmd_uninstall() {
-  need_sudo
-  if sudo test -e "$CONF" && [ "$(conf_url)" = "$URL" ]; then
+  load_selection
+  # The config is root's to read, but anyone can see whether it exists: sudo is asked for only when there is one.
+  [ ! -e "$CONF" ] || need_sudo
+  if [ -e "$CONF" ] && [ "$(conf_url)" = "$URL" ]; then
     say "Removing the agent"
     if [ -x "$UNINSTALLER" ]; then
       sudo "$UNINSTALLER"
+      # The package's uninstaller removes itself only when the extensions are gone. Left in place, it is the retry, and the config
+      # and the stack stay so this command finds the agent again.
+      [ ! -e "$UNINSTALLER" ] ||
+        die "the agent's extensions could not be removed yet; follow the steps above, then run rawtrail-laptop uninstall again"
     fi
     sudo rm -f "$CONF"
-    if sudo test -e "$KEPT_CONF"; then
+    if [ -e "$KEPT_CONF" ]; then
       sudo mv "$KEPT_CONF" "$CONF"
       sub "Restored the agent config this install replaced."
     fi

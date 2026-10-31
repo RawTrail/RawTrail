@@ -126,14 +126,22 @@ type laptopRun struct {
 }
 
 // laptopStubs are the system tools the installer calls, each recording how it was called. docker answers info as an engine
-// that is running unless NO_ENGINE is set, and prints the server's setup banner for compose logs; spctl rejects a package when
-// NOT_NOTARIZED is set; sudo runs its command as the test user, and fails its up-front check when SUDO_REFUSED is set.
+// that is running unless NO_ENGINE is set, records the image compose was given, and prints the server's setup banner for compose
+// logs unless NO_BANNER is set; spctl rejects a package when NOT_NOTARIZED is set; installer fails when INSTALL_FAILS is set;
+// security fails when TRUST_DECLINED is set; sudo runs its command as the test user, and fails its up-front check when SUDO_REFUSED
+// is set.
 var laptopStubs = map[string]string{
 	"uname": `echo Darwin`,
 	"docker": `case "$1 $2" in
   "info --format") [ "$4" = "{{.MemTotal}}" ] && echo 8000000000 || echo "Docker Desktop" ;;
   "info ") [ -z "$NO_ENGINE" ] ;;
-  *) case "$*" in *" logs "*) printf '  Email: admin@localhost\n  URL:   ` + setupLink + `\n  TTL:   1h0m0s\n' ;; esac ;;
+  "inspect -f") echo 2026-10-31T12:00:00Z ;;
+  *)
+    [ "$1" != compose ] || echo "image EDR_VERSION=$EDR_VERSION" >> "$CALLS"
+    case "$*" in
+      *" ps -q "*) echo server-container ;;
+      *" logs "*) [ -n "$NO_BANNER" ] || printf '  Email: admin@localhost\n  URL:   ` + setupLink + `\n  TTL:   1h0m0s\n' ;;
+    esac ;;
 esac`,
 	"curl": `for a in "$@"; do
   case "$a" in -sfI) echo "location: https://github.com/RawTrail/RawTrail/releases/tag/v9.9.9"; exit 0 ;; esac
@@ -141,10 +149,10 @@ done
 out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done; [ -z "$out" ] || [ "$out" = /dev/null ] || echo pkg > "$out"`,
 	"sudo":      `[ "$1" = -v ] && exit "${SUDO_REFUSED:-0}"; exec "$@"`,
 	"spctl":     `[ -z "$NOT_NOTARIZED" ]`,
-	"installer": `:`,
+	"installer": `[ -z "$INSTALL_FAILS" ]`,
 	"launchctl": `:`,
 	"open":      `:`,
-	"security":  `:`,
+	"security":  `[ -z "$TRUST_DECLINED" ] || [ "$1" != add-trusted-cert ]`,
 	"sleep":     `:`,
 }
 
@@ -164,8 +172,10 @@ func newLaptopRun(t *testing.T) laptopRun {
 	}
 	uninstaller := filepath.Join(run.root, "Library", "Application Support", "io.rawtrail", "uninstall.sh")
 	require.NoError(t, os.MkdirAll(filepath.Dir(uninstaller), 0o750))
+	// Like the package's own, the stub removes itself when it finishes and stays for a retry when it cannot (UNINSTALL_STUCK).
+	stub := fmt.Appendf(nil, "#!/bin/bash\necho \"uninstall.sh\" >> %q\n[ -n \"$UNINSTALL_STUCK\" ] || rm -f \"$0\"\n", run.calls)
 	//nolint:gosec // G306: the stub uninstaller must be executable.
-	require.NoError(t, os.WriteFile(uninstaller, fmt.Appendf(nil, "#!/bin/bash\necho \"uninstall.sh\" >> %q\n", run.calls), 0o750))
+	require.NoError(t, os.WriteFile(uninstaller, stub, 0o750))
 	return run
 }
 
@@ -176,7 +186,7 @@ func (r laptopRun) run(t *testing.T, env []string, args ...string) (string, bool
 	//nolint:gosec // G204: the installer path is this repository's and the arguments are the test's own.
 	cmd := exec.CommandContext(t.Context(), "bash", append([]string{laptopInstaller}, args...)...)
 	cmd.Env = append([]string{"PATH=" + r.stubs + ":/usr/bin:/bin", "HOME=" + r.dir, "RAWTRAIL_LAPTOP_HOME=" + r.state,
-		"RAWTRAIL_LAPTOP_ROOT=" + r.root}, env...)
+		"RAWTRAIL_LAPTOP_ROOT=" + r.root, "CALLS=" + r.calls}, env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil
 }
@@ -359,6 +369,19 @@ func TestLaptopUninstallStopsWhenSudoCannotRun(t *testing.T) {
 	assert.FileExists(t, r.conf())
 }
 
+// With no agent config on the Mac there is nothing of root's to read, so a server-only install uninstalls without sudo.
+func TestLaptopUninstallNeedsNoSudoWithoutAnAgentConfig(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	out, ok := r.run(t, nil, "install", "--no-agent")
+	require.True(t, ok, out)
+
+	out, ok = r.run(t, []string{"SUDO_REFUSED=1"}, "uninstall")
+	require.True(t, ok, out)
+	assert.Contains(t, r.callLog(t), "down -v")
+	assert.NoDirExists(t, r.state)
+}
+
 // spec:release-packaging/uninstall-removes-what-the-laptop-install-added/uninstall-removes-the-agent-the-stack-and-the-state
 func TestLaptopUninstallRemovesWhatTheInstallAdded(t *testing.T) {
 	t.Parallel()
@@ -374,4 +397,155 @@ func TestLaptopUninstallRemovesWhatTheInstallAdded(t *testing.T) {
 	assert.Contains(t, calls, "security remove-trusted-cert")
 	assert.NoFileExists(t, r.conf())
 	assert.NoDirExists(t, r.state)
+}
+
+// spec:release-packaging/one-command-installs-the-laptop-stack-and-the-agent/an-existing-config-is-rewritten-private
+func TestLaptopInstallRewritesAnExistingConfigPrivate(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	r.writeConf(t, "EDR_SERVER_URL="+laptopURL+"\n")
+	require.NoError(t, os.Chmod(r.conf(), 0o644)) //nolint:gosec // G302: the world-readable config this test starts from.
+	out, ok := r.run(t, nil, "install", "--pkg", r.pkg(t))
+	require.True(t, ok, out)
+	info, err := os.Stat(r.conf())
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	assert.Contains(t, readFile(t, r.conf()), "EDR_ENROLL_SECRET=")
+}
+
+// spec:release-packaging/one-command-installs-the-laptop-stack-and-the-agent/a-declined-certificate-trust-is-asked-again
+func TestLaptopInstallAsksAgainForADeclinedTrust(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	out, ok := r.run(t, []string{"TRUST_DECLINED=1"}, "install", "--no-agent")
+	require.False(t, ok)
+	assert.Contains(t, out, "was not trusted")
+	cert := readFile(t, filepath.Join(r.state, "tls", "server.crt"))
+
+	out, ok = r.run(t, nil, "install", "--no-agent")
+	require.True(t, ok, out)
+	assert.Equal(t, 2, strings.Count(r.callLog(t), "security add-trusted-cert"))
+	assert.Equal(t, cert, readFile(t, filepath.Join(r.state, "tls", "server.crt")), "the retry must trust the same certificate")
+	assert.FileExists(t, filepath.Join(r.state, "tls", "trusted-in-keychain"))
+}
+
+// spec:release-packaging/one-command-installs-the-laptop-stack-and-the-agent/a-server-whose-admin-is-set-up-opens-the-sign-in-page
+func TestLaptopOpensTheSignInPageWhenNoSetupLinkWasPrinted(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	out, ok := r.run(t, []string{"NO_BANNER=1"}, "install", "--no-agent")
+	require.True(t, ok, out)
+	calls := r.callLog(t)
+	assert.Contains(t, calls, "open "+laptopURL+"\n")
+	assert.NotContains(t, calls, "open "+setupLink)
+	// The link is read from the running server's current start only.
+	assert.Contains(t, calls, "logs --no-log-prefix --since 2026-10-31T12:00:00Z server")
+}
+
+// spec:release-packaging/one-command-installs-the-laptop-stack-and-the-agent/login-keeps-the-installed-server-image
+func TestLaptopLoginKeepsTheInstalledImage(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	out, ok := r.run(t, nil, "install", "--no-agent", "--version", "v1.2.3")
+	require.True(t, ok, out)
+	require.NoError(t, os.Remove(r.calls))
+
+	out, ok = r.run(t, nil, "login")
+	require.True(t, ok, out)
+	calls := r.callLog(t)
+	assert.Contains(t, calls, "restart server")
+	assert.NotContains(t, calls, " up ")
+	assert.Contains(t, calls, "image EDR_VERSION=v1.2.3\n")
+	assert.NotContains(t, calls, "image EDR_VERSION=latest")
+}
+
+// spec:release-packaging/the-laptop-install-leaves-another-server-s-agent-alone/a-failed-package-install-leaves-the-agent-as-it-was
+func TestLaptopFailedPackageLeavesTheAgentAsItWas(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		env  string
+	}{
+		{"package rejected by Gatekeeper", "NOT_NOTARIZED=1"},
+		{"package fails to install", "INSTALL_FAILS=1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newLaptopRun(t)
+			r.writeConf(t, otherServerConf)
+			enrolled := filepath.Join(r.root, "var", "db", "rawtrail", "enrolled.plist")
+			require.NoError(t, os.MkdirAll(filepath.Dir(enrolled), 0o750))
+			require.NoError(t, os.WriteFile(enrolled, []byte("token"), 0o600))
+
+			out, ok := r.run(t, []string{tc.env}, "install", "--pkg", r.pkg(t), "--replace-config")
+			require.False(t, ok, out)
+			assert.Equal(t, otherServerConf, readFile(t, r.conf()))
+			assert.FileExists(t, enrolled)
+		})
+	}
+}
+
+// spec:release-packaging/the-laptop-install-leaves-another-server-s-agent-alone/the-agent-config-is-read-as-the-agent-reads-it
+func TestLaptopReadsTheAgentConfigAsTheAgentDoes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		conf    string
+		removed bool
+	}{
+		{"spaces around the equals sign", "# laptop\n  EDR_SERVER_URL = " + laptopURL + "  \n", true},
+		{"lowercase key", "edr_server_url=" + laptopURL + "\n", true},
+		{"quoted value", "EDR_SERVER_URL='" + laptopURL + "'\n", true},
+		{"a later entry for another server wins", "EDR_SERVER_URL=" + laptopURL + "\nEDR_SERVER_URL=https://edr.example.com\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newLaptopRun(t)
+			out, ok := r.run(t, nil, "install", "--no-agent")
+			require.True(t, ok, out)
+			r.writeConf(t, tc.conf)
+
+			out, ok = r.run(t, nil, "uninstall")
+			require.True(t, ok, out)
+			if tc.removed {
+				assert.Contains(t, r.callLog(t), "uninstall.sh\n")
+				assert.NoFileExists(t, r.conf())
+			} else {
+				assert.NotContains(t, r.callLog(t), "uninstall.sh")
+				assert.Equal(t, tc.conf, readFile(t, r.conf()))
+			}
+		})
+	}
+}
+
+// spec:release-packaging/uninstall-removes-what-the-laptop-install-added/uninstall-waits-for-the-agent-s-extensions-to-go
+func TestLaptopUninstallWaitsForTheExtensionsToGo(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	out, ok := r.run(t, nil, "install", "--pkg", r.pkg(t))
+	require.True(t, ok, out)
+
+	out, ok = r.run(t, []string{"UNINSTALL_STUCK=1"}, "uninstall")
+	require.False(t, ok)
+	assert.Contains(t, out, "run rawtrail-laptop uninstall again")
+	assert.FileExists(t, r.conf())
+	assert.NotContains(t, r.callLog(t), "down -v")
+	assert.DirExists(t, r.state)
+}
+
+// spec:release-packaging/uninstall-removes-what-the-laptop-install-added/an-existing-directory-is-never-adopted
+func TestLaptopInstallNeverAdoptsAnExistingDirectory(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	require.NoError(t, os.MkdirAll(r.state, 0o750))
+	keep := filepath.Join(r.state, "notes.txt")
+	require.NoError(t, os.WriteFile(keep, []byte("mine"), 0o600))
+
+	out, ok := r.run(t, nil, "install", "--no-agent")
+	require.False(t, ok)
+	assert.Contains(t, out, "is not a laptop install's")
+	assert.NoFileExists(t, filepath.Join(r.state, ".rawtrail-laptop"))
+	assert.Equal(t, "mine", readFile(t, keep))
 }
