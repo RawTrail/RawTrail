@@ -170,6 +170,9 @@ describe("CredentialGuard", () => {
     expect(add).toBeDisabled();
     fillForm("ssh_private_key", ".ssh/id_", "prefix", "");
     expect(add).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Path in each home"), { target: { value: ".ssh/deploy_key " } });
+    expect(screen.getByRole("alert")).toHaveTextContent("The path starts or ends with a space.");
+    expect(add).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Path in each home"), { target: { value: ".ssh/deploy_key" } });
     expect(add).toBeEnabled();
   });

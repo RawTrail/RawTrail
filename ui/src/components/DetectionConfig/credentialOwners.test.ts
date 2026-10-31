@@ -18,6 +18,13 @@ describe("parseOwners", () => {
     expect(parseOwners("94kv3e626l, ABC123")).toEqual([{ signing_id: "94kv3e626l" }, { signing_id: "ABC123" }]);
   });
 
+  it("reads apple:identifier as an Apple tool, and writes one that would read as a team that way", () => {
+    expect(parseOwners("apple:ABCDE12345, apple:com.example:x")).toEqual([{ signing_id: "ABCDE12345" }, { signing_id: "com.example:x" }]);
+    const owners = [{ signing_id: "ABCDE12345" }, { signing_id: "com.example:x" }, { signing_id: "com.apple.curl" }];
+    expect(formatOwners(owners)).toBe("apple:ABCDE12345, apple:com.example:x, com.apple.curl");
+    expect(parseOwners(formatOwners(owners))).toEqual(owners);
+  });
+
   it("round-trips through formatOwners, so an entry being edited shows its tools as they were entered", () => {
     const owners = [{ signing_id: "com.apple.curl" }, { team_id: "VEKTX9H2N7" }, { team_id: "ABCDE12345", signing_id: "gh" }];
     expect(parseOwners(formatOwners(owners))).toEqual(owners);

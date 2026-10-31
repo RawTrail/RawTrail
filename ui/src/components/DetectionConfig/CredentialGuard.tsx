@@ -228,7 +228,9 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
   const changed = !samePolicy(mode, draft, stored);
   const formEntry: ProtectedCredential = { kind: form.kind, path: form.path, match: form.match, owners: parseOwners(form.owners) };
   const ownersError = ownersProblem(form.owners);
-  const canAdd = form.path.trim() !== "" && ownersError === null && !draft.some((c) => c.path === form.path);
+  // A path that starts or ends with a space is almost always a stray keystroke, and would guard a file of a different name.
+  const pathError = form.path !== form.path.trim() ? "The path starts or ends with a space." : null;
+  const canAdd = form.path.trim() !== "" && pathError === null && ownersError === null && !draft.some((c) => c.path === form.path);
 
   // clearOutcome forgets the last save's outcome once the draft moves on. A refusal for a policy changed elsewhere stays, with its
   // offer to load the latest, since any save of this draft would be refused again until it is loaded.
@@ -278,7 +280,8 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
         coding agent&apos;s session opens one, and it is not one of the tools allowed to read that file, detect mode reports it and
         protect mode refuses it. Reads outside an agent session are never refused. A tool is allowed by its signature: an Apple tool by
         its identifier (<code>com.apple.ssh</code>), every tool a developer team signs by the team identifier (<code>94KV3E626L</code>),
-        or one of the team&apos;s tools as <code>TEAMID:identifier</code>.
+        or one of the team&apos;s tools as <code>TEAMID:identifier</code>. Write <code>apple:identifier</code> for an Apple tool
+        whose identifier looks like a team&apos;s.
       </p>
 
       <div className="detection-config__form">
@@ -404,6 +407,11 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
                 setForm({ ...form, path: e.target.value });
               }}
             />
+            {pathError !== null && (
+              <p className="detection-config__error" role="alert">
+                {pathError}
+              </p>
+            )}
           </div>
           <Select
             label="Covers"

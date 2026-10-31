@@ -12,6 +12,9 @@ export const CREDENTIAL_KINDS: ReadonlyMap<CredentialKind, string> = new Map<Cre
 
 const TEAM_ID = /^[A-Z0-9]{10}$/;
 
+// APPLE_PREFIX marks an Apple tool explicitly, for an identifier that would otherwise read as a team or as a team's tool.
+const APPLE_PREFIX = "apple:";
+
 // describeOwner says which tool an owner is, in the words the page shows: an Apple tool by its identifier, every tool a developer team
 // signs, or one tool of a team.
 export function describeOwner(owner: CredentialOwner): string {
@@ -24,7 +27,10 @@ export function describeOwner(owner: CredentialOwner): string {
 export function formatOwners(owners: readonly CredentialOwner[]): string {
   return owners
     .map((o) => {
-      if (o.team_id === undefined) return o.signing_id ?? "";
+      if (o.team_id === undefined) {
+        const id = o.signing_id ?? "";
+        return TEAM_ID.test(id) || id.includes(":") ? APPLE_PREFIX + id : id;
+      }
       if (o.signing_id === undefined) return o.team_id;
       return `${o.team_id}:${o.signing_id}`;
     })
@@ -32,14 +38,15 @@ export function formatOwners(owners: readonly CredentialOwner[]): string {
 }
 
 // parseOwners reads the tools typed for a credential, separated by commas: a ten-character team identifier is every tool that team
-// signs, TEAMID:identifier is one tool of the team, and anything else is an Apple tool's signing identifier. Validation is the
-// server's; this only splits what was typed.
+// signs, TEAMID:identifier is one tool of the team, apple:identifier is an Apple tool whatever its identifier looks like, and anything
+// else is an Apple tool's signing identifier. Validation is the server's; this only splits what was typed.
 export function parseOwners(text: string): CredentialOwner[] {
   return text
     .split(",")
     .map((t) => t.trim())
     .filter((t) => t !== "")
     .map((t) => {
+      if (t.startsWith(APPLE_PREFIX)) return { signing_id: t.slice(APPLE_PREFIX.length) };
       const colon = t.indexOf(":");
       if (colon > 0) return { team_id: t.slice(0, colon), signing_id: t.slice(colon + 1) };
       return TEAM_ID.test(t) ? { team_id: t } : { signing_id: t };
