@@ -94,6 +94,32 @@ describe("shareCard", () => {
     expect(card.guard).toBeNull();
   });
 
+  it("redacts a path before taking its name, so a home folder never becomes a username", () => {
+    const nobody: Identities = { usernames: [], hostnames: [] };
+    const options: ShareOptions = { ...DEFAULT_SHARE_OPTIONS, showProject: true };
+    const session = (project: string, program: string) => input({
+      project, identities: nobody,
+      totals: totals({ digest: digest({ programs: [{ program, count: 2 }, { program: "/usr/bin/git", count: 1 }] }) }),
+    });
+    for (const project of ["/Users/ann", "/Users/ann/", "C:\\Users\\Ann Smith"]) {
+      const card = shareCard(session(project, "/Users/ann"), options);
+      expect(card.project).toBeNull();
+      expect(card.programs).toEqual([{ name: "git", count: 1 }]);
+      expect(JSON.stringify(card).toLowerCase()).not.toContain("ann");
+    }
+    expect(shareCard(session("/Users/ann/src/app", "/Users/ann/bin/tool"), options))
+      .toMatchObject({ project: "app", programs: [{ name: "tool", count: 2 }, { name: "git", count: 1 }] });
+  });
+
+  it("names a group's first domains that survive redaction, counts all it holds, and leaves off a group with none", () => {
+    const domain = (name: string) => ({ domain: name, lookups: 1, connections: 0, new: false });
+    const card = shareCard(input({
+      totals: totals({ digest: digest({ domains: [domain("anns-mbp.example.org"), domain("anns-mbp.io"), domain("example.net"),
+        domain("anns-mbp.github.com")] }) }),
+    }), DEFAULT_SHARE_OPTIONS);
+    expect(card.destinations).toEqual([{ label: "Everything else", count: 3, domains: ["example.net"] }]);
+  });
+
   it("drops a title the person emptied, and cuts a long one", () => {
     expect(shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title: "   " }).title).toBeNull();
     expect(shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title: "x".repeat(200) }).title).toHaveLength(90);

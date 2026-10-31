@@ -94,7 +94,7 @@ export function shareCard(input: ShareInput, options: ShareOptions): ShareCard {
     agent: clean(input.agent),
     date: input.firstNs === undefined ? null : date(input.firstNs),
     title: title === "" ? null : title,
-    project: options.showProject && input.project ? clean(basename(trimSlashes(input.project))) || null : null,
+    project: options.showProject && input.project ? named(basename(trimSlashes(clean(input.project)))) : null,
     duration: input.firstNs !== undefined && input.lastNs !== undefined ? formatSpan(input.lastNs - input.firstNs) : null,
     prompts: digest?.prompts ?? 0,
     commands: totals.commands,
@@ -103,8 +103,9 @@ export function shareCard(input: ShareInput, options: ShareOptions): ShareCard {
     timeline,
     timelineStart: digest && timeline.length > 0 ? time(digest.timeline_start_ns) : null,
     timelineEnd: endNs !== undefined && timeline.length > 0 ? time(endNs) : null,
-    programs: (digest?.programs ?? []).slice(0, CARD_PROGRAMS).map((p) => ({ name: clean(basename(p.program)), count: p.count }))
-      .filter((p) => p.name !== "" && p.name !== HIDDEN),
+    // A path is redacted whole before its last segment is taken: /Users/ann has to read ~ before it can be cut to a name.
+    programs: (digest?.programs ?? []).slice(0, CARD_PROGRAMS).map((p) => ({ name: named(basename(clean(p.program))), count: p.count }))
+      .filter((p): p is { name: string; count: number } => p.name !== null),
     destinations: destinations(digest?.domains ?? [], options, identities),
     fileEvents: files?.events ?? 0,
     paths: files?.distinct ?? 0,
@@ -113,21 +114,30 @@ export function shareCard(input: ShareInput, options: ShareOptions): ShareCard {
   };
 }
 
+// named is a name that says something, or null for one redaction emptied: nothing, a removal, or a bare home folder.
+function named(name: string): string | null {
+  return name === "" || name === HIDDEN || name === "~" ? null : name;
+}
+
 function trimSlashes(path: string): string {
   let end = path.length;
   while (end > 1 && path[end - 1] === "/") end--;
   return path.slice(0, end);
 }
 
-// destinations groups the domains a card may show: never an address, an internal one only when the person chose to, and a domain that
-// redaction changed not at all, since a partly removed name says nothing and may still hint at one.
+// destinations groups the domains a card may show: never an address, an internal one only when the person chose to, and by name only a
+// domain redaction left whole, since a partly removed name says nothing and may still hint at one. Each group names the first of its
+// domains that survive, counts all it holds, and is left off when none survives.
 function destinations(domains: readonly DomainActivity[], options: ShareOptions, identities: Identities): CardDestination[] {
   const shown = domains.filter((d) => !isAddress(d.domain) && (options.showInternalDomains || !isInternalDomain(d.domain, identities)));
-  return groupDomains(shown).slice(0, CARD_GROUPS).map((g) => ({
-    label: g.label,
-    count: g.domains.length,
-    domains: g.domains.slice(0, CARD_DOMAINS).map((d) => redact(d.domain, identities)).filter((d) => d !== "" && !d.includes(HIDDEN)),
-  }));
+  return groupDomains(shown)
+    .map((g) => ({
+      label: g.label,
+      count: g.domains.length,
+      domains: g.domains.map((d) => redact(d.domain, identities)).filter((d) => d !== "" && !d.includes(HIDDEN)).slice(0, CARD_DOMAINS),
+    }))
+    .filter((g) => g.domains.length > 0)
+    .slice(0, CARD_GROUPS);
 }
 
 function guard(alerts: readonly Alert[]): ShareCard["guard"] {
