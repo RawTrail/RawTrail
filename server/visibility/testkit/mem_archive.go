@@ -598,7 +598,7 @@ type recordedUsage struct {
 func (m *MemArchive) AgentSessionTokens(ctx context.Context, sessions []api.AgentSessionRef) (map[api.AgentSessionRef]int64, error) {
 	out := map[api.AgentSessionRef]int64{}
 	for _, r := range sessions {
-		totals, err := m.AgentUsageTotals(ctx, api.AgentToolCallFilter{HostID: r.HostID, SessionID: r.SessionID})
+		totals, err := m.AgentUsageTotals(ctx, api.AgentToolCallFilter{HostID: r.HostID, SessionID: r.SessionID}, r.OwnerUID)
 		if err != nil {
 			return nil, err
 		}
@@ -612,9 +612,10 @@ func (m *MemArchive) AgentSessionTokens(ctx context.Context, sessions []api.Agen
 	return out, nil
 }
 
-// AgentUsageTotals mirrors the ClickHouse store: one session's messages once each by id and owner at their first recording, the
-// copies another session holds left out, totalled by model (heaviest output first) and counted by mode (first seen first).
-func (m *MemArchive) AgentUsageTotals(_ context.Context, filter api.AgentToolCallFilter) (api.AgentUsageTotals, error) {
+// AgentUsageTotals mirrors the ClickHouse store: one session's messages from its owner's transcripts, once each by id at their first
+// recording, the copies another session holds left out, totalled by model (heaviest output first) and counted by mode (first seen
+// first).
+func (m *MemArchive) AgentUsageTotals(_ context.Context, filter api.AgentToolCallFilter, ownerUID int64) (api.AgentUsageTotals, error) {
 	m.mu.Lock()
 	var usages []recordedUsage
 	held := map[heldCall]bool{}
@@ -631,7 +632,7 @@ func (m *MemArchive) AgentUsageTotals(_ context.Context, filter api.AgentToolCal
 	m.mu.Unlock()
 	first := map[heldCall]recordedUsage{}
 	for _, u := range usages {
-		if u.SessionID != filter.SessionID || heldBySource(held, u.OriginSessionID, u.ForkedFrom, u.MessageID, u.UID) {
+		if u.SessionID != filter.SessionID || u.UID != ownerUID || heldBySource(held, u.OriginSessionID, u.ForkedFrom, u.MessageID, u.UID) {
 			continue
 		}
 		key := heldCall{u.SessionID, u.MessageID, u.UID}

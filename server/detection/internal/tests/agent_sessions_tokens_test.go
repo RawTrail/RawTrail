@@ -51,6 +51,8 @@ func TestAgentSessionsList_Tokens(t *testing.T) {
 	require.NoError(t, err)
 	seedSessionRow(t, db, host, sessionOne, "claude-code", "/Users/v/project", 100, 900)
 	seedSessionRow(t, db, host, sessionTwo, "claude-code", "/Users/v/other", 200, 800)
+	seedSessionOwner(t, store, host, sessionOne, 501)
+	seedSessionOwner(t, store, host, sessionTwo, 501)
 
 	t.Run("each session carries its tokens, and one that sent no usage none", func(t *testing.T) {
 		t.Parallel()

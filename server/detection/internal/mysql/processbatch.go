@@ -162,10 +162,12 @@ type SessionSighting struct {
 }
 
 // BypassSighting is the earliest event in one batch that named an agent session on a host in the bypassPermissions mode (issue
-// #1427). The flush folds it into agent_session_bypass, whose first seen only moves earlier.
+// #1427), from the transcript of one uid (issue #1478). The flush folds it into agent_session_bypass, whose first seen only moves
+// earlier.
 type BypassSighting struct {
 	HostID      string
 	SessionID   string
+	UID         int64
 	FirstSeenNs int64
 }
 
@@ -241,16 +243,16 @@ func upsertSessions(ctx context.Context, ext sqlx.ExtContext, sessions []Session
 }
 
 // upsertBypass folds the batch's bypass sightings into agent_session_bypass, in chunks of processUpdateChunk rows, keeping each
-// session's earliest. Keys arrive sorted, as upsertSessions' do.
+// session and uid's earliest. Keys arrive sorted, as upsertSessions' do.
 func upsertBypass(ctx context.Context, ext sqlx.ExtContext, sightings []BypassSighting) error {
 	for start := 0; start < len(sightings); start += processUpdateChunk {
 		chunk := sightings[start:min(start+processUpdateChunk, len(sightings))]
-		args := make([]any, 0, len(chunk)*3)
+		args := make([]any, 0, len(chunk)*4)
 		for _, b := range chunk {
-			args = append(args, b.HostID, b.SessionID, b.FirstSeenNs)
+			args = append(args, b.HostID, b.SessionID, b.UID, b.FirstSeenNs)
 		}
-		query := `INSERT INTO agent_session_bypass (host_id, agent_session_id, first_seen_ns)
-			VALUES (?, ?, ?)` + strings.Repeat(", (?, ?, ?)", len(chunk)-1) + `
+		query := `INSERT INTO agent_session_bypass (host_id, agent_session_id, uid, first_seen_ns)
+			VALUES (?, ?, ?, ?)` + strings.Repeat(", (?, ?, ?, ?)", len(chunk)-1) + `
 			AS new ON DUPLICATE KEY UPDATE first_seen_ns = LEAST(agent_session_bypass.first_seen_ns, new.first_seen_ns)`
 		if _, err := ext.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("upsert %d agent session bypass sightings: %w", len(chunk), err)

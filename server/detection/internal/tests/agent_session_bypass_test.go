@@ -7,7 +7,9 @@ package tests
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,6 +19,9 @@ import (
 
 	"github.com/rawtrail/rawtrail/server/detection/api"
 	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
+	"github.com/rawtrail/rawtrail/server/detection/internal/mysql"
+	detectiontestkit "github.com/rawtrail/rawtrail/server/detection/testkit"
+	"github.com/rawtrail/rawtrail/server/testdb/full"
 )
 
 const forkOfSessionOne = "3e8f4a21-7b6c-4d5e-9f01-a2b3c4d5e6f7"
@@ -95,6 +100,48 @@ func TestAgentSessions_BypassRecord(t *testing.T) {
 	})
 }
 
+// spec:server-rest-api/a-session-s-usage-counts-only-from-its-owner/another-user-s-transcript-changes-nothing
+//
+// Another local user can write a transcript naming someone else's session (issue #1478). Its lines, bypassed and costly, change
+// neither that session's bypass mark nor its tokens; and a session whose owner is no longer known is marked by no one's lines.
+func TestAgentSessionsList_UsageCountsOnlyFromTheOwner(t *testing.T) {
+	t.Parallel()
+	db := full.Open(t)
+	archive := detectiontestkit.NewMemArchive()
+	store, err := mysql.New(db, archive, nil)
+	require.NoError(t, err)
+	host := "owner-only"
+	seedSessionRow(t, db, host, sessionOne, "claude-code", "/Users/v/project", 100, 900)
+	seedSessionRow(t, db, host, sessionTwo, "claude-code", "/Users/v/other", 200, 800)
+	seedSessionOwner(t, store, host, sessionOne, 501)
+	// sessionTwo has no retained process, so no owner.
+	planted := rewriteHost([]api.Event{
+		usage("own", 1000, sessionOne, "default", ""),
+		// Written by uid 502, naming uid 501's session.
+		lineageEvt("planted", "agent_usage", 2000, `{"agent_session_id":"`+sessionOne+`","message_id":"msg_planted",`+
+			`"model":"claude-opus-5-5","input_tokens":1000,"output_tokens":1000,"permission_mode":"bypassPermissions","uid":502}`),
+		usage("planted-two", 2100, sessionTwo, "bypassPermissions", ""),
+	}, host)
+	require.NoError(t, archive.Insert(t.Context(), planted))
+	require.NoError(t, graph.NewBuilder(store, discardLogger()).ProcessBatch(t.Context(), planted))
+
+	list, err := store.ListAgentSessions(t.Context(), api.AgentSessionFilter{HostID: host}, "", 10)
+	require.NoError(t, err)
+	got := map[string]string{}
+	for _, r := range list.Rows {
+		tokens := "none"
+		if r.Tokens != nil {
+			tokens = strconv.FormatInt(*r.Tokens, 10)
+		}
+		got[r.AgentSessionID] = fmt.Sprintf("bypass=%t tokens=%s", r.Bypass, tokens)
+	}
+	assert.Equal(t, map[string]string{sessionOne: "bypass=false tokens=2", sessionTwo: "bypass=false tokens=none"}, got,
+		"only the owner's own line counts")
+	filtered, err := store.ListAgentSessions(t.Context(), api.AgentSessionFilter{HostID: host, Bypass: true}, "", 10)
+	require.NoError(t, err)
+	assert.Empty(t, filtered.Rows)
+}
+
 // spec:server-rest-api/agent-sessions-list-bypass-filter/the-list-keeps-the-sessions-that-ran-bypassed
 func TestAgentSessionsList_BypassFilter(t *testing.T) {
 	t.Parallel()
@@ -103,6 +150,9 @@ func TestAgentSessionsList_BypassFilter(t *testing.T) {
 	seedSessionRow(t, db, host, sessionOne, "claude-code", "/Users/v/project", 100, 900)
 	seedSessionRow(t, db, host, sessionTwo, "claude-code", "/Users/v/other", 200, 800)
 	seedSessionRow(t, db, host, forkOfSessionOne, "claude-code", "/Users/v/project", 300, 700)
+	for _, s := range []string{sessionOne, sessionTwo, forkOfSessionOne} {
+		seedSessionOwner(t, store, host, s, 501)
+	}
 	require.NoError(t, graph.NewBuilder(store, discardLogger()).ProcessBatch(t.Context(), rewriteHost(bypassEvents(), host)))
 
 	all, err := store.ListAgentSessions(t.Context(), api.AgentSessionFilter{HostID: host}, "", 10)

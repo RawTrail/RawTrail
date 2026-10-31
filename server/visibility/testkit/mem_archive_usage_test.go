@@ -33,7 +33,7 @@ func TestMemArchive_AgentUsageTotals(t *testing.T) {
 		usage("u-copy", "fork", "msg_p", "opus", 1000, 4, map[string]any{"origin_session_id": "parent"}),
 		usage("u-clear", "fork", "msg_4", "opus", 5, 5, map[string]any{"origin_session_id": "parent"}),
 	}))
-	got, err := arch.AgentUsageTotals(context.Background(), api.AgentToolCallFilter{HostID: "h1", SessionID: "fork"})
+	got, err := arch.AgentUsageTotals(context.Background(), api.AgentToolCallFilter{HostID: "h1", SessionID: "fork"}, 501)
 	require.NoError(t, err)
 	assert.Equal(t, []api.ModelUsage{
 		{Model: "opus", Messages: 2, Input: 2, Output: 55},

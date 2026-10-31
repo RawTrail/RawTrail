@@ -89,10 +89,17 @@ func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string
 	return out, nil
 }
 
-// sessionBypassed says an agent_sessions row's session ran in the bypassPermissions mode (issue #1427), a point lookup on
-// agent_session_bypass's primary key.
+// sessionOwnerUID is an agent_sessions row's owner: the uid of its earliest retained process, which the kernel stamped (issue #1478).
+// NULL once the session's processes have aged out.
+const sessionOwnerUID = `(SELECT p.uid FROM processes p
+	WHERE p.host_id = agent_sessions.host_id AND p.agent_session_id = agent_sessions.agent_session_id AND p.uid IS NOT NULL
+	ORDER BY p.fork_time_ns, p.id LIMIT 1)`
+
+// sessionBypassed says an agent_sessions row's session ran in the bypassPermissions mode (issue #1427), by a line from its owner's
+// transcript (issue #1478), a point lookup on agent_session_bypass's primary key. A session with no owner known is not marked.
 const sessionBypassed = `EXISTS (SELECT 1 FROM agent_session_bypass b
-	WHERE b.host_id = agent_sessions.host_id AND b.agent_session_id = agent_sessions.agent_session_id)`
+	WHERE b.host_id = agent_sessions.host_id AND b.agent_session_id = agent_sessions.agent_session_id AND b.uid = ` +
+	sessionOwnerUID + `)`
 
 // AlertedProcesses lists which of the given process rows an alert, not a monitor record, was raised on (issue #1443), in chunks of
 // processUpdateChunk rows. A command's processes include what launchd started for it, which carries no session marker, so they are
@@ -156,7 +163,7 @@ func (s *Store) ListAgentSessions(
 	var rows []api.AgentSessionSummary
 	if err := s.db.SelectContext(ctx, &rows, `
 		SELECT host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns,
-			`+sessionBypassed+` AS bypass
+			`+sessionOwnerUID+` AS owner_uid, `+sessionBypassed+` AS bypass
 		FROM agent_sessions WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY last_seen_ns DESC, host_id DESC, agent_session_id DESC
 		LIMIT ?`, append(args, limit+1)...,
@@ -189,18 +196,26 @@ func (s *Store) fillSessionTokens(ctx context.Context, rows []api.AgentSessionSu
 	}
 	ctx, cancel := context.WithTimeout(ctx, sessionTokensTimeout)
 	defer cancel()
-	refs := make([]visibilityapi.AgentSessionRef, len(rows))
+	// A session's tokens are counted from its owner's transcripts (issue #1478); a session whose owner is no longer known has none.
+	refs := make([]visibilityapi.AgentSessionRef, 0, len(rows))
+	at := make([]int, 0, len(rows))
 	for i, r := range rows {
-		refs[i] = visibilityapi.AgentSessionRef{HostID: r.HostID, SessionID: r.AgentSessionID}
+		if r.OwnerUID != nil {
+			refs = append(refs, visibilityapi.AgentSessionRef{HostID: r.HostID, SessionID: r.AgentSessionID, OwnerUID: *r.OwnerUID})
+			at = append(at, i)
+		}
+	}
+	if len(refs) == 0 {
+		return
 	}
 	tokens, err := s.archive.AgentSessionTokens(ctx, refs)
 	if err != nil {
 		s.logger.WarnContext(ctx, "agent sessions list: token totals unavailable", "err", err)
 		return
 	}
-	for i, ref := range refs {
+	for k, ref := range refs {
 		if n, ok := tokens[ref]; ok {
-			rows[i].Tokens = &n
+			rows[at[k]].Tokens = &n
 		}
 	}
 }
