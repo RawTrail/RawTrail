@@ -60,17 +60,21 @@ export function ShareDialog({ hostId, totals, alerts, agent, project, firstNs, l
   useEffect(() => {
     let live = true;
     getHostDetail(hostId)
-      .then((d) => { if (live) setHost({ state: "read", hostname: d.hostname }); })
+      // A host with no enrolled name is read as unreadable: with no name to remove, nothing can be shared.
+      .then((d) => { if (live) setHost(d.hostname.trim() ? { state: "read", hostname: d.hostname.trim() } : { state: "failed" }); })
       .catch(() => { if (live) setHost({ state: "failed" }); });
     return () => { live = false; };
   }, [hostId]);
 
+  // The session's usernames, from every home folder anything the card is built from names: its project, the directories it touched,
+  // the programs it ran, and the title being typed.
+  const usernames = useMemo(() => homeUsernames(project, ...(totals.digest?.directories ?? []).map((d) => d.directory),
+    ...(totals.digest?.programs ?? []).map((p) => p.program), titleOn ? title : undefined), [project, totals, titleOn, title]);
   const card = useMemo(() => {
     if (host.state !== "read") return null;
-    const directories = (totals.digest?.directories ?? []).map((d) => d.directory);
-    const identities = { usernames: homeUsernames(project, ...directories), hostnames: host.hostname ? [host.hostname] : [] };
+    const identities = { usernames, hostnames: [host.hostname] };
     return shareCard({ totals, alerts, agent, project, firstNs, lastNs, identities }, { ...options, title: titleOn ? title : null });
-  }, [host, totals, alerts, agent, project, firstNs, lastNs, options, titleOn, title]);
+  }, [host, usernames, totals, alerts, agent, project, firstNs, lastNs, options, titleOn, title]);
   const svg = useMemo(() => (card ? shareSvg(card, size) : null), [card, size]);
   const words = card ? caption(card) : "";
 
@@ -163,6 +167,11 @@ export function ShareDialog({ hostId, totals, alerts, agent, project, firstNs, l
               <label className="share-dialog__field">
                 <span>Title: paste a prompt and edit it before you share</span>
                 <input type="text" value={title} maxLength={TITLE_MAX * 2} onChange={(e) => { setTitle(e.target.value); }} />
+                {usernames.length === 0 && (
+                  <span className="share-dialog__warning">
+                    This session names no home folder, so a username in the title cannot be recognized. Check it before you share.
+                  </span>
+                )}
               </label>
             )}
             <Toggle id={`${titleId}-project`} label="Show the project name" checked={options.showProject} onChange={set("showProject")} />
@@ -186,7 +195,7 @@ export function ShareDialog({ hostId, totals, alerts, agent, project, firstNs, l
             </>
           )}
         </div>
-        <p className="share-dialog__status" role="status">{status}</p>
+        <output className="share-dialog__status">{status}</output>
         <div className="share-dialog__buttons">
           <Button variant="inverse" disabled={!card} onClick={() => { void copyCaption(); }}>Copy caption</Button>
           <Button variant="inverse" disabled={!svg} onClick={() => { void download(); }}>Download PNG</Button>

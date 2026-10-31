@@ -147,6 +147,51 @@ describe("ShareDialog", () => {
     expect(screen.queryByRole("link", { name: "Open LinkedIn" })).toBeNull();
   });
 
+  it("shares nothing for a host with no enrolled name", async () => {
+    vi.spyOn(api, "getHostDetail").mockResolvedValue(host("  "));
+    renderDialog();
+    expect(await screen.findByRole("alert")).toHaveTextContent("This host's name could not be read");
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy image" })).toBeDisabled();
+  });
+
+  // spec:web-ui/a-session-can-be-shared-as-an-image-made-in-the-browser/a-title-is-checked-for-the-user-s-name-or-the-person-is-warned
+  it.each([
+    ["a program's home folder", "/Users/ann/bin/deploy", "Help ann fix it", "Help … fix it"],
+    ["the title's own home folder", "/usr/bin/git", "Help ann fix /Users/ann/app", "Help … fix ~/app"],
+  ])("finds the username in %s when the project names none", async (_name, program, typed, shown) => {
+    vi.spyOn(api, "getHostDetail").mockResolvedValue(host("build-01"));
+    const totals = { ...TOTALS, digest: digest({ directories: [], programs: [{ program, count: 2 }] }) };
+    render(<ShareDialog hostId="h1" totals={totals} alerts={[]} agent="Claude Code" project="/srv/app" firstNs={0}
+      lastNs={20 * MINUTE_NS} onClose={vi.fn()} />);
+    await screen.findByRole("img", { name: /summary card/ });
+    fireEvent.click(screen.getByRole("switch", { name: "Show a prompt as the title" }));
+    fireEvent.change(screen.getByLabelText(/Title/), { target: { value: typed } });
+    expect(screen.getByRole("img", { name: (accessible) => accessible.includes(`: ${shown}.`) })).toBeVisible();
+    expect(screen.queryByText(/names no home folder/)).toBeNull();
+  });
+
+  it("warns that a username in the title cannot be recognized when no home folder names one", async () => {
+    vi.spyOn(api, "getHostDetail").mockResolvedValue(host("build-01"));
+    const totals = { ...TOTALS, digest: digest({ directories: [], programs: [{ program: "/usr/bin/git", count: 2 }] }) };
+    render(<ShareDialog hostId="h1" totals={totals} alerts={[]} agent="Claude Code" project="/srv/app" firstNs={0}
+      lastNs={20 * MINUTE_NS} onClose={vi.fn()} />);
+    await screen.findByRole("img", { name: /summary card/ });
+    expect(screen.queryByText(/names no home folder/)).toBeNull();
+    fireEvent.click(screen.getByRole("switch", { name: "Show a prompt as the title" }));
+    expect(screen.getByText(/names no home folder, so a username in the title cannot be recognized/)).toBeVisible();
+  });
+
+  it("draws the project's name into the image when the person shows it", async () => {
+    vi.spyOn(api, "getHostDetail").mockResolvedValue(host("anns-mbp"));
+    renderDialog();
+    const image = () => decodeURIComponent(screen.getByRole("img", { name: /summary card/ }).getAttribute("src") ?? "");
+    await screen.findByRole("img", { name: /summary card/ });
+    expect(image()).not.toContain("SESSION · APP");
+    fireEvent.click(screen.getByRole("switch", { name: "Show the project name" }));
+    expect(image()).toContain("SESSION · APP");
+  });
+
   it("closes from its Close button", async () => {
     vi.spyOn(api, "getHostDetail").mockResolvedValue(host("anns-mbp"));
     const onClose = renderDialog();

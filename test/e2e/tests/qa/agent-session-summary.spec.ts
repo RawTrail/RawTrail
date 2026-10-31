@@ -168,7 +168,8 @@ test.describe("a session's Summary", () => {
 
     // The image names neither the user (qa, from the project's home folder) nor the host, and shows its public destinations.
     const svg = decodeURIComponent((await preview.getAttribute("src")) ?? "");
-    const words = svg.replace(/<[^>]*>/g, " ");
+    // The text between the SVG's tags: every other piece when split at angle brackets.
+    const words = svg.split(/[<>]/).filter((_, i) => i % 2 === 0).join(" ");
     expect(words).not.toMatch(/\bqa\b|qa-mbp/i);
     expect(words).toContain("Git hosts");
     expect(await preview.getAttribute("alt")).not.toMatch(/\bqa\b|qa-mbp/i);

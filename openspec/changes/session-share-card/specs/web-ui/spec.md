@@ -24,7 +24,7 @@ A session shared as an image SHALL be drawn only from a card of counts, program 
 
 ### Requirement: A session can be shared as an image made in the browser
 
-The Summary tab SHALL offer to share the session as a PNG card, 1080 x 1350 or 1200 x 675 drawn at twice that size, made in the browser from the redacted card with no request, previewed exactly as exported, with the person's choices applied live. It SHALL copy the image or download it, copy a suggested caption, and open the LinkedIn or X composer, and SHALL refuse while the host's name is unread.
+The Summary tab SHALL offer to share the session as a PNG card, 1080 x 1350 or 1200 x 675 drawn at twice that size, made in the browser from the redacted card with no request, previewed exactly as exported, with the person's choices applied live. It SHALL copy the image or download it, copy a suggested caption, and open the LinkedIn or X composer, SHALL refuse while the host's name is unread or empty, and SHALL warn when no home folder names the user a title could mention.
 
 #### Scenario: The preview is the exported image, and choices change it
 
@@ -49,3 +49,9 @@ The Summary tab SHALL offer to share the session as a PNG card, 1080 x 1350 or 1
 - **GIVEN** a host whose name the dialog cannot read
 - **WHEN** the Share dialog opens
 - **THEN** it says the image cannot be checked for the name, draws no preview, and offers nothing to copy, download or post
+
+#### Scenario: A title is checked for the user's name, or the person is warned
+
+- **GIVEN** a session whose project names no home folder
+- **WHEN** the person types a title naming the user, and a program or the title itself names the user's home folder
+- **THEN** the name is removed from the image; and when nothing names a home folder, the dialog warns that a username in the title cannot be recognized

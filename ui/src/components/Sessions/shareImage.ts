@@ -21,9 +21,14 @@ const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, A
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const COLORS = { ground: "#141a3a", text: "#ffffff", muted: "#b3b8d6", faint: "#8b91b8", accent: "#3fd6b4", panel: "#1d2550",
   rule: "#2c3463" };
-// GLYPH is an average glyph's width as a share of its font size, for wrapping text the SVG cannot wrap itself. It leans wide, so a line
-// ends early rather than running off the card.
+// GLYPH and WIDE_GLYPH are a glyph's width as a share of its font size, for wrapping text the SVG cannot wrap itself: an average Latin
+// glyph, leaning wide so a line ends early rather than running off the card, and a CJK character or emoji, which takes a full em.
 const GLYPH = 0.56;
+const WIDE_GLYPH = 1;
+// WIDE are the code point ranges drawn a full em wide: Hangul, CJK, fullwidth forms, and emoji and other symbols above U+1F000.
+const WIDE: readonly { lo: number; hi: number }[] = [{ lo: 0x1100, hi: 0x115f }, { lo: 0x2e80, hi: 0xa4cf }, { lo: 0xac00, hi: 0xd7a3 },
+  { lo: 0xf900, hi: 0xfaff }, { lo: 0xfe30, hi: 0xfe4f }, { lo: 0xff00, hi: 0xff60 }, { lo: 0xffe0, hi: 0xffe6 },
+  { lo: 0x1f000, hi: 0x10ffff }];
 const STAT_COLUMNS = 4;
 const TITLE_LINES = 3;
 const GUARD_LINES = 2;
@@ -33,8 +38,10 @@ const BAR = { gap: 6, least: 4, radius: 3 };
 // Each size's measurements, in card pixels. Text sizes are what a phone-width feed still reads: 22 px and up on a 1080-wide card.
 const PORTRAIT = {
   pad: 80, label: 26, labelGap: 52, title: 64, titleLine: 72, titleBaseline: 14, afterTitle: 52, stat: 58, statLabelGap: 40,
-  afterStats: 156, strip: 130, stripGap: 20, axis: 24, axisGap: 62, afterStrip: 252, row: 30, rowGap: 46, listGap: 50, columnGap: 48,
-  afterList: 70, guardText: 30, guardLine: 40, guardPad: 48, guardIcon: 44, guardInset: 28, guardTextInset: 96, guardRadius: 16,
+  afterStats: 156, strip: 110, stripGap: 20, axis: 24, axisGap: 62, afterStrip: 232, row: 30, rowGap: 46, listGap: 50, columnGap: 48,
+  afterList: 70, detail: 22, detailGap: 30, dateWidth: 220, footerRoom: 60, guardText: 30, guardLine: 40, guardPad: 48, guardIcon: 44,
+  guardInset: 28,
+  guardTextInset: 96, guardRadius: 16,
   guardBaseline: 8, footer: 24,
 } as const;
 const LANDSCAPE = {
@@ -52,24 +59,53 @@ function escape(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// wrap breaks text into at most maxLines lines that fit width at size, ending the last with an ellipsis when the text runs over.
+// CAPS_WIDTH is how much wider a spaced capitals label draws than the same text in lower case, for fitting a heading.
+const CAPS_WIDTH = 1.3;
+
+// ems is how wide text draws, in ems, counting each code point once so an emoji's two UTF-16 halves are one glyph.
+function ems(text: string): number {
+  let total = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0;
+    total += WIDE.some(({ lo, hi }) => cp >= lo && cp <= hi) ? WIDE_GLYPH : GLYPH;
+  }
+  return total;
+}
+
+// fit is the longest start of text, whole code points, that fits within limit ems.
+function fit(text: string, limit: number): string {
+  let out = "";
+  for (const ch of text) {
+    if (ems(out + ch) > limit) break;
+    out += ch;
+  }
+  return out;
+}
+
+// wrap breaks text into at most maxLines lines that fit width at size, at spaces where it can and inside a word too long for a line
+// (as CJK text is), ending the last line with an ellipsis when the text runs over. It never splits a code point.
 export function wrap(text: string, size: number, width: number, maxLines: number): string[] {
-  const perLine = Math.max(1, Math.floor(width / (size * GLYPH)));
+  const limit = width / size;
   const lines: string[] = [];
   let line = "";
-  for (const word of text.split(/\s+/).filter((w) => w !== "")) {
+  for (let word of text.split(/\s+/).filter((w) => w !== "")) {
     const next = line === "" ? word : `${line} ${word}`;
-    if (next.length <= perLine) {
+    if (ems(next) <= limit) {
       line = next;
       continue;
     }
     if (line !== "") lines.push(line);
-    line = word.length > perLine ? `${word.slice(0, perLine - 1)}…` : word;
+    while (ems(word) > limit) {
+      const head = fit(word, limit) || Array.from(word)[0];
+      lines.push(head);
+      word = word.slice(head.length);
+    }
+    line = word;
   }
   if (line !== "") lines.push(line);
   if (lines.length <= maxLines) return lines;
   const kept = lines.slice(0, maxLines);
-  kept[maxLines - 1] = `${kept[maxLines - 1].slice(0, Math.max(0, perLine - 1))}…`;
+  kept[maxLines - 1] = `${fit(kept[maxLines - 1], limit - GLYPH)}…`;
   return kept;
 }
 
@@ -135,6 +171,11 @@ function guardLine(card: ShareCard, short = false): string {
   return `${short ? "Stopped" : "The credential guard stopped"} it reading ${card.guard.credentials.join(" and ")}`;
 }
 
+// sessionLabel names the session as the card's heading does: its agent, and its project when the person chose to show it.
+function sessionLabel(card: ShareCard): string {
+  return card.project ? `${card.agent} session · ${card.project}` : `${card.agent} session`;
+}
+
 // footer credits the recording along the card's bottom edge: a mark, "Recorded with RawTrail", and the project's address.
 function footer(width: number, pad: number, y: number, size: number): string {
   const mark = size + MARK.grow;
@@ -149,7 +190,8 @@ function portrait(card: ShareCard): string {
   const inner = width - 2 * L.pad;
   const parts: string[] = [];
   let y = L.pad + L.label;
-  parts.push(text({ x: L.pad, y, text: `${card.agent} session`, size: L.label, color: COLORS.muted, bold: true, caps: true }));
+  const heading = wrap(sessionLabel(card), L.label, (inner - L.dateWidth) / CAPS_WIDTH, 1)[0] ?? "";
+  parts.push(text({ x: L.pad, y, text: heading, size: L.label, color: COLORS.muted, bold: true, caps: true }));
   if (card.date) parts.push(text({ x: width - L.pad, y, text: card.date, size: L.label, color: COLORS.muted, end: true }));
   y += L.labelGap;
   for (const line of wrap(card.title ?? headline(card), L.title, inner, TITLE_LINES)) {
@@ -159,39 +201,63 @@ function portrait(card: ShareCard): string {
   y += L.afterTitle;
   stats(card).forEach((s, i) => {
     const x = L.pad + i * (inner / STAT_COLUMNS);
-    parts.push(text({ x, y: y + L.stat, text: s.value, size: L.stat, bold: true, color: i === 0 ? COLORS.accent : COLORS.text }));
-    parts.push(text({ x, y: y + L.stat + L.statLabelGap, text: s.label, size: L.label, color: COLORS.muted }));
+    parts.push(
+      text({ x, y: y + L.stat, text: s.value, size: L.stat, bold: true, color: i === 0 ? COLORS.accent : COLORS.text }),
+      text({ x, y: y + L.stat + L.statLabelGap, text: s.label, size: L.label, color: COLORS.muted }),
+    );
   });
   y += L.afterStats;
   if (card.timeline.length > 0) {
-    parts.push(text({ x: L.pad, y, text: "When it was busy", size: L.label, bold: true, color: COLORS.muted }));
-    parts.push(bars(card.timeline, L.pad, y + L.stripGap, inner, L.strip));
+    parts.push(
+      text({ x: L.pad, y, text: "When it was busy", size: L.label, bold: true, color: COLORS.muted }),
+      bars(card.timeline, L.pad, y + L.stripGap, inner, L.strip),
+    );
     if (card.timelineStart && card.timelineEnd) {
       const axisY = y + L.stripGap + L.strip + L.axisGap - L.stripGap;
-      parts.push(text({ x: L.pad, y: axisY, text: card.timelineStart, size: L.axis, color: COLORS.faint }));
-      parts.push(text({ x: width - L.pad, y: axisY, text: card.timelineEnd, size: L.axis, color: COLORS.faint, end: true }));
+      parts.push(
+        text({ x: L.pad, y: axisY, text: card.timelineStart, size: L.axis, color: COLORS.faint }),
+        text({ x: width - L.pad, y: axisY, text: card.timelineEnd, size: L.axis, color: COLORS.faint, end: true }),
+      );
     }
     y += L.afterStrip;
   }
   const half = (inner - L.columnGap) / 2;
-  const list = (title: string, x: number, rows: { name: string; value: string; mono: boolean }[]) => {
+  // list draws a titled column of named counts, each with an optional detail line under it, and returns how tall it drew.
+  const list = (title: string, x: number, rows: { name: string; value: string; mono: boolean; detail?: string }[]): number => {
     parts.push(text({ x, y, text: title, size: L.label, bold: true, color: COLORS.muted }));
-    rows.forEach((r, i) => {
-      const rowY = y + L.listGap + i * L.rowGap;
-      parts.push(text({ x, y: rowY, text: wrap(r.name, L.row, half - L.guardTextInset, 1)[0] ?? "", size: L.row, mono: r.mono }));
-      parts.push(text({ x: x + half, y: rowY, text: r.value, size: L.row, end: true }));
-    });
+    let rowY = y + L.listGap;
+    for (const r of rows) {
+      parts.push(
+        text({ x, y: rowY, text: wrap(r.name, L.row, half - L.guardTextInset, 1)[0] ?? "", size: L.row, mono: r.mono }),
+        text({ x: x + half, y: rowY, text: r.value, size: L.row, end: true }),
+      );
+      if (r.detail) {
+        const detail = wrap(r.detail, L.detail, half, 1)[0] ?? "";
+        parts.push(text({ x, y: rowY + L.detailGap, text: detail, size: L.detail, color: COLORS.faint }));
+        rowY += L.detailGap;
+      }
+      rowY += L.rowGap;
+    }
+    return rowY - y - L.listGap;
   };
   const programs = card.programs.map((p) => ({ name: p.name, value: p.count.toLocaleString(), mono: true }));
-  const places = card.destinations.map((d) => ({ name: d.label, value: d.count.toLocaleString(), mono: false }));
-  if (programs.length > 0) list("Programs it ran most", L.pad, programs);
-  if (places.length > 0) list("Where it talked to", programs.length > 0 ? L.pad + half + L.columnGap : L.pad, places);
-  if (programs.length > 0 || places.length > 0) y += L.afterList + L.rowGap * Math.max(programs.length, places.length);
+  // Each group names its domains on a line under it when they fit above the footer with what follows; a card too full for them
+  // shows the groups alone rather than overlap.
+  const guardHeight = card.guard ? L.guardPad + GUARD_LINES * L.guardLine : 0;
+  const withDomains = L.afterList + Math.max(card.programs.length * L.rowGap, card.destinations.length * (L.rowGap + L.detailGap));
+  const roomy = y + withDomains + guardHeight <= height - L.pad - L.footerRoom;
+  const places = card.destinations.map((d) => ({ name: d.label, value: d.count.toLocaleString(), mono: false,
+    ...(roomy && d.domains.length > 0 ? { detail: d.domains.join(", ") } : {}) }));
+  const drawn = Math.max(programs.length > 0 ? list("Programs it ran most", L.pad, programs) : 0,
+    places.length > 0 ? list("Where it talked to", programs.length > 0 ? L.pad + half + L.columnGap : L.pad, places) : 0);
+  if (drawn > 0) y += L.afterList + drawn;
   if (card.guard) {
     const lines = wrap(guardLine(card), L.guardText, inner - L.guardTextInset - L.guardInset, GUARD_LINES);
     const box = L.guardPad + lines.length * L.guardLine;
-    parts.push(rect(L.pad, y, inner, box, COLORS.panel, L.guardRadius));
-    parts.push(shield(L.pad + L.guardInset, y + box / 2 - L.guardIcon / 2, L.guardIcon));
+    parts.push(
+      rect(L.pad, y, inner, box, COLORS.panel, L.guardRadius),
+      shield(L.pad + L.guardInset, y + box / 2 - L.guardIcon / 2, L.guardIcon),
+    );
     lines.forEach((line, i) => {
       const lineY = y + L.guardPad + i * L.guardLine + L.guardBaseline;
       parts.push(text({ x: L.pad + L.guardTextInset, y: lineY, text: line, size: L.guardText }));
@@ -208,7 +274,7 @@ function landscape(card: ShareCard): string {
   const right = L.pad + column + L.columnGap;
   const parts: string[] = [];
   let y = L.top + L.label;
-  const heading = [`${card.agent} session`, card.date].filter((s) => s !== null).join(" · ");
+  const heading = wrap([sessionLabel(card), card.date].filter((s) => s !== null).join(" · "), L.label, column / CAPS_WIDTH, 1)[0] ?? "";
   parts.push(text({ x: L.pad, y, text: heading, size: L.label, color: COLORS.muted, bold: true, caps: true }));
   y += L.labelGap;
   for (const line of wrap(card.title ?? headline(card), L.title, column, TITLE_LINES)) {
@@ -219,13 +285,17 @@ function landscape(card: ShareCard): string {
   stats(card).forEach((s, i) => {
     const x = L.pad + (i % 2) * (column / 2);
     const top = y + Math.floor(i / 2) * L.statRow;
-    parts.push(text({ x, y: top + L.stat, text: s.value, size: L.stat, bold: true, color: i === 0 ? COLORS.accent : COLORS.text }));
-    parts.push(text({ x, y: top + L.stat + L.statLabelGap, text: s.label, size: L.label, color: COLORS.muted }));
+    parts.push(
+      text({ x, y: top + L.stat, text: s.value, size: L.stat, bold: true, color: i === 0 ? COLORS.accent : COLORS.text }),
+      text({ x, y: top + L.stat + L.statLabelGap, text: s.label, size: L.label, color: COLORS.muted }),
+    );
   });
   let ry = L.top + L.label;
   if (card.timeline.length > 0) {
-    parts.push(text({ x: right, y: ry, text: "When it was busy", size: L.label, bold: true, color: COLORS.muted }));
-    parts.push(bars(card.timeline, right, ry + L.stripGap, column, L.strip));
+    parts.push(
+      text({ x: right, y: ry, text: "When it was busy", size: L.label, bold: true, color: COLORS.muted }),
+      bars(card.timeline, right, ry + L.stripGap, column, L.strip),
+    );
     ry += L.afterStrip;
   }
   if (card.programs.length > 0) {
@@ -236,7 +306,7 @@ function landscape(card: ShareCard): string {
   }
   if (card.destinations.length > 0) {
     parts.push(text({ x: right, y: ry, text: "Where it talked to", size: L.label, bold: true, color: COLORS.muted }));
-    const groups = card.destinations.map((d) => `${d.label} ${d.count.toLocaleString()}`).join(" · ");
+    const groups = card.destinations.map((d) => (d.domains.length > 0 ? `${d.label}: ${d.domains.join(", ")}` : d.label)).join(" · ");
     const lines = wrap(groups, L.row, column, 2);
     lines.forEach((line, i) => { parts.push(text({ x: right, y: ry + L.rowGap + i * L.rowLine, text: line, size: L.row })); });
     ry += L.rowGap + lines.length * L.rowLine + L.afterGroups - L.rowLine;
@@ -244,8 +314,10 @@ function landscape(card: ShareCard): string {
   if (card.guard) {
     const lines = wrap(guardLine(card, true), L.label, column - L.guardTextInset - L.guardInset, GUARD_LINES);
     const box = L.guardPad + lines.length * L.guardLine;
-    parts.push(rect(right, ry, column, box, COLORS.panel, L.guardRadius));
-    parts.push(shield(right + L.guardInset, ry + (box - L.guardIcon) / 2, L.guardIcon));
+    parts.push(
+      rect(right, ry, column, box, COLORS.panel, L.guardRadius),
+      shield(right + L.guardInset, ry + (box - L.guardIcon) / 2, L.guardIcon),
+    );
     lines.forEach((line, i) => {
       parts.push(text({ x: right + L.guardTextInset, y: ry + L.guardPad / 2 + (i + 1) * L.guardLine - L.guardBaseline, text: line,
         size: L.label }));

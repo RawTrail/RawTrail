@@ -32,8 +32,23 @@ describe("wrap", () => {
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(7);
   });
 
-  it("cuts a word longer than a line", () => {
+  it("breaks a word longer than a line across lines, and cuts it when out of lines", () => {
     expect(wrap("supercalifragilistic", 50, 200, 1)).toEqual(["superc…"]);
+    expect(wrap("supercalifragilistic", 50, 200, 4)).toEqual(["superca", "lifragi", "listic"]);
+  });
+
+  it("counts a CJK character or an emoji a full em wide", () => {
+    const lines = wrap("漢".repeat(50), 64, 920, 3);
+    // 920 / 64 is 14.4 ems: 14 characters a line; the third is cut to 13 and its ellipsis.
+    expect(lines.map((l) => Array.from(l).length)).toEqual([14, 14, 14]);
+    expect(lines[2].endsWith("…")).toBe(true);
+  });
+
+  it("never splits an emoji, so every line can be encoded", () => {
+    for (const lines of [wrap("abcdefghijklmnopqrstuvw😀tail", 64, 920, 3), wrap("😀".repeat(30), 64, 920, 1)]) {
+      for (const line of lines) expect(() => encodeURIComponent(line)).not.toThrow();
+    }
+    expect(() => svgDataUrl(shareSvg(card({ title: `${"x".repeat(23)}😀${"y".repeat(60)}` }), "portrait"))).not.toThrow();
   });
 });
 
@@ -63,6 +78,29 @@ describe("shareSvg", () => {
     expect(shareSvg(card(), "portrait")).toContain(">The credential guard stopped it reading my AWS<");
     expect(shareSvg(card(), "landscape")).toContain("Stopped it reading my AWS");
     expect(shareSvg(card({ guard: null }), "portrait")).not.toContain("credential guard");
+  });
+
+  it("names the project in the heading when the person chose it, and each group's domains", () => {
+    for (const size of ["portrait", "landscape"] as const) {
+      const svg = shareSvg(card({ project: "webhooks" }), size);
+      expect(svg).toContain("CLAUDE CODE SESSION · WEBHOOKS");
+      expect(svg).toContain("api.anthropic.com");
+      expect(shareSvg(card(), size)).not.toContain("WEBHOOKS");
+    }
+  });
+
+  it("never draws over the footer: a full card shows its groups without their domains", () => {
+    const groups = ["Model APIs", "Git hosts", "Package registries", "Everything else"].map((label) => ({ label, count: 1,
+      domains: [`${label.split(" ")[0].toLowerCase()}.example.com`] }));
+    const programs = ["go", "git", "rg", "npm"].map((name) => ({ name, count: 1 }));
+    const full = shareSvg(card({ title: "x ".repeat(80), destinations: groups, programs }), "portrait");
+    const guard = /<rect x="80\.0" y="([\d.]+)" width="920\.0" height="([\d.]+)" rx="16"/.exec(full);
+    expect(guard).not.toBeNull();
+    const footerTop = SIZES.portrait.height - 80 - 24;
+    expect(Number(guard?.[1]) + Number(guard?.[2])).toBeLessThan(footerTop);
+    expect(full).not.toContain("model.example.com");
+    // With room to spare, the same groups name their domains.
+    expect(shareSvg(card({ destinations: groups, programs, guard: null }), "portrait")).toContain("model.example.com");
   });
 
   it("leaves out a timeline, programs and destinations a session does not have", () => {

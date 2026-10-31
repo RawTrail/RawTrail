@@ -143,6 +143,10 @@
     font-weight: 600;
   }
 
+  &__warning {
+    color: $ui-error-down;
+  }
+
   &__status {
     margin: 0;
     color: $ui-black-75;
