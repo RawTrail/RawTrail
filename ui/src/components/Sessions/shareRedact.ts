@@ -15,37 +15,39 @@ export const HIDDEN = "…";
 // INTERNAL_SUFFIXES are the name suffixes that only mean something inside a network, never on the public internet.
 export const INTERNAL_SUFFIXES: readonly string[] = ["local", "localdomain", "lan", "internal", "intranet", "corp", "home.arpa"];
 
-const EMAIL_LIKE = /[\w.+-]+@[\w.-]+/g;
-// A home folder and the user it names: macOS, Linux, root's, and Windows.
-const HOME = /(?:\/Users|\/home)\/[^/\s]+|\/var\/root|[A-Za-z]:\\Users\\[^\\\s]+/g;
+// Starting only where a run of address characters starts keeps the match linear in the text's length.
+const EMAIL_LIKE = /(?<![\w.+-])[\w.+-]+@[\w.-]+/g;
+// A home folder and the user it names: macOS, Linux, root's, and Windows. Both file systems ignore case, and a Windows profile folder
+// may hold spaces, so its name runs to the next backslash.
+const HOME = /(?:\/Users|\/home)\/[^/\s]+|\/var\/root|[A-Za-z]:\\Users\\[^\\]+/gi;
+// An address is bounded by what cannot continue it, not by a word boundary, so one inside a name (backup_10.0.0.5) is found too.
 // eslint-disable-next-line security/detect-unsafe-regex -- every repetition is bounded ({1,3}, {3}), so matching is linear
-const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g;
-// Two colons or more between hex groups: an IPv6 address, compressed or not. A clock time with seconds matches too, which hides a
-// time rather than leak an address.
+const IPV4 = /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?!\d)/g;
+// Two colons or more between hex groups: an IPv6 address, compressed or not. It may follow an underscore or a digit (backup_fd12::1),
+// but not a letter, so a path like Foo::bar is left alone. A clock time with seconds matches too, which hides a time rather than leak
+// an address.
 // eslint-disable-next-line security/detect-unsafe-regex -- every repetition is bounded ({0,4}, {2,7}), so matching is linear
-const IPV6 = /(?<![\w:])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}(?![\w:])/g;
+const IPV6 = /(?<![\p{L}:])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}(?![\p{L}:])/gu;
 // eslint-disable-next-line security/detect-non-literal-regexp -- built once from the fixed suffix list, each escaped
-const INTERNAL_HOST = new RegExp(`[\\w.-]+\\.(?:${INTERNAL_SUFFIXES.map(escape).join("|")})\\b`, "gi");
+const INTERNAL_HOST = new RegExp(String.raw`(?<![\w.-])[\w.-]+\.(?:${INTERNAL_SUFFIXES.map(escape).join("|")})\b`, "gi");
 // eslint-disable-next-line security/detect-non-literal-regexp -- built once from the two address patterns above
-const ADDRESS = new RegExp(`^(?:${IPV4.source}|${IPV6.source})$`);
-// A name shorter than this is not looked for by itself: too many ordinary words would go with it.
-const MIN_NAME = 3;
+const ADDRESS = new RegExp(`^(?:${IPV4.source}|${IPV6.source})$`, "u");
 
 function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// names is every name to look for: each given one, and a hostname's first label (mbp from mbp.example.com), longest first so a name
-// is never cut short by one it contains.
+// names is every name to look for: each given one, however short, and a hostname's first label (mbp from mbp.example.com), longest
+// first so a name is never cut short by one it contains. Matching whole words keeps a short name from taking longer words with it.
 function names(identities: Identities): string[] {
   const all = new Set<string>();
-  for (const u of identities.usernames) if (u.length >= MIN_NAME) all.add(u.toLowerCase());
+  for (const u of identities.usernames) all.add(u.toLowerCase());
   for (const h of identities.hostnames) {
     const host = h.toLowerCase().replace(/\.$/, "");
-    if (host.length >= MIN_NAME) all.add(host);
-    const label = host.split(".")[0];
-    if (label.length >= MIN_NAME) all.add(label);
+    all.add(host);
+    all.add(host.split(".")[0]);
   }
+  all.delete("");
   return [...all].sort((a, b) => b.length - a.length);
 }
 
@@ -55,20 +57,26 @@ export function redact(text: string, identities: Identities): string {
   for (const name of names(identities)) {
     // A name is matched whole, not inside a longer word: "ann" leaves "annotate" alone.
     // eslint-disable-next-line security/detect-non-literal-regexp -- the name is escaped, so it matches only itself
-    out = out.replace(new RegExp(`(?<![\\w])${escape(name)}(?![\\w])`, "gi"), HIDDEN);
+    out = out.replace(new RegExp(String.raw`(?<!\w)${escape(name)}(?!\w)`, "gi"), HIDDEN);
   }
   // A removal followed by another, with only space between, is one removal.
   return out.replace(/…\s*(?=…)/g, "").replace(/\s+/g, " ").trim();
 }
 
-// isInternalDomain says whether a domain belongs inside a network: an internal suffix, or the domain this session's host is named
-// under (example.com for mbp.example.com), which is usually the owner's employer.
+// isInternalDomain says whether a domain belongs inside a network: an internal suffix, or a domain this session's host is named under,
+// usually the owner's employer. For laptop.eng.example.com that is eng.example.com and example.com, since the server folds a
+// destination to its registrable domain. A two-letter-and-two-letter tail like co.uk hides every domain under it, which errs toward
+// hiding.
 export function isInternalDomain(domain: string, identities: Identities): boolean {
   const d = domain.toLowerCase().replace(/\.$/, "");
   if (INTERNAL_SUFFIXES.some((s) => d === s || d.endsWith(`.${s}`))) return true;
   return identities.hostnames.some((h) => {
-    const parent = h.toLowerCase().replace(/\.$/, "").split(".").slice(1).join(".");
-    return parent.includes(".") && (d === parent || d.endsWith(`.${parent}`));
+    const labels = h.toLowerCase().replace(/\.$/, "").split(".");
+    for (let i = 1; i < labels.length - 1; i++) {
+      const parent = labels.slice(i).join(".");
+      if (d === parent || d.endsWith(`.${parent}`)) return true;
+    }
+    return false;
   });
 }
 
@@ -82,7 +90,7 @@ export function homeUsernames(...paths: readonly (string | undefined)[]): string
   const out: string[] = [];
   for (const p of paths) {
     if (!p) continue;
-    for (const m of p.matchAll(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)([^/\\\s]+)/g)) out.push(m[1]);
+    for (const m of p.matchAll(/(?:\/Users\/|\/home\/)([^/\s]+)|[A-Za-z]:\\Users\\([^\\]+)/gi)) out.push(m[1] || m[2]);
   }
   return out;
 }

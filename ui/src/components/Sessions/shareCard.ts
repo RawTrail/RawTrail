@@ -2,12 +2,12 @@
 // the public domains it talked to, every string redacted. The card is the only input the image renderer gets, so nothing that is
 // not on it can reach a shared image.
 
-import type { AgentSessionTotals, Alert } from "../../types";
+import type { AgentSessionTotals, Alert, DomainActivity } from "../../types";
 import { basename, plural } from "../Search/format";
 import { credentialReads } from "./credentialRead";
 import { groupDomains } from "./sessionDigest";
 import { formatSpan, formatTokens, usageLine } from "./sessionUsage";
-import { isAddress, isInternalDomain, redact, type Identities } from "./shareRedact";
+import { HIDDEN, isAddress, isInternalDomain, redact, type Identities } from "./shareRedact";
 
 const NANOSECONDS_PER_MILLISECOND = 1e6;
 // A card lists this many programs and destination groups, and this many domains in each group: what fits a phone-sized image.
@@ -54,8 +54,10 @@ export interface ShareCard {
   readonly paths: number;
   // outsideProject is how many paths the session touched outside its project, or null when it has no project.
   readonly outsideProject: number | null;
-  // guard is what the credential guard stopped, or null when it stopped nothing or the person chose not to show it.
-  readonly guard: { readonly stopped: number; readonly credentials: readonly string[] } | null;
+  // guard is the credentials the credential guard stopped the agent reading, or null when it stopped none or the person chose not to
+  // show it. It says which credentials, not how many reads: the rule folds a session's later reads of one credential into its first
+  // alert.
+  readonly guard: { readonly credentials: readonly string[] } | null;
 }
 
 export interface ShareInput {
@@ -82,25 +84,17 @@ export function shareCard(input: ShareInput, options: ShareOptions): ShareCard {
   const { totals, identities } = input;
   const digest = totals.digest;
   const clean = (s: string): string => redact(s, identities);
-  const title = options.title === null ? null : clean(options.title.slice(0, TITLE_MAX));
+  // Redacted whole, then cut: cutting first can leave part of a name that redaction no longer recognizes.
+  const title = options.title === null ? null : clean(options.title).slice(0, TITLE_MAX).trim();
   const files = totals.activity?.files;
   const usage = usageLine(totals.usage);
   const timeline = digest?.command_timeline ?? [];
   const endNs = digest ? digest.timeline_start_ns + digest.timeline_bucket_ns * timeline.length : undefined;
-  const destinations = groupDomains((digest?.domains ?? []).filter((d) =>
-    !isAddress(d.domain) && (options.showInternalDomains || !isInternalDomain(d.domain, identities))))
-    .slice(0, CARD_GROUPS)
-    .map((g) => ({
-      label: g.label,
-      count: g.domains.length,
-      domains: g.domains.slice(0, CARD_DOMAINS).map((d) => clean(d.domain)).filter((d) => d !== "" && !d.includes("…")),
-    }));
-  const stopped = credentialReads(input.alerts).filter((r) => r.stopped);
   return {
     agent: clean(input.agent),
     date: input.firstNs === undefined ? null : date(input.firstNs),
     title: title === "" ? null : title,
-    project: options.showProject && input.project ? clean(basename(input.project.replace(/\/+$/, ""))) || null : null,
+    project: options.showProject && input.project ? clean(basename(trimSlashes(input.project))) || null : null,
     duration: input.firstNs !== undefined && input.lastNs !== undefined ? formatSpan(input.lastNs - input.firstNs) : null,
     prompts: digest?.prompts ?? 0,
     commands: totals.commands,
@@ -110,15 +104,36 @@ export function shareCard(input: ShareInput, options: ShareOptions): ShareCard {
     timelineStart: digest && timeline.length > 0 ? time(digest.timeline_start_ns) : null,
     timelineEnd: endNs !== undefined && timeline.length > 0 ? time(endNs) : null,
     programs: (digest?.programs ?? []).slice(0, CARD_PROGRAMS).map((p) => ({ name: clean(basename(p.program)), count: p.count }))
-      .filter((p) => p.name !== "" && p.name !== "…"),
-    destinations,
+      .filter((p) => p.name !== "" && p.name !== HIDDEN),
+    destinations: destinations(digest?.domains ?? [], options, identities),
     fileEvents: files?.events ?? 0,
     paths: files?.distinct ?? 0,
     outsideProject: input.project ? (digest?.outside_project ?? 0) : null,
-    guard: options.showGuard && stopped.length > 0
-      ? { stopped: stopped.length, credentials: [...new Set(stopped.map((r) => mine(r.text.replace(/^Stopped from reading /, ""))))] }
-      : null,
+    guard: options.showGuard ? guard(input.alerts) : null,
   };
+}
+
+function trimSlashes(path: string): string {
+  let end = path.length;
+  while (end > 1 && path[end - 1] === "/") end--;
+  return path.slice(0, end);
+}
+
+// destinations groups the domains a card may show: never an address, an internal one only when the person chose to, and a domain that
+// redaction changed not at all, since a partly removed name says nothing and may still hint at one.
+function destinations(domains: readonly DomainActivity[], options: ShareOptions, identities: Identities): CardDestination[] {
+  const shown = domains.filter((d) => !isAddress(d.domain) && (options.showInternalDomains || !isInternalDomain(d.domain, identities)));
+  return groupDomains(shown).slice(0, CARD_GROUPS).map((g) => ({
+    label: g.label,
+    count: g.domains.length,
+    domains: g.domains.slice(0, CARD_DOMAINS).map((d) => redact(d.domain, identities)).filter((d) => d !== "" && !d.includes(HIDDEN)),
+  }));
+}
+
+function guard(alerts: readonly Alert[]): ShareCard["guard"] {
+  const stopped = credentialReads(alerts).filter((r) => r.stopped);
+  if (stopped.length === 0) return null;
+  return { credentials: [...new Set(stopped.map((r) => mine(r.text.replace(/^Stopped from reading /, ""))))] };
 }
 
 // mine words a credential as the person sharing the card says it: the guard's "your AWS credentials" is their "my AWS credentials".
@@ -143,24 +158,25 @@ export function caption(card: ShareCard): string {
     plural(card.commands, "command", "commands"),
     plural(card.toolCalls, "tool call", "tool calls"),
   ]);
-  const guard = card.guard
-    ? ` The credential guard stopped ${plural(card.guard.stopped, "read", "reads")} of ${list([...card.guard.credentials])}.`
-    : "";
+  const guard = card.guard ? ` The credential guard stopped it reading ${list([...card.guard.credentials])}.` : "";
   return `${counts}: what my AI agent actually did, recorded at the kernel.${guard} Recorded with RawTrail.`;
 }
 
 // altText reads the card out for a screen reader, from the card alone.
 export function altText(card: ShareCard): string {
-  const parts = [
-    `A summary card of a ${card.agent} session${card.project ? ` in ${card.project}` : ""}${card.date ? ` on ${card.date}` : ""}`,
-    `${card.title ?? headline(card)}.`,
-    `${[card.duration && `Ran for ${card.duration}`, plural(card.commands, "command", "commands"),
-      plural(card.toolCalls, "tool call", "tool calls"), card.tokens && `${card.tokens} tokens`].filter(Boolean).join(", ")}.`,
-  ];
+  const where = (card.project ? " in " + card.project : "") + (card.date ? " on " + card.date : "");
+  const counts = [
+    card.duration ? "Ran for " + card.duration : "",
+    plural(card.commands, "command", "commands"),
+    plural(card.toolCalls, "tool call", "tool calls"),
+    card.tokens ? card.tokens + " tokens" : "",
+  ].filter((c) => c !== "");
+  const parts = [`${card.title ?? headline(card)}.`, `${counts.join(", ")}.`];
   if (card.programs.length > 0) parts.push(`Programs it ran most: ${list(card.programs.map((p) => p.name))}.`);
   if (card.destinations.length > 0) {
-    parts.push(`It talked to ${list(card.destinations.map((d) => `${d.label.toLowerCase()} (${String(d.count)})`))}.`);
+    const groups = card.destinations.map((d) => `${d.label.toLowerCase()} (${String(d.count)})`);
+    parts.push(`It talked to ${list(groups)}.`);
   }
-  if (card.guard) parts.push(`The credential guard stopped ${plural(card.guard.stopped, "read", "reads")}.`);
-  return `${parts[0]}: ${parts.slice(1).join(" ")}`;
+  if (card.guard) parts.push(`The credential guard stopped it reading ${list([...card.guard.credentials])}.`);
+  return `A summary card of a ${card.agent} session${where}: ${parts.join(" ")}`;
 }

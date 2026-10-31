@@ -77,7 +77,7 @@ describe("shareCard", () => {
       { label: "Model APIs", count: 1, domains: ["api.anthropic.com"] },
       { label: "Git hosts", count: 1, domains: ["github.com"] },
     ]);
-    expect(card.guard).toEqual({ stopped: 1, credentials: ["my AWS credentials"] });
+    expect(card.guard).toEqual({ credentials: ["my AWS credentials"] });
   });
 
   it("shows what the person chose: a redacted title, the project's name, internal domains", () => {
@@ -97,6 +97,19 @@ describe("shareCard", () => {
     expect(shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title: "x".repeat(200) }).title).toHaveLength(90);
   });
 
+  it("redacts a title before cutting it, so the cut cannot leave part of a name", () => {
+    const title = `${"x".repeat(85)} anns-mbp.example.com`;
+    const card = shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title });
+    expect(card.title).toBe(`${"x".repeat(85)} ${HIDDEN}`);
+    expect(card.title).not.toContain("ann");
+  });
+
+  it("names the credentials the guard stopped, once each, however many alerts", () => {
+    const card = shareCard(input({ alerts: [stoppedRead(1, "your AWS credentials"), stoppedRead(2, "your AWS credentials"),
+      stoppedRead(3, "your SSH private key")] }), DEFAULT_SHARE_OPTIONS);
+    expect(card.guard).toEqual({ credentials: ["my AWS credentials", "my SSH private key"] });
+  });
+
   it("reads a session with no digest, usage or project", () => {
     const card = shareCard(input({ totals: totals({ digest: undefined, usage: undefined }), project: undefined, alerts: [],
       firstNs: undefined }), DEFAULT_SHARE_OPTIONS);
@@ -110,8 +123,8 @@ describe("caption and altText", () => {
   it("say what the card says and nothing else", () => {
     const card = shareCard(input(), DEFAULT_SHARE_OPTIONS);
     expect(caption(card)).toBe("47 min, 412 commands and 1,286 tool calls: what my AI agent actually did, recorded at the kernel. "
-      + "The credential guard stopped 1 read of my AWS credentials. Recorded with RawTrail.");
-    expect(altText(card)).toMatch(/^A summary card of a Claude Code session on .+: What my AI agent did in 47 min\. Ran for 47 min, 412 commands, 1,286 tool calls, 3\.1M tokens\. Programs it ran most: go, git, rg and npm\. It talked to model apis \(1\) and git hosts \(1\)\. The credential guard stopped 1 read\.$/);
+      + "The credential guard stopped it reading my AWS credentials. Recorded with RawTrail.");
+    expect(altText(card)).toMatch(/^A summary card of a Claude Code session on .+: What my AI agent did in 47 min\. Ran for 47 min, 412 commands, 1,286 tool calls, 3\.1M tokens\. Programs it ran most: go, git, rg and npm\. It talked to model apis \(1\) and git hosts \(1\)\. The credential guard stopped it reading my AWS credentials\.$/);
   });
 });
 
@@ -142,7 +155,8 @@ describe("a shared card names no person or machine", () => {
       const ipv4 = `${String(octet())}.${String(octet())}.${String(octet())}.${String(octet())}`;
       const ipv6 = `fd${token(2).replace(/[^0-9a-f]/g, "1")}::${String(octet())}:1`;
       const secrets = [user, label, host, ipv4, ipv6];
-      const anywhere = (): string => pick([user, host, label, ipv4, ipv6, `${user}@${host}`, `/Users/${user}`, `/home/${user}`]);
+      const anywhere = (): string => pick([user, host, label, ipv4, ipv6, `${user}@${host}`, `/Users/${user}`, `/home/${user}`,
+        `C:\\Users\\${user} ${token(4)}\\repo`, `backup_${ipv4}`, `backup_${ipv6}`, user.toUpperCase()]);
       const sentence = (): string => `${token(4)} ${anywhere()} ${token(3)} ${anywhere()}`;
       const session = input({
         agent: pick(["Claude Code", `Claude Code on ${host}`, `${user}'s agent`]),
