@@ -50,6 +50,8 @@ const (
 	// defaultStoreSizeWarnGB is the size of the event archive and the database together past which admin settings warns (issue
 	// #1434). A server capturing everything from a few hosts writes a few GB a day, so this is weeks of headroom on a laptop's disk.
 	defaultStoreSizeWarnGB = 100
+	// maxStoreSizeWarnGB caps the threshold at a petabyte, far past any single server's disk, and well inside the bytes an int64 holds.
+	maxStoreSizeWarnGB = 1_000_000
 	// maxRetentionDays caps every retention window at a hundred years. Every consumer turns a window into a time.Duration of that many
 	// days, and a Duration counts nanoseconds in an int64, so past about 106,751 days the conversion wraps negative. A wrapped window puts
 	// the cutoff in the FUTURE and the next pass deletes every row older than that, which is to say everything: the opposite of what an
@@ -368,6 +370,9 @@ func loadRateLimits(c *Config, getenv func(string) string, errs *[]error) {
 	// Events have no "disable": an archive kept without bound fills its disk.
 	envparse.PositiveInt(getenv, "EDR_EVENT_RETENTION_DAYS", &c.EventRetentionDays, errs)
 	envparse.NonNegativeInt(getenv, "EDR_STORE_SIZE_WARN_GB", &c.StoreSizeWarnGB, errs)
+	if c.StoreSizeWarnGB > maxStoreSizeWarnGB {
+		*errs = append(*errs, fmt.Errorf("EDR_STORE_SIZE_WARN_GB=%d exceeds the maximum of %d", c.StoreSizeWarnGB, maxStoreSizeWarnGB))
+	}
 	if c.EventRetentionDays > maxRetentionDays {
 		*errs = append(*errs, fmt.Errorf("EDR_EVENT_RETENTION_DAYS=%d exceeds the maximum of %d days", c.EventRetentionDays, maxRetentionDays))
 	}

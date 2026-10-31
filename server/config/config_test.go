@@ -218,6 +218,20 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
+			name: "EDR_STORE_SIZE_WARN_GB at the maximum is accepted",
+			env:  withExtra(minEnv, map[string]string{"EDR_STORE_SIZE_WARN_GB": "1000000"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, 1_000_000, c.StoreSizeWarnGB)
+			},
+		},
+		{
+			// Past the cap, the threshold in bytes would overflow and warn about any store.
+			name:    "an EDR_STORE_SIZE_WARN_GB past the maximum is rejected",
+			env:     withExtra(minEnv, map[string]string{"EDR_STORE_SIZE_WARN_GB": "18446744074"}),
+			wantErr: "EDR_STORE_SIZE_WARN_GB=18446744074 exceeds the maximum",
+		},
+		{
 			name:    "a negative EDR_STORE_SIZE_WARN_GB is rejected",
 			env:     withExtra(minEnv, map[string]string{"EDR_STORE_SIZE_WARN_GB": "-1"}),
 			wantErr: "EDR_STORE_SIZE_WARN_GB",
