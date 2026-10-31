@@ -13,6 +13,10 @@ on:
       - "arch-go.yml"
       - "Taskfile.yml"
       - ".github/workflows/arch-go.yml"
+      # test/arch also reads the compose files and runs the laptop installer.
+      - "docker-compose*.yml"
+      - "packaging/laptop/**"
+      - "scripts/laptop/**"
   pull_request:
   workflow_dispatch:
 
@@ -43,7 +47,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          PATTERN='\.go$|(^|/)go\.(mod|sum)$|^arch-go\.yml$|^Taskfile\.yml$|^\.github/workflows/arch-go\.yml$'
+          PATTERN='\.go$|(^|/)go\.(mod|sum)$|^arch-go\.yml$|^Taskfile\.yml$|^\.github/workflows/arch-go\.yml$|^docker-compose[^/]*\.yml$|^packaging/laptop/|^scripts/laptop/'
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             echo "Triggered by $EVENT_NAME; running unconditionally."
