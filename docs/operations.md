@@ -280,6 +280,17 @@ Every host records writes, renames, truncations and deletions of `/etc/sudoers` 
 - **The set replaces the previous one.** Removing a path stops watching it on each host as the new set arrives.
 - **Saves do not overwrite each other.** If someone else saves a change after you opened the page, your save is refused; load the latest set and make your change again.
 
+### Guarding credentials from AI agents
+
+Each host's security extension watches the credential files an AI coding agent could be told to read: SSH private keys (`~/.ssh/id_*`), `~/.aws/credentials`, the GitHub CLI's `~/.config/gh/hosts.yml`, `~/.netrc`, `~/.docker/config.json` and `~/.kube/config`, in every user's home folder. When a process in a Claude Code session opens one with anything but that file's own tools, the `agent_credential_read` rule raises an alert. `ssh` reading a key for `git push` is not reported, and reads outside an agent session are never refused.
+
+To change it, open **Detection tuning** and edit **AI agent credential guard** (needs `detection_config.write`), then **Save and push to hosts** with a reason for the audit log. The same policy is available as `GET` and `PUT /api/v1/detection-config/credential-guard`.
+
+- **Mode.** **Detect** reports an agent's read and lets it through, and is the default. **Protect** refuses the read: the agent sees `Operation not permitted`, and the alert says it was stopped. **Off** watches nothing.
+- **Credentials.** Each entry is a path below every home, either that file or every file in its directory whose name starts with it (public keys ending in `.pub` excepted). Where two entries cover one file, the more specific one decides.
+- **Tools allowed to read a file**, by signature: an Apple tool by its identifier (`com.apple.ssh`), every tool a developer team signs by its team identifier (`94KV3E626L`), or one of the team's tools as `TEAMID:identifier`. A tool without a vendor signature, such as Homebrew's `gh`, cannot be allowed this way; exclude it from the `agent_credential_read` rule instead.
+- **Reaching hosts.** A saved policy reaches online hosts within seconds, and hosts that are offline or enroll later within minutes of connecting. A host keeps enforcing its last policy across restarts.
+
 ## Process-tree freshness
 
 ESF is best-effort and exit events go missing under kernel back-pressure, sysext crashes, and agent restarts. Two reconcilers cooperate to keep the process tree from filling with forever-green ghost rows.

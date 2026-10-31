@@ -1931,6 +1931,74 @@ export async function replaceWatchedPaths(
   );
 }
 
+// CredentialOwner is a tool a protected credential belongs to, by signing identity: a signing_id alone is an Apple platform binary, a
+// team_id is any tool that Developer ID team signs, and both are that one tool of the team's.
+export interface CredentialOwner {
+  team_id?: string;
+  signing_id?: string;
+}
+
+export type CredentialKind =
+  | "ssh_private_key"
+  | "aws_credentials"
+  | "github_cli_token"
+  | "netrc"
+  | "docker_config"
+  | "kube_config";
+
+export type CredentialGuardMode = "detect" | "protect" | "off";
+
+// ProtectedCredential is one credential file the guard protects in every home: its path below the home, whether it is that file or
+// every file in its directory whose name starts with it, and the tools allowed to read it. default marks a built-in entry.
+export interface ProtectedCredential {
+  kind: CredentialKind;
+  path: string;
+  match: "literal" | "prefix";
+  owners: CredentialOwner[];
+  default?: boolean;
+}
+
+// CredentialGuardPolicy is GET /api/v1/detection-config/credential-guard (issue #1432). Version 0 is the policy no operator has
+// changed: detect mode over the built-in credentials.
+export interface CredentialGuardPolicy {
+  version: number;
+  mode: CredentialGuardMode;
+  credentials: ProtectedCredential[];
+  updated_at?: string;
+  updated_by?: string;
+  updated_by_label?: string;
+}
+
+// ReplaceCredentialGuardResult is the PUT response: the stored policy and how far its push reached.
+export interface ReplaceCredentialGuardResult {
+  policy: CredentialGuardPolicy;
+  fanout_hosts: number;
+  fanout_failed: number;
+  fanout_skipped_reason?: string;
+}
+
+// getCredentialGuard reads the credential guard policy. Requires detection_config.read.
+export async function getCredentialGuard(): Promise<CredentialGuardPolicy> {
+  return fetchJSON<CredentialGuardPolicy>("/v1/detection-config/credential-guard");
+}
+
+// replaceCredentialGuard replaces the whole policy, provided it is still at expectedVersion, and pushes it to every enrolled host. The
+// server refuses a policy it would not enforce with a DetectionConfigApiError naming the field, and a policy that has changed since
+// with the code detection_config.conflict.
+export async function replaceCredentialGuard(
+  mode: CredentialGuardMode,
+  credentials: ProtectedCredential[],
+  reason: string,
+  expectedVersion: number,
+): Promise<ReplaceCredentialGuardResult> {
+  return detectionConfigMutationEndpoint(
+    "PUT",
+    "/v1/detection-config/credential-guard",
+    { mode, credentials, reason, expected_version: expectedVersion },
+    (res) => res.json() as Promise<ReplaceCredentialGuardResult>,
+  );
+}
+
 // AgentSettings are the fleet-wide switches for what agents collect (issue #1426). Version 0 is the settings no operator has changed.
 export interface AgentSettings {
   version: number;

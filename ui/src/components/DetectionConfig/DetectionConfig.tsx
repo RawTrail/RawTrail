@@ -28,6 +28,7 @@ import { Button } from "../ui/Button";
 import { Input, Select } from "../ui/Input";
 import { ReasonModal } from "./ReasonModal";
 import { WatchedPaths } from "./WatchedPaths";
+import { CredentialGuard } from "./CredentialGuard";
 import { severityRank } from "../ui/severity";
 import "./DetectionConfig.scss";
 
@@ -1023,6 +1024,11 @@ export function DetectionConfig() {
           <section className="detection-config__section">
             <h2 className="detection-config__heading">Watched file paths</h2>
             <WatchedPaths canWrite={canWrite} />
+          </section>
+
+          <section className="detection-config__section">
+            <h2 className="detection-config__heading">AI agent credential guard</h2>
+            <CredentialGuard canWrite={canWrite} />
           </section>
         </>
       )}
