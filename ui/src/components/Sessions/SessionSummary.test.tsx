@@ -145,6 +145,20 @@ describe("SessionSummary", () => {
     read.mockRestore();
   });
 
+  it("returns focus to the Share button when the dialog closes", async () => {
+    HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
+    const read = vi.spyOn(api, "getHostDetail").mockResolvedValue({ host_id: "host-1", hostname: "dev-mbp" } as never);
+    renderSummary(busy());
+    const share = screen.getByRole("button", { name: "Share as image" });
+    share.focus();
+    fireEvent.click(share);
+    await screen.findByRole("img", { name: /summary card/ });
+    screen.getByRole("button", { name: "Close" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(share).toHaveFocus();
+    read.mockRestore();
+  });
+
   it("counts its alerts and links to where they are shown, without leading with them", () => {
     const onAlerts = renderSummary(busy());
     const alerts = section("Alerts");

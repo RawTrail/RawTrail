@@ -192,6 +192,22 @@ describe("ShareDialog", () => {
     expect(image()).toContain("SESSION · APP");
   });
 
+  it("closes on Escape and on a click on its backdrop, with the latest onClose", async () => {
+    vi.spyOn(api, "getHostDetail").mockResolvedValue(host("anns-mbp"));
+    const first = vi.fn();
+    const latest = vi.fn();
+    const props = { hostId: "h1", totals: TOTALS, alerts: [], agent: "Claude Code", project: "/Users/ann/app", firstNs: 0,
+      lastNs: 20 * MINUTE_NS };
+    const { rerender } = render(<ShareDialog {...props} onClose={first} />);
+    await screen.findByRole("img", { name: /summary card/ });
+    rerender(<ShareDialog {...props} onClose={latest} />);
+    const dialog = screen.getByRole("dialog");
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    fireEvent.click(dialog);
+    expect(latest).toHaveBeenCalledTimes(2);
+    expect(first).not.toHaveBeenCalled();
+  });
+
   it("closes from its Close button", async () => {
     vi.spyOn(api, "getHostDetail").mockResolvedValue(host("anns-mbp"));
     const onClose = renderDialog();

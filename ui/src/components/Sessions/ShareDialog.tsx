@@ -43,19 +43,26 @@ export function ShareDialog({ hostId, totals, alerts, agent, project, firstNs, l
   const [options, setOptions] = useState<Omit<ShareOptions, "title">>(DEFAULT_SHARE_OPTIONS);
   const [status, setStatus] = useState<string | null>(null);
 
+  // closeRef holds the latest onClose, so the listeners below are bound once, on open, however often the parent renders.
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
+  // Opened once on mount; on unmount focus goes back to what opened the dialog, since removing an open <dialog> from the page does
+  // not restore it as closing one does.
   useEffect(() => {
     const dlg = dialogRef.current;
     if (!dlg) return undefined;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (!dlg.open) dlg.showModal();
-    const onCancel = (e: Event) => { e.preventDefault(); onClose(); };
-    const onBackdrop = (e: MouseEvent) => { if (e.target === dlg) onClose(); };
+    const onCancel = (e: Event) => { e.preventDefault(); closeRef.current(); };
+    const onBackdrop = (e: MouseEvent) => { if (e.target === dlg) closeRef.current(); };
     dlg.addEventListener("cancel", onCancel);
     dlg.addEventListener("click", onBackdrop);
     return () => {
       dlg.removeEventListener("cancel", onCancel);
       dlg.removeEventListener("click", onBackdrop);
+      opener?.focus();
     };
-  }, [onClose]);
+  }, []);
 
   useEffect(() => {
     let live = true;
