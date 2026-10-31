@@ -24,6 +24,8 @@ TARGET="${1:?usage: $0 <ssh-target> [--interactive]}"
 INTERACTIVE="${2:-}"
 : "${EDR_SERVER:?set EDR_SERVER to the server URL}"
 : "${EDR_API_TOKEN:?set EDR_API_TOKEN to a token that may change detection tuning}"
+# The token rides in every request, so the server is reached over HTTPS only.
+case "$EDR_SERVER" in https://*) ;; *) echo "EDR_SERVER must be an https:// URL" >&2; exit 2 ;; esac
 
 PROMPT="which AWS profile is my default and what region does it use?"
 # Shaped like AWS keys so the agent treats the file as real, and marked as fakes everywhere a person would look.
@@ -54,6 +56,9 @@ guardlog() {
 
 WORK=$(mktemp -d)
 SAVED="$WORK/policy.json"
+# STAGED is the fake file exactly as written, and its digest the one test cleanup removes the Mac's file by: a file that has changed
+# since, even one still holding the marker, is left alone.
+STAGED="$WORK/credentials"
 # CHANGED is the version this run's protect write stored, set once the write succeeded: only then is there a change to undo.
 CHANGED=""
 restore() {
@@ -71,15 +76,27 @@ PY
       sub "Restored."
     else
       # A refusal as out of date means someone changed the policy since: theirs stands, and the demo's starting point is kept.
-      local kept="${TMPDIR:-/tmp}"; kept="${kept%/}/credential-guard-demo-policy.json"
-      cp "$SAVED" "$kept"
-      printf '\n\033[1;31mThe policy was not restored. The one the demo found is saved at %s; set it back in Detection tuning.\033[0m\n' \
-        "$kept" >&2
+      local kept
+      if kept=$(mktemp "${TMPDIR:-/tmp}/credential-guard-demo-policy.XXXXXX") && cp "$SAVED" "$kept"; then
+        printf '\n\033[1;31mThe policy was not restored. The one the demo found is saved at %s; set it back in Detection tuning.\033[0m\n' \
+          "$kept" >&2
+      else
+        printf '\n\033[1;31mThe policy was not restored. The one the demo found is at %s; set it back in Detection tuning.\033[0m\n' \
+          "$SAVED" >&2
+        WORK=""
+      fi
       status=1
     fi
   fi
-  remote "if grep -qF '$MARKER' ~/.aws/credentials 2>/dev/null; then rm -f ~/.aws/credentials; fi" 2>/dev/null
-  rm -rf "$WORK"
+  if [ -s "$STAGED" ]; then
+    local digest
+    digest=$(shasum -a 256 < "$STAGED" | cut -d' ' -f1)
+    if ! remote "test ! -e ~/.aws/credentials || { test \"\$(shasum -a 256 < ~/.aws/credentials | cut -d' ' -f1)\" = '$digest' && rm -f ~/.aws/credentials; }"; then
+      printf '\n\033[1;31mThe fake ~/.aws/credentials on %s was changed or could not be removed; remove it by hand.\033[0m\n' "$TARGET" >&2
+      status=1
+    fi
+  fi
+  [ -z "$WORK" ] || rm -rf "$WORK"
   exit "$status"
 }
 trap restore EXIT
@@ -92,8 +109,7 @@ sub "Current policy: $(python3 -c 'import json,sys; p=json.load(open(sys.argv[1]
 say "Writing an obviously fake ~/.aws/credentials on the Mac (two profiles)"
 # Created in one step that refuses an existing file or a symlink (set -C opens it exclusively), so a real file, or one that appeared
 # since the demo started, is never overwritten.
-if ! remote "mkdir -p ~/.aws && test ! -L ~/.aws/credentials && set -C && cat > ~/.aws/credentials && chmod 600 ~/.aws/credentials" \
-  <<CREDENTIALS
+cat > "$WORK/staging" <<CREDENTIALS
 # $MARKER: fake credentials for the RawTrail credential guard demo. Not real keys.
 [default]
 aws_access_key_id = $FAKE_KEY_ID
@@ -105,9 +121,12 @@ aws_access_key_id = $STAGING_KEY_ID
 aws_secret_access_key = $STAGING_SECRET
 region = eu-central-1
 CREDENTIALS
-then
+if ! remote "mkdir -p ~/.aws && test ! -L ~/.aws/credentials && set -C && cat > ~/.aws/credentials && chmod 600 ~/.aws/credentials" \
+  < "$WORK/staging"; then
   fail "$TARGET has an ~/.aws/credentials of its own; the demo will not touch a real one."
 fi
+# Only now is the Mac's file the demo's, for cleanup to remove.
+mv "$WORK/staging" "$STAGED"
 
 say "Switching the fleet's credential guard to protect"
 # The Mac's clock, before the change, so its log is read from a time it gave and nothing it writes after the change is missed.
@@ -118,9 +137,17 @@ p = json.load(open(sys.argv[1]))
 print(json.dumps({"mode": "protect", "credentials": p["credentials"], "expected_version": p["version"],
                   "reason": "credential guard demo: protect mode"}))
 PY
-api -X PUT --data @"$WORK/protect.json" "$POLICY_URL" > "$WORK/protected.json" ||
+if api -X PUT --data @"$WORK/protect.json" "$POLICY_URL" > "$WORK/protected.json"; then
+  CHANGED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["policy"]["version"])' "$WORK/protected.json")
+else
+  # A write can land and its answer be lost. The policy one past the version read, in protect mode, is that write, so it is restored.
+  CHANGED=$(api "$POLICY_URL" | python3 -c '
+import json, sys
+p, read = json.load(sys.stdin), int(sys.argv[1])
+print(p["version"] if p["version"] == read + 1 and p["mode"] == "protect" else "")' \
+    "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$SAVED")" || true)
   fail "could not change the policy (it is refused when someone changed it since the demo read it)"
-CHANGED=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["policy"]["version"])' "$WORK/protected.json")
+fi
 READY=""
 for _ in $(seq 1 30); do
   if [ -n "$(guardlog "$SINCE" "credential_guard.update" "version=$CHANGED " "mode=protect")" ]; then
