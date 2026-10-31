@@ -174,6 +174,7 @@ func (c *eventConnector) Errors() <-chan int                    { return c.errs 
 func (c *eventConnector) Ping(time.Duration) error              { return nil }
 func (c *eventConnector) SendApplicationControl([]byte) error   { return nil }
 func (c *eventConnector) SendWatchedPaths([]byte) error         { return nil }
+func (c *eventConnector) SendCredentialGuard([]byte) error      { return nil }
 func (c *eventConnector) SendNetworkContainment(p []byte) error { return nil }
 
 // spec:agent-command-executor/the-lifeline-is-kept-current-while-contained/containment-status-is-not-uploaded

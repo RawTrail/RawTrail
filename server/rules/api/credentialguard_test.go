@@ -82,6 +82,9 @@ func TestValidateCredentialGuard(t *testing.T) {
 			}
 		}), "at most 32 owners"},
 		{"a path listed twice", CredentialGuardDetect, []ProtectedCredential{ok, ok}, "listed twice"},
+		{"a prefix at the top of the home", CredentialGuardDetect, with(func(c *ProtectedCredential) {
+			c.Path, c.Match = ".n", "prefix"
+		}), "a prefix must lie in a directory"},
 		{"a NUL in the path", CredentialGuardDetect, with(func(c *ProtectedCredential) { c.Path = ".aws/credentials\x00suffix" }),
 			"control characters"},
 		{"a DEL in the path", CredentialGuardDetect, with(func(c *ProtectedCredential) { c.Path = ".net\x7frc" }), "control characters"},

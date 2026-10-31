@@ -114,6 +114,10 @@ func (r *recordingSender) SendWatchedPaths(payload []byte) error {
 	return r.SendApplicationControl(payload)
 }
 
+func (r *recordingSender) SendCredentialGuard(payload []byte) error {
+	return r.SendApplicationControl(payload)
+}
+
 func (r *recordingSender) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

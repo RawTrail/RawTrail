@@ -57,6 +57,9 @@ func (r *Receiver) SendApplicationControl(payload []byte) error { return ErrUnsu
 // SendWatchedPaths always returns ErrUnsupported on non-darwin platforms, for the same reason as SendApplicationControl.
 func (r *Receiver) SendWatchedPaths(payload []byte) error { return ErrUnsupported }
 
+// SendCredentialGuard always returns ErrUnsupported on non-darwin platforms, for the same reason as SendApplicationControl.
+func (r *Receiver) SendCredentialGuard(payload []byte) error { return ErrUnsupported }
+
 // SendNetworkContainment always returns ErrUnsupported on non-darwin platforms, for the same reason as SendApplicationControl.
 func (r *Receiver) SendNetworkContainment(payload []byte) error { return ErrUnsupported }
 

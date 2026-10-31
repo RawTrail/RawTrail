@@ -415,13 +415,15 @@ Flags an AI coding agent's process reading an SSH key, cloud or registry credent
 | Default mode | `alert` |
 | Source | RawTrail |
 | ATT&CK | [`T1552.004`](https://attack.mitre.org/techniques/T1552/004/), [`T1552.001`](https://attack.mitre.org/techniques/T1552/001/) |
-| Event types | `agent_credential_would_block` |
+| Event types | `agent_credential_would_block`, `agent_credential_block` |
 
 ### Description
 
 Detects an AI coding agent session reading credential files (T1552.004, T1552.001), the step a prompt injection takes before it sends them out: a poisoned README, issue, web page or tool description tells the agent to read `~/.ssh/id_*` or `~/.aws/credentials`, and the agent's own deny rules do not stop a shell command.
 
-The security extension's credential guard watches SSH private keys, `~/.aws/credentials`, the GitHub CLI's `hosts.yml`, `~/.netrc`, `~/.docker/config.json` and `~/.kube/config`, and reports an open only by a process in an agent session that is not the credential's own tool, judged by its signature: `ssh` reading a key for `git push` is not reported. One alert is raised per session and kind of credential.
+By default the security extension's credential guard watches SSH private keys, `~/.aws/credentials`, the GitHub CLI's `hosts.yml`, `~/.netrc`, `~/.docker/config.json` and `~/.kube/config`; the files, their owner tools and the guard's mode are set fleet-wide in the credential guard policy. It reports an open only by a process in an agent session that is not the credential's own tool, judged by its signature: `ssh` reading a key for `git push` is not reported. One alert is raised per session and kind of credential.
+
+In detect mode the read goes through and the alert says the agent tried to read the file; in protect mode the guard refuses it and the alert says the agent was stopped.
 
 ### Known false-positive sources
 
@@ -431,7 +433,6 @@ The security extension's credential guard watches SSH private keys, `~/.aws/cred
 ### Limitations
 
 - Only Claude Code sessions are recognized, by the markers it sets in the environment of the commands it runs.
-- Detect mode only: the read is reported, not prevented.
 - The agent's own process carries no session marker, so its reads are alerted apart from its commands'.
 - Needs an agent whose extension runs the credential guard.
 

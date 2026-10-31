@@ -142,6 +142,10 @@ func validateProtectedCredential(c ProtectedCredential) error {
 	if err := validateHomePath(c.Path); err != nil {
 		return err
 	}
+	if c.Match == "prefix" && !strings.Contains(c.Path, "/") {
+		// Endpoint Security delivers every open under a muted prefix, at any depth: ".c" would send all of ~/.config and ~/.cache.
+		return errors.New("a prefix must lie in a directory below the home, as .ssh/id_ does")
+	}
 	if len(c.Owners) > maxCredentialOwners {
 		return fmt.Errorf("at most %d owners", maxCredentialOwners)
 	}

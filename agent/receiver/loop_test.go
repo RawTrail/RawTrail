@@ -33,6 +33,7 @@ type stubConnector struct {
 	pingCalls           atomic.Int64
 	sentPayloads        [][]byte
 	watchedPayloads     [][]byte
+	guardPayloads       [][]byte
 	containmentPayloads [][]byte
 	events              chan Event
 	errs                chan int
@@ -111,6 +112,16 @@ func (s *stubConnector) SendWatchedPaths(payload []byte) error {
 		return s.script.sendErr
 	}
 	s.watchedPayloads = append(s.watchedPayloads, append([]byte(nil), payload...))
+	return nil
+}
+
+func (s *stubConnector) SendCredentialGuard(payload []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.script.sendErr != nil {
+		return s.script.sendErr
+	}
+	s.guardPayloads = append(s.guardPayloads, append([]byte(nil), payload...))
 	return nil
 }
 
@@ -597,6 +608,35 @@ func TestDispatcher_WatchedPathsSentBeforeTheExtensionConnectsAreReplayed(t *tes
 	}
 }
 
+// spec:agent-xpc-receiver/a-credential-guard-push-before-the-connection-is-replayed/a-policy-pushed-before-connecting-is-replayed
+//
+// The credential guard's policy is held and replayed as a watched-path set is, and each push keeps its own newest payload: a policy
+// does not displace a set, nor a set a policy, though both carry a version.
+func TestDispatcher_ACredentialGuardPolicySentBeforeTheExtensionConnectsIsReplayed(t *testing.T) {
+	t.Parallel()
+	older := []byte(`{"version":1,"epoch":100,"mode":"detect","credentials":[]}`)
+	newer := []byte(`{"version":2,"epoch":200,"mode":"off","credentials":[]}`)
+	watched := []byte(`{"version":7,"epoch":900,"paths":[]}`)
+
+	d := NewDispatcher()
+	require.ErrorIs(t, d.SendCredentialGuard(newer), ErrNoConnector, "the command itself still fails")
+	require.ErrorIs(t, d.SendCredentialGuard(older), ErrNoConnector)
+	require.ErrorIs(t, d.SendWatchedPaths(watched), ErrNoConnector)
+
+	c := newStubConnector(stubScript{})
+	d.Set(c)
+	assert.Equal(t, [][]byte{newer}, c.guardPayloads, "the newest policy, not the last to arrive")
+	assert.Equal(t, [][]byte{watched}, c.watchedPayloads)
+
+	d.Clear()
+	next := newStubConnector(stubScript{})
+	d.Set(next)
+	assert.Empty(t, next.guardPayloads, "replayed once")
+
+	require.NoError(t, d.SendCredentialGuard(older), "a live connection takes the push")
+	assert.Equal(t, [][]byte{older}, next.guardPayloads)
+}
+
 // A replay that fails, because the connection dropped as it was published, is kept for the next connection rather than lost.
 //
 // spec:agent-xpc-receiver/a-watched-path-push-before-the-connection-is-replayed/a-push-before-the-extension-connects-is-replayed
@@ -692,7 +732,7 @@ func TestDispatcher_APushThatSawNoConnectionNoticesOneStoredWhileItWaited(t *tes
 
 	require.NoError(t, <-sent)
 	assert.Equal(t, [][]byte{payload}, c.watchedPayloads)
-	assert.Nil(t, d.stalledWatchedPaths, "nothing should be left waiting for a replay that will never come")
+	assert.Empty(t, d.stalled, "nothing should be left waiting for a replay that will never come")
 }
 
 // However a push and the connection's publication interleave, the push reaches the connector exactly once: directly when the push saw

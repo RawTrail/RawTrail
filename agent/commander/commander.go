@@ -43,12 +43,14 @@ const defaultRecoverInterval = time.Minute
 // stream-driven, and the cost of a redundant poll is one request that the server answers with an empty pending list.
 const defaultFloorInterval = 2 * time.Minute
 
-// ExtensionSender forwards raw JSON payloads addressed to the ESF extension over XPC: the application-control snapshot and the
-// file-tamper client's watched-path set. The commander stays decoupled from the concrete receiver so tests can supply a recording
-// double. Nil is allowed (set_application_control and set_watched_paths commands are then reported as `failed` with a clear reason).
+// ExtensionSender forwards raw JSON payloads addressed to the ESF extension over XPC: the application-control snapshot, the
+// file-tamper client's watched-path set and the credential guard's policy. The commander stays decoupled from the concrete receiver
+// so tests can supply a recording double. Nil is allowed (the commands that need it are then reported as `failed` with a clear
+// reason).
 type ExtensionSender interface {
 	SendApplicationControl(payload []byte) error
 	SendWatchedPaths(payload []byte) error
+	SendCredentialGuard(payload []byte) error
 }
 
 // NetworkContainment applies a set_network_containment command (#948): it resolves the lifeline, hands the network extension its
@@ -74,7 +76,7 @@ type Config struct {
 	OnAuthFail func(ctx context.Context)
 	HostID     string
 	Interval   time.Duration
-	// ExtensionSender is the XPC bridge to the ESF extension. Used by the set_application_control and set_watched_paths command
+	// ExtensionSender is the XPC bridge to the ESF extension. Used by the commands addressed to the extension
 	// handlers; nil means the commander cannot reach the extension, and those handlers report the command failed with a clear reason.
 	ExtensionSender ExtensionSender
 	// StreamConnected, when set, lets the commander defer to the persistent control channel while it returns true, because the gateway

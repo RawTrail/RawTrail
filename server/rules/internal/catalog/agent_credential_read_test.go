@@ -97,6 +97,23 @@ func TestAgentCredentialRead_AlertsOncePerSessionAndKind(t *testing.T) {
 	assert.Equal(t, int64(1), findings[0].ProcessID)
 }
 
+// spec:server-detection-rules-engine/a-refused-credential-read-is-alerted-as-stopped/a-refused-read-is-alerted-as-stopped
+//
+// In protect mode the guard refuses the read and reports agent_credential_block, which raises the same alert, under the same subject,
+// saying the agent was stopped.
+func TestAgentCredentialRead_AlertsARefusedReadAsStopped(t *testing.T) {
+	t.Parallel()
+	blocked := guardEvent(t, 6991, "/Users/victor/.ssh/id_ed25519", "ssh_private_key")
+	blocked.EventType = "agent_credential_block"
+	findings := evaluateAgentCredentialRead(t, nil, blocked, guardEvent(t, 7200, "/Users/victor/.ssh/id_rsa", "ssh_private_key"))
+	require.Len(t, findings, 2)
+	assert.Equal(t, "An AI agent's /bin/cat was stopped from reading your SSH private key (/Users/victor/.ssh/id_ed25519)",
+		findings[0].Description)
+	assert.Equal(t, api.SeverityHigh, findings[0].Severity)
+	assert.Equal(t, findings[1].Subject, findings[0].Subject, "a session's refused and allowed reads of one kind join one alert")
+	assert.Contains(t, findings[1].Description, "tried to read")
+}
+
 func TestAgentCredentialRead_NamesEachCredentialInPlainWords(t *testing.T) {
 	t.Parallel()
 	for kind, words := range map[string]string{ //nolint:gosec // G101: kinds of credential and their names, not credentials.

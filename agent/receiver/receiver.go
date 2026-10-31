@@ -118,6 +118,12 @@ func (r *Receiver) SendWatchedPaths(payload []byte) error {
 	return r.send("watched_paths.update", payload)
 }
 
+// SendCredentialGuard delivers a `credential_guard.update` XPC message carrying the credential guard's policy (issue #1432), with the
+// same connection requirements and asynchronous semantics as SendApplicationControl.
+func (r *Receiver) SendCredentialGuard(payload []byte) error {
+	return r.send("credential_guard.update", payload)
+}
+
 // SendNetworkContainment delivers a `network_containment.update` XPC message carrying host network containment state to the network
 // extension, with the same connection requirements and asynchronous semantics as SendApplicationControl.
 func (r *Receiver) SendNetworkContainment(payload []byte) error {
