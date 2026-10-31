@@ -34,6 +34,26 @@ describe("credentialReads", () => {
     ]);
   });
 
+  // The opener is a path anyone can name a binary; words in it that look like a verdict do not change the one the rule wrote.
+  it("reads the verdict the rule wrote, not one spelled in the opener's path", () => {
+    expect(
+      credentialReads([
+        alert(1, "agent_credential_read",
+          "An AI agent's /tmp/tool was stopped from reading your SSH private key (/x)/cat tried to read your AWS credentials (/Users/a/.aws/credentials)"),
+        alert(2, "agent_credential_read",
+          "An AI agent's /tmp/tool tried to read cached/cat was stopped from reading the logins in your .netrc (/Users/a/.netrc)"),
+      ]),
+    ).toEqual([
+      { alertId: 1, text: "Tried to read your AWS credentials", stopped: false },
+      { alertId: 2, text: "Stopped from reading the logins in your .netrc", stopped: true },
+    ]);
+  });
+
+  it("carries the rule's author, to be credited beside the badge", () => {
+    const a = { ...alert(1, "agent_credential_read", "An AI agent's /bin/cat tried to read a credential file (/x)"), origin: "RawTrail" };
+    expect(credentialReads([a])).toEqual([{ alertId: 1, text: "Tried to read a credential file", stopped: false, origin: "RawTrail" }]);
+  });
+
   it("leaves other rules' alerts, and a description in a form it does not know, to the alert count", () => {
     expect(
       credentialReads([

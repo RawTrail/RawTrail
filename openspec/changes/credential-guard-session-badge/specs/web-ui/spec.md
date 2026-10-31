@@ -2,7 +2,7 @@
 
 ### Requirement: A command that read a credential says so
 
-In the agent session view, a command whose process raised an `agent_credential_read` alert SHALL say beside it, whether open or closed, what the agent did with which credential, in the alert's words: "Tried to read your AWS credentials", or "Stopped from reading" one the guard refused, each linking to its alert.
+In the agent session view, a command whose process raised an `agent_credential_read` alert SHALL say beside it, whether open or closed, what the agent did with which credential, in the alert's words: "Tried to read your AWS credentials", or "Stopped from reading" one the guard refused, each linking to its alert and crediting its rule's author. The verdict SHALL be the one the rule wrote, whatever the opener's path says.
 
 #### Scenario: A command names the credential it read
 

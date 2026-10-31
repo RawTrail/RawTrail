@@ -953,6 +953,8 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
               <Link to={`/alerts/${String(r.alertId)}`}>
                 <Badge variant={r.stopped ? "info" : "high"}>{r.text}</Badge>
               </Link>
+              {/* The rule's author is credited wherever its alert is shown (issue #765), here as on the process row. */}
+              {r.origin && <span className="session-view__meta">{r.origin}</span>}
             </li>
           ))}
         </ul>

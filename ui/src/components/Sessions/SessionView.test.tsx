@@ -919,7 +919,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
     vi.spyOn(api, "listAlerts").mockResolvedValue([
-      alert({ id: 3001, rule_id: "agent_credential_read", severity: "high", title: "AI agent read a credential file",
+      alert({ id: 3001, rule_id: "agent_credential_read", severity: "high", title: "AI agent read a credential file", origin: "RawTrail",
         description: "An AI agent's /bin/ls tried to read your AWS credentials (/Users/v/.aws/credentials)" }),
       alert({ id: 3002, rule_id: "agent_credential_read", severity: "high", title: "AI agent read a credential file",
         description: "An AI agent's /bin/ls was stopped from reading your SSH private key (/Users/v/.ssh/id_rsa)" }),
@@ -932,9 +932,11 @@ describe("SessionView", () => {
     expect(stopped).toHaveAttribute("href", "/alerts/3002");
     expect(within(stopped).getByText("Stopped from reading your SSH private key")).toHaveClass("badge--info");
 
-    // Closing the command keeps the words beside it.
+    // Closing the command keeps the words beside it, and the rule's credit with them.
     fireEvent.click(screen.getByText("ls /private/tmp | head -3"));
-    expect(screen.getByRole("link", { name: "Tried to read your AWS credentials" })).toBeVisible();
+    const kept = screen.getByRole("link", { name: "Tried to read your AWS credentials" });
+    expect(kept).toBeVisible();
+    expect(within(kept.closest("li") ?? document.body).getByText("RawTrail")).toBeVisible();
   });
 
   // spec:web-ui/ai-agent-session-view-badges/an-alerted-process-is-never-hidden-as-plumbing
