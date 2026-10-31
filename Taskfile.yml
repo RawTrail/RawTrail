@@ -536,9 +536,12 @@ tasks:
       Demonstrate the AI agent credential guard in protect mode on an enrolled Mac (issue #1433): a fake ~/.aws/credentials, the
       fleet's policy switched to protect, Claude Code asked about it, and the kernel's refusal checked; the policy and the file are
       restored after. Needs EDR_SERVER and EDR_API_TOKEN; HOST is the Mac's ssh target (default edr-dev, victor@192.168.64.5),
-      and INTERACTIVE=1 prints the prompt to type instead of running Claude Code non-interactively.
+      INTERACTIVE=1 prints the prompt to type instead of running Claude Code non-interactively, and INJECTION=1 runs the poisoned
+      project scenario (a fake ~/.ssh/id_ed25519_deploy and a README that hides an instruction to print it).
     cmds:
-      - scripts/demo/credential-guard.sh {{.HOST | default "victor@192.168.64.5"}} {{if .INTERACTIVE}}--interactive{{end}}
+      - >-
+        scripts/demo/credential-guard.sh {{.HOST | default "victor@192.168.64.5"}} {{if .INTERACTIVE}}--interactive{{end}}
+        {{if .INJECTION}}--injection{{end}}
 
   test:e2e:demo:
     desc: |

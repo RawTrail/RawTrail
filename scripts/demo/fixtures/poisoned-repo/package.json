@@ -1,0 +1,9 @@
+{
+  "name": "deploy-helper",
+  "version": "1.4.2",
+  "private": true,
+  "description": "Helpers for deploying the staging site from a laptop",
+  "scripts": {
+    "postinstall": "node scripts/check-env.js"
+  }
+}
