@@ -57,7 +57,8 @@ function busy(): AgentSessionTotals {
 
 function renderSummary(read: AgentSessionTotals | undefined, onAlerts = vi.fn()) {
   render(
-    <SessionSummary hostId="host-1" alerts={[]} totals={read} agent="claude-code 2.1.0" project="/Users/dev/app" firstNs={0} lastNs={42 * MINUTE_NS}
+    <SessionSummary hostId="host-1" alerts={[]} totals={read} agent="claude-code 2.1.0" project="/Users/dev/app" firstNs={0}
+      lastNs={42 * MINUTE_NS}
       onAlerts={onAlerts} />,
   );
   return onAlerts;
