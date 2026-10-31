@@ -52,10 +52,9 @@ func decodeSessionCursor(token string) (sessionCursor, error) {
 func (s *Store) GetAgentSession(ctx context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error) {
 	var rows []api.AgentSessionSummary
 	if err := s.db.SelectContext(ctx, &rows, `
-		SELECT s.host_id, s.agent_session_id, s.agent_name, s.agent_version, s.agent_pid, s.cwd, s.first_seen_ns, s.last_seen_ns,
-			(SELECT p.uid FROM processes p WHERE p.host_id = s.host_id AND p.agent_session_id = s.agent_session_id AND p.uid IS NOT NULL
-			 ORDER BY p.fork_time_ns, p.id LIMIT 1) AS owner_uid
-		FROM agent_sessions s WHERE s.host_id = ? AND s.agent_session_id = ?`, hostID, sessionID,
+		SELECT host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, last_seen_ns,
+			`+sessionOwnerUID+` AS owner_uid
+		FROM agent_sessions WHERE host_id = ? AND agent_session_id = ?`, hostID, sessionID,
 	); err != nil {
 		return nil, fmt.Errorf("get agent session: %w", err)
 	}
@@ -90,7 +89,7 @@ func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string
 }
 
 // sessionOwnerUID is an agent_sessions row's owner: the uid of its earliest retained process, which the kernel stamped (issue #1478).
-// NULL once the session's processes have aged out.
+// NULL once the session's processes have aged out. The one definition the session read, the list and its bypass mark share.
 const sessionOwnerUID = `(SELECT p.uid FROM processes p
 	WHERE p.host_id = agent_sessions.host_id AND p.agent_session_id = agent_sessions.agent_session_id AND p.uid IS NOT NULL
 	ORDER BY p.fork_time_ns, p.id LIMIT 1)`
