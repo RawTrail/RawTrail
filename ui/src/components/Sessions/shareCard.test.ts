@@ -34,7 +34,9 @@ function input(over: Partial<ShareInput> = {}): ShareInput {
     totals: totals({
       commands: 412,
       tool_calls: { total: 1286, by_tool: [] },
-      activity: { files: { events: 312, distinct: 48, by_operation: {} }, network: { events: 5, distinct: 3 }, dns: { events: 9, distinct: 4 } },
+      activity: {
+        files: { events: 312, distinct: 48, by_operation: {} }, network: { events: 5, distinct: 3 }, dns: { events: 9, distinct: 4 },
+      },
       usage: {
         models: [{ model: "claude-opus-5-5", messages: 9, input_tokens: 100_000, output_tokens: 1_000_000, cache_creation_input_tokens: 0,
           cache_read_input_tokens: 2_000_000, thinking_tokens: 0 }],
@@ -124,7 +126,12 @@ describe("caption and altText", () => {
     const card = shareCard(input(), DEFAULT_SHARE_OPTIONS);
     expect(caption(card)).toBe("47 min, 412 commands and 1,286 tool calls: what my AI agent actually did, recorded at the kernel. "
       + "The credential guard stopped it reading my AWS credentials. Recorded with RawTrail.");
-    expect(altText(card)).toMatch(/^A summary card of a Claude Code session on .+: What my AI agent did in 47 min\. Ran for 47 min, 412 commands, 1,286 tool calls, 3\.1M tokens\. Programs it ran most: go, git, rg and npm\. It talked to model apis \(1\) and git hosts \(1\)\. The credential guard stopped it reading my AWS credentials\.$/);
+    // The date is written in the browser's locale, so it is matched loosely and everything around it exactly.
+    const alt = altText(card);
+    expect(alt).toMatch(/^A summary card of a Claude Code session on [^:]+: /);
+    expect(alt.slice(alt.indexOf(": ") + 2)).toBe("What my AI agent did in 47 min. Ran for 47 min, 412 commands, 1,286 tool calls, 3.1M tokens. "
+      + "Programs it ran most: go, git, rg and npm. It talked to model apis (1) and git hosts (1). "
+      + "The credential guard stopped it reading my AWS credentials.");
   });
 });
 
