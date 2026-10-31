@@ -24,6 +24,10 @@ type InventoryUpdate struct {
 // degraded collector, e.g. SystemVersion.plist unreadable mid-OS-upgrade), and blanking known-good identity on exactly that window
 // would be the worst possible trade for an EDR. The row is written once per accepted report (the stamp advances every time, same
 // cadence as the host_health row), which at one small row per host per minute is negligible churn.
+//
+// agent_changed_at is stamped, on the database clock, when the report names an agent version other than the stored one: an upgrade in
+// place (issue #1465). It is assigned before agent_version, since MySQL applies a single-table UPDATE's assignments in order and the
+// comparison must see the version being replaced.
 func (s *Store) UpdateInventory(ctx context.Context, hostID string, inv InventoryUpdate, reportedAtNs int64) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE enrollments
@@ -31,10 +35,12 @@ func (s *Store) UpdateInventory(ctx context.Context, hostID string, inv Inventor
 			os_name       = COALESCE(NULLIF(?, ''), os_name),
 			os_version    = COALESCE(NULLIF(?, ''), os_version),
 			os_build      = COALESCE(NULLIF(?, ''), os_build),
+			agent_changed_at = IF(? <> '' AND ? <> agent_version, NOW(6), agent_changed_at),
 			agent_version = COALESCE(NULLIF(?, ''), agent_version),
 			inventory_reported_at_ns = ?
 		WHERE host_id = ? AND inventory_reported_at_ns <= ?
-	`, inv.Hostname, inv.OSName, inv.OSVersion, inv.OSBuild, inv.AgentVersion, reportedAtNs, hostID, reportedAtNs)
+	`, inv.Hostname, inv.OSName, inv.OSVersion, inv.OSBuild, inv.AgentVersion, inv.AgentVersion, inv.AgentVersion, reportedAtNs, hostID,
+		reportedAtNs)
 	if err != nil {
 		return fmt.Errorf("update inventory: %w", err)
 	}

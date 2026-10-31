@@ -240,6 +240,38 @@ func TestAgentSettingsConverge_QueuesTheSettingsForHostsThatMissedThem(t *testin
 	assert.Zero(t, queued, "a host whose copy is pending is not sent another")
 }
 
+// An agent older than the settings command fails it as one it does not know, and the catch-up counts a failure as delivered for six
+// hours. Once the host's agent is upgraded in place, the settings are sent on the next catch-up, not hours later (issue #1465).
+//
+// spec:server-admin-surface/pushed-documents-are-resent-after-an-agent-upgrade/an-upgraded-agent-is-sent-the-settings
+func TestAgentSettingsConverge_ResendsToAnUpgradedAgent(t *testing.T) {
+	t.Parallel()
+	r := newAppControlRig(t, []string{"host-a"})
+	history := &fakeCommandHistory{latest: map[string]rulesapi.HostCommand{}}
+	failedAt := time.Now().Add(-10 * time.Minute)
+	enrolled := []rulesapi.HostEnrollment{{HostID: "host-a", EnrolledAt: time.Now().Add(-48 * time.Hour)}}
+	converger := agentsettings.NewConverger(agentsettings.NewStore(r.db), history.insert,
+		func(context.Context) ([]rulesapi.HostEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
+
+	queued, err := converger.Converge(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, 1, queued)
+	// The old agent fails the command as an unknown type.
+	history.latest["host-a"] = rulesapi.HostCommand{Payload: history.latest["host-a"].Payload, Status: catchup.StatusFailed,
+		CreatedAt: failedAt, CompletedAt: failedAt}
+	history.takeQueued()
+
+	queued, err = converger.Converge(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, queued, "a failure is not retried within its six hours while the same agent runs")
+
+	enrolled[0].AgentChangedAt = time.Now().Add(-time.Minute)
+	queued, err = converger.Converge(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, queued, "the upgraded agent is sent the settings")
+	assert.Equal(t, []string{"host-a"}, history.takeQueued())
+}
+
 // The catch-up runs as one of the rules context's loops, wired from the same dependencies as the watched-path one.
 func TestAgentSettingsConverge_RunsAsARulesContextLoop(t *testing.T) {
 	t.Parallel()

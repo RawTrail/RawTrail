@@ -262,6 +262,36 @@ func TestRecordStatus_HTTP_InventoryRefreshesIdentity(t *testing.T) {
 	assert.Equal(t, "renamed.local", readIdentity(t, db, uuid).Hostname, "a stale inventory must not overwrite a fresher one")
 }
 
+// A check-in reporting another agent version records when the agent changed, on the database clock, so the catch-ups resend what the
+// replaced agent may have failed (issue #1465); the same version, again, changes nothing.
+//
+// spec:server-host-status/a-check-in-records-when-the-agent-changed/an-upgrade-in-place-is-recorded
+func TestRecordStatus_HTTP_RecordsWhenTheAgentChanged(t *testing.T) {
+	t.Parallel()
+	uuid := "BBBB1465-0000-4000-8000-000000000001"
+	_, db, srv, token := statusFixture(t, uuid)
+	changedAt := func() *time.Time {
+		var at *time.Time
+		require.NoError(t, db.GetContext(t.Context(), &at, `SELECT agent_changed_at FROM enrollments WHERE host_id = ?`, uuid))
+		return at
+	}
+	report := func(version string, at int) string {
+		return fmt.Sprintf(`{"agent_version":%q,"reported_at_ns":%d,`+
+			`"components":[{"type":"network_extension","status":"healthy","last_transition_ns":1}],`+
+			`"inventory":{"hostname":"h.local","os_name":"macOS","os_version":"26.4","os_build":"25E123"}}`, version, at)
+	}
+
+	require.Equal(t, http.StatusNoContent, postStatus(t, srv, token, report("0.4.0", 100)))
+	assert.Nil(t, changedAt(), "the version it enrolled with is no change")
+
+	require.Equal(t, http.StatusNoContent, postStatus(t, srv, token, report("0.5.0", 200)))
+	upgraded := changedAt()
+	require.NotNil(t, upgraded, "an upgrade in place is recorded")
+
+	require.Equal(t, http.StatusNoContent, postStatus(t, srv, token, report("0.5.0", 300)))
+	assert.Equal(t, upgraded, changedAt(), "the same version again changes nothing")
+}
+
 // spec:server-host-status/server-persists-inventory-from-the-status-check-in/report-without-inventory-leaves-identity-untouched
 func TestRecordStatus_HTTP_NoInventoryLeavesIdentityUntouched(t *testing.T) {
 	t.Parallel()
