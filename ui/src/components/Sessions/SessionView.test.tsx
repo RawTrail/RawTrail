@@ -911,6 +911,32 @@ describe("SessionView", () => {
     expect(within(header).getByText("1 alert")).toHaveClass("badge--critical");
   });
 
+  // spec:web-ui/a-command-that-read-a-credential-says-so/a-command-names-the-credential-it-read
+  //
+  // The credential guard's alert says in words what the command did with which credential, beside the command whether it is open or
+  // closed, and links to the alert; a read the guard refused says it was stopped.
+  it("says beside a command which credential it read, or was stopped from reading, linking to the alert", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "listAlerts").mockResolvedValue([
+      alert({ id: 3001, rule_id: "agent_credential_read", severity: "high", title: "AI agent read a credential file",
+        description: "An AI agent's /bin/ls tried to read your AWS credentials (/Users/v/.aws/credentials)" }),
+      alert({ id: 3002, rule_id: "agent_credential_read", severity: "high", title: "AI agent read a credential file",
+        description: "An AI agent's /bin/ls was stopped from reading your SSH private key (/Users/v/.ssh/id_rsa)" }),
+    ]);
+    renderView();
+    const read = await screen.findByRole("link", { name: "Tried to read your AWS credentials" });
+    expect(read).toBeVisible();
+    expect(read).toHaveAttribute("href", "/alerts/3001");
+    const stopped = screen.getByRole("link", { name: "Stopped from reading your SSH private key" });
+    expect(stopped).toHaveAttribute("href", "/alerts/3002");
+    expect(within(stopped).getByText("Stopped from reading your SSH private key")).toHaveClass("badge--info");
+
+    // Closing the command keeps the words beside it.
+    fireEvent.click(screen.getByText("ls /private/tmp | head -3"));
+    expect(screen.getByRole("link", { name: "Tried to read your AWS credentials" })).toBeVisible();
+  });
+
   // spec:web-ui/ai-agent-session-view-badges/an-alerted-process-is-never-hidden-as-plumbing
   it("lists a wrapper shell an alert was raised on, with verbose off", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);

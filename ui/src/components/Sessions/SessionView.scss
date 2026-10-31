@@ -359,3 +359,20 @@
     position: static;
   }
 }
+
+// The credentials a command read, or was stopped from reading, under its header and each linked to its alert.
+//
+// Each says a sentence, so the badge's capitalized label style is turned off, and the row lines up with the header's text.
+.session-view__credential-reads {
+  background: $ui-black-5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0 0.9rem 0.6rem;
+  list-style: none;
+
+  .badge {
+    text-transform: none;
+  }
+}

@@ -43,6 +43,7 @@ import { sessionPath } from "./sessionPath";
 import { mergeTreePages } from "./treePages";
 import { BYPASS_MODE, formatSpan, formatTokens, usageLine, type UsageLine } from "./sessionUsage";
 import { SessionSummary } from "./SessionSummary";
+import { credentialReads } from "./credentialRead";
 
 // AUTO_EXPAND_GROUPS is the most commands a session can have and still open with every one expanded. A longer session opens with
 // only the commands an alert was raised in expanded, so the operator starts from what was flagged.
@@ -925,6 +926,8 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
   const [toggled, setToggled] = useState<boolean | null>(null);
   const found = hits.byGroup.get(group.key) ?? 0;
   const expanded = (toggled ?? defaultOpen) || found > 0;
+  // A credential the command read, or was stopped from reading, is said in words beside it, open or closed (issue #1432).
+  const reads = credentialReads(alerts);
   return (
     <li className="session-view__call">
       <button
@@ -943,6 +946,17 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
         {found > 0 && <span className="session-view__found">{plural(found, "match", "matches")}</span>}
         {match && <AgentCall match={match} />}
       </button>
+      {reads.length > 0 && (
+        <ul className="session-view__credential-reads">
+          {reads.map((r) => (
+            <li key={r.alertId}>
+              <Link to={`/alerts/${String(r.alertId)}`}>
+                <Badge variant={r.stopped ? "info" : "high"}>{r.text}</Badge>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
       {expanded && group.rows.length > 0 && <ProcessRows rows={group.rows} />}
       {expanded && group.processesCut && (
         <p className="session-view__notice" role="status">
