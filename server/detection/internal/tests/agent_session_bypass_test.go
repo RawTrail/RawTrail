@@ -142,6 +142,37 @@ func TestAgentSessionsList_UsageCountsOnlyFromTheOwner(t *testing.T) {
 	assert.Empty(t, filtered.Rows)
 }
 
+// A planted line from another uid, earlier than the owner's own bypassed line, must not take the owner's sighting's place: each uid's
+// sighting is kept apart, in one batch and across batches with a replay, so the owner's mark stands (issue #1478).
+//
+// spec:server-rest-api/a-session-s-usage-counts-only-from-its-owner/another-user-s-transcript-changes-nothing
+func TestAgentSessionsList_AnEarlierPlantedLineDoesNotHideTheOwnersBypass(t *testing.T) {
+	t.Parallel()
+	planted := lineageEvt("planted-early", "agent_usage", 500, `{"agent_session_id":"`+sessionOne+`","message_id":"msg_planted",`+
+		`"model":"claude-opus-5-5","input_tokens":1,"output_tokens":1,"permission_mode":"bypassPermissions","uid":502}`)
+	owners := usage("owner-bypass", 2000, sessionOne, "bypassPermissions", "")
+	for name, batches := range map[string][][]api.Event{
+		"one batch":                         {{planted, owners}},
+		"separate batches, then a replay":   {{planted}, {owners}, {planted, owners}},
+		"the owner's first, then the plant": {{owners}, {planted}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			store, db := openProcessStore(t)
+			host := "plant-" + strings.ReplaceAll(name, " ", "-")
+			seedSessionRow(t, db, host, sessionOne, "claude-code", "/Users/v/project", 100, 900)
+			seedSessionOwner(t, store, host, sessionOne, 501)
+			b := graph.NewBuilder(store, discardLogger())
+			for _, batch := range batches {
+				require.NoError(t, b.ProcessBatch(t.Context(), rewriteHost(batch, host)))
+			}
+			only, err := store.ListAgentSessions(t.Context(), api.AgentSessionFilter{HostID: host, Bypass: true}, "", 10)
+			require.NoError(t, err)
+			assert.Equal(t, []string{host + "/" + sessionOne}, sessionIDs(only.Rows), "the owner's bypassed line marks the session")
+		})
+	}
+}
+
 // spec:server-rest-api/agent-sessions-list-bypass-filter/the-list-keeps-the-sessions-that-ran-bypassed
 func TestAgentSessionsList_BypassFilter(t *testing.T) {
 	t.Parallel()
