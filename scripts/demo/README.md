@@ -35,9 +35,12 @@ task demo:credential-guard HOST=you@your-mac                  # or: scripts/demo
 task demo:credential-guard HOST=you@your-mac INTERACTIVE=1    # prints the prompt to type into Claude Code yourself
 ```
 
-It writes an obviously fake `~/.aws/credentials` (two profiles) on the Mac, switches the fleet's credential guard to protect, and asks Claude Code which AWS profile is the default and what region it uses. It then checks the kernel's decision rather than the agent's words: the security extension refused the agent's reads of the file, and the fake keys never reached the agent's output. A plain terminal read of the same file still works. On any exit it restores the policy it found and removes the fake file.
+It writes an obviously fake `~/.aws/credentials` (two profiles) on the Mac, switches the fleet's credential guard to protect, and asks Claude Code which AWS profile is the default and what region it uses. It then checks the kernel's decision rather than the agent's words: the security extension refused the agent's reads of the file and the kernel took each refusal, and none of the fake keys reached the agent's output (not checked in interactive mode, where the answer is on the Mac). A plain terminal read of the same file still works. It fails rather than pass when the Mac does not apply protect mode within a minute.
+
+On any exit it removes the fake file it wrote, by a marker only this run's file holds, and restores the policy it found, with the version it stored, so a change someone made meanwhile is kept: the restore is then refused, the policy the demo found is saved to a file it names, and it exits non-zero.
 
 - The policy is fleet-wide, so every enrolled Mac is in protect mode while the demo runs. Use a demo or dev server.
 - The Mac must have Claude Code installed and signed in for the SSH user, and that user must be able to run `sudo -n log show`.
-- The demo refuses to run on a Mac that has an `~/.aws/credentials` of its own, and never touches it.
+- The demo refuses to run on a Mac that has an `~/.aws/credentials` of its own, and never touches it: the fake file is created in one step that refuses an existing file or a symlink.
+- Refusals are counted from when the question is asked, so another agent reading the file on the same Mac at that moment would be counted too.
 - `DEMO_SSH_OPTS` passes extra ssh options, such as `-i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes`.
