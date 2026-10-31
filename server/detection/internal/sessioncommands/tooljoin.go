@@ -64,33 +64,66 @@ type textKey struct {
 
 // callIndex holds a session's Bash calls oldest first, by owner and command for a call recorded whole, and by owner for a call cut
 // to the agent's limit, which matches every command that begins with its text.
+//
+// A transcript is its user's to write, so a turn can hold thousands of identical calls, and every command that ran their text scans
+// them. The index keeps what makes that linear rather than quadratic (issue #1485), and holds no copy of a tie for it: a time
+// group whose calls a scan returns is a slice of its list, kept until a call of that group is pinned; a scan that found nothing is
+// kept, since it can only find less later; and a whole tie and a cut tie of one time are joined once.
 type callIndex struct {
 	whole map[textKey][]visibilityapi.AgentToolCall
 	cut   map[int64][]visibilityapi.AgentToolCall
-	// scans holds each scan's result, for the commands that scan a list from the same place: the commands of a large tie, which
-	// would otherwise each walk and copy all its calls (issue #1485).
-	scans map[scanKey]scanResult
+
+	groups   map[groupKey]groupScan
+	pins     map[timeKey]int
+	empty    map[emptyKey]bool
+	combined map[pairKey][]visibilityapi.AgentToolCall
 }
 
-// scanKey names one scan of a list: the list, by its first call; where the scan starts; the text a cut list's calls must begin, empty
-// for a whole list; and how many calls were pinned, the only change to what the scan skips.
-type scanKey struct {
-	list   *visibilityapi.AgentToolCall
-	from   int
-	text   string
-	pinned int
+// timeKey names the calls of one list made at one time: a turn's calls, in a list.
+type timeKey struct {
+	list *visibilityapi.AgentToolCall
+	at   int64
 }
 
-// scanResult is what nearestIn found: the calls, their time, and where a later scan resumes.
+// groupKey names a scan's result within a time group: the text a cut list's calls must begin, empty for a whole list.
+type groupKey struct {
+	timeKey
+	text string
+}
+
+// groupScan is the calls of a time group a scan returned, the slice of the list they are, and how many of the group's calls were
+// pinned then: a pin within the group is the only change to what a later scan of it returns.
+type groupScan struct {
+	found []visibilityapi.AgentToolCall
+	lo    int
+	pins  int
+}
+
+// emptyKey names a scan that found nothing: the list, where it started, and the text a cut list's calls must begin.
+type emptyKey struct {
+	list *visibilityapi.AgentToolCall
+	from int
+	text string
+}
+
+// pairKey names a whole tie and a cut tie of one time, both slices of their lists.
+type pairKey struct {
+	whole, cut tieSlice
+}
+
+// scanResult is what nearestIn found: the calls, their time, where a later scan resumes, and whether the calls are a slice of the
+// list, which stays the same slice for every command that finds them.
 type scanResult struct {
 	found  []visibilityapi.AgentToolCall
 	at     int64
 	resume int
+	shared bool
 }
 
 func newCallIndex(calls []visibilityapi.AgentToolCall) *callIndex {
 	idx := &callIndex{whole: map[textKey][]visibilityapi.AgentToolCall{}, cut: map[int64][]visibilityapi.AgentToolCall{},
-		scans: map[scanKey]scanResult{}}
+		groups: map[groupKey]groupScan{}, pins: map[timeKey]int{}, empty: map[emptyKey]bool{},
+		combined: map[pairKey][]visibilityapi.AgentToolCall{}}
 	for _, c := range calls {
 		switch {
 		case c.ToolName != "Bash" || c.Command == "":
@@ -113,48 +146,82 @@ func newCallIndex(calls []visibilityapi.AgentToolCall) *callIndex {
 
 // nearestIn returns the calls of a list not skipped, oldest first, that were made at the latest time no later than startNs and
 // within the match window, that time, and where a later scan of the list resumes: below the calls it returned. It walks back from
-// startNs, or from from when a scan of the list already passed over newer calls, and stops at the first time it finds.
-//
-// The commands of a tie scan its list from the same place, so a scan's result is kept and shared: a tie of n calls is walked and
-// copied once rather than once per command (issue #1485). Every call a scan finds shares one time, so the result holds for any
-// command within the match window of that time; text is what a cut list's ran tests, and pinned how many calls skip passes over.
+// startNs, or from from when a scan of the list already passed over newer calls, and stops at the first time it finds. text is what
+// ran tests for a cut list, empty for a whole list, and names the scan in the index.
 func (idx *callIndex) nearestIn(
 	list []visibilityapi.AgentToolCall, from int, startNs int64, skip func(callKey) bool, ran func(visibilityapi.AgentToolCall) bool,
-	text string, pinned int,
-) ([]visibilityapi.AgentToolCall, int64, int) {
+	text string,
+) scanResult {
 	// A command no call ran has no list in the index.
 	if len(list) == 0 {
-		return nil, 0, 0
+		return scanResult{}
 	}
 	if from < 0 {
 		from, _ = slices.BinarySearchFunc(list, startNs+1, func(c visibilityapi.AgentToolCall, t int64) int {
 			return cmp.Compare(c.CalledAtNs, t)
 		})
 	}
-	key := scanKey{list: &list[0], from: from, text: text, pinned: pinned}
-	if r, ok := idx.scans[key]; ok {
-		if startNs-r.at > matchWindow.Nanoseconds() {
-			return nil, 0, from
-		}
-		return r.found, r.at, r.resume
+	passes := func(c visibilityapi.AgentToolCall) bool { return !skip(callKey{c.ToolUseID, c.UID}) && ran(c) }
+	// Commands scan in the order they started, so a later scan from the same place reaches back less far, and more calls are
+	// pinned: one that found nothing finds nothing again.
+	ek := emptyKey{&list[0], from, text}
+	if idx.empty[ek] {
+		return scanResult{resume: from}
 	}
-	var found []visibilityapi.AgentToolCall
-	at, resume := int64(0), from
-	for i := from - 1; i >= 0; i-- {
-		c := list[i]
-		if startNs-c.CalledAtNs > matchWindow.Nanoseconds() || (found != nil && c.CalledAtNs != at) {
+	top := -1
+	for i := from - 1; i >= 0 && startNs-list[i].CalledAtNs <= matchWindow.Nanoseconds(); i-- {
+		if passes(list[i]) {
+			top = i
 			break
 		}
-		if skip(callKey{c.ToolUseID, c.UID}) || !ran(c) {
-			continue
+	}
+	if top < 0 {
+		idx.empty[ek] = true
+		return scanResult{resume: from}
+	}
+	at := list[top].CalledAtNs
+	gk := groupKey{timeKey{&list[0], at}, text}
+	pins := idx.pins[gk.timeKey]
+	if g, ok := idx.groups[gk]; ok && g.pins == pins {
+		return scanResult{found: g.found, at: at, resume: g.lo, shared: true}
+	}
+	lo, _ := slices.BinarySearchFunc(list[:top], at, func(c visibilityapi.AgentToolCall, t int64) int {
+		return cmp.Compare(c.CalledAtNs, t)
+	})
+	// The calls of the group a scan returns are every one that passes, which is most often all of them: then they are the list's
+	// own slice, kept for the next command; otherwise a copy, which is not kept.
+	var found []visibilityapi.AgentToolCall
+	all := true
+	for _, c := range list[lo : top+1] {
+		if passes(c) {
+			found = append(found, c)
+		} else {
+			all = false
 		}
-		found, at, resume = append(found, c), c.CalledAtNs, i
 	}
-	slices.Reverse(found)
-	if found != nil {
-		idx.scans[key] = scanResult{found: found, at: at, resume: resume}
+	if all {
+		found = list[lo : top+1]
+		idx.groups[gk] = groupScan{found: found, lo: lo, pins: pins}
+		return scanResult{found: found, at: at, resume: lo, shared: true}
 	}
-	return found, at, resume
+	resume := lo
+	for !passes(list[resume]) {
+		resume++
+	}
+	return scanResult{found: found, at: at, resume: resume}
+}
+
+// pin records that call is pinned, so the scans of its time group are made again.
+func (idx *callIndex) pin(call visibilityapi.AgentToolCall) {
+	list := idx.whole[textKey{call.UID, call.Command}]
+	if call.Truncated {
+		list = idx.cut[call.UID]
+	}
+	// A pinned call came from its list, so the list holds it; the check is for the analyzer, which cannot follow that.
+	if len(list) == 0 {
+		return
+	}
+	idx.pins[timeKey{&list[0], call.CalledAtNs}]++
 }
 
 // scan is where a command's search of its user's whole and cut calls resumes, so a command that passes over a time does not look
@@ -162,24 +229,36 @@ func (idx *callIndex) nearestIn(
 type scan struct{ whole, cut int }
 
 // nearestCalls returns the calls of the command's user that ran its text, before it and within the match window, made at the latest
-// such time, leaving out the calls skipped: one call, or the tied calls of one turn. It moves the scan below what it returns.
-func (idx *callIndex) nearestCalls(c *Command, at *scan, skip func(callKey) bool, pinned int) []visibilityapi.AgentToolCall {
+// such time, leaving out the calls skipped: one call, or the tied calls of one turn. It moves the scan below what it returns. shared
+// is whether every command that finds these calls is handed the same slice.
+func (idx *callIndex) nearestCalls(c *Command, at *scan, skip func(callKey) bool) (calls []visibilityapi.AgentToolCall, shared bool) {
 	uid := int64(*c.UID)
-	whole, wholeAt, wholeResume := idx.nearestIn(idx.whole[textKey{uid, c.Command}], at.whole, c.StartNs, skip,
-		func(visibilityapi.AgentToolCall) bool { return true }, "", pinned)
-	cut, cutAt, cutResume := idx.nearestIn(idx.cut[uid], at.cut, c.StartNs, skip, func(call visibilityapi.AgentToolCall) bool {
+	whole := idx.nearestIn(idx.whole[textKey{uid, c.Command}], at.whole, c.StartNs, skip,
+		func(visibilityapi.AgentToolCall) bool { return true }, "")
+	cut := idx.nearestIn(idx.cut[uid], at.cut, c.StartNs, skip, func(call visibilityapi.AgentToolCall) bool {
 		return strings.HasPrefix(c.Command, call.Command)
-	}, c.Command, pinned)
+	}, c.Command)
 	switch {
-	case len(cut) == 0 || (len(whole) > 0 && wholeAt > cutAt):
-		at.whole = wholeResume
-		return whole
-	case len(whole) == 0 || cutAt > wholeAt:
-		at.cut = cutResume
-		return cut
+	case len(cut.found) == 0 || (len(whole.found) > 0 && whole.at > cut.at):
+		at.whole = whole.resume
+		return whole.found, whole.shared
+	case len(whole.found) == 0 || cut.at > whole.at:
+		at.cut = cut.resume
+		return cut.found, cut.shared
 	}
-	at.whole, at.cut = wholeResume, cutResume
-	return append(whole, cut...)
+	at.whole, at.cut = whole.resume, cut.resume
+	// The two are joined in a new slice: whole may be the list's own, which an append would write past. When both are slices of
+	// their lists, the join is made once and handed to every command that finds them.
+	if !whole.shared || !cut.shared {
+		return slices.Concat(whole.found, cut.found), false
+	}
+	pk := pairKey{tieSlice{&whole.found[0], len(whole.found)}, tieSlice{&cut.found[0], len(cut.found)}}
+	if kept, ok := idx.combined[pk]; ok {
+		return kept, true
+	}
+	joined := slices.Concat(whole.found, cut.found)
+	idx.combined[pk] = joined
+	return joined, true
 }
 
 // JoinToolCalls sets ToolCall on each command an agent's wrapper shell started that a Bash call pairs with. The commands must be in
@@ -211,11 +290,11 @@ func joinWithBudget(commands []Command, calls []visibilityapi.AgentToolCall, bud
 func (j *joiner) label(i int, c *Command) *ToolCallMatch {
 	at := scan{whole: -1, cut: -1}
 	for {
-		nearest := j.idx.nearestCalls(c, &at, func(k callKey) bool { return j.pinned[k] }, len(j.pinned))
+		nearest, shared := j.idx.nearestCalls(c, &at, func(k callKey) bool { return j.pinned[k] })
 		if len(nearest) == 0 {
 			return nil
 		}
-		m := j.match(nearest)
+		m := j.match(nearest, shared)
 		// The commands of a tie share its calls as their options, so a large tie is held once however many commands it is offered.
 		options := nearest
 		if m.Kind == MatchAmbiguous {
@@ -226,6 +305,7 @@ func (j *joiner) label(i int, c *Command) *ToolCallMatch {
 		if j.assignFree(i, options) || j.assign(i, map[callKey]bool{}, &spent) {
 			if m.Kind == MatchMatched {
 				j.pinned[callKey{m.Call.ToolUseID, m.Call.UID}] = true
+				j.idx.pin(*m.Call)
 			}
 			return m
 		}
@@ -242,7 +322,7 @@ type joiner struct {
 	budget int
 	idx    *callIndex
 	ties   map[string]*ToolCallMatch
-	// tieOf is each tie by the slice of calls it was made from, for the commands a shared scan hands the same slice.
+	// tieOf is each tie by the shared slice of calls its commands are handed, so they find it without naming every call again.
 	tieOf   map[tieSlice]*ToolCallMatch
 	owner   map[callKey]int
 	options map[int][]visibilityapi.AgentToolCall
@@ -315,24 +395,31 @@ func (j *joiner) assign(i int, seen map[callKey]bool, spent *int) bool {
 }
 
 // match labels a command whose nearest calls are calls: the one call it matched, or the tie it shares with the other commands
-// offered the same calls.
-func (j *joiner) match(calls []visibilityapi.AgentToolCall) *ToolCallMatch {
+// offered the same calls. A shared slice of calls names its tie by the slice; a copy, made afresh for each command, is named by its
+// calls and never kept, so a tie is held once however many commands are offered it.
+func (j *joiner) match(calls []visibilityapi.AgentToolCall, shared bool) *ToolCallMatch {
 	if len(calls) == 1 {
 		return &ToolCallMatch{Kind: MatchMatched, Call: &calls[0]}
 	}
-	// A shared scan hands its commands the same slice, so its tie is found without naming every call again.
-	shared := tieSlice{first: &calls[0], n: len(calls)}
-	if m := j.tieOf[shared]; m != nil {
-		return m
+	slice := tieSlice{first: &calls[0], n: len(calls)}
+	if shared {
+		if m := j.tieOf[slice]; m != nil {
+			return m
+		}
 	}
 	key := tieKey(calls)
 	if m := j.ties[key]; m != nil {
-		j.tieOf[shared] = m
+		if shared {
+			j.tieOf[slice] = m
+		}
 		return m
 	}
 	m := &ToolCallMatch{Kind: MatchAmbiguous, Candidates: calls[:min(len(calls), maxListedCandidates)], CandidateCount: len(calls),
 		tied: calls}
-	j.ties[key], j.tieOf[shared] = m, m
+	j.ties[key] = m
+	if shared {
+		j.tieOf[slice] = m
+	}
 	return m
 }
 
