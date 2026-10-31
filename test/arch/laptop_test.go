@@ -119,6 +119,12 @@ func TestLaptopKeepsEventsAndGraphsAWeek(t *testing.T) {
 	assert.Equal(t, "7", env["EDR_RETENTION_DAYS"])
 }
 
+// spec:server-configuration/the-deployment-profile-is-a-setting/the-laptop-stack-runs-the-laptop-profile
+func TestLaptopStackRunsTheLaptopProfile(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "laptop", readLaptopCompose(t).Services["server"].Environment["EDR_PROFILE"])
+}
+
 // laptopRun is one sandbox the installer runs in: stubbed system tools first on PATH, a scratch home for its state, and a scratch
 // root for /etc, /var and /Library. Every stub appends its command line to calls.
 type laptopRun struct {

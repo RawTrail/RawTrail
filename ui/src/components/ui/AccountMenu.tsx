@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useCan, PermissionAction } from "../../permissions-core";
 import { settingsEntry } from "../Settings/sections";
+import { useProfile } from "../../profile-core";
 import { roleLabel } from "../../roles";
 import { useDismiss } from "./useDismiss";
 import "./AccountMenu.scss";
@@ -45,7 +46,7 @@ export function AccountMenu({ user, authMethod, roles, onLogout }: AccountMenuPr
   const { open, setOpen, ref } = useDismiss<HTMLDivElement>();
   // Where "Admin settings" goes, and whether it is offered at all. Gating it on one section's permission hid the whole area from
   // an operator who could open a different one.
-  const settingsTo = settingsEntry(can);
+  const settingsTo = settingsEntry(can, useProfile().showAdvanced);
 
   const badge = authMethodLabel(authMethod);
   const signIn = signInLabel(authMethod);

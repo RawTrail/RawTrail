@@ -79,10 +79,11 @@ afterEach(() => {
 // stubAuthedSession routes GET /api/session to an authed session carrying the given
 // permission set, and every list endpoint to an empty 200 result so the home redirect's
 // destination page mounts to its empty state instead of tripping the 401 handler.
-function stubAuthedSession(permissions: string[]): void {
+function stubAuthedSession(permissions: string[], profile?: string): void {
   const mock = vi.fn((input: unknown): Promise<FakeResponse> => {
     const url = String(input);
-    if (url.includes("/api/session")) return Promise.resolve(makeResponse({ ...authedSession, permissions }, 200));
+    if (url.includes("/api/session")) return Promise.resolve(makeResponse({ ...authedSession, permissions, profile }, 200));
+    if (url.includes("/agent-sessions")) return Promise.resolve(makeResponse({ rows: [], total_matched: 0 }, 200));
     return Promise.resolve(makeResponse([], 200));
   });
   vi.stubGlobal("fetch", mock);
@@ -101,6 +102,24 @@ describe("home view routing", () => {
     stubAuthedSession([PermissionAction.HostRead]);
     renderAuthedApp();
     expect(await screen.findByText("No hosts reporting yet.")).toBeInTheDocument();
+  });
+
+  // spec:web-ui/a-laptop-install-has-personal-defaults/a-laptop-opens-on-agent-sessions
+  it("lands a laptop install on Agent sessions, and a server on the alert list", async () => {
+    const perms = [PermissionAction.AlertRead, PermissionAction.HostRead, PermissionAction.ProcessRead];
+    stubAuthedSession(perms, "laptop");
+    const { unmount } = renderAuthedApp();
+    expect(await screen.findByText("No AI agent sessions match.")).toBeVisible();
+    unmount();
+    stubAuthedSession(perms, "server");
+    renderAuthedApp();
+    expect(await screen.findByText("No alerts found.")).toBeVisible();
+  });
+
+  it("lands a laptop operator who cannot read sessions on their first permitted surface", async () => {
+    stubAuthedSession([PermissionAction.HostRead], "laptop");
+    renderAuthedApp();
+    expect(await screen.findByText("No hosts reporting yet.")).toBeVisible();
   });
 });
 

@@ -30,6 +30,8 @@ import { setReauthDraftUser } from "./reauthDraft";
 import { currentSession, logout, Unauthorized401Error, SessionInfo, setForbiddenHandler, setUnauthorizedHandler } from "./api";
 import { PermissionsProvider, RequirePermission } from "./permissions";
 import { PermissionAction, useCan } from "./permissions-core";
+import { ProfileProvider } from "./profile";
+import { toProfile, useProfile, type Profile } from "./profile-core";
 import { createDedupedRunner } from "./dedupe";
 
 type AuthState =
@@ -38,7 +40,10 @@ type AuthState =
   // permissions is the operator's effective action set from the session probe, or
   // undefined when the server didn't return one (older server). Threaded into the
   // PermissionsProvider so the capability seam can gate nav + affordances.
-  | { status: "authed"; user: SessionInfo["user"]; authMethod: string; permissions: string[] | undefined; roles: string[] | undefined };
+  | {
+    status: "authed"; user: SessionInfo["user"]; authMethod: string; permissions: string[] | undefined; roles: string[] | undefined;
+    profile: Profile;
+  };
 
 // Routes are top-level. /ui/login (and the break-glass pages) are
 // public; /ui/* otherwise probes /api/session and gates
@@ -62,10 +67,13 @@ export function App() {
 }
 
 // HomeRedirect lands "/" on the alert queue (the analyst's entry point), or on the
-// first nav entry the operator's permission set confers when alert.read is absent.
+// first nav entry the operator's permission set confers when alert.read is absent. A laptop install (issue #1436) is one person
+// watching their own agents, so it lands on Agent sessions instead, when they can see them.
 function HomeRedirect() {
   const can = useCan();
-  return <Navigate to={firstPermittedRoute(can)} replace />;
+  const { profile } = useProfile();
+  const to = profile === "laptop" && can(PermissionAction.ProcessRead) ? "/agent-sessions" : firstPermittedRoute(can);
+  return <Navigate to={to} replace />;
 }
 
 // AuthedApp is everything behind the /api/session gate. On mount it
@@ -91,6 +99,7 @@ export function AuthedApp() {
           authMethod: info.auth_method ?? "local_password",
           permissions: info.permissions,
           roles: info.roles,
+          profile: toProfile(info.profile),
         });
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -166,158 +175,160 @@ export function AuthedApp() {
 
   return (
     <PermissionsProvider permissions={auth.permissions}>
-      <TopNav
-        user={auth.user}
-        authMethod={auth.authMethod}
-        roles={auth.roles}
-        onLogout={() => { handleLogout().catch(() => undefined); }}
-      />
-      <main className="app-page">
-        <Routes>
-          <Route path="/" element={<HomeRedirect />} />
-          <Route path="/hosts" element={<HostList />} />
-          <Route path="/alerts" element={<AlertList />} />
-          <Route
-            path="/app-control/*"
-            element={(
-              <RequirePermission action={PermissionAction.AppControlRead} surface="Application control">
-                <ApplicationControlRoutes />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/detection-config"
-            element={(
-              <RequirePermission action={PermissionAction.DetectionConfigRead} surface="Detection tuning">
-                <DetectionConfig />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/search"
-            element={(
-              <RequirePermission action={PermissionAction.ProcessRead} surface="Search">
-                <SearchPage />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/agent-sessions"
-            element={(
-              <RequirePermission action={PermissionAction.ProcessRead} surface="Agent sessions">
-                <SessionList />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/agent-sessions/:hostId/:sessionId"
-            element={(
-              <RequirePermission action={PermissionAction.ProcessRead} surface="Session">
-                <SessionView />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/coverage"
-            element={(
-              <RequirePermission action={PermissionAction.AlertRead} surface="Coverage">
-                <AttackCoverage />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/admin/settings/sso"
-            element={(
-              <RequirePermission action={PermissionAction.SSOManage} surface="Single sign-on settings">
-                <SettingsLayout><SSOSettings /></SettingsLayout>
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/admin/settings/webhooks"
-            element={(
-              <RequirePermission action={PermissionAction.WebhookManage} surface="Webhooks">
-                <SettingsLayout><Webhooks /></SettingsLayout>
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/admin/settings/containment"
-            element={(
-              <RequirePermission action={PermissionAction.ContainmentConfigRead} surface="Containment settings">
-                <SettingsLayout><ReachableAddresses /></SettingsLayout>
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/admin/settings/data-collection"
-            element={(
-              <RequirePermission action={PermissionAction.DetectionConfigRead} surface="Data collection settings">
-                <SettingsLayout><AgentSettings /></SettingsLayout>
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/admin/settings/users"
-            element={(
-              <RequirePermission action={PermissionAction.UserRead} surface="Users">
-                <SettingsLayout><Users /></SettingsLayout>
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/admin/settings/service-accounts"
-            element={(
-              <RequirePermission action={PermissionAction.ServiceAccountRead} surface="Service accounts">
-                <SettingsLayout><ServiceAccounts /></SettingsLayout>
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/rules"
-            element={(
-              <RequirePermission action={PermissionAction.AlertRead} surface="Rules">
-                <RulesCatalog />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/rules/new"
-            element={(
-              <RequirePermission action={PermissionAction.RuleContentWrite} surface="New rule">
-                <RuleEditor />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/rules/:ruleId/edit"
-            element={(
-              <RequirePermission action={PermissionAction.RuleContentWrite} surface="Edit rule">
-                <RuleEditor />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/rules/:ruleId"
-            element={(
-              <RequirePermission action={PermissionAction.AlertRead} surface="this rule">
-                <RuleDetail />
-              </RequirePermission>
-            )}
-          />
-          <Route
-            path="/rules/:ruleId/monitor-records"
-            element={(
-              <RequirePermission action={PermissionAction.AlertRead} surface="monitor records">
-                <MonitorRecords />
-              </RequirePermission>
-            )}
-          />
-          <Route path="/hosts/:hostId" element={<ProcessTreeView />} />
-          <Route path="/alerts/:alertId" element={<AlertGraphRoute />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+      <ProfileProvider profile={auth.profile}>
+        <TopNav
+          user={auth.user}
+          authMethod={auth.authMethod}
+          roles={auth.roles}
+          onLogout={() => { handleLogout().catch(() => undefined); }}
+        />
+        <main className="app-page">
+          <Routes>
+            <Route path="/" element={<HomeRedirect />} />
+            <Route path="/hosts" element={<HostList />} />
+            <Route path="/alerts" element={<AlertList />} />
+            <Route
+              path="/app-control/*"
+              element={(
+                <RequirePermission action={PermissionAction.AppControlRead} surface="Application control">
+                  <ApplicationControlRoutes />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/detection-config"
+              element={(
+                <RequirePermission action={PermissionAction.DetectionConfigRead} surface="Detection tuning">
+                  <DetectionConfig />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/search"
+              element={(
+                <RequirePermission action={PermissionAction.ProcessRead} surface="Search">
+                  <SearchPage />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/agent-sessions"
+              element={(
+                <RequirePermission action={PermissionAction.ProcessRead} surface="Agent sessions">
+                  <SessionList />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/agent-sessions/:hostId/:sessionId"
+              element={(
+                <RequirePermission action={PermissionAction.ProcessRead} surface="Session">
+                  <SessionView />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/coverage"
+              element={(
+                <RequirePermission action={PermissionAction.AlertRead} surface="Coverage">
+                  <AttackCoverage />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/admin/settings/sso"
+              element={(
+                <RequirePermission action={PermissionAction.SSOManage} surface="Single sign-on settings">
+                  <SettingsLayout><SSOSettings /></SettingsLayout>
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/admin/settings/webhooks"
+              element={(
+                <RequirePermission action={PermissionAction.WebhookManage} surface="Webhooks">
+                  <SettingsLayout><Webhooks /></SettingsLayout>
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/admin/settings/containment"
+              element={(
+                <RequirePermission action={PermissionAction.ContainmentConfigRead} surface="Containment settings">
+                  <SettingsLayout><ReachableAddresses /></SettingsLayout>
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/admin/settings/data-collection"
+              element={(
+                <RequirePermission action={PermissionAction.DetectionConfigRead} surface="Data collection settings">
+                  <SettingsLayout><AgentSettings /></SettingsLayout>
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/admin/settings/users"
+              element={(
+                <RequirePermission action={PermissionAction.UserRead} surface="Users">
+                  <SettingsLayout><Users /></SettingsLayout>
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/admin/settings/service-accounts"
+              element={(
+                <RequirePermission action={PermissionAction.ServiceAccountRead} surface="Service accounts">
+                  <SettingsLayout><ServiceAccounts /></SettingsLayout>
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/rules"
+              element={(
+                <RequirePermission action={PermissionAction.AlertRead} surface="Rules">
+                  <RulesCatalog />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/rules/new"
+              element={(
+                <RequirePermission action={PermissionAction.RuleContentWrite} surface="New rule">
+                  <RuleEditor />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/rules/:ruleId/edit"
+              element={(
+                <RequirePermission action={PermissionAction.RuleContentWrite} surface="Edit rule">
+                  <RuleEditor />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/rules/:ruleId"
+              element={(
+                <RequirePermission action={PermissionAction.AlertRead} surface="this rule">
+                  <RuleDetail />
+                </RequirePermission>
+              )}
+            />
+            <Route
+              path="/rules/:ruleId/monitor-records"
+              element={(
+                <RequirePermission action={PermissionAction.AlertRead} surface="monitor records">
+                  <MonitorRecords />
+                </RequirePermission>
+              )}
+            />
+            <Route path="/hosts/:hostId" element={<ProcessTreeView />} />
+            <Route path="/alerts/:alertId" element={<AlertGraphRoute />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </ProfileProvider>
     </PermissionsProvider>
   );
 }

@@ -35,12 +35,19 @@ type sessionResponse struct {
 	AuthMethod  string   `json:"auth_method"`
 	Permissions []string `json:"permissions"`
 	Roles       []string `json:"roles"`
+	Profile     string   `json:"profile"`
 }
 
 // setupServer wires the GET + DELETE /api/session handler stack the way main.go does. Returns the HTTP server + the users /
 // sessions stores so tests can seed users and mint sessions directly via the underlying stores; there is no password-based
 // login wire path, so this is the only way to put a session row in front of the handler.
 func setupServer(t *testing.T) (*httptest.Server, *users.Store, *sessions.Store) {
+	t.Helper()
+	return setupServerWithProfile(t, "")
+}
+
+// setupServerWithProfile is setupServer for a deployment profile, as main.go passes EDR_PROFILE.
+func setupServerWithProfile(t *testing.T, profile string) (*httptest.Server, *users.Store, *sessions.Store) {
 	t.Helper()
 	db := testdb.Open(t)
 	require.NoError(t, testkit.ApplySchema(t.Context(), db))
@@ -52,6 +59,7 @@ func setupServer(t *testing.T) (*httptest.Server, *users.Store, *sessions.Store)
 	h := login.New(svc, login.Options{
 		CookieSecure: false, // httptest is plain HTTP; browsers would reject Secure anyway.
 		Logger:       slog.Default(),
+		Profile:      profile,
 	})
 
 	publicMux := http.NewServeMux()
@@ -111,6 +119,30 @@ func TestGet_ReturnsCurrentSession(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.NotEmpty(t, body.CSRFToken, "GET must return the session's CSRF token")
 	assert.Equal(t, "oidc", body.AuthMethod, "auth_method must reflect how the session was minted")
+}
+
+// spec:server-configuration/the-deployment-profile-is-a-setting/the-session-probe-reports-the-profile
+func TestGet_ReportsTheDeploymentProfile(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, profile, want string }{
+		{"unset reads as a server deployment", "", "server"},
+		{"laptop", "laptop", "laptop"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, us, ss := setupServerWithProfile(t, tc.profile)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/api/session", nil)
+			require.NoError(t, err)
+			req.AddCookie(sessionCookie(t, us, ss))
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var body sessionResponse
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			assert.Equal(t, tc.want, body.Profile)
+		})
+	}
 }
 
 // spec:ui-authentication-session/get-requests-authenticate-by-cookie-alone/get-without-session

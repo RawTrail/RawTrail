@@ -47,6 +47,9 @@ const (
 	defaultMonitorRecordRetentionDays = 7
 	// defaultEventRetentionDays is how long the event archive keeps raw events (issue #1434): the 30 days its migration set.
 	defaultEventRetentionDays = 30
+	// ProfileServer and ProfileLaptop are the deployment profiles EDR_PROFILE names.
+	ProfileServer = "server"
+	ProfileLaptop = "laptop"
 	// defaultStoreSizeWarnGB is the size of the event archive and the database together past which admin settings warns (issue
 	// #1434). A server capturing everything from a few hosts writes a few GB a day, so this is weeks of headroom on a laptop's disk.
 	defaultStoreSizeWarnGB = 100
@@ -115,6 +118,10 @@ type Config struct {
 	EnrollRatePerMin int
 	LogLevel         string
 	LogFormat        string
+	// Profile is the kind of deployment this server is (issue #1436): "server", the default, for a fleet, or "laptop" for one person
+	// watching their own agents (docker-compose.laptop.yml). The console reads it to choose its defaults; it grants and removes nothing.
+	// From EDR_PROFILE.
+	Profile string
 
 	// Data lifecycle.
 	//
@@ -232,6 +239,7 @@ func defaults() Config {
 		ListenAddr:                 ":8088",
 		LogLevel:                   "info",
 		LogFormat:                  "json",
+		Profile:                    ProfileServer,
 		EnrollRatePerMin:           defaultEnrollRatePerMin,
 		RetentionDays:              defaultRetentionDays,
 		EventRetentionDays:         defaultEventRetentionDays,
@@ -403,6 +411,12 @@ func loadLogConfig(c *Config, getenv func(string) string, errs *[]error) {
 	}
 	if c.LogFormat != "json" && c.LogFormat != "text" {
 		*errs = append(*errs, fmt.Errorf("EDR_LOG_FORMAT=%q must be 'json' or 'text'", c.LogFormat))
+	}
+	if v := getenv("EDR_PROFILE"); v != "" {
+		c.Profile = strings.ToLower(v)
+	}
+	if c.Profile != ProfileServer && c.Profile != ProfileLaptop {
+		*errs = append(*errs, fmt.Errorf("EDR_PROFILE=%q must be %q or %q", c.Profile, ProfileServer, ProfileLaptop))
 	}
 }
 

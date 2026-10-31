@@ -11,6 +11,7 @@
 package login
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -41,6 +42,7 @@ type Handler struct {
 	perms     PermissionResolver
 	logger    *slog.Logger
 	cookieSec bool
+	profile   string
 }
 
 // Options tune handler behaviour.
@@ -57,6 +59,8 @@ type Options struct {
 	// returns an empty permission set (existing tests that don't exercise UI gating need not wire the authz engine). Production wires
 	// identityCtx's authz engine.
 	Permissions PermissionResolver
+	// Profile is the deployment profile the session probe reports (EDR_PROFILE). Empty reports "server", the default deployment.
+	Profile string
 }
 
 // New builds a session handler. Panics if svc is nil.
@@ -73,6 +77,7 @@ func New(svc api.Service, opts Options) *Handler {
 		audit:     opts.Audit,
 		perms:     opts.Permissions,
 		logger:    logger,
+		profile:   cmp.Or(opts.Profile, "server"),
 		cookieSec: opts.CookieSecure,
 	}
 }
@@ -105,6 +110,8 @@ type sessionResponse struct {
 	// Roles is the id of every role the operator holds deployment-wide, sorted, so the account menu can say which role a session
 	// carries. Always a non-nil array. The same global bindings Permissions is computed from.
 	Roles []string `json:"roles"`
+	// Profile is the deployment profile (EDR_PROFILE, issue #1436), "server" or "laptop", from which the console chooses its defaults.
+	Profile string `json:"profile"`
 }
 
 type errBody struct {
@@ -214,6 +221,7 @@ func (h *Handler) writeSessionJSON(ctx context.Context, w http.ResponseWriter, u
 		AuthMethod:  authMethod,
 		Permissions: h.effectivePermissions(roleIDs),
 		Roles:       roleIDs,
+		Profile:     h.profile,
 	})
 }
 

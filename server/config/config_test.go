@@ -418,6 +418,28 @@ func TestLoad(t *testing.T) {
 			}),
 			wantErr: `EDR_LOG_FORMAT="xml" must be 'json' or 'text'`,
 		},
+		// spec:server-configuration/the-deployment-profile-is-a-setting/the-profile-defaults-to-server-and-accepts-laptop
+		{
+			name: "profile defaults to server",
+			env:  minEnv,
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, ProfileServer, c.Profile)
+			},
+		},
+		{
+			name: "laptop profile, in any case",
+			env:  withExtra(minEnv, map[string]string{"EDR_PROFILE": "Laptop"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, ProfileLaptop, c.Profile)
+			},
+		},
+		{
+			name:    "unknown profile refused",
+			env:     withExtra(minEnv, map[string]string{"EDR_PROFILE": "desktop"}),
+			wantErr: `EDR_PROFILE="desktop" must be "server" or "laptop"`,
+		},
 		{
 			name: "log level normalized to lowercase",
 			env: withExtra(minEnv, map[string]string{

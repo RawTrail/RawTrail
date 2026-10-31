@@ -92,6 +92,8 @@ services:
       # A laptop's disk is smaller than a server's: the store size warning fires at 20 GB.
       EDR_STORE_SIZE_WARN_GB: "20"
       # No OTEL_EXPORTER_OTLP_ENDPOINT: telemetry export stays off.
+      # The console's laptop defaults: Agent sessions first, and fleet settings behind "Show advanced settings".
+      EDR_PROFILE: "laptop"
     volumes:
       - ${RAWTRAIL_LAPTOP_HOME:?run scripts/laptop/rawtrail-laptop install}/tls:/tls:ro
     secrets:

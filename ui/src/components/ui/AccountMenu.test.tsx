@@ -5,6 +5,8 @@ import type { ReactNode } from "react";
 import { AccountMenu } from "./AccountMenu";
 import { PermissionsProvider } from "../../permissions";
 import { PermissionAction } from "../../permissions-core";
+import { ProfileProvider } from "../../profile";
+import { ADVANCED_KEY } from "../../profile-core";
 
 function renderMenu(permissions: string[] | undefined, onLogout = vi.fn(), roles?: readonly string[]) {
   function Wrapper({ children }: { children: ReactNode }) {
@@ -32,6 +34,21 @@ describe("AccountMenu", () => {
     renderMenu([PermissionAction.SSOManage]);
     fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
     expect(screen.getByText("mike@example.com")).toBeInTheDocument();
+  });
+
+  it("leads a laptop's Admin settings to the first section offered while fleet settings are hidden", () => {
+    localStorage.removeItem(ADVANCED_KEY);
+    render(
+      <MemoryRouter>
+        <PermissionsProvider permissions={[PermissionAction.SSOManage, PermissionAction.DetectionConfigRead]}>
+          <ProfileProvider profile="laptop">
+            <AccountMenu user={{ id: 1, email: "mike@example.com" }} onLogout={vi.fn()} />
+          </ProfileProvider>
+        </PermissionsProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
+    expect(screen.getByRole("link", { name: "Admin settings" })).toHaveAttribute("href", "/admin/settings/data-collection");
   });
 
   it("opens the dropdown and shows Admin settings when sso.manage is granted", () => {
