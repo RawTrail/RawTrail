@@ -3624,6 +3624,7 @@ components:
             - file_delete
             - file_activity
             - agent_credential_would_block
+            - agent_credential_block
             - agent_tool_call
             - agent_prompt
             - agent_usage
@@ -4699,7 +4700,9 @@ components:
         match:
           type: string
           enum: [literal, prefix]
-          description: prefix covers every file in the path's directory whose name starts with its last segment, public keys (`.pub`) excepted.
+          description: >-
+            prefix covers every file in the path's directory whose name starts with its last segment, public keys (`.pub`) excepted. A
+            prefix lies in a directory below the home, as `.ssh/id_` does.
         owners:
           type: array
           maxItems: 32

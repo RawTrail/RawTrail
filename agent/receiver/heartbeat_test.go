@@ -31,6 +31,10 @@ func (p *pingerConnector) SendWatchedPaths(b []byte) error {
 	panic("pingerConnector.SendWatchedPaths: unused")
 }
 
+func (p *pingerConnector) SendCredentialGuard(b []byte) error {
+	panic("pingerConnector.SendCredentialGuard: unused")
+}
+
 func (p *pingerConnector) SendNetworkContainment(b []byte) error {
 	panic("pingerConnector.SendNetworkContainment: unused")
 }

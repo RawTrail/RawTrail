@@ -83,7 +83,7 @@ type Executor struct {
 	logger   *slog.Logger
 }
 
-// NewExecutor builds an Executor. sender may be nil (set_application_control and set_watched_paths then report failed with a clear reason);
+// NewExecutor builds an Executor. sender may be nil (the commands addressed to the extension then report failed with a clear reason);
 // ledger may be nil
 // (dedup disabled, for tests or a degraded path if the ledger cannot be opened); logger nil uses the default.
 func NewExecutor(sender ExtensionSender, ledger Ledger, logger *slog.Logger) *Executor {
@@ -272,6 +272,8 @@ func (e *Executor) run(ctx context.Context, cmd Command) (status string, result 
 		return e.runSetApplicationControl(ctx, cmd)
 	case "set_watched_paths":
 		return e.runSetWatchedPaths(ctx, cmd)
+	case "set_credential_guard":
+		return e.runSetCredentialGuard(ctx, cmd)
 	case "set_network_containment":
 		return e.runSetNetworkContainment(ctx, cmd)
 	case "set_agent_settings":
@@ -397,6 +399,44 @@ func (e *Executor) runSetWatchedPaths(ctx context.Context, cmd Command) (string,
 	return StatusCompleted, result
 }
 
+// runSetCredentialGuard forwards the credential guard's policy to the ESF extension over XPC (issue #1432). Result on success is
+// {"version": V, "mode": M, "credentials": N}: the server's version for the policy, its mode, and how many credentials were forwarded.
+//
+// Envelope validation only, as for set_watched_paths: a version that is not negative (0 is the policy no operator has changed), a mode,
+// and credentials a JSON array. Which modes and entries the extension applies is the extension's to decide, and the agent forwards the
+// raw bytes.
+func (e *Executor) runSetCredentialGuard(ctx context.Context, cmd Command) (string, json.RawMessage) {
+	var payload setCredentialGuardPayload
+	if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+		return StatusFailed, marshalResult(invalidPayloadPrefix + err.Error())
+	}
+	if payload.Version == nil {
+		return StatusFailed, marshalResult("payload missing version")
+	}
+	if *payload.Version < 0 {
+		return StatusFailed, marshalResult("payload has a negative version")
+	}
+	if payload.Mode == "" {
+		return StatusFailed, marshalResult("payload missing mode")
+	}
+	if !isJSONArray(payload.Credentials) {
+		return StatusFailed, marshalResult("payload missing or invalid credentials array")
+	}
+	if e.sender == nil {
+		return StatusFailed, marshalResult("extension sender not configured")
+	}
+	if err := e.sender.SendCredentialGuard([]byte(cmd.Payload)); err != nil {
+		return StatusFailed, marshalResult("xpc send: " + err.Error())
+	}
+	// The outer decode and isJSONArray make this decode infallible, as for the path count in runSetWatchedPaths.
+	var credentials []json.RawMessage
+	_ = json.Unmarshal(payload.Credentials, &credentials)
+	e.logger.InfoContext(ctx, "commander set_credential_guard", "cmd_id", cmd.ID, "edr.credential_guard.version", *payload.Version,
+		"edr.credential_guard.mode", payload.Mode, "edr.credential_guard.count", len(credentials))
+	result, _ := json.Marshal(map[string]any{"version": *payload.Version, "mode": payload.Mode, "credentials": len(credentials)})
+	return StatusCompleted, result
+}
+
 // runSetAgentSettings puts the fleet's agent settings in force (issue #1426). An older push than the settings in force completes without
 // changing them, and says so, since commands can arrive out of order. Result: {"version": V, "applied": bool, "capture_prompts": bool},
 // the last being what is in force after the command.
@@ -440,6 +480,15 @@ func (e *Executor) runSetNetworkContainment(ctx context.Context, cmd Command) (s
 type setWatchedPathsPayload struct {
 	Version int64           `json:"version"`
 	Paths   json.RawMessage `json:"paths"`
+}
+
+// setCredentialGuardPayload is the part of a set_credential_guard command the agent checks; the rest, epoch included, is the
+// extension's, for the reason setWatchedPathsPayload gives.
+type setCredentialGuardPayload struct {
+	// Version is a pointer so a missing version is refused rather than read as 0, the policy no operator has changed.
+	Version     *int64          `json:"version"`
+	Mode        string          `json:"mode"`
+	Credentials json.RawMessage `json:"credentials"`
 }
 
 type killPayload struct {

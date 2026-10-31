@@ -1,0 +1,38 @@
+# T1552.004 Unsecured Credentials: Private Keys, an AI coding agent's read refused.
+#
+# The same prompt injection as T1552.004-agent-credential-read, with the credential guard in protect mode: the guard refuses cat's open
+# of the key and reports it as agent_credential_block, and agent_credential_read alerts it as a read the agent was stopped from.
+# Mirrors the positive_protect_mode_blocked_ssh_key fixture and the edr-dev run of issue #1432, where cat printed "Operation not
+# permitted".
+name: "T1552.004 an agent session's cat is stopped from reading the SSH private key"
+host:
+  id: AAAA1552-0004-0000-0000-000000000002
+  hostname: efficacy-t1552-004-block.local
+  os: macOS 26.0
+timeline:
+  - at: 0ms
+    type: fork
+    child_pid: 6991
+    parent_pid: 1
+    pidversion: 69910
+  - at: 10ms
+    type: exec
+    pid: 6991
+    ppid: 1
+    pidversion: 69910
+    path: /bin/cat
+    args: ["cat", "/Users/victor/.ssh/id_ed25519"]
+    cwd: /Users/victor/project
+    uid: 501
+    gid: 20
+    env:
+      CLAUDE_CODE_SESSION_ID: 6662f20d-55c2-4a1e-9f3b-0c1d2e3f4a5b
+      CLAUDE_PID: "6833"
+      AI_AGENT: claude-code_2-1-302_agent
+  - at: 60ms
+    type: agent_credential_block
+    pid: 6991
+    pidversion: 69910
+    path: /Users/victor/.ssh/id_ed25519
+    credential: ssh_private_key
+    flags: 0

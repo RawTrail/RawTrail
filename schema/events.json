@@ -19,7 +19,7 @@
     },
     "event_type": {
       "type": "string",
-      "enum": ["exec", "fork", "exit", "open", "file_rename", "file_truncate", "file_delete", "file_activity", "agent_credential_would_block", "agent_tool_call", "agent_prompt", "agent_usage", "network_connect", "dns_query", "application_control_block", "application_control_would_block", "application_control_undecided", "application_control_resync", "snapshot_heartbeat", "btm_launch_item_add", "sensor_provider_transition", "sensor_recovery_failed", "tcc_modify"],
+      "enum": ["exec", "fork", "exit", "open", "file_rename", "file_truncate", "file_delete", "file_activity", "agent_credential_would_block", "agent_credential_block", "agent_tool_call", "agent_prompt", "agent_usage", "network_connect", "dns_query", "application_control_block", "application_control_would_block", "application_control_undecided", "application_control_resync", "snapshot_heartbeat", "btm_launch_item_add", "sensor_provider_transition", "sensor_recovery_failed", "tcc_modify"],
       "description": "Type of endpoint security event"
     },
     "platform": {
@@ -68,6 +68,10 @@
     {
       "if": { "properties": { "event_type": { "const": "agent_credential_would_block" } }, "required": ["event_type"] },
       "then": { "properties": { "payload": { "$ref": "#/definitions/agent_credential_would_block_payload" } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "agent_credential_block" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/agent_credential_block_payload" } } }
     },
     {
       "if": { "properties": { "event_type": { "const": "agent_tool_call" } }, "required": ["event_type"] },
@@ -348,6 +352,10 @@
         "credential": { "type": "string", "enum": ["ssh_private_key", "aws_credentials", "github_cli_token", "netrc", "docker_config", "kube_config"], "description": "What the file holds: an SSH private key under ~/.ssh/id_*, ~/.aws/credentials, the GitHub CLI's ~/.config/gh/hosts.yml, ~/.netrc, ~/.docker/config.json or ~/.kube/config." },
         "flags": { "type": "integer", "enum": [0, 1, 2], "description": "The open's access mode as open(2) spells it: 0 O_RDONLY, 1 O_WRONLY, 2 O_RDWR." }
       }
+    },
+    "agent_credential_block_payload": {
+      "description": "An AI agent's process opened a credential file that is not its tool's, and the credential guard, in protect mode, refused the open. The same shape as agent_credential_would_block.",
+      "$ref": "#/definitions/agent_credential_would_block_payload"
     },
     "file_activity_payload": {
       "type": "object",

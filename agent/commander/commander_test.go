@@ -90,11 +90,12 @@ func TestFetchPending401_CallsOnAuthFail(t *testing.T) {
 }
 
 // recordingExtensionSender captures the payloads sent to the extension so tests can inspect them without cgo / real XPC: application
-// control snapshots in sent, watched-path sets in watched. Mimics the production sender's contract: return nil on success, a non-nil
+// control snapshots in sent, watched-path sets in watched, credential guard policies in guard. Mimics the production sender's contract: return nil on success, a non-nil
 // error on failure so the commander reports the command as `failed`.
 type recordingExtensionSender struct {
 	sent    [][]byte
 	watched [][]byte
+	guard   [][]byte
 	sendErr error
 }
 
@@ -111,6 +112,14 @@ func (r *recordingExtensionSender) SendWatchedPaths(payload []byte) error {
 		return r.sendErr
 	}
 	r.watched = append(r.watched, append([]byte(nil), payload...))
+	return nil
+}
+
+func (r *recordingExtensionSender) SendCredentialGuard(payload []byte) error {
+	if r.sendErr != nil {
+		return r.sendErr
+	}
+	r.guard = append(r.guard, append([]byte(nil), payload...))
 	return nil
 }
 

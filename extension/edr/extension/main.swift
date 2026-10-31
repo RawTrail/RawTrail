@@ -18,6 +18,13 @@ let watchedPathStore = WatchedPathStore()
 let fileTamper = FileTamperSubscriber(pushed: watchedPathStore.current?.paths ?? [])
 let watchedPathsLogger = Logger(subsystem: "io.rawtrail.securityextension", category: "WatchedPaths")
 
+// The credential guard (#1431) decides each open of an SSH key, a cloud or CLI token, or a similar credential file, and reports an AI
+// agent's process opening one that is not its tool's. It enforces the policy the server last pushed (#1432), persisted so a restarted
+// extension enforces it from its first open, and the built-in one until a push arrives. Constructed here for the reason fileTamper is.
+let credentialGuardStore = CredentialGuardStore()
+let credentialGuard = CredentialGuardSubscriber(policy: credentialGuardStore.current?.policy ?? .builtIn)
+let credentialGuardLogger = Logger(subsystem: "io.rawtrail.securityextension", category: "CredentialGuard")
+
 // The security extension wires the shared XPCEventServer's inbound hooks to apply app-control policy and watched-path sets pushed
 // by the agent.
 let server = XPCEventServer(
@@ -39,6 +46,20 @@ let server = XPCEventServer(
             "paths=\(update.paths.count) skipped=\(update.skipped)"
         watchedPathsLogger.info("\(summary, privacy: .public)")
         fileTamper.apply(pushed: update.paths)
+    },
+    onCredentialGuard: { data in
+        // Turned away as a watched-path set is: not a policy, a mode this extension does not know, or not newer than the one in force.
+        guard let update = credentialGuardStore.accept(data) else {
+            let current = credentialGuardStore.current
+            let skip = "credential_guard.update not accepted; the policy in force is " +
+                "version=\(current?.version ?? 0) epoch=\(current?.epoch ?? 0)"
+            credentialGuardLogger.info("\(skip, privacy: .public)")
+            return
+        }
+        let summary = "credential_guard.update version=\(update.version) epoch=\(update.epoch) mode=\(update.policy.mode.rawValue) " +
+            "credentials=\(update.policy.credentials.count) skipped=\(update.skipped)"
+        credentialGuardLogger.info("\(summary, privacy: .public)")
+        credentialGuard.apply(update.policy)
     }
 )
 // Per-producer EventSerializer instances. EventSerializer wraps a JSONEncoder that must not be shared across concurrent
@@ -79,9 +100,7 @@ let credentialStores = CredentialStoreSubscriber()
 credentialStores.onEvent = { data in server.send(data: data) }
 credentialStores.start()
 
-// The credential guard (#1431) decides each open of an SSH key, a cloud or CLI token, or a similar credential file, and reports an AI
-// agent's process opening one that is not its tool's as an `agent_credential_would_block` event. Detect mode: it allows every open.
-let credentialGuard = CredentialGuardSubscriber()
+// The credential guard was constructed above, ahead of the XPC server that applies its pushed policy.
 credentialGuard.onEvent = { data in server.send(data: data) }
 credentialGuard.start()
 

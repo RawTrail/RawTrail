@@ -121,7 +121,7 @@ type Event struct {
 	Command        string `json:"command,omitempty"`
 	Description    string `json:"description,omitempty"`
 
-	// agent_credential_would_block specifics (issue #1431): the kind of credential the guard watched opened. Path and PID name the
+	// agent_credential_would_block and agent_credential_block specifics (issues #1431, #1432): the kind of credential the guard watched opened. Path and PID name the
 	// file and its opener.
 	Credential string `json:"credential,omitempty"`
 
@@ -283,6 +283,7 @@ var knownEventTypes = map[string]bool{
 	"agent_usage":     true,
 	// An AI agent's process opening a credential file that is not its tool's (issue #1431), for the credential guard's scenario.
 	"agent_credential_would_block": true,
+	"agent_credential_block":       true,
 	"network_connect":              true,
 	"dns_query":                    true,
 	"snapshot_heartbeat":           true,
