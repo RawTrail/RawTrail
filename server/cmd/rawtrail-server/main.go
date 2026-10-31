@@ -520,6 +520,8 @@ func openDetection(
 		RetentionDays:              cfg.RetentionDays,
 		AlertRetentionDays:         cfg.AlertRetentionDays,
 		MonitorRecordRetentionDays: cfg.MonitorRecordRetentionDays,
+		EventRetentionDays:         cfg.EventRetentionDays,
+		StoreSizeWarnGB:            cfg.StoreSizeWarnGB,
 		RetentionInterval:          config.DefaultRetentionInterval,
 		QueuePruneInterval:         config.DefaultQueuePruneInterval,
 		UserExists:                 w.identity.Service().UserExists,

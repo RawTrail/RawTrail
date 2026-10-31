@@ -713,6 +713,17 @@ func (m *MemArchive) AgentPromptCount(ctx context.Context, hostID, sessionID str
 	return int64(len(page.Prompts)), err
 }
 
+// ArchiveBytes is the size of the payloads held, standing in for the space a real archive takes on disk.
+func (m *MemArchive) ArchiveBytes(_ context.Context) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for _, e := range m.byID {
+		n += int64(len(e.Payload))
+	}
+	return n, nil
+}
+
 // SearchAgentPrompts mirrors the ClickHouse store: the prompts in the window whose text holds the query regardless of case, of one
 // host when the search names one, newest first after the cursor.
 func (m *MemArchive) SearchAgentPrompts(_ context.Context, search api.AgentPromptSearch) (api.FoundAgentPromptPage, error) {

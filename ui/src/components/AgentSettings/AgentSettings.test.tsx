@@ -13,6 +13,10 @@ const makeSettings = (over: Partial<api.AgentSettings> = {}): api.AgentSettings 
 
 // jsdom doesn't implement HTMLDialogElement.showModal/close; stub them so the reason modal renders.
 beforeEach(() => {
+  // The page's storage section reads on its own; StorageReport.test.tsx covers it.
+  vi.spyOn(api, "getStorageReport").mockResolvedValue({
+    event_archive_bytes: 1, database_bytes: 1, total_bytes: 2, event_retention_days: 30, warn_bytes: 0, over_warn: false,
+  });
   HTMLDialogElement.prototype.showModal = function showModal() {
     this.open = true;
   };

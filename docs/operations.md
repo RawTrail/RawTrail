@@ -233,6 +233,8 @@ If your host filesystem is ZFS / Btrfs / LVM-thin, volume snapshots are faster t
 
 `EDR_RETENTION_DAYS` (default 30) prunes, on a fixed hourly schedule, the MySQL rows the server derives and can afford to lose: completed process-graph records older than the cutoff (a row an alert references is kept for as long as that alert is), and the per-rule monitor-match counters that back a rule's observed fire rate. Setting it to 0 disables both. The knob lives in the server's environment; restart to take effect. Raw event history is governed separately by `EDR_EVENT_RETENTION_DAYS` (default 30, 1 to 36500): at startup the server sets the ClickHouse archive's native TTL to it (ADR-0015), and ClickHouse drops events older than the window in the background. Shortening it expires the older events; lengthening it keeps new events longer but cannot bring back ones already expired.
 
+**Admin settings > Data collection** shows how much disk the event archive and the database take, and how long events are kept. It warns once the two together pass `EDR_STORE_SIZE_WARN_GB` (default 100; 0 never warns), with the same figures at `GET /api/v1/admin/storage`.
+
 Three common scenarios:
 
 1. **Keep the process graph longer for investigations.** Set a larger `EDR_RETENTION_DAYS`. Monitor `edr.retention.processes.rows_deleted` and DB disk usage for a week to confirm storage is sized right. (Raw event history is bounded by `EDR_EVENT_RETENTION_DAYS`, not this knob.)

@@ -925,3 +925,10 @@ func IsValidationError(err error) bool {
 // evaluation spans and the batch's queries are its children and follow its sampling decision, so this one name sets the trace
 // volume of the whole pipeline.
 const BatchSpanName = "detection.batch.process"
+
+// StoreSizes is how much disk the server's two stores take (issue #1434): the event archive's tables, compressed, and the database's
+// tables with their indexes.
+type StoreSizes struct {
+	EventArchiveBytes int64
+	DatabaseBytes     int64
+}
