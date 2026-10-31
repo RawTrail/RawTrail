@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { AgentSessionDigest, AgentSessionTotals } from "../../types";
+import * as api from "../../api";
 import { formatNs } from "../Search/format";
 import { SessionSummary } from "./SessionSummary";
 
@@ -56,7 +57,7 @@ function busy(): AgentSessionTotals {
 
 function renderSummary(read: AgentSessionTotals | undefined, onAlerts = vi.fn()) {
   render(
-    <SessionSummary totals={read} agent="claude-code 2.1.0" project="/Users/dev/app" firstNs={0} lastNs={42 * MINUTE_NS}
+    <SessionSummary hostId="host-1" alerts={[]} totals={read} agent="claude-code 2.1.0" project="/Users/dev/app" firstNs={0} lastNs={42 * MINUTE_NS}
       onAlerts={onAlerts} />,
   );
   return onAlerts;
@@ -129,6 +130,19 @@ describe("SessionSummary", () => {
     // The axis ends where the digest's span does, which reaches past the session's last sighting (42 min) to its last event.
     expect(within(timeline).getByText(formatNs(60 * MINUTE_NS))).toBeVisible();
     expect(within(timeline).queryByText(formatNs(42 * MINUTE_NS))).toBeNull();
+  });
+
+  it("opens the Share dialog from its Share button", async () => {
+    HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
+    const read = vi.spyOn(api, "getHostDetail").mockResolvedValue({ host_id: "host-1", hostname: "dev-mbp" } as never);
+    renderSummary(busy());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Share as image" }));
+    expect(await screen.findByRole("img", { name: /^A summary card of a claude-code 2\.1\.0 session/ })).toBeVisible();
+    expect(read).toHaveBeenCalledWith("host-1");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("img", { name: /summary card/ })).toBeNull();
+    read.mockRestore();
   });
 
   it("counts its alerts and links to where they are shown, without leading with them", () => {
