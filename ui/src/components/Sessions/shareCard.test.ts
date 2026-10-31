@@ -125,6 +125,12 @@ describe("shareCard", () => {
     expect(shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title: "x".repeat(200) }).title).toHaveLength(90);
   });
 
+  it("cuts a long title between code points, never inside an emoji", () => {
+    const title = shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title: `${"x".repeat(89)}😀 more` }).title ?? "";
+    expect(title).toBe(`${"x".repeat(89)}😀`);
+    expect(() => encodeURIComponent(title)).not.toThrow();
+  });
+
   it("redacts a title before cutting it, so the cut cannot leave part of a name", () => {
     const title = `${"x".repeat(85)} anns-mbp.example.com`;
     const card = shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title });

@@ -5,11 +5,14 @@
 // (a ClickHouse delete rewrites every part of the events table).
 
 import * as crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import { signInAsAdminViaForgedSession } from "../../fixtures/auth";
 import { insertClickHouse, openDB } from "../../fixtures/db";
 
 const PROJECT = "/Users/qa/summary";
+// HOSTNAME is the seeded host's name, which a shared image must never show.
+const HOSTNAME = "qa-mbp";
 
 interface Seeded {
   hostId: string;
@@ -39,6 +42,13 @@ async function seedSession(): Promise<Seeded> {
         rows.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 501, ?, ?, 'event', 0, ?, 'claude-code', '2.1.302')").join(", "),
       rows.flatMap((r) => [r[0], hostId, ...r.slice(1), Number(r[5]) + 1, Number(r[5]) + 5_000_000, sessionId]),
     );
+    // The host's record and its enrolled name, which the Share dialog reads to redact.
+    await db.query("INSERT INTO hosts (host_id, event_count, last_seen_ns) VALUES (?, 0, ?)", [hostId, startNs + 120e9]);
+    await db.query(
+      `INSERT INTO enrollments (host_id, hostname, agent_version, os_version, platform, source_ip)
+         VALUES (?, ?, '2.1.302', '26.0', 'darwin', '127.0.0.1')`,
+      [hostId, HOSTNAME],
+    );
     await db.query(
       `INSERT INTO agent_sessions (host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd, first_seen_ns, first_event_id,
          last_seen_ns) VALUES (?, ?, 'claude-code', '2.1.302', 40999, ?, ?, ?, ?)`,
@@ -66,6 +76,7 @@ async function seedSession(): Promise<Seeded> {
     event("n1", "network_connect", startNs + 5_000, { ...git, protocol: "tcp", remote_address: "140.82.1.1", remote_port: 443,
       remote_hostname: "api.github.com" }),
     event("d2", "dns_query", startNs + 60e9 + 3_000, { ...npm, query_name: "registry.npmjs.org", query_type: "A" }),
+    event("d3", "dns_query", startNs + 60e9 + 4_000, { ...npm, query_name: `${HOSTNAME}.local`, query_type: "A" }),
     // The host had looked github.com up before the session, from another process.
     event("d0", "dns_query", startNs - 600e9, { pid: 99, pidversion: 1, query_name: "github.com", query_type: "A" }),
   ]).catch(async (err: unknown) => {
@@ -81,6 +92,8 @@ async function removeSession({ hostId }: Seeded): Promise<void> {
   try {
     await db.query("DELETE FROM processes WHERE host_id = ?", [hostId]);
     await db.query("DELETE FROM agent_sessions WHERE host_id = ?", [hostId]);
+    await db.query("DELETE FROM enrollments WHERE host_id = ?", [hostId]);
+    await db.query("DELETE FROM hosts WHERE host_id = ?", [hostId]);
   } finally {
     await db.end();
   }
@@ -118,7 +131,8 @@ test.describe("a session's Summary", () => {
       .toHaveText(["./src1 created, 1 modified", "/Users/qa/.npm/_cacache1 created"]);
 
     const talked = page.getByRole("region", { name: "Where it talked to" });
-    await expect(talked.getByText("2 DNS lookups, 1 connection, 1 domain this host had not looked up before.")).toBeVisible();
+    // The host's own .local name is a lookup the share test seeds; the Summary, unlike a shared image, shows it.
+    await expect(talked.getByText("3 DNS lookups, 1 connection, 2 domains this host had not looked up before.")).toBeVisible();
     await expect(talked.getByRole("list", { name: "Git hosts" })).toContainText("github.com1 lookup, 1 connection");
     await expect(talked.getByRole("list", { name: "Git hosts" }).getByText("New to this host")).toHaveCount(0);
     await expect(talked.getByRole("list", { name: "Package registries" }).getByText("New to this host")).toBeVisible();
@@ -126,5 +140,50 @@ test.describe("a session's Summary", () => {
     await expect(page.getByRole("region", { name: "Timeline" }).getByRole("img", { name: /^Commands started: 2 across the session/ }))
       .toBeVisible();
     await expect(page.getByRole("region", { name: "Alerts" }).getByText("No alerts were raised in this session.")).toBeVisible();
+  });
+
+  // spec:web-ui/a-session-can-be-shared-as-an-image-made-in-the-browser/the-image-is-drawn-in-the-browser-without-a-request
+  // spec:web-ui/a-shared-session-image-carries-no-identifying-detail/the-card-shows-only-what-the-person-chose
+  test("shares the session as a redacted image made in the browser", async ({ page }) => {
+    await signInAsAdminViaForgedSession(page);
+    if (!seeded) throw new Error("no session was seeded");
+    await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
+    await page.getByRole("button", { name: "Share as image" }).click({ timeout: 20_000 });
+
+    const dialog = page.getByRole("dialog", { name: "Share this session as an image" });
+    const preview = dialog.getByRole("img", { name: /^A summary card of a claude-code/ });
+    await expect(preview).toBeVisible({ timeout: 20_000 });
+    await expect(dialog.getByText("Nothing is uploaded, and there are no share links.", { exact: false })).toBeVisible();
+    await expect(dialog).toMatchAriaSnapshot(`
+      - heading "Share this session as an image" [level=2]
+      - group "Size":
+        - button /Portrait 1080 x 1350/ [pressed]
+        - button /Landscape 1200 x 675/
+      - group "Hidden unless you show them":
+        - switch "Show a prompt as the title"
+        - switch "Show the project name"
+        - switch "Show internal domains"
+        - switch "Show what the credential guard stopped"
+    `);
+
+    // The image names neither the user (qa, from the project's home folder) nor the host, and shows its public destinations.
+    const svg = decodeURIComponent((await preview.getAttribute("src")) ?? "");
+    // The text between the SVG's tags: every other piece when split at angle brackets.
+    const words = svg.split(/[<>]/).filter((_, i) => i % 2 === 0).join(" ");
+    expect(words).not.toMatch(/\bqa\b|qa-mbp/i);
+    expect(words).toContain("Git hosts");
+    expect(await preview.getAttribute("alt")).not.toMatch(/\bqa\b|qa-mbp/i);
+
+    // Exporting makes no request: the PNG is drawn in the page.
+    const requests: string[] = [];
+    page.on("request", (r) => { if (/^https?:/.test(r.url())) requests.push(r.url()); });
+    const [download] = await Promise.all([page.waitForEvent("download"), dialog.getByRole("button", { name: "Download PNG" }).click()]);
+    expect(download.suggestedFilename()).toBe("rawtrail-session.png");
+    const png = await readFile(await download.path());
+    expect(png.subarray(1, 4).toString()).toBe("PNG");
+    // The IHDR chunk holds the width and height: the portrait card at twice its size.
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([2160, 2700]);
+    expect(requests).toEqual([]);
+    await expect(dialog.getByRole("status")).toHaveText("Image downloaded.");
   });
 });

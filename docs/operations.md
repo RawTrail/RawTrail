@@ -293,6 +293,15 @@ To change it, open **Detection tuning** and edit **AI agent credential guard** (
 - **Tools allowed to read a file**, by signature: an Apple tool by its identifier (`com.apple.ssh`), every tool a developer team signs by its team identifier (`94KV3E626L`), or one of the team's tools as `TEAMID:identifier`. Write `apple:identifier` for an Apple tool whose identifier looks like a team's. A tool without a vendor signature, such as Homebrew's `gh`, cannot be allowed this way: in protect mode its reads are refused. Install the vendor's signed build to allow it. In detect mode, excluding it from the `agent_credential_read` rule silences its alerts but changes nothing on the host.
 - **Reaching hosts.** A saved policy reaches online hosts within seconds, and hosts that are offline or enroll later within minutes of connecting. A host keeps enforcing its last policy across restarts.
 
+## Sharing an AI agent session as an image
+
+A session's Summary has a **Share as image** button. It makes a PNG card of the session in the browser: nothing is uploaded, and there are no share links. The card shows counts, the programs the agent ran by name, the public domains it talked to, its timeline, and what the credential guard stopped.
+
+- Usernames, hostnames and IP addresses are always removed, home folders show as `~`, and commands show as program names, never their arguments.
+- A prompt shown as the title, the project's name, and internal domains appear only when the person turns them on. Internal domains are names under `.local`, `.lan`, `.internal`, `.corp` and similar, and the domain the host itself is named under.
+- The preview is exactly what is exported, in 1080 x 1350 for LinkedIn or 1200 x 675 for X, at twice that resolution.
+- If the host's name cannot be read, the dialog shares nothing, since it cannot check the image for the name.
+
 ## Process-tree freshness
 
 ESF is best-effort and exit events go missing under kernel back-pressure, sysext crashes, and agent restarts. Two reconcilers cooperate to keep the process tree from filling with forever-green ghost rows.

@@ -437,6 +437,8 @@ export function SessionView() {
             {view === "summary" && !current && <EmptyState>Loading...</EmptyState>}
             {view === "summary" && current && (
               <SessionSummary
+                hostId={hostId}
+                alerts={current.alerts ?? []}
                 totals={current.totals}
                 agent={title}
                 project={project}

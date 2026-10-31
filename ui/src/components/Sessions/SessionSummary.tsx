@@ -1,6 +1,6 @@
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import "./SessionSummary.scss";
-import type { AgentSessionDigest, AgentSessionTotals } from "../../types";
+import type { AgentSessionDigest, AgentSessionTotals, Alert } from "../../types";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/Table";
@@ -8,8 +8,12 @@ import { scopeNote } from "../Activity/activityScope";
 import { formatNs, plural } from "../Search/format";
 import { BYPASS_MODE, formatSpan, formatTokens, usageLine } from "./sessionUsage";
 import { barHeights, directoryLabel, fileOperations, groupDomains } from "./sessionDigest";
+import { ShareDialog } from "./ShareDialog";
 
 interface SessionSummaryProps {
+  readonly hostId: string;
+  // alerts are the session's, read for its views; the Share dialog shows what the credential guard stopped from them.
+  readonly alerts: readonly Alert[];
   // totals is the session's summary as the server counted it; undefined when it could not be read.
   readonly totals: AgentSessionTotals | undefined;
   readonly agent: string;
@@ -23,12 +27,20 @@ interface SessionSummaryProps {
 // SessionSummary describes a session at a glance (issue #1429): what it was asked and ran, what it used, what it touched, where it
 // talked to, what it cost in tokens, and when it was busy. It is built on the summary endpoint alone, so it reads the whole session,
 // not a page of it. The tone is descriptive: alerts are a count with a link, not the headline.
-export function SessionSummary({ totals, agent, project, firstNs, lastNs, onAlerts }: SessionSummaryProps) {
+export function SessionSummary({ hostId, alerts, totals, agent, project, firstNs, lastNs, onAlerts }: SessionSummaryProps) {
+  const [sharing, setSharing] = useState(false);
   const digest = totals?.digest;
   if (!totals || !digest) return <EmptyState>The session&apos;s summary could not be read.</EmptyState>;
   const partial = totals.scope && scopeNote(totals.scope);
   return (
     <div className="session-summary">
+      <div className="session-summary__share">
+        <Button variant="inverse" onClick={() => { setSharing(true); }}>Share as image</Button>
+      </div>
+      {sharing && (
+        <ShareDialog hostId={hostId} totals={totals} alerts={alerts} agent={agent} project={project} firstNs={firstNs} lastNs={lastNs}
+          onClose={() => { setSharing(false); }} />
+      )}
       {partial && <p className="session-summary__note" role="status">{partial}</p>}
       <SummarySection title="At a glance">
         <ul className="session-summary__facts">

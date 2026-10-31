@@ -85,7 +85,8 @@ export function shareCard(input: ShareInput, options: ShareOptions): ShareCard {
   const digest = totals.digest;
   const clean = (s: string): string => redact(s, identities);
   // Redacted whole, then cut: cutting first can leave part of a name that redaction no longer recognizes.
-  const title = options.title === null ? null : clean(options.title).slice(0, TITLE_MAX).trim();
+  // Cut by code point, so an emoji is never split into a half that cannot be drawn or encoded.
+  const title = options.title === null ? null : Array.from(clean(options.title)).slice(0, TITLE_MAX).join("").trim();
   const files = totals.activity?.files;
   const usage = usageLine(totals.usage);
   const timeline = digest?.command_timeline ?? [];
