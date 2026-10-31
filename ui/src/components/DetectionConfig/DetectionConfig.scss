@@ -79,6 +79,20 @@
   margin: 0 0 $pad-small;
 }
 
+// A credential the server seeds, marked so an operator can tell the built-ins from their own additions.
+.detection-config__badge {
+  margin-left: $pad-xsmall;
+  font-size: $x-small;
+  color: $ui-black-50;
+}
+
+// The tools allowed to read a credential, one to a line, so a credential with several reads as a list rather than a run of names.
+.detection-config__owners {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 // The Observed column: the count leads, the reach and recency ride behind it at a lower weight, so the column scans by volume.
 .detection-config__observed-hosts,
 .detection-config__observed-last {
