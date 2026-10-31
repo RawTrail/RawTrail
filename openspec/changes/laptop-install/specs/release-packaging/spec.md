@@ -120,7 +120,7 @@ The install SHALL read the agent config by the agent's own rules, SHALL refuse t
 
 ### Requirement: Uninstall removes what the laptop install added
 
-The install SHALL NOT adopt an existing non-empty directory it did not make. `rawtrail-laptop uninstall` SHALL run the package's uninstaller for an agent reporting to the laptop server, SHALL stop with the config and stack kept while that uninstaller is left for a retry, and SHALL then remove the config, the stack's containers and volumes, the keychain trust it added and its state directory.
+The install SHALL NOT adopt an existing non-empty directory it did not make, and uninstall SHALL remove nothing unless pointed at one an install made. `rawtrail-laptop uninstall` SHALL run the package's uninstaller for an agent reporting to the laptop server, SHALL stop with the config and stack kept while that uninstaller is left for a retry, and SHALL then remove the config, the stack's containers and volumes, the keychain trust it added and its state directory.
 
 #### Scenario: Uninstall removes the agent, the stack and the state
 
@@ -139,3 +139,9 @@ The install SHALL NOT adopt an existing non-empty directory it did not make. `ra
 - **GIVEN** a state directory that already holds files and was not made by the install
 - **WHEN** the install runs
 - **THEN** it exits non-zero and the directory is unchanged
+
+#### Scenario: Uninstall removes nothing from a directory no install made
+
+- **GIVEN** an agent reporting to the laptop server, and a state directory setting that names no install's directory
+- **WHEN** the laptop install is uninstalled
+- **THEN** it exits non-zero, the agent's uninstaller does not run, the stack is not brought down, and the config is unchanged

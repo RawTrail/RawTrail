@@ -190,11 +190,24 @@ install_agent() {
   if [ -z "$pkg" ]; then
     pkg="$STATE/downloads/rawtrail-$VERSION.pkg"
     mkdir -p "$STATE/downloads"
-    [ -s "$pkg" ] || curl -sfL -o "$pkg" "$RELEASES/download/$VERSION/rawtrail-$VERSION.pkg" ||
-      die "could not download the agent package for $VERSION"
+    # Downloaded under a temporary name and moved into place only when complete, so a dropped transfer is fetched again next time.
+    if [ ! -s "$pkg" ]; then
+      if ! curl -sfL -o "$pkg.part" "$RELEASES/download/$VERSION/rawtrail-$VERSION.pkg" || ! mv -f "$pkg.part" "$pkg"; then
+        rm -f "$pkg.part"
+        die "could not download the agent package for $VERSION"
+      fi
+    fi
   fi
+  # The package is copied somewhere only root can write, and that copy is what Gatekeeper checks and the installer installs, so it
+  # cannot be swapped between the two.
+  local staged
+  staged=$(sudo mktemp -d "${TMPDIR:-/tmp}/rawtrail-laptop.XXXXXX")
+  # shellcheck disable=SC2064 # the path is fixed now, on purpose
+  trap "sudo rm -rf '$staged'" EXIT
+  sudo cp "$pkg" "$staged/agent.pkg"
+  pkg="$staged/agent.pkg"
   # Gatekeeper's check: the package is signed with a Developer ID and notarized by Apple.
-  spctl --assess --type install "$pkg" 2> /dev/null || die "$pkg is not a notarized package; it was not installed"
+  spctl --assess --type install "$pkg" 2> /dev/null || die "the agent package is not notarized; it was not installed"
   local replacing=""
   if [ -n "$had_conf" ] && [ "$current" != "$URL" ]; then
     replacing=1
@@ -312,6 +325,9 @@ cmd_status() {
 }
 
 cmd_uninstall() {
+  # Nothing is removed unless this is the state directory an install made: a mistyped RAWTRAIL_LAPTOP_HOME must not take down an
+  # agent or a stack. An uninstall that stopped part-way keeps the directory, so it can be run again.
+  [ -e "$MARKER" ] || die "$STATE is not a laptop install's state directory; set RAWTRAIL_LAPTOP_HOME to the one install used"
   load_selection
   # The config is root's to read, but anyone can see whether it exists: sudo is asked for only when there is one.
   [ ! -e "$CONF" ] || need_sudo

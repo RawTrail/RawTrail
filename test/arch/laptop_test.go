@@ -133,7 +133,7 @@ type laptopRun struct {
 var laptopStubs = map[string]string{
 	"uname": `echo Darwin`,
 	"docker": `case "$1 $2" in
-  "info --format") [ "$4" = "{{.MemTotal}}" ] && echo 8000000000 || echo "Docker Desktop" ;;
+  "info --format") [ "$3" = "{{.MemTotal}}" ] && echo "${ENGINE_MEMORY:-8000000000}" || echo "Docker Desktop" ;;
   "info ") [ -z "$NO_ENGINE" ] ;;
   "inspect -f") echo 2026-10-31T12:00:00Z ;;
   *)
@@ -146,7 +146,11 @@ esac`,
 	"curl": `for a in "$@"; do
   case "$a" in -sfI) echo "location: https://github.com/RawTrail/RawTrail/releases/tag/v9.9.9"; exit 0 ;; esac
 done
-out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done; [ -z "$out" ] || [ "$out" = /dev/null ] || echo pkg > "$out"`,
+out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done
+[ -z "$out" ] || [ "$out" = /dev/null ] && exit 0
+# A dropped download leaves part of the file behind and fails, as curl does.
+if [ -n "$DOWNLOAD_FAILS" ]; then echo pa > "$out"; exit 56; fi
+echo pkg > "$out"`,
 	"sudo":      `[ "$1" = -v ] && exit "${SUDO_REFUSED:-0}"; exec "$@"`,
 	"spctl":     `[ -z "$NOT_NOTARIZED" ]`,
 	"installer": `[ -z "$INSTALL_FAILS" ]`,
@@ -266,7 +270,9 @@ func TestLaptopInstallPinsTheAgentToItsServer(t *testing.T) {
 	require.NoError(t, err)
 
 	calls := r.callLog(t)
-	assert.Contains(t, calls, "installer -pkg "+filepath.Join(r.dir, "rawtrail-v9.9.9.pkg")+" -target /")
+	// The installer runs on a root-owned copy of the given package, the same copy Gatekeeper checked.
+	assert.Contains(t, calls, "cp "+filepath.Join(r.dir, "rawtrail-v9.9.9.pkg")+" ")
+	assert.Regexp(t, `spctl --assess --type install (\S+)/agent\.pkg\n(?s:.*)installer -pkg (\S+)/agent\.pkg -target /`, calls)
 	assert.Contains(t, calls, "open "+setupLink+"\n")
 	// Without mkcert the certificate is self-signed and trusted in the login keychain, for the passkey page's secure context.
 	assert.Contains(t, calls, "security add-trusted-cert -r trustRoot -p ssl")
@@ -303,7 +309,7 @@ func TestLaptopInstallRefusesAPackageThatIsNotNotarized(t *testing.T) {
 	r := newLaptopRun(t)
 	out, ok := r.run(t, []string{"NOT_NOTARIZED=1"}, "install", "--pkg", r.pkg(t))
 	require.False(t, ok)
-	assert.Contains(t, out, "is not a notarized package")
+	assert.Contains(t, out, "is not notarized")
 	assert.NotContains(t, r.callLog(t), "installer -pkg")
 }
 
@@ -548,4 +554,48 @@ func TestLaptopInstallNeverAdoptsAnExistingDirectory(t *testing.T) {
 	assert.Contains(t, out, "is not a laptop install's")
 	assert.NoFileExists(t, filepath.Join(r.state, ".rawtrail-laptop"))
 	assert.Equal(t, "mine", readFile(t, keep))
+}
+
+// A Docker engine with too little memory for the stack is named before anything starts.
+func TestLaptopInstallWarnsAboutAnEngineShortOfMemory(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	out, ok := r.run(t, []string{"ENGINE_MEMORY=2000000000"}, "install", "--no-agent")
+	require.True(t, ok, out)
+	assert.Contains(t, out, "the Docker engine has 2000 MB of memory")
+
+	out, ok = r.run(t, nil, "install", "--no-agent")
+	require.True(t, ok, out)
+	assert.NotContains(t, out, "MB of memory")
+}
+
+// A dropped download is fetched again on the next run, rather than kept and refused as a package that is not notarized.
+func TestLaptopInstallFetchesAnInterruptedDownloadAgain(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	out, ok := r.run(t, []string{"DOWNLOAD_FAILS=1"}, "install")
+	require.False(t, ok)
+	assert.Contains(t, out, "could not download the agent package for v9.9.9")
+	downloads := filepath.Join(r.state, "downloads")
+	entries, err := os.ReadDir(downloads)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "a partial download must not be left where the next run would take it as complete")
+
+	out, ok = r.run(t, nil, "install")
+	require.True(t, ok, out)
+	assert.Equal(t, "pkg\n", readFile(t, filepath.Join(downloads, "rawtrail-v9.9.9.pkg")))
+}
+
+// spec:release-packaging/uninstall-removes-what-the-laptop-install-added/uninstall-removes-nothing-from-a-directory-no-install-made
+func TestLaptopUninstallNeedsTheInstallsStateDirectory(t *testing.T) {
+	t.Parallel()
+	r := newLaptopRun(t)
+	r.writeConf(t, "EDR_SERVER_URL="+laptopURL+"\n")
+	out, ok := r.run(t, nil, "uninstall")
+	require.False(t, ok)
+	assert.Contains(t, out, "is not a laptop install's state directory")
+	calls := r.callLog(t)
+	assert.NotContains(t, calls, "uninstall.sh")
+	assert.NotContains(t, calls, "down -v")
+	assert.FileExists(t, r.conf())
 }
