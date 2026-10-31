@@ -1,7 +1,7 @@
 // Checks the deploy environment after install: warns when the deploy key is missing or not in OpenSSH format, and records the result.
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const keyPath = path.join(os.homedir(), ".ssh", "id_ed25519_deploy");
 let deployKey = "ok";
