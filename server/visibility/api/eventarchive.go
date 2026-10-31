@@ -117,6 +117,9 @@ type EventArchive interface {
 	// decode is an ErrInvalidPromptCursor.
 	SearchAgentPrompts(ctx context.Context, search AgentPromptSearch) (FoundAgentPromptPage, error)
 
+	// ArchiveBytes is the space the archive's tables take on disk, compressed, as admin settings reports it (issue #1434).
+	ArchiveBytes(ctx context.Context) (int64, error)
+
 	// AgentPromptCount counts the prompts AgentPrompts lists for one AI agent session on one host, with no search (issue #1429).
 	AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error)
 

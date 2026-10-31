@@ -1999,6 +1999,22 @@ export async function replaceCredentialGuard(
   );
 }
 
+// StorageReport is GET /api/v1/admin/storage (issue #1434): how much disk the event archive and the database take, how long events are
+// kept, and the size past which the server warns (0 when it never does).
+export interface StorageReport {
+  event_archive_bytes: number;
+  database_bytes: number;
+  total_bytes: number;
+  event_retention_days: number;
+  warn_bytes: number;
+  over_warn: boolean;
+}
+
+// getStorageReport reads the storage report. Requires detection_config.read.
+export async function getStorageReport(): Promise<StorageReport> {
+  return fetchJSON<StorageReport>("/v1/admin/storage");
+}
+
 // AgentSettings are the fleet-wide switches for what agents collect (issue #1426). Version 0 is the settings no operator has changed.
 export interface AgentSettings {
   version: number;

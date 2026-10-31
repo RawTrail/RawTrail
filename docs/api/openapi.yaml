@@ -2597,6 +2597,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/DetectionConfigError"
 
+  /api/v1/admin/storage:
+    get:
+      tags: [Detection tuning]
+      summary: Report how much disk the stores take
+      description: |
+        Returns the space the event archive's tables take on disk (compressed), the
+        database's tables and indexes, their total, how long events are kept
+        (`EDR_EVENT_RETENTION_DAYS`), and the size past which the server warns
+        (`EDR_STORE_SIZE_WARN_GB`, 0 when it never warns). The database's figure is
+        the estimate the database itself keeps.
+      security:
+        - SessionCookie: []
+        - ServiceAccountToken: []
+      responses:
+        "200":
+          description: Store sizes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [event_archive_bytes, database_bytes, total_bytes, event_retention_days, warn_bytes, over_warn]
+                properties:
+                  event_archive_bytes: {type: integer, format: int64}
+                  database_bytes: {type: integer, format: int64}
+                  total_bytes: {type: integer, format: int64}
+                  event_retention_days: {type: integer}
+                  warn_bytes:
+                    type: integer
+                    format: int64
+                    description: The total past which the store is reported as large, 0 when it never is.
+                  over_warn:
+                    type: boolean
+                    description: The total is past warn_bytes.
+        "403":
+          description: Caller lacks detection_config.read
+        "500":
+          description: A store could not be read.
   /api/v1/detection-config/agent-settings:
     get:
       tags: [Detection tuning]

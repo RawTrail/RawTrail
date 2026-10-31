@@ -32,3 +32,14 @@ func ApplyEventRetention(ctx context.Context, db *sqlx.DB, days int) (bool, erro
 	}
 	return true, nil
 }
+
+// ArchiveBytes is the space the archive's tables take on disk (issue #1434): the compressed size of their active parts. Parts a merge
+// has replaced but not yet removed are left out, since ClickHouse removes them within minutes.
+func (s *Store) ArchiveBytes(ctx context.Context) (int64, error) {
+	var bytes int64
+	if err := s.db.GetContext(ctx, &bytes,
+		"SELECT toInt64(sum(bytes_on_disk)) FROM system.parts WHERE database = currentDatabase() AND active"); err != nil {
+		return 0, fmt.Errorf("read archive size: %w", err)
+	}
+	return bytes, nil
+}

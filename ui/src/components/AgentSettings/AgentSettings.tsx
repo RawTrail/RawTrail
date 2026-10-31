@@ -16,6 +16,7 @@ import { ReauthModal } from "../ReauthModal";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import { Toggle } from "../ui/Toggle";
+import { StorageReport } from "./StorageReport";
 import "./AgentSettings.scss";
 
 // AgentSettings is the Data collection settings page (issue #1426): the fleet-wide switch for whether agents capture the prompts people
@@ -142,6 +143,7 @@ export function AgentSettings() {
         </div>
       )}
       {saved !== null && <PushNotice version={saved.settings.version} counts={saved} noun="settings" />}
+      <StorageReport />
       {pending !== null && (
         <ReasonModal
           title={pending ? "Turn prompt capture on?" : "Turn prompt capture off?"}

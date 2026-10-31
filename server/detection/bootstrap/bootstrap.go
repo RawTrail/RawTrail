@@ -74,7 +74,11 @@ type Deps struct {
 	AlertRetentionDays int
 	// MonitorRecordRetentionDays is the monitor-record window (issue #994), independent of both other windows. 0 disables that prune.
 	MonitorRecordRetentionDays int
-	RetentionInterval          time.Duration
+	// EventRetentionDays is how long the event archive keeps events (EDR_EVENT_RETENTION_DAYS), which the storage report states.
+	EventRetentionDays int
+	// StoreSizeWarnGB is the size of the stores together past which the storage report warns (EDR_STORE_SIZE_WARN_GB); 0 never warns.
+	StoreSizeWarnGB   int
+	RetentionInterval time.Duration
 	// QueuePruneInterval is the cadence of the visibility event-queue sweep that removes acked rows (ADR-0015). Zero uses the
 	// pipeline default (1 minute). The ACKED-row sweep is independent of RetentionDays and runs even when age-based retention is
 	// disabled; the same sweep's set-aside half does honour RetentionDays, because a set-aside row is the only record of which
@@ -214,6 +218,7 @@ func (d *Detection) wireFullMode(deps Deps, store *mysql.Store, intakeH *intake.
 	d.operatorH.SetActivity(store)
 	d.operatorH.SetAgentSessionTotals(store)
 	d.operatorH.SetProcessRetention(deps.RetentionDays)
+	d.operatorH.SetStorage(store, deps.EventRetentionDays, deps.StoreSizeWarnGB)
 
 	processor, err := pipeline.NewProcessor(
 		deps.EventLog,

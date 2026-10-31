@@ -77,6 +77,8 @@ func (f *fakeEventArchive) AgentPrompts(context.Context, visibilityapi.AgentProm
 	return visibilityapi.AgentPromptPage{}, nil
 }
 
+func (f *fakeEventArchive) ArchiveBytes(context.Context) (int64, error) { return 0, nil }
+
 func (f *fakeEventArchive) SearchAgentPrompts(
 	context.Context, visibilityapi.AgentPromptSearch,
 ) (visibilityapi.FoundAgentPromptPage, error) {

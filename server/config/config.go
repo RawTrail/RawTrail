@@ -47,6 +47,11 @@ const (
 	defaultMonitorRecordRetentionDays = 7
 	// defaultEventRetentionDays is how long the event archive keeps raw events (issue #1434): the 30 days its migration set.
 	defaultEventRetentionDays = 30
+	// defaultStoreSizeWarnGB is the size of the event archive and the database together past which admin settings warns (issue
+	// #1434). A server capturing everything from a few hosts writes a few GB a day, so this is weeks of headroom on a laptop's disk.
+	defaultStoreSizeWarnGB = 100
+	// maxStoreSizeWarnGB caps the threshold at a petabyte, far past any single server's disk, and well inside the bytes an int64 holds.
+	maxStoreSizeWarnGB = 1_000_000
 	// maxRetentionDays caps every retention window at a hundred years. Every consumer turns a window into a time.Duration of that many
 	// days, and a Duration counts nanoseconds in an int64, so past about 106,751 days the conversion wraps negative. A wrapped window puts
 	// the cutoff in the FUTURE and the next pass deletes every row older than that, which is to say everything: the opposite of what an
@@ -124,6 +129,9 @@ type Config struct {
 	// EventRetentionDays is how long the event archive keeps raw events (issue #1434): the server sets the archive's TTL to it at
 	// startup. At least 1, so the archive never keeps events without bound. Default 30.
 	EventRetentionDays int
+	// StoreSizeWarnGB is the size, in GB, of the event archive and the database together past which admin settings warns that the
+	// store is large (issue #1434). EDR_STORE_SIZE_WARN_GB, default 100; 0 never warns.
+	StoreSizeWarnGB int
 
 	// AlertRetentionDays is how long an alert is kept after its last triage activity (issue #995). Its own knob on purpose, independent
 	// of RetentionDays in both directions: alerts are the investigation and compliance record and belong on a far longer window than
@@ -227,6 +235,7 @@ func defaults() Config {
 		EnrollRatePerMin:           defaultEnrollRatePerMin,
 		RetentionDays:              defaultRetentionDays,
 		EventRetentionDays:         defaultEventRetentionDays,
+		StoreSizeWarnGB:            defaultStoreSizeWarnGB,
 		AlertRetentionDays:         defaultAlertRetentionDays,
 		MonitorRecordRetentionDays: defaultMonitorRecordRetentionDays,
 		ShutdownDrain:              defaultShutdownDrain,
@@ -360,6 +369,10 @@ func loadRateLimits(c *Config, getenv func(string) string, errs *[]error) {
 	envparse.NonNegativeInt(getenv, "EDR_MONITOR_RETENTION_DAYS", &c.MonitorRecordRetentionDays, errs)
 	// Events have no "disable": an archive kept without bound fills its disk.
 	envparse.PositiveInt(getenv, "EDR_EVENT_RETENTION_DAYS", &c.EventRetentionDays, errs)
+	envparse.NonNegativeInt(getenv, "EDR_STORE_SIZE_WARN_GB", &c.StoreSizeWarnGB, errs)
+	if c.StoreSizeWarnGB > maxStoreSizeWarnGB {
+		*errs = append(*errs, fmt.Errorf("EDR_STORE_SIZE_WARN_GB=%d exceeds the maximum of %d", c.StoreSizeWarnGB, maxStoreSizeWarnGB))
+	}
 	if c.EventRetentionDays > maxRetentionDays {
 		*errs = append(*errs, fmt.Errorf("EDR_EVENT_RETENTION_DAYS=%d exceeds the maximum of %d days", c.EventRetentionDays, maxRetentionDays))
 	}

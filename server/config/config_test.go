@@ -201,6 +201,42 @@ func TestLoad(t *testing.T) {
 			wantErr: "EDR_EVENT_RETENTION_DAYS=36501 exceeds the maximum",
 		},
 		{
+			// spec:server-configuration/the-store-size-is-reported/the-warning-threshold-is-a-setting
+			name: "the store size warning defaults to 100 GB, and 0 turns it off",
+			env:  minEnv,
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, 100, c.StoreSizeWarnGB)
+			},
+		},
+		{
+			name: "EDR_STORE_SIZE_WARN_GB=0 never warns",
+			env:  withExtra(minEnv, map[string]string{"EDR_STORE_SIZE_WARN_GB": "0"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, 0, c.StoreSizeWarnGB)
+			},
+		},
+		{
+			name: "EDR_STORE_SIZE_WARN_GB at the maximum is accepted",
+			env:  withExtra(minEnv, map[string]string{"EDR_STORE_SIZE_WARN_GB": "1000000"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, 1_000_000, c.StoreSizeWarnGB)
+			},
+		},
+		{
+			// Past the cap, the threshold in bytes would overflow and warn about any store.
+			name:    "an EDR_STORE_SIZE_WARN_GB past the maximum is rejected",
+			env:     withExtra(minEnv, map[string]string{"EDR_STORE_SIZE_WARN_GB": "18446744074"}),
+			wantErr: "EDR_STORE_SIZE_WARN_GB=18446744074 exceeds the maximum",
+		},
+		{
+			name:    "a negative EDR_STORE_SIZE_WARN_GB is rejected",
+			env:     withExtra(minEnv, map[string]string{"EDR_STORE_SIZE_WARN_GB": "-1"}),
+			wantErr: "EDR_STORE_SIZE_WARN_GB",
+		},
+		{
 			name:    "an EDR_RETENTION_DAYS past the maximum is rejected",
 			env:     withExtra(minEnv, map[string]string{"EDR_RETENTION_DAYS": "36501"}),
 			wantErr: "EDR_RETENTION_DAYS=36501 exceeds the maximum",
