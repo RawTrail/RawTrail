@@ -531,6 +531,15 @@ tasks:
     cmds:
       - npm test
 
+  demo:credential-guard:
+    desc: >-
+      Demonstrate the AI agent credential guard in protect mode on an enrolled Mac (issue #1433): a fake ~/.aws/credentials, the
+      fleet's policy switched to protect, Claude Code asked about it, and the kernel's refusal checked; the policy and the file are
+      restored after. Needs EDR_SERVER and EDR_API_TOKEN; HOST is the Mac's ssh target (default edr-dev), and INTERACTIVE=1 prints the
+      prompt to type instead of running Claude Code non-interactively.
+    cmds:
+      - scripts/demo/credential-guard.sh {{.HOST | default "victor@192.168.64.5"}} {{if .INTERACTIVE}}--interactive{{end}}
+
   test:e2e:demo:
     desc: |
       Run the Playwright demo smoke test (test/e2e/tests/demo/) against an
