@@ -319,15 +319,18 @@ func TestJoinToolCalls_LabelsCanBeGivenDistinctCalls(t *testing.T) {
 }
 
 // A transcript is its user's to write, so a turn can hold thousands of identical calls: the join labels as many commands as there
-// are calls and leaves the rest unlabelled.
+// are calls and leaves the rest unlabelled. At the most calls a session read takes, with more commands than calls, the commands share
+// one scan of the tie and one match (issue #1485): each walking and copying the tie took about 31 seconds, past the write timeout.
+//
+// spec:server-rest-api/a-large-tie-is-joined-in-linear-time/the-largest-tie-a-session-read-takes-is-joined-at-once
 func TestJoinToolCalls_AThousandsCallTieLabelsAsManyCommands(t *testing.T) {
 	t.Parallel()
-	const n = 2_000
+	const n = 20_000
 	calls := make([]visibilityapi.AgentToolCall, n)
 	for i := range calls {
 		calls[i] = call(fmt.Sprintf("toolu_%d", i), "ls", 1_000*ms)
 	}
-	commands := make([]Command, n+50)
+	commands := make([]Command, n+500)
 	for i := range commands {
 		commands[i] = command(fmt.Sprintf("g_%d", i), "ls", 1_010*ms+int64(i))
 	}
@@ -336,9 +339,11 @@ func TestJoinToolCalls_AThousandsCallTieLabelsAsManyCommands(t *testing.T) {
 	for _, c := range commands {
 		if c.ToolCall != nil {
 			labelled++
+			require.Same(t, commands[0].ToolCall, c.ToolCall, "the commands of one tie share its match")
 		}
 	}
 	assert.Equal(t, n, labelled)
+	assert.Equal(t, n, commands[0].ToolCall.CandidateCount)
 	assert.Nil(t, commands[n].ToolCall, "a command past the calls is left unlabelled")
 }
 
