@@ -46,6 +46,19 @@ export function parseOwners(text: string): CredentialOwner[] {
     });
 }
 
+// ownersProblem names what is wrong with the tools typed for a credential, or returns null. Only the form's own notation is checked: a
+// colon with nothing on one side would otherwise be sent as a whole team, when one of its tools was meant.
+export function ownersProblem(text: string): string | null {
+  const bad = text
+    .split(",")
+    .map((t) => t.trim())
+    .find((t) => {
+      const colon = t.indexOf(":");
+      return colon >= 0 && (colon === 0 || colon === t.length - 1);
+    });
+  return bad === undefined ? null : `"${bad}" names no tool. Write one of a team's tools as TEAMID:identifier.`;
+}
+
 // credentialKey identifies a credential for React keys and for comparing the draft with the stored policy. The default flag is left
 // out: it records where an entry came from, not what the guard does.
 export function credentialKey(c: ProtectedCredential): string {

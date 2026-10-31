@@ -10,6 +10,12 @@ The Detection tuning page SHALL include an AI agent credential guard section sho
 - **WHEN** an operator opens Detection tuning
 - **THEN** the section shows detect mode, each credential by name with its path in each home, what it covers and the tools allowed to read it, both marked built in, and who saved it last
 
+#### Scenario: A credential being edited is not dropped
+
+- **GIVEN** an operator editing a credential, which takes it out of the list into the form
+- **WHEN** they clear the form's fields
+- **THEN** saving the policy stays unavailable until the entry is saved back or the edit is cancelled, which puts it back where it was
+
 #### Scenario: A changed policy is saved with a reason and pushed
 
 - **GIVEN** an operator with `detection_config.write`

@@ -19,7 +19,7 @@ import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
 import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
-import { CREDENTIAL_KINDS, credentialKey, describeOwner, formatOwners, parseOwners } from "./credentialOwners";
+import { CREDENTIAL_KINDS, credentialKey, describeOwner, formatOwners, ownersProblem, parseOwners } from "./credentialOwners";
 
 const MODE_LABEL: Record<CredentialGuardMode, string> = {
   detect: "Detect: report an agent's read",
@@ -52,12 +52,19 @@ interface CredentialForm {
 
 const EMPTY_FORM: CredentialForm = { kind: "ssh_private_key", path: "", match: "literal", owners: "" };
 
+// Editing is a credential taken out of the list into the form, and where it was, so cancelling the edit puts it back as it was.
+interface Editing {
+  readonly credential: ProtectedCredential;
+  readonly index: number;
+}
+
 // CredentialGuardUnsaved is the section's unsaved work, kept across a reauthentication (issue #1113) as WatchedPaths keeps its own.
 interface CredentialGuardUnsaved {
   readonly mode: CredentialGuardMode;
   readonly credentials: ProtectedCredential[];
   readonly baseVersion: number;
   readonly form: CredentialForm;
+  readonly editing: Editing | null;
 }
 
 function parseCredential(raw: unknown): ProtectedCredential | undefined {
@@ -85,7 +92,7 @@ function parseCredential(raw: unknown): ProtectedCredential | undefined {
 // key.
 function parseCredentialGuardUnsaved(raw: unknown): CredentialGuardUnsaved | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
-  const { mode, credentials, baseVersion, form } = raw as Record<string, unknown>;
+  const { mode, credentials, baseVersion, form, editing } = raw as Record<string, unknown>;
   if (!isMode(mode) || !Array.isArray(credentials) || typeof baseVersion !== "number") return undefined;
   if (typeof form !== "object" || form === null) return undefined;
   const { kind, path, match, owners } = form as Record<string, unknown>;
@@ -98,7 +105,20 @@ function parseCredentialGuardUnsaved(raw: unknown): CredentialGuardUnsaved | und
     if (c === undefined) return undefined;
     list.push(c);
   }
-  return { mode, credentials: list, baseVersion, form: { kind, path, match, owners } };
+  let kept: Editing | null = null;
+  if (editing !== null) {
+    if (typeof editing !== "object") return undefined;
+    const { credential, index } = editing as Record<string, unknown>;
+    const c = parseCredential(credential);
+    if (c === undefined || typeof index !== "number") return undefined;
+    kept = { credential: c, index };
+  }
+  return { mode, credentials: list, baseVersion, form: { kind, path, match, owners }, editing: kept };
+}
+
+// insertAt returns list with c put back at index, where an edited credential was taken from.
+function insertAt(list: readonly ProtectedCredential[], index: number, c: ProtectedCredential): ProtectedCredential[] {
+  return [...list.slice(0, index), c, ...list.slice(index)];
 }
 
 function samePolicy(mode: CredentialGuardMode, credentials: readonly ProtectedCredential[], stored: CredentialGuardPolicy): boolean {
@@ -132,11 +152,19 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
   const [saved, setSaved] = useState<ReplaceCredentialGuardResult | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
   const [restoredVersion, setRestoredVersion] = useState<number | null>(null);
+  const [editing, setEditing] = useState<Editing | null>(null);
 
-  const formTouched = form.path !== "" || form.owners !== "";
+  // The form holds work while a credential is out of the list for editing, whatever its fields now say, or while any field differs
+  // from an empty form. Saving waits until that work is added back or cancelled, so a save never drops a credential being edited.
+  const formTouched =
+    editing !== null ||
+    form.path !== "" ||
+    form.owners !== "" ||
+    form.kind !== EMPTY_FORM.kind ||
+    form.match !== EMPTY_FORM.match;
   const unsaved: CredentialGuardUnsaved | null =
     stored !== null && (!samePolicy(mode, draft, stored) || formTouched)
-      ? { mode, credentials: draft, baseVersion: restoredVersion ?? stored.version, form }
+      ? { mode, credentials: draft, baseVersion: restoredVersion ?? stored.version, form, editing }
       : null;
   const { restored, consume } = useReauthDraft<CredentialGuardUnsaved>("credential-guard", unsaved, parseCredentialGuardUnsaved);
   const restoredOnMount = useRef(restored);
@@ -162,6 +190,7 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
         setMode(kept.mode);
         setDraft(kept.credentials);
         setForm(kept.form);
+        setEditing(kept.editing);
         setRestoredVersion(kept.baseVersion);
         setDraftRestored(true);
         consume();
@@ -178,6 +207,8 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
     getCredentialGuard()
       .then((policy) => {
         adopt(policy);
+        setForm(EMPTY_FORM);
+        setEditing(null);
         setRestoredVersion(null);
         setSaveError(null);
         setConflict(false);
@@ -196,13 +227,15 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
 
   const changed = !samePolicy(mode, draft, stored);
   const formEntry: ProtectedCredential = { kind: form.kind, path: form.path, match: form.match, owners: parseOwners(form.owners) };
-  const canAdd = form.path.trim() !== "" && !draft.some((c) => c.path === form.path);
+  const ownersError = ownersProblem(form.owners);
+  const canAdd = form.path.trim() !== "" && ownersError === null && !draft.some((c) => c.path === form.path);
 
+  // clearOutcome forgets the last save's outcome once the draft moves on. A refusal for a policy changed elsewhere stays, with its
+  // offer to load the latest, since any save of this draft would be refused again until it is loaded.
   const clearOutcome = () => {
     setDraftRestored(false);
     setSaved(null);
-    setSaveError(null);
-    setConflict(false);
+    if (!conflict) setSaveError(null);
   };
   const editDraft = (next: ProtectedCredential[]) => {
     setDraft(next);
@@ -210,7 +243,10 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
   };
   const confirmSave = (reason: string) => {
     setSaving(true);
-    clearOutcome();
+    setDraftRestored(false);
+    setSaved(null);
+    setSaveError(null);
+    setConflict(false);
     replaceWithReauth(mode, draft, reason, restoredVersion ?? stored.version)
       .then((result) => {
         adopt(result.policy);
@@ -310,6 +346,7 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
                       disabled={saving || formTouched}
                       onClick={() => {
                         setForm({ kind: c.kind, path: c.path, match: c.match, owners: formatOwners(c.owners) });
+                        setEditing({ credential: c, index: i });
                         editDraft(draft.filter((_, j) => j !== i));
                       }}
                     >
@@ -392,18 +429,37 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
                 setForm({ ...form, owners: e.target.value });
               }}
             />
+            {ownersError !== null && (
+              <p className="detection-config__error" role="alert">
+                {ownersError}
+              </p>
+            )}
           </div>
           <div className="detection-config__form-actions">
             <Button
               variant="inverse"
               disabled={!canAdd || saving}
               onClick={() => {
-                editDraft([...draft, formEntry]);
+                editDraft(editing === null ? [...draft, formEntry] : insertAt(draft, editing.index, formEntry));
                 setForm(EMPTY_FORM);
+                setEditing(null);
               }}
             >
-              Add credential
+              {editing === null ? "Add credential" : "Save credential"}
             </Button>
+            {editing !== null && (
+              <Button
+                variant="inverse"
+                disabled={saving}
+                onClick={() => {
+                  editDraft(insertAt(draft, editing.index, editing.credential));
+                  setForm(EMPTY_FORM);
+                  setEditing(null);
+                }}
+              >
+                Cancel edit
+              </Button>
+            )}
             <Button
               variant="inverse"
               disabled={(!changed && !formTouched) || saving}
@@ -411,6 +467,7 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
                 setMode(stored.mode);
                 editDraft(stored.credentials);
                 setForm(EMPTY_FORM);
+                setEditing(null);
                 setRestoredVersion(null);
               }}
             >

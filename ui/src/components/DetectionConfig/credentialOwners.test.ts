@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { credentialKey, describeOwner, formatOwners, parseOwners } from "./credentialOwners";
+import { credentialKey, describeOwner, formatOwners, ownersProblem, parseOwners } from "./credentialOwners";
 
 describe("parseOwners", () => {
   it("reads an Apple tool, a whole team and one tool of a team, separated by commas", () => {
@@ -38,5 +38,14 @@ describe("credentialKey", () => {
     expect(credentialKey({ ...base, default: true })).toBe(credentialKey(base));
     expect(credentialKey({ ...base, owners: [] })).not.toBe(credentialKey(base));
     expect(credentialKey({ ...base, match: "prefix" })).not.toBe(credentialKey(base));
+  });
+});
+
+describe("ownersProblem", () => {
+  it("names a colon with nothing on one side, and accepts the rest", () => {
+    expect(ownersProblem("com.apple.ssh, 94KV3E626L:")).toContain('"94KV3E626L:" names no tool');
+    expect(ownersProblem(":gh")).toContain('":gh" names no tool');
+    expect(ownersProblem("com.apple.ssh, 94KV3E626L, 59GAB85EFG:com.apple.git-remote-http")).toBeNull();
+    expect(ownersProblem("")).toBeNull();
   });
 });

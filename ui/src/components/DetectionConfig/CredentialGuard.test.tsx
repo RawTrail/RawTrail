@@ -112,12 +112,13 @@ describe("CredentialGuard", () => {
     expect(screen.getByLabelText("Tools allowed to read it")).toHaveValue("VEKTX9H2N7");
     expect(screen.getByRole("button", { name: "Save and push to hosts" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Tools allowed to read it"), { target: { value: "VEKTX9H2N7, ABCDE12345:gh" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add credential" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
 
+    // The edited entry goes back where it was.
     const sent: ProtectedCredential[] = [
       SSH,
-      { kind: "aws_credentials", path: ".aws/credentials", match: "literal", owners: [{ team_id: "94KV3E626L" }] },
       { kind: "github_cli_token", path: ".config/gh/hosts.yml", match: "literal", owners: [{ team_id: "VEKTX9H2N7" }, { team_id: "ABCDE12345", signing_id: "gh" }] },
+      { kind: "aws_credentials", path: ".aws/credentials", match: "literal", owners: [{ team_id: "94KV3E626L" }] },
     ];
     const replace = vi
       .spyOn(api, "replaceCredentialGuard")
@@ -131,6 +132,36 @@ describe("CredentialGuard", () => {
     expect(screen.getByLabelText("Mode")).toHaveValue("protect");
     expect(screen.getByText(/Last saved .* by bob@example\.com\./)).toBeVisible();
     expect(screen.getByRole("button", { name: "Save and push to hosts" })).toBeDisabled();
+  });
+
+  // spec:web-ui/the-credential-guard-is-edited-in-detection-tuning/a-credential-being-edited-is-not-dropped
+  //
+  // An entry taken out for editing is out of the list, so a save then would drop it: emptying the form's fields does not end the edit,
+  // and Cancel edit puts the entry back where it was.
+  it("keeps a credential being edited out of a save until it is put back, even with its fields cleared", async () => {
+    await renderLoaded();
+    const save = screen.getByRole("button", { name: "Save and push to hosts" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit ~/.ssh/id_" }));
+    fireEvent.change(screen.getByLabelText("Path in each home"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Tools allowed to read it"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Covers"), { target: { value: "literal" } });
+    expect(save).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+    expect(rows()[0]).toContain("SSH private keys");
+    expect(rows()).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Add credential" })).toBeVisible();
+    expect(save).toBeDisabled();
+  });
+
+  it("refuses a team's tool written without its identifier, rather than sending a whole team", async () => {
+    await renderLoaded();
+    fillForm("aws_credentials", ".aws/credentials", "literal", "94KV3E626L:");
+    expect(screen.getByRole("alert")).toHaveTextContent('"94KV3E626L:" names no tool.');
+    expect(screen.getByRole("button", { name: "Add credential" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Tools allowed to read it"), { target: { value: "94KV3E626L:aws" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Add credential" })).toBeEnabled();
   });
 
   it("refuses to add a credential with no path, or a path already listed", async () => {
@@ -158,6 +189,10 @@ describe("CredentialGuard", () => {
     await waitFor(() => {
       expect(replace).toHaveBeenCalledTimes(2);
     });
+    // Editing after the refusal keeps it and its offer, since any save of this draft would be refused again.
+    fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "protect" } });
+    fireEvent.change(screen.getByLabelText("Path in each home"), { target: { value: ".netrc" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("someone changed the credential guard");
     vi.spyOn(api, "getCredentialGuard").mockResolvedValue(makePolicy({ version: 4, mode: "off" }));
     fireEvent.click(await screen.findByRole("button", { name: /Load the latest policy/ }));
     await waitFor(() => {
@@ -165,6 +200,7 @@ describe("CredentialGuard", () => {
     });
     expect(rows()).toHaveLength(2);
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByLabelText("Path in each home")).toHaveValue("");
   });
 
   // spec:server-identity-authentication/reauthentication-is-required-for-destructive-actions/fleet-wide-change-needs-a-fresh-session
