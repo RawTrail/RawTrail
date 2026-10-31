@@ -129,7 +129,8 @@ describe("caption and altText", () => {
     // The date is written in the browser's locale, so it is matched loosely and everything around it exactly.
     const alt = altText(card);
     expect(alt).toMatch(/^A summary card of a Claude Code session on [^:]+: /);
-    expect(alt.slice(alt.indexOf(": ") + 2)).toBe("What my AI agent did in 47 min. Ran for 47 min, 412 commands, 1,286 tool calls, 3.1M tokens. "
+    expect(alt.slice(alt.indexOf(": ") + 2)).toBe("What my AI agent did in 47 min. "
+      + "Ran for 47 min, 412 commands, 1,286 tool calls, 3.1M tokens. "
       + "Programs it ran most: go, git, rg and npm. It talked to model apis (1) and git hosts (1). "
       + "The credential guard stopped it reading my AWS credentials.");
   });
