@@ -66,10 +66,12 @@ final class ESFSubscriber: Sendable {
 
         guard result == ES_NEW_CLIENT_RESULT_SUCCESS, let rawClient else {
             logger.error("Failed to create ES client: \(result.rawValue)")
+            recordRefusal(result)
             exit(EXIT_FAILURE)
         }
 
         self.client = rawClient
+        ESClientStatus.clear()
 
         // Flush the kernel AUTH result cache whenever the application-control snapshot is replaced. The AUTH_EXEC handler
         // pins decided ALLOWs into the kernel cache (#209) so a fork-exec storm of an allowed binary does not re-enter the
@@ -466,3 +468,25 @@ final class ESFSubscriber: Sendable {
 // isHardenedRuntime + cdhashHexString helpers moved to CDHashHex.swift (PR for #210) to keep this file under SwiftLint's
 // file_length cap. The helpers are pure; ESFSubscriber consumes them via their module-internal symbols (Swift's implicit
 // `internal` access: no explicit modifier is required since both files compile into the same module).
+
+/// esClientRefusal spells an es_new_client refusal as ESClientStatus records it (issue #1436). `not_permitted` is the one an operator
+/// meets: the extension lacks Full Disk Access.
+func esClientRefusal(_ result: es_new_client_result_t) -> String {
+    switch result {
+    case ES_NEW_CLIENT_RESULT_ERR_NOT_PERMITTED: return ESClientStatus.notPermitted
+    case ES_NEW_CLIENT_RESULT_ERR_NOT_ENTITLED: return ESClientStatus.notEntitled
+    case ES_NEW_CLIENT_RESULT_ERR_NOT_PRIVILEGED: return ESClientStatus.notPrivileged
+    case ES_NEW_CLIENT_RESULT_ERR_TOO_MANY_CLIENTS: return ESClientStatus.tooManyClients
+    case ES_NEW_CLIENT_RESULT_ERR_INVALID_ARGUMENT: return ESClientStatus.invalidArgument
+    default: return ESClientStatus.internalError
+    }
+}
+
+/// recordRefusal writes why the client was refused before the extension exits, so the agent can report the cause.
+func recordRefusal(_ result: es_new_client_result_t) {
+    do {
+        try ESClientStatus.record(esClientRefusal(result))
+    } catch {
+        logger.error("could not record why the ES client was refused: \(error.localizedDescription, privacy: .public)")
+    }
+}

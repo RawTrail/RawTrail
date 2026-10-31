@@ -31,6 +31,13 @@ const (
 	// ComponentWindowsETWSensor is the health component for the Windows ETW process sensor (ADR-0018). The component vocabulary is open
 	// (the server stores unrecognized types verbatim), so adding a platform-specific component needs no server change.
 	ComponentWindowsETWSensor = "windows_etw_sensor"
+	// ComponentAgentFullDiskAccess is whether the agent itself has Full Disk Access (issue #1436), which macOS grants it apart from the
+	// security extension. macOS refuses even root a read of a privacy-protected file without it.
+	ComponentAgentFullDiskAccess = "agent_full_disk_access"
+	// ReasonFullDiskAccessMissing names a missing Full Disk Access grant, the commonest reason a fresh install does not capture: on the
+	// security extension, macOS refused it an Endpoint Security client; on the agent, the agent's own grant is missing.
+	ReasonFullDiskAccessMissing = "full_disk_access_missing"
+	reasonFullDiskAccessGranted = "full_disk_access_granted"
 
 	reasonActivated      = "activated"
 	reasonNeverConnected = "never_connected"
@@ -314,10 +321,35 @@ func (r *Registry) MarkRebootRequired(compType string) {
 	})
 }
 
+// MarkFullDiskAccessMissing records that compType lacks Full Disk Access (issue #1436): unhealthy, under a reason that names the fix. A
+// connected extension evidently has the grant, so a stale refusal does not overwrite it. Not sticky past a connect: the next successful
+// connect overwrites it. No-op for an unregistered type.
+func (r *Registry) MarkFullDiskAccessMissing(compType string) {
+	r.transition(compType, func(s *componentState) {
+		if s.reason == reasonActivated {
+			return
+		}
+		s.set(StatusUnhealthy, ReasonFullDiskAccessMissing, s.displayName+
+			" does not have Full Disk Access: turn it on in System Settings > Privacy & Security > Full Disk Access")
+	})
+}
+
+// MarkFullDiskAccessGranted records that compType has Full Disk Access: healthy. Used for the agent's own grant, which no connection
+// stands for. No-op for an unregistered type.
+func (r *Registry) MarkFullDiskAccessGranted(compType string) {
+	r.transition(compType, func(s *componentState) {
+		s.set(StatusHealthy, reasonFullDiskAccessGranted, s.displayName+" has Full Disk Access")
+	})
+}
+
 // MarkDisconnected records that compType lost its session: unhealthy, with connection_lost if it had ever connected (the tamper-adjacent
-// signal) or never_connected otherwise. No-op for an unregistered type.
+// signal) or never_connected otherwise. A missing Full Disk Access grant stays the reason while the extension cannot connect: it is
+// why, and the reconnect attempts would otherwise trade it for never_connected every few seconds. No-op for an unregistered type.
 func (r *Registry) MarkDisconnected(compType string) {
 	r.transition(compType, func(s *componentState) {
+		if s.reason == ReasonFullDiskAccessMissing {
+			return
+		}
 		if s.everConnected {
 			s.set(StatusUnhealthy, reasonConnectionLost, s.displayName+" connection lost")
 			return
