@@ -198,9 +198,11 @@ const bypassPermissionsMode = "bypassPermissions"
 type agentUsagePayload struct {
 	AgentSessionID string `json:"agent_session_id"`
 	PermissionMode string `json:"permission_mode"`
+	UID            int64  `json:"uid"`
 }
 
-// handleAgentUsage records that the session the event names ran in the bypassPermissions mode (issue #1427). A forked session's copy
+// handleAgentUsage records that the session the event names ran in the bypassPermissions mode (issue #1427), with the uid whose
+// transcript the line came from (issue #1478), which the sessions list matches against the session's owner. A forked session's copy
 // of its parent's line names the fork, so a fork of a bypassed session is recorded too.
 func handleAgentUsage(ctx context.Context, w processStore, evt api.Event) error {
 	var p agentUsagePayload
@@ -210,7 +212,9 @@ func handleAgentUsage(ctx context.Context, w processStore, evt api.Event) error 
 	if p.PermissionMode != bypassPermissionsMode {
 		return nil
 	}
-	return w.ObserveBypass(ctx, mysql.BypassSighting{HostID: evt.HostID, SessionID: p.AgentSessionID, FirstSeenNs: evt.TimestampNs})
+	return w.ObserveBypass(ctx, mysql.BypassSighting{
+		HostID: evt.HostID, SessionID: p.AgentSessionID, UID: p.UID, FirstSeenNs: evt.TimestampNs,
+	})
 }
 
 // permanentError reports whether err is a deterministic per-event failure that recurs on every retry: a payload that cannot be parsed

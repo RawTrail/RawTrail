@@ -85,7 +85,7 @@ func (f *fakeEventArchive) SearchAgentPrompts(
 	return visibilityapi.FoundAgentPromptPage{}, nil
 }
 
-func (f *fakeEventArchive) AgentUsageTotals(context.Context, visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error) {
+func (f *fakeEventArchive) AgentUsageTotals(context.Context, visibilityapi.AgentToolCallFilter, int64) (visibilityapi.AgentUsageTotals, error) {
 	return visibilityapi.AgentUsageTotals{}, nil
 }
 

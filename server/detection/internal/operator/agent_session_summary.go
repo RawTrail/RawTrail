@@ -15,7 +15,7 @@ type AgentSessionTotalsReader interface {
 	AgentSessionCounts(ctx context.Context, hostID, sessionID string) (api.AgentSessionCounts, error)
 	ActivityTotalsForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivitySummary, error)
 	AgentToolCallCounts(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error)
-	AgentUsageTotals(ctx context.Context, filter visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error)
+	AgentUsageTotals(ctx context.Context, filter visibilityapi.AgentToolCallFilter, ownerUID int64) (visibilityapi.AgentUsageTotals, error)
 	ActivityDigest(ctx context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error)
 	AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error)
 }
@@ -80,9 +80,14 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 	if err != nil {
 		return agentSessionSummaryResponse{}, err
 	}
-	usage, err := h.sessionTotals.AgentUsageTotals(ctx, sessionToolCalls(session))
-	if err != nil {
-		return agentSessionSummaryResponse{}, err
+	// Usage counts only from the owner's transcripts (issue #1478), so a session whose owner is no longer known reports none, as its
+	// lineage does.
+	usage := visibilityapi.AgentUsageTotals{Models: []visibilityapi.ModelUsage{}, Modes: []visibilityapi.ModeUsage{}}
+	if session.OwnerUID != nil {
+		usage, err = h.sessionTotals.AgentUsageTotals(ctx, sessionToolCalls(session), *session.OwnerUID)
+		if err != nil {
+			return agentSessionSummaryResponse{}, err
+		}
 	}
 	digest, err := h.sessionDigest(ctx, session, commands, filter)
 	if err != nil {

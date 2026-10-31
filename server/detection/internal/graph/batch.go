@@ -60,13 +60,19 @@ type batchSession struct {
 	// sessions are the agent sessions this batch saw, one sighting per (host, session), upserted into agent_sessions at flush.
 	sessions map[sessionKey]mysql.SessionSighting
 	// bypass is the earliest event per (host, session) that named the session in the bypassPermissions mode.
-	bypass map[sessionKey]mysql.BypassSighting
+	bypass map[bypassKey]mysql.BypassSighting
 }
 
 // sessionKey identifies an agent session on a host.
 type sessionKey struct {
 	hostID    string
 	sessionID string
+}
+
+// bypassKey is a session's bypass sightings from one uid's transcript (issue #1478).
+type bypassKey struct {
+	sessionKey
+	uid int64
 }
 
 // newBatchSession bulk-loads the candidate rows for keys and builds the in-memory index.
@@ -79,7 +85,7 @@ func newBatchSession(ctx context.Context, store *mysql.Store, keys []mysql.HostP
 		byKey:    make(map[mysql.HostPID][]*procRow, len(keys)),
 		nextProv: -1,
 		sessions: map[sessionKey]mysql.SessionSighting{},
-		bypass:   map[sessionKey]mysql.BypassSighting{},
+		bypass:   map[bypassKey]mysql.BypassSighting{},
 	}
 	for i := range loaded {
 		r := &procRow{proc: loaded[i], loaded: true, seq: loaded[i].ID, creIdx: -1, prevNew: -1}
@@ -582,9 +588,9 @@ func (s *batchSession) ObserveSession(_ context.Context, sighting mysql.SessionS
 	return nil
 }
 
-// ObserveBypass keeps the earliest bypass sighting of each session in the batch.
+// ObserveBypass keeps the earliest bypass sighting of each session and uid in the batch.
 func (s *batchSession) ObserveBypass(_ context.Context, sighting mysql.BypassSighting) error {
-	key := sessionKey{hostID: sighting.HostID, sessionID: sighting.SessionID}
+	key := bypassKey{sessionKey{hostID: sighting.HostID, sessionID: sighting.SessionID}, sighting.UID}
 	if seen, ok := s.bypass[key]; !ok || sighting.FirstSeenNs < seen.FirstSeenNs {
 		s.bypass[key] = sighting
 	}
@@ -622,7 +628,9 @@ func (s *batchSession) plan() mysql.ProcessBatchPlan {
 	for _, key := range slices.SortedFunc(maps.Keys(s.sessions), compareSessionKeys) {
 		p.Sessions = append(p.Sessions, s.sessions[key])
 	}
-	for _, key := range slices.SortedFunc(maps.Keys(s.bypass), compareSessionKeys) {
+	for _, key := range slices.SortedFunc(maps.Keys(s.bypass), func(a, b bypassKey) int {
+		return cmp.Or(compareSessionKeys(a.sessionKey, b.sessionKey), cmp.Compare(a.uid, b.uid))
+	}) {
 		p.Bypass = append(p.Bypass, s.bypass[key])
 	}
 	return p

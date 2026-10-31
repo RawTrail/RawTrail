@@ -22,6 +22,38 @@ func usageEvent(id, host, session, messageID, model string, in, out int64, atNs 
 		`,"cache_creation_input_tokens":10,"cache_read_input_tokens":100,"thinking_tokens":1,"uid":501`+extra+`}`)
 }
 
+// spec:server-rest-api/a-session-s-usage-counts-only-from-its-owner/another-user-s-transcript-changes-nothing
+//
+// Another local user's transcript can name someone else's session (issue #1478). Its line counts toward neither the session's totals
+// nor its listed tokens, in the real archive's reads, which filter on the line's uid.
+func TestEventArchive_UsageCountsOnlyFromTheOwner(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	planted := activityEvent("u-planted", "h1", "agent_usage", base+1, `{"agent_session_id":"own","message_id":"msg_planted",`+
+		`"model":"claude-opus-5-5","input_tokens":5000,"output_tokens":5000,"cache_creation_input_tokens":0,`+
+		`"cache_read_input_tokens":0,"thinking_tokens":0,"permission_mode":"bypassPermissions","uid":502}`)
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
+		usageEvent("u-own", "h1", "own", "msg_own", "claude-opus-5-5", 3, 50, base, `,"permission_mode":"default"`), planted,
+	}))
+	var got visibilityapi.AgentUsageTotals
+	require.Eventually(t, func() bool {
+		var err error
+		got, err = arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: "h1", SessionID: "own"}, 501)
+		return err == nil && len(got.Models) == 1
+	}, 5*time.Second, 100*time.Millisecond)
+	assert.Equal(t, []visibilityapi.ModelUsage{
+		{Model: "claude-opus-5-5", Messages: 1, Input: 3, Output: 50, CacheCreation: 10, CacheRead: 100, Thinking: 1},
+	}, got.Models)
+	assert.Equal(t, []visibilityapi.ModeUsage{{Mode: "default", Messages: 1, FirstNs: base, LastNs: base}}, got.Modes)
+
+	owner := visibilityapi.AgentSessionRef{HostID: "h1", SessionID: "own", OwnerUID: 501}
+	tokens, err := arch.AgentSessionTokens(ctx, []visibilityapi.AgentSessionRef{owner})
+	require.NoError(t, err)
+	assert.Equal(t, map[visibilityapi.AgentSessionRef]int64{owner: 163}, tokens, "3 + 50 + 10 + 100, the planted line left out")
+}
+
 // spec:server-rest-api/agent-session-token-totals/a-session-s-tokens-are-totalled-by-model-and-its-messages-by-mode
 // spec:server-rest-api/agent-session-token-totals/a-message-is-counted-once-and-a-copy-not-at-all
 func TestEventArchive_AgentUsageTotals(t *testing.T) {
@@ -46,7 +78,7 @@ func TestEventArchive_AgentUsageTotals(t *testing.T) {
 	var got visibilityapi.AgentUsageTotals
 	require.Eventually(t, func() bool {
 		var err error
-		got, err = arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: "h1", SessionID: "fork"})
+		got, err = arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: "h1", SessionID: "fork"}, 501)
 		return err == nil && len(got.Models) == 2
 	}, 5*time.Second, 100*time.Millisecond)
 	assert.Equal(t, []visibilityapi.ModelUsage{
@@ -59,7 +91,7 @@ func TestEventArchive_AgentUsageTotals(t *testing.T) {
 		{Mode: "", Messages: 1, FirstNs: base + 5, LastNs: base + 5},
 	}, got.Modes, "first seen first; a message written before any mode is named counts under none")
 
-	empty, err := arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: "h1", SessionID: "none"})
+	empty, err := arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: "h1", SessionID: "none"}, 501)
 	require.NoError(t, err)
 	assert.Equal(t, visibilityapi.AgentUsageTotals{Models: []visibilityapi.ModelUsage{}, Modes: []visibilityapi.ModeUsage{}}, empty)
 }
@@ -88,7 +120,7 @@ func TestEventArchive_AgentUsageTotalsAreTheSumOfTheMessages(t *testing.T) {
 			}
 		}
 		require.NoError(rt, arch.Insert(ctx, rapid.Permutation(events).Draw(rt, "order")))
-		got, err := arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: "h1", SessionID: session})
+		got, err := arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: "h1", SessionID: session}, 501)
 		require.NoError(rt, err)
 		require.Len(rt, got.Models, 1)
 		var modeMessages int64
@@ -148,13 +180,13 @@ func TestEventArchive_AgentSessionTokensAgreeWithEachSessionsTotals(t *testing.T
 		var refs []visibilityapi.AgentSessionRef
 		for _, h := range hosts {
 			for _, s := range append(sessions, "none") {
-				refs = append(refs, visibilityapi.AgentSessionRef{HostID: h, SessionID: s})
+				refs = append(refs, visibilityapi.AgentSessionRef{HostID: h, SessionID: s, OwnerUID: 501})
 			}
 		}
 		got, err := arch.AgentSessionTokens(ctx, refs)
 		require.NoError(rt, err)
 		for _, r := range refs {
-			totals, err := arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: r.HostID, SessionID: r.SessionID})
+			totals, err := arch.AgentUsageTotals(ctx, visibilityapi.AgentToolCallFilter{HostID: r.HostID, SessionID: r.SessionID}, 501)
 			require.NoError(rt, err)
 			want, has := tokensOf(totals)
 			tokens, listed := got[r]

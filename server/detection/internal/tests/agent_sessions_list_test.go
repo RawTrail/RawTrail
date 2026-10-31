@@ -39,6 +39,14 @@ func seedSessionProcesses(t *testing.T, store *mysql.Store, host, session string
 	return ids
 }
 
+// seedSessionOwner inserts the session's earliest process, run by uid: the session's owner, whose transcripts speak for it (#1478).
+func seedSessionOwner(t *testing.T, store *mysql.Store, host, session string, uid int) {
+	t.Helper()
+	_, err := store.InsertProcess(t.Context(), api.Process{HostID: host, PID: 900, PPID: 1, Path: "/bin/zsh", ForkTimeNs: 1, UID: &uid,
+		AgentSession: api.AgentSession{AgentSessionID: &session}})
+	require.NoError(t, err)
+}
+
 func sessionIDs(rows []api.AgentSessionSummary) []string {
 	var out []string
 	for _, r := range rows {

@@ -124,13 +124,14 @@ type EventArchive interface {
 	AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error)
 
 	// AgentUsageTotals totals the tokens one AI agent session's messages used on one host (issue #1427), by model, and counts its
-	// messages by the permission mode in force, each message once by its id and owner. A message that is a copy of another session's
-	// (see AgentToolCalls) is that session's and is not counted. The filter's window and Limit are ignored.
-	AgentUsageTotals(ctx context.Context, filter AgentToolCallFilter) (AgentUsageTotals, error)
+	// messages by the permission mode in force, each message once by its id and owner. Only messages from ownerUID's transcripts count
+	// (issue #1478): another local user can write a transcript naming someone else's session. A message that is a copy of another
+	// session's (see AgentToolCalls) is that session's and is not counted. The filter's window and Limit are ignored.
+	AgentUsageTotals(ctx context.Context, filter AgentToolCallFilter, ownerUID int64) (AgentUsageTotals, error)
 
 	// AgentSessionTokens totals each listed session's tokens in one read (issue #1427): its input, cache-write, cache-read and output
-	// tokens over the messages AgentUsageTotals counts for it, so a session's total agrees with its totals'. A session with no
-	// messages is absent from the result.
+	// tokens over the messages AgentUsageTotals counts for it with the ref's owner, so a session's total agrees with its totals'. A
+	// session with no messages is absent from the result.
 	AgentSessionTokens(ctx context.Context, sessions []AgentSessionRef) (map[AgentSessionRef]int64, error)
 
 	// AgentToolCallCounts counts the calls AgentToolCalls would list for the filter, uncapped, by tool name (issue #1422), most used
@@ -464,10 +465,11 @@ type DNSActivityRow struct {
 	Addresses []string `json:"addresses"`
 }
 
-// AgentSessionRef names one AI agent session on one host.
+// AgentSessionRef names one AI agent session on one host, and its owner: the uid whose transcripts speak for it (issue #1478).
 type AgentSessionRef struct {
 	HostID    string
 	SessionID string
+	OwnerUID  int64
 }
 
 // AgentUsageTotals is what one AI agent session's messages used (issue #1427): its tokens by model, heaviest output first, and its

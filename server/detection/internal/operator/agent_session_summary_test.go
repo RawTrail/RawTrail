@@ -32,6 +32,7 @@ type fakeSessionTotals struct {
 	usage        visibilityapi.AgentUsageTotals
 	usageErr     error
 	usageRead    *visibilityapi.AgentToolCallFilter
+	usageOwner   *int64
 	digest       visibilityapi.ActivityDigest
 	digestErr    error
 	digestRead   *visibilityapi.DigestFilter
@@ -76,8 +77,10 @@ func (f *fakeSessionTotals) AgentToolCallCounts(
 	return f.tools, f.toolsErr
 }
 
-func (f *fakeSessionTotals) AgentUsageTotals(_ context.Context, filter visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error) {
-	f.usageRead = &filter
+func (f *fakeSessionTotals) AgentUsageTotals(
+	_ context.Context, filter visibilityapi.AgentToolCallFilter, ownerUID int64,
+) (visibilityapi.AgentUsageTotals, error) {
+	f.usageRead, f.usageOwner = &filter, &ownerUID
 	return f.usage, f.usageErr
 }
 
@@ -89,8 +92,10 @@ const summaryProject = "/Users/dev/project"
 // summarySession is the session the summary tests read: no agent pid, so its scope is its own processes alone.
 func summarySession() *fakeSessionLister {
 	project := summaryProject
+	owner := int64(501)
 	return &fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{
-		{HostID: "h1", AgentSessionID: "47abb2a1", CWD: &project, FirstSeenNs: 10_000_000_000_000, LastSeenNs: 20_000_000_000_000},
+		{HostID: "h1", AgentSessionID: "47abb2a1", CWD: &project, FirstSeenNs: 10_000_000_000_000, LastSeenNs: 20_000_000_000_000,
+			OwnerUID: &owner},
 	}}}
 }
 
@@ -201,6 +206,8 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 	}, *totals.toolsRead, "the tool calls are counted over the window the session's tool-call read uses")
 	require.NotNil(t, totals.usageRead)
 	assert.Equal(t, *totals.toolsRead, *totals.usageRead, "the tokens are totalled over the session the tool calls are")
+	require.NotNil(t, totals.usageOwner)
+	assert.Equal(t, int64(501), *totals.usageOwner, "only the owner's transcripts count toward the tokens")
 	assert.Equal(t, []string{"h1", "47abb2a1"}, totals.promptsRead)
 	require.NotNil(t, totals.digestRead)
 	assert.Equal(t, visibilityapi.DigestFilter{
@@ -249,6 +256,25 @@ func TestAgentSessionSummary_UnknownSession(t *testing.T) {
 	assert.Nil(t, totals.counted, "nothing is counted")
 	assert.Nil(t, totals.activityRead, "nothing is counted")
 	assert.Nil(t, totals.toolsRead, "nothing is counted")
+}
+
+// spec:server-rest-api/a-session-s-usage-counts-only-from-its-owner/another-user-s-transcript-changes-nothing
+//
+// A session whose processes have aged out has no owner known, and no transcript can then be trusted to speak for it (issue #1478): its
+// usage is not read, and the summary reports none, as its lineage does.
+func TestAgentSessionSummary_NoOwnerKnownReportsNoUsage(t *testing.T) {
+	t.Parallel()
+	lister := summarySession()
+	lister.result.Rows[0].OwnerUID = nil
+	totals := &fakeSessionTotals{usage: visibilityapi.AgentUsageTotals{
+		Models: []visibilityapi.ModelUsage{{Model: "claude-opus-5-5", Messages: 1, Output: 9}},
+	}}
+	srv := newSummaryServer(t, fakeService{buildScopedTree: summaryTree(false)}, allowAllAuthZ{}, lister, totals)
+
+	status, got := getSummary(t, srv)
+	require.Equal(t, http.StatusOK, status)
+	assert.Nil(t, totals.usageRead, "no usage is read for a session with no owner known")
+	assert.Equal(t, visibilityapi.AgentUsageTotals{Models: []visibilityapi.ModelUsage{}, Modes: []visibilityapi.ModeUsage{}}, got.Usage)
 }
 
 func TestAgentSessionSummary_Failures(t *testing.T) {

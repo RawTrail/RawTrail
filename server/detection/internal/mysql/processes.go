@@ -971,9 +971,12 @@ func (s *Store) AgentToolCallCounts(ctx context.Context, filter visibilityapi.Ag
 	return s.archive.AgentToolCallCounts(ctx, filter)
 }
 
-// AgentUsageTotals delegates a session's token totals (issue #1427) to the visibility EventArchive.
-func (s *Store) AgentUsageTotals(ctx context.Context, filter visibilityapi.AgentToolCallFilter) (visibilityapi.AgentUsageTotals, error) {
-	return s.archive.AgentUsageTotals(ctx, filter)
+// AgentUsageTotals delegates a session's token totals (issue #1427), from its owner's transcripts (issue #1478), to the visibility
+// EventArchive.
+func (s *Store) AgentUsageTotals(
+	ctx context.Context, filter visibilityapi.AgentToolCallFilter, ownerUID int64,
+) (visibilityapi.AgentUsageTotals, error) {
+	return s.archive.AgentUsageTotals(ctx, filter, ownerUID)
 }
 
 // SessionTouches delegates the transcripts a process generation touched (issue #1319) to the visibility EventArchive.
