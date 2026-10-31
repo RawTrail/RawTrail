@@ -350,7 +350,7 @@ func (s *service) ActiveEnrollments(ctx context.Context) ([]api.ActiveEnrollment
 	}
 	out := make([]api.ActiveEnrollment, len(rows))
 	for i, r := range rows {
-		out[i] = api.ActiveEnrollment{HostID: r.HostID, EnrolledAt: r.EnrolledAt}
+		out[i] = api.ActiveEnrollment{HostID: r.HostID, EnrolledAt: r.EnrolledAt, AgentChangedAt: r.AgentChangedAt}
 	}
 	return out, nil
 }

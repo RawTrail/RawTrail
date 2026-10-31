@@ -12,6 +12,8 @@ import (
 type HostEnrollment struct {
 	HostID     string
 	EnrolledAt time.Time
+	// AgentChangedAt is when the host's agent was last replaced in place by another version, zero if never (issue #1465).
+	AgentChangedAt time.Time
 }
 
 // HostEnrollmentLister returns the hosts with an active enrollment. cmd/main adapts the endpoint context's enrollment list.

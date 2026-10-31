@@ -681,7 +681,11 @@ func openRules(
 // cmd/main for the same reason as hostListerFromDetection: the projection is wiring.
 func activeEnrollmentsFromEndpoint(svc endpointapi.Service) rulesapi.HostEnrollmentLister {
 	return projectActiveEnrollments(svc, func(e endpointapi.ActiveEnrollment) rulesapi.HostEnrollment {
-		return rulesapi.HostEnrollment{HostID: e.HostID, EnrolledAt: e.EnrolledAt}
+		var changed time.Time
+		if e.AgentChangedAt != nil {
+			changed = *e.AgentChangedAt
+		}
+		return rulesapi.HostEnrollment{HostID: e.HostID, EnrolledAt: e.EnrolledAt, AgentChangedAt: changed}
 	})
 }
 

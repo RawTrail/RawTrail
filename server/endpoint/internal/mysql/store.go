@@ -52,8 +52,9 @@ type RegisterRequest struct {
 
 // ActiveEnrollment is an active enrollment's host and when it last enrolled.
 type ActiveEnrollment struct {
-	HostID     string    `db:"host_id"`
-	EnrolledAt time.Time `db:"enrolled_at"`
+	HostID         string     `db:"host_id"`
+	EnrolledAt     time.Time  `db:"enrolled_at"`
+	AgentChangedAt *time.Time `db:"agent_changed_at"`
 }
 
 // RegisterResult carries the host id, enrollment timestamp, and the epoch the row now holds back to the caller. The bearer token is no
@@ -131,13 +132,13 @@ func (s *Store) ActiveHostIDs(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-// ActiveEnrollments returns each active (non-revoked) enrollment's host_id and enrolled_at, in host_id order, and nothing else: the
+// ActiveEnrollments returns each active (non-revoked) enrollment's host_id, enrolled_at and agent_changed_at, in host_id order: the
 // watched-path catch-up reads it every few minutes, so it reads only the columns that question needs. host_id is the primary key, so
 // the table holds one row per host and the read is bounded by the number of hosts ever enrolled.
 func (s *Store) ActiveEnrollments(ctx context.Context) ([]ActiveEnrollment, error) {
 	var rows []ActiveEnrollment
 	if err := s.db.SelectContext(ctx, &rows, `
-		SELECT host_id, enrolled_at FROM enrollments WHERE revoked_at IS NULL ORDER BY host_id
+		SELECT host_id, enrolled_at, agent_changed_at FROM enrollments WHERE revoked_at IS NULL ORDER BY host_id
 	`); err != nil {
 		return nil, fmt.Errorf("list active enrollments: %w", err)
 	}

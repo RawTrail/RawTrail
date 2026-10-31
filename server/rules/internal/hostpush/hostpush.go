@@ -139,6 +139,15 @@ func (c Catchup) Converge(ctx context.Context, version int64, payload []byte, ca
 	return inserted, err
 }
 
+// since is when the host's agent took its current form: its latest enrollment, or a later upgrade in place (issue #1465). A command
+// queued before it reached an agent that is gone, and an older agent fails a command type it does not know, so it is sent again.
+func since(e api.HostEnrollment) time.Time {
+	if e.AgentChangedAt.After(e.EnrolledAt) {
+		return e.AgentChangedAt
+	}
+	return e.EnrolledAt
+}
+
 // Needs reports whether a host should be sent the document, given its latest command of the type. The decision is catchup's; what
 // belongs here is whether that command's payload carries the current document. The zero HostCommand is a host that has never been
 // sent one, and carries nothing.
@@ -155,7 +164,7 @@ func Needs(cmd api.HostCommand, e api.HostEnrollment, carries func(payload []byt
 		CreatedAt:   cmd.CreatedAt,
 		Status:      cmd.Status,
 		CompletedAt: completedAt,
-	}, e.EnrolledAt, now)
+	}, since(e), now)
 }
 
 // ReplaceAudited stores encoded as a document's new row and returns the document it replaced and the new one, decoded. A non-nil
