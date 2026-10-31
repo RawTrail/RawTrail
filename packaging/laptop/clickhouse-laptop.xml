@@ -1,0 +1,17 @@
+<!-- ClickHouse sized for the laptop stack (docker-compose.laptop.yml): one Mac's events, on a machine that has other work to do. -->
+<clickhouse>
+    <!-- About 1 GB in all. A query that would go past it fails with MEMORY_LIMIT_EXCEEDED rather than the kernel killing the server. -->
+    <max_server_memory_usage>1000000000</max_server_memory_usage>
+    <!-- Caches sized down from the server defaults (5 GB mark cache, 8 GB uncompressed cache) to fit inside that cap. -->
+    <mark_cache_size>134217728</mark_cache_size>
+    <uncompressed_cache_size>67108864</uncompressed_cache_size>
+    <index_mark_cache_size>33554432</index_mark_cache_size>
+    <!-- The system log tables are for diagnosing a busy server; on a laptop they are disk and memory spent on nothing. -->
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+    <part_log remove="1"/>
+    <trace_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <processors_profile_log remove="1"/>
+</clickhouse>

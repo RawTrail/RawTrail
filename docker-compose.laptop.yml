@@ -1,0 +1,114 @@
+# Laptop stack: the RawTrail server on your own Mac, reachable from this Mac only. Bring it up with scripts/laptop/rawtrail-laptop
+# install, which generates the secrets and the TLS certificate this file reads from RAWTRAIL_LAPTOP_HOME, starts the stack, and
+# installs the agent pointed at it.
+#
+# Sized for a laptop rather than a server: the server is published on 127.0.0.1 only and terminates TLS itself (no Caddy), ClickHouse
+# is capped near 1 GB, MySQL keeps a small buffer pool, events are kept for 7 days, and no telemetry is exported.
+
+name: rawtrail-laptop
+
+services:
+  mysql:
+    image: mysql:8.4.9@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084
+    restart: unless-stopped
+    # One machine's events: no replica to feed, so no binary log. The buffer pool stays at 128 MB, and the performance schema, a few
+    # hundred MB of instrumentation nobody reads here, is off.
+    command:
+      - --skip-log-bin
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+    mem_limit: 640m
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root
+      MYSQL_DATABASE: edr
+    volumes:
+      - mysql-data:/var/lib/mysql
+    secrets:
+      - mysql_root
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --silent 2>/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # The event archive (ADR-0015), on the private compose network only. The default user is passwordless there.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
+    restart: unless-stopped
+    # The container limit sits above ClickHouse's own cap (packaging/laptop/clickhouse-laptop.xml), so a heavy query is refused by
+    # ClickHouse with an error instead of the whole server being killed by the kernel.
+    mem_limit: 1280m
+    environment:
+      CLICKHOUSE_DB: edr
+      # Required for the default user to authenticate over the network with an empty password (code 516 otherwise).
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./packaging/laptop/clickhouse-laptop.xml:/etc/clickhouse-server/config.d/laptop.xml:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  server:
+    image: ghcr.io/rawtrail/rawtrail-server:${EDR_VERSION:-latest}
+    restart: unless-stopped
+    # Longer than every stage of a graceful stop put together (65s); test/arch keeps it in step with those constants (#1127).
+    stop_grace_period: 90s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    # Published on the loopback interface only: nothing else on the network can reach this server. The port is the installer's
+    # (8443 unless RAWTRAIL_LAPTOP_PORT says otherwise), clear of the 8088 a development server uses.
+    ports:
+      - "127.0.0.1:${RAWTRAIL_LAPTOP_PORT:-8443}:8088"
+    environment:
+      EDR_DSN: ""
+      EDR_DSN_FILE: /run/secrets/edr_dsn
+      EDR_ENROLL_SECRET_FILE: /run/secrets/enroll_secret
+      EDR_SECRET_KEY_FILE: /run/secrets/secret_key
+      EDR_CLICKHOUSE_DSN: "clickhouse://default:@clickhouse:9000/edr"
+      # The server terminates TLS itself with the installer's certificate for localhost, which the agent pins by fingerprint.
+      EDR_LISTEN_ADDR: "0.0.0.0:8088"
+      EDR_TLS_CERT_FILE: /tls/server.crt
+      EDR_TLS_KEY_FILE: /tls/server.key
+      # Break-glass passkeys bind to the origin the browser sees, and the setup URL the server prints is built from it.
+      EDR_BREAKGLASS_RP_ID: localhost
+      EDR_BREAKGLASS_RP_ORIGINS: https://localhost:${RAWTRAIL_LAPTOP_PORT:-8443}
+      EDR_LOG_LEVEL: ${EDR_LOG_LEVEL:-info}
+      EDR_LOG_FORMAT: "json"
+      # A week of events and of process graph, together, so an alert's graph is never older than its timeline.
+      EDR_EVENT_RETENTION_DAYS: "7"
+      EDR_RETENTION_DAYS: "7"
+      # A laptop's disk is smaller than a server's: the store size warning fires at 20 GB.
+      EDR_STORE_SIZE_WARN_GB: "20"
+      # No OTEL_EXPORTER_OTLP_ENDPOINT: telemetry export stays off.
+    volumes:
+      - ${RAWTRAIL_LAPTOP_HOME:?run scripts/laptop/rawtrail-laptop install}/tls:/tls:ro
+    secrets:
+      - enroll_secret
+      - edr_dsn
+      - secret_key
+
+volumes:
+  mysql-data:
+  clickhouse-data:
+
+secrets:
+  mysql_root:
+    file: ${RAWTRAIL_LAPTOP_HOME:?run scripts/laptop/rawtrail-laptop install}/secrets/mysql_root
+  enroll_secret:
+    file: ${RAWTRAIL_LAPTOP_HOME:?run scripts/laptop/rawtrail-laptop install}/secrets/enroll_secret
+  edr_dsn:
+    file: ${RAWTRAIL_LAPTOP_HOME:?run scripts/laptop/rawtrail-laptop install}/secrets/edr_dsn
+  secret_key:
+    file: ${RAWTRAIL_LAPTOP_HOME:?run scripts/laptop/rawtrail-laptop install}/secrets/secret_key
