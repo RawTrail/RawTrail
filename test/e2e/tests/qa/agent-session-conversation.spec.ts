@@ -1,4 +1,4 @@
-// The Conversation view (issue #1322): a session read as its turns, each prompt the person typed with the commands and tool calls the
+// The Timeline grouped by prompt (issue #1322): a session read as its turns, each prompt the person typed with the commands and tool calls the
 // agent made for it. The session is written straight into the dev databases, as the agent and the server would have left it, on a
 // fresh host. The test removes its MySQL rows afterwards; its archive events stay on a host nothing else names until the archive's
 // TTL expires them, since a ClickHouse delete rewrites every part of the events table.
@@ -88,7 +88,7 @@ async function removeSession({ hostId }: Seeded): Promise<void> {
   }
 }
 
-test.describe("the conversation view", () => {
+test.describe("the timeline grouped by prompt", () => {
   test.setTimeout(90_000);
   let seeded: Seeded | undefined;
   test.beforeEach(async () => { seeded = await seedSession(); });
@@ -102,17 +102,26 @@ test.describe("the conversation view", () => {
     await signInAsAdminViaForgedSession(page);
     if (!seeded) throw new Error("no session was seeded");
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
-    await page.getByRole("button", { name: "Conversation", exact: true }).click();
+    await page.getByRole("button", { name: "Timeline", exact: true }).click();
+    // The session recorded prompts, so its Timeline opens grouped by them.
+    // spec:web-ui/agent-session-timeline-view/a-session-with-prompts-opens-grouped-by-them
+    await expect(page.getByRole("switch", { name: "Group by prompt" })).toBeChecked({ timeout: 20_000 });
 
     const turns = page.locator(".session-view__turn");
     await expect(turns).toHaveCount(2, { timeout: 20_000 });
+    // Each turn opens closed, headed by its prompt; Expand all opens them to what the agent did.
+    await expect(turns.nth(0).locator(".session-view__prompt > .session-view__toggle")).toHaveAttribute("aria-expanded", "false");
+    await expect(turns.nth(0).locator(".session-view__prompt-label")).toHaveText("Prompt");
+    await page.getByRole("button", { name: "Expand all" }).click();
     const first = turns.nth(0);
     await expect(first.locator(".session-view__prompt-text")).toHaveText("check the repo state");
     await expect(first.locator(".session-view__prompt .session-view__reported")).toHaveText("Reported by agent");
-    await expect(first.locator(".session-view__command").first()).toHaveText("git status");
+    // What the agent did, in the order it happened: it read package.json, then ran git status.
+    await expect(first.locator(".session-view__turn-items > li .session-view__command"))
+      .toHaveText(["/Users/qa/conversation/package.json", "git status"]);
     // The command is paired with the Bash call the agent made for it in this turn.
-    await expect(first.locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_git");
-    await expect(first.locator(".session-view__turn-call")).toContainText("/Users/qa/conversation/package.json");
+    const command = first.locator(".session-view__turn-items > li", { hasText: "git status" });
+    await expect(command.locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_git");
     const second = turns.nth(1);
     await expect(second.locator(".session-view__prompt-text")).toHaveText(`now run the tests ${seeded.token}`);
     await expect(second.locator(".session-view__command").first()).toHaveText("npm test");
@@ -123,7 +132,7 @@ test.describe("the conversation view", () => {
   });
 
   // spec:web-ui/agent-prompt-search/an-operator-finds-a-prompt-across-sessions
-  test("finds the prompt across every session and opens it in its conversation", async ({ page }) => {
+  test("finds the prompt across every session and opens it in its timeline", async ({ page }) => {
     await signInAsAdminViaForgedSession(page);
     if (!seeded) throw new Error("no session was seeded");
     await page.goto("/ui/agent-sessions");
@@ -135,9 +144,10 @@ test.describe("the conversation view", () => {
     await expect(rows.first().locator("mark")).toHaveText(seeded.token);
     await rows.first().getByRole("link").click();
     await expect(page).toHaveURL(
-      new RegExp(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}\\?view=conversation&q=${seeded.token.toUpperCase()}$`));
-    await expect(page.getByRole("button", { name: "Conversation", exact: true })).toHaveAttribute("aria-pressed", "true");
-    // The Conversation opens searched for the word, so the turn is listed however far into the session it is.
+      new RegExp(String.raw`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}\?view=timeline&group=prompt&q=${seeded.token.toUpperCase()}$`));
+    await expect(page.getByRole("button", { name: "Timeline", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("switch", { name: "Group by prompt" })).toBeChecked();
+    // The Timeline opens searched for the word, so the turn is listed however far into the session it is.
     const turns = page.locator(".session-view__turn");
     await expect(turns).toHaveCount(1);
     await expect(turns.first().locator(".session-view__prompt-text")).toHaveText(`now run the tests ${seeded.token}`);

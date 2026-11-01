@@ -87,58 +87,144 @@
     margin: 0 0 0.25rem;
   }
 
-  // The Conversation view (issue #1322): each turn's prompt, then the commands and calls the agent made for it.
+  // The Timeline grouped by prompt (issue #1322): each turn a disclosure headed by its prompt, opened to the commands and calls the agent
+  // made for it.
+  &__turns-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 0.5rem;
+  }
+
   &__turns {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 0.75rem;
     list-style: none;
     margin: 0;
     padding: 0;
   }
 
   &__turn {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    background: $core-white;
+    border: 1px solid $ui-black-10;
+    border-radius: 6px;
+    overflow: hidden;
   }
 
+  // The header opens and closes the turn on a click anywhere a mouse lands, but its text stays selectable: only the toggle is a button.
   &__prompt {
     align-items: baseline;
-    border-left: 3px solid $ui-black-25;
-    display: flex;
-    flex-wrap: wrap;
+    color: $core-black;
+    cursor: pointer;
+    display: grid;
+    gap: 0.25rem 0.6rem;
+    grid-template-columns: auto 1fr;
+    padding: 0.75rem 0.9rem;
+
+    &:hover {
+      background: $ui-black-5;
+    }
+
+    &:has(> .session-view__toggle[aria-expanded="true"]) {
+      border-bottom: 1px solid $ui-black-10;
+    }
+  }
+
+  // A disclosure's own button: its chevron, and on a turn its "Prompt" label.
+  &__toggle {
+    align-items: center;
+    align-self: center;
+    background: none;
+    border: 0;
+    border-radius: 4px;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
     gap: 0.5rem;
-    padding: 0.25rem 0 0.25rem 0.75rem;
+    padding: 0.15rem 0.3rem;
+
+    &:hover {
+      background: $ui-black-10;
+    }
+  }
+
+  &__prompt-body {
+    align-items: baseline;
+    display: flex;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+
+  // A copy button shows where a pointer rests or keyboard focus is, and always on a touch screen, which has no hover.
+  &__copy {
+    align-self: center;
+    flex: none;
+    opacity: 0;
+
+    @media (hover: none) {
+      opacity: 1;
+    }
+  }
+
+  &__prompt:hover &__copy,
+  &__prompt:focus-within &__copy,
+  &__call-header:hover &__copy,
+  &__call-header:focus-within &__copy {
+    opacity: 1;
+  }
+
+  // A chevron drawn from two borders, pointing right when the turn is closed and down when it is open.
+  &__chevron {
+    align-self: center;
+    border-bottom: 2px solid $ui-black-50;
+    border-right: 2px solid $ui-black-50;
+    height: 0.45rem;
+    transform: rotate(-45deg);
+    transition: transform 0.15s;
+    width: 0.45rem;
+  }
+
+  &__toggle[aria-expanded="true"] &__chevron {
+    transform: rotate(45deg);
+  }
+
+  &__prompt-label {
+    color: $ui-black-75;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   &__prompt-text {
-    // A prompt keeps the person's line breaks, and a long word breaks rather than widening the page.
-    flex: 1 1 20rem;
+    cursor: text;
+    font-size: 0.95rem;
+    font-weight: 600;
     overflow-wrap: anywhere;
+    // A prompt keeps the person's line breaks, and a long word breaks rather than widening the page.
     white-space: pre-wrap;
   }
 
-  &__turn-calls {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    list-style: none;
-    margin: 0;
-    padding: 0 0 0 0.75rem;
+  // A closed turn shows the first two lines of its prompt; an open one shows all of it.
+  &__toggle[aria-expanded="false"] + &__prompt-body &__prompt-text {
+    -webkit-box-orient: vertical;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
   }
 
-  &__turn-call {
+  &__prompt-meta {
     align-items: baseline;
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
-    min-width: 0;
+    grid-column: 2;
+  }
 
-    > .session-view__mono {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+  &__turn-items {
+    padding: 0.75rem 0.9rem;
   }
 
   &__tool-name {
@@ -165,22 +251,25 @@
   &__call-header {
     align-items: baseline;
     background: $ui-black-5;
-    border: 0;
     cursor: pointer;
     display: flex;
     flex-wrap: wrap;
-    gap: 0.75rem;
+    gap: 0.5rem 0.75rem;
     padding: 0.6rem 0.9rem;
-    text-align: left;
-    width: 100%;
 
-    &[aria-expanded="true"] {
+    &--open {
       border-bottom: 1px solid $ui-black-10;
+    }
+
+    // A tool call that started no process has nothing to open.
+    &--static {
+      cursor: default;
     }
   }
 
   &__command {
     color: $core-black;
+    cursor: text;
     font-size: 0.9rem;
     overflow-wrap: anywhere;
     white-space: pre-wrap;

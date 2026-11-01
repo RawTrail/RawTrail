@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import "./SessionView.scss";
 import {
@@ -16,6 +16,7 @@ import { Button } from "../ui/Button";
 import { ProcessDetail } from "../ProcessDetail";
 import { ActivityTabs } from "../Activity/ActivityTabs";
 import { Badge } from "../ui/Badge";
+import { CopyButton } from "../ui/CopyButton";
 import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
 import { formatNs, executableName, plural } from "../Search/format";
@@ -52,16 +53,24 @@ const AUTO_EXPAND_GROUPS = 10;
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
 
-// SESSION_LENSES are the session's views, in order: the session at a glance; its turns, each prompt with what the agent did for it
-// (issue #1322); what it ran as commands; every process as one tree; and what it touched.
-type SessionLens = "summary" | "conversation" | "commands" | "processes" | "activity";
+// SESSION_LENSES are the session's views, in order: the session at a glance; its timeline, the commands it ran, grouped by default under
+// the prompt each was run for (issue #1322); every process as one tree; and what it touched.
+type SessionLens = "summary" | "timeline" | "processes" | "activity";
 const SESSION_LENSES: readonly { lens: SessionLens; label: string }[] = [
   { lens: "summary", label: "Summary" },
-  { lens: "conversation", label: "Conversation" },
-  { lens: "commands", label: "Commands" },
+  { lens: "timeline", label: "Timeline" },
   { lens: "processes", label: "Processes" },
   { lens: "activity", label: "Activity" },
 ];
+
+// linkedGrouping reads a link as the Timeline it opens: the views the Timeline replaced, Conversation and Commands, open it grouped and
+// ungrouped, so a link saved before the merge still lands where it pointed, and group=prompt opens it grouped, as a prompt search's
+// result does whatever the operator last chose. Any other link names no grouping.
+function linkedGrouping(view: string, group: string): boolean | undefined {
+  if (view === "conversation" || group === "prompt") return true;
+  if (view === "commands") return false;
+  return undefined;
+}
 
 // REPORTED_LABEL marks what the agent reported about a command, as distinct from what the sensor observed (issue #1333).
 const REPORTED_LABEL = "Reported by agent";
@@ -147,14 +156,17 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error";
 }
 
-async function readSession(key: string, hostId: string, sessionId: string): Promise<SessionRead> {
+// readSession reads the session for the view. Its totals are read by the caller, which also needs them alone and sooner: the Timeline's
+// default grouping waits on their prompt count and nothing else.
+async function readSession(key: string, hostId: string, sessionId: string, totalsRead: Promise<AgentSessionTotals | undefined>,
+): Promise<SessionRead> {
   const [tree, record, alerts, totals, lineage] = await Promise.all([
     getSessionTree(hostId, sessionId).catch((err: unknown) => message(err)),
     listAgentSessions({ host_id: hostId, session: sessionId })
       .then((res) => res.rows[0] as AgentSessionSummary | undefined)
       .catch(() => undefined),
     listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
-    getAgentSessionTotals(hostId, sessionId).catch(() => undefined),
+    totalsRead,
     getAgentSessionLineage(hostId, sessionId).catch(() => undefined),
   ]);
   // A failed tree read costs the Processes view only: the commands are read on their own, and still carry the session's alerts.
@@ -215,6 +227,55 @@ function useDebounced(value: string, delayMs: number): string {
   return settled;
 }
 
+// GROUPING_KEY is where the operator's choice of grouping the Timeline by prompt is kept, in this browser only.
+const GROUPING_KEY = "rawtrail.timelineGroupedByPrompt";
+
+function storedGrouping(): boolean | undefined {
+  try {
+    const stored = localStorage.getItem(GROUPING_KEY);
+    return stored === null ? undefined : stored === "1";
+  } catch {
+    // Storage blocked (a private window, cleared site data): the default applies, and a choice holds for this page's life only.
+    return undefined;
+  }
+}
+
+function storeGrouping(grouped: boolean): void {
+  try {
+    localStorage.setItem(GROUPING_KEY, grouped ? "1" : "0");
+  } catch {
+    // As above.
+  }
+}
+
+interface TimelineGrouping {
+  // grouped is undefined until it can be decided.
+  grouped: boolean | undefined;
+  // choose is the operator's switch: it holds for this page and is kept for the sessions they open after it.
+  choose: (grouped: boolean) => void;
+  // showCommands lists this page's commands ungrouped, as the alerts link does, without changing what the operator chose.
+  showCommands: () => void;
+}
+
+// useTimelineGrouping is whether the Timeline lists the commands under their prompts: as chosen on this page; else as a link asked;
+// else as the operator last chose, kept in this browser from session to session; else by default when the session recorded a prompt, so
+// a session with none opens on its commands. prompts is undefined until the session's totals are read, and so is the default: the
+// Timeline waits rather than switch under the operator. pageKey names the page, so a choice made on one is not taken as another's.
+function useTimelineGrouping(pageKey: string, linked: { view: string; group: string }, prompts: number | undefined): TimelineGrouping {
+  const [onPage, setOnPage] = useState<{ key: string; grouped: boolean } | null>(null);
+  const [stored, setStored] = useState(storedGrouping);
+  const own = onPage?.key === pageKey ? onPage.grouped : undefined;
+  return {
+    grouped: own ?? linkedGrouping(linked.view, linked.group) ?? stored ?? (prompts === undefined ? undefined : prompts > 0),
+    choose: (grouped) => {
+      setOnPage({ key: pageKey, grouped });
+      setStored(grouped);
+      storeGrouping(grouped);
+    },
+    showCommands: () => { setOnPage({ key: pageKey, grouped: false }); },
+  };
+}
+
 // SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its commands ran, one
 // group per command the agent ran, and under it everything that command started, daemons included. The shell plumbing that runs a
 // command is hidden unless the operator turns on verbose. Alerts and privilege changes are badged where they happened, and a command
@@ -227,26 +288,36 @@ export function SessionView() {
   // showOwn lists the processes the agent ran for itself in the Processes view (issue #1361); off by default, so the session's own
   // work reads first, and their count says how many are one click away.
   const [showOwn, setShowOwn] = useState(false);
-  // A link may name the lens to open on and a search to open with, as a prompt search's result opens the Conversation filtered to
-  // the turns holding what was searched for, wherever in the session they are (issue #1428).
+  // A link may name the lens to open on and a search to open with, as a prompt search's result opens the Timeline grouped by prompt,
+  // filtered to the turns holding what was searched for, wherever in the session they are (issue #1428).
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
-  // view picks what the session's main column shows: its summary (issue #1429), its turns (issue #1322), its commands, every process it
-  // ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary, including one
-  // reached from another session's lineage, so the lens chosen is kept for the session it was chosen in.
+  // view picks what the session's main column shows: its summary (issue #1429), its timeline of commands, by prompt (issue #1322) or
+  // not, every process it ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary,
+  // including one reached from another session's lineage, so the lens chosen is kept for the session it was chosen in.
   const [chosenLens, setChosenLens] = useState<{ key: string; lens: SessionLens } | null>(null);
-  const linkedLens = SESSION_LENSES.find(({ lens }) => lens === searchParams.get("view"))?.lens ?? "summary";
+  const linkedView = searchParams.get("view") ?? "";
+  const linkedGroup = searchParams.get("group") ?? "";
+  const linkedLens = linkedGrouping(linkedView, linkedGroup) !== undefined ? "timeline"
+    : SESSION_LENSES.find(({ lens }) => lens === linkedView)?.lens ?? "summary";
   const view: SessionLens = chosenLens?.key === readKey ? chosenLens.lens : linkedLens;
   const setView = useCallback((lens: SessionLens) => { setChosenLens({ key: readKey, lens }); }, [readKey]);
   const [read, setRead] = useState<SessionRead | null>(null);
   const current = read?.key === readKey ? read : null;
+  // The session's prompt count, read with its totals ahead of the rest of the session; unreadable totals count as a prompt recorded.
+  const [promptsRead, setPromptsRead] = useState<{ key: string; prompts: number } | null>(null);
+  const prompts = promptsRead?.key === readKey ? promptsRead.prompts : undefined;
+  const timeline = useTimelineGrouping(`${readKey}\n${linkedView}\n${linkedGroup}`, { view: linkedView, group: linkedGroup }, prompts);
+  const grouped = timeline.grouped;
   const tree = current?.tree ?? null;
 
   useEffect(() => {
     let cancelled = false;
-    void readSession(readKey, hostId, sessionId).then((res) => { if (!cancelled) setRead(res); });
+    const totals = getAgentSessionTotals(hostId, sessionId).catch(() => undefined);
+    void totals.then((t) => { if (!cancelled) setPromptsRead({ key: readKey, prompts: t?.digest?.prompts ?? 1 }); });
+    void readSession(readKey, hostId, sessionId, totals).then((res) => { if (!cancelled) setRead(res); });
     return () => { cancelled = true; };
   }, [hostId, sessionId, readKey]);
 
@@ -398,14 +469,22 @@ export function SessionView() {
               <Input
                 type="search"
                 aria-label="Search this session"
-                placeholder={view === "commands" ? "Search commands" : `Search ${view}`}
+                placeholder={`Search ${view}`}
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); }}
               />
             </span>
-            {/* The plumbing toggle belongs to Commands alone: Processes lists every process already. It keeps its space in every view,
-                hidden rather than removed, so the header wraps alike in all three and the view switcher below never moves. */}
-            <span style={view === "commands" ? undefined : { visibility: "hidden" }}>
+            {/* The Timeline's toggles belong to it alone: Processes lists every process already. They keep their space in every view,
+                hidden rather than removed, so the header wraps alike in all of them and the view switcher below never moves. */}
+            <span style={view === "timeline" ? undefined : { visibility: "hidden" }}>
+              <Toggle
+                id="session-grouped"
+                label="Group by prompt"
+                checked={grouped === true}
+                onChange={(e) => { timeline.choose(e.target.checked); }}
+              />
+            </span>
+            <span style={view === "timeline" ? undefined : { visibility: "hidden" }}>
               <Toggle
                 id="session-verbose"
                 label="Show shell plumbing"
@@ -417,7 +496,7 @@ export function SessionView() {
         )}
       />
       <SessionLineageLine hostId={hostId} lineage={current?.lineage} />
-      <SessionNotices read={current} meta={meta} view={view} />
+      <SessionNotices read={current} meta={meta} commandsShown={view === "timeline" && grouped === false} view={view} />
       <SessionRowsContext.Provider value={rowsContext}>
         <div className="session-view__layout">
           <div className="session-view__main">
@@ -444,13 +523,14 @@ export function SessionView() {
                 project={project}
                 firstNs={firstNs}
                 lastNs={lastNs}
-                onAlerts={() => { setQuery(""); setView("commands"); }}
+                onAlerts={() => { setQuery(""); timeline.showCommands(); setView("timeline"); }}
               />
             )}
-            {view === "conversation" && (
-              <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} incomplete={sessionIncomplete} />
+            {view === "timeline" && grouped === undefined && <EmptyState>Loading...</EmptyState>}
+            {view === "timeline" && grouped === true && (
+              <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} incomplete={sessionIncomplete} verbose={verbose} />
             )}
-            {view === "commands" && (
+            {view === "timeline" && grouped === false && (
               <SessionBody
                 groups={groups}
                 commands={commands}
@@ -570,9 +650,11 @@ function beganBeforeRetention(read: SessionRead): boolean {
 }
 
 // Each read's cut is told with the view it cuts: the commands with Commands, the process tree with Processes.
-function SessionNotices({ read, meta, view }: {
+function SessionNotices({ read, meta, commandsShown, view }: {
   readonly read: SessionRead | null;
   readonly meta: CommandsMeta | null;
+  // commandsShown is set while the Timeline lists the commands ungrouped, the list the commands read's cuts belong to.
+  readonly commandsShown: boolean;
   readonly view: SessionLens;
 }) {
   if (!read) return null;
@@ -594,12 +676,12 @@ function SessionNotices({ read, meta, view }: {
       {read.alertsFailed && (
         <p className="session-view__notice" role="status">This session&apos;s alerts could not be loaded, so none are shown.</p>
       )}
-      {view === "commands" && meta?.truncated && (
+      {commandsShown && meta?.truncated && (
         <p className="session-view__notice" role="status">
           This session ran more processes than the server reads, so its later commands are not listed.
         </p>
       )}
-      {view === "commands" && meta?.toolCallsTruncated && (
+      {commandsShown && meta?.toolCallsTruncated && (
         <p className="session-view__notice" role="status">
           The agent reported more tool calls than are read, so some commands may show without the tool call the agent reported for
           them.
@@ -794,10 +876,11 @@ interface ConversationMeta {
 // commands the agent ran for it and the tool calls it made that ran none, and last what belongs to no prompt. A search asks the
 // server, over prompt text the operator may read, commands and calls. The pages are read as the server sends them and shaped here, so
 // alerts read later reshape the turns already loaded rather than reading them again.
-function ConversationBody({ hostId, sessionId, query, incomplete }: {
+function ConversationBody({ hostId, sessionId, query, incomplete, verbose }: {
   readonly hostId: string;
   readonly sessionId: string;
   readonly query: string;
+  readonly verbose: boolean;
   // incomplete is the session view's own: its record or alerts are unread or cut, or retention removed early processes.
   readonly incomplete: boolean;
 }) {
@@ -817,10 +900,19 @@ function ConversationBody({ hostId, sessionId, query, incomplete }: {
   }, [hostId, sessionId, query, key]);
   const turns = useCursorList(key, fetchPage);
   const current = meta?.key === key ? meta : null;
+  // opened holds the turns the operator opened or closed, for the list they did it in; the rest follow turnOpensByDefault.
+  const [openedFor, setOpenedFor] = useState<{ key: string; turns: ReadonlyMap<string, boolean> }>({ key, turns: new Map() });
+  const opened = openedFor.key === key ? openedFor.turns : new Map<string, boolean>();
+  const setOpened = (next: ReadonlyMap<string, boolean> | ((m: ReadonlyMap<string, boolean>) => ReadonlyMap<string, boolean>)) => {
+    setOpenedFor((o) => {
+      const was = o.key === key ? o.turns : new Map<string, boolean>();
+      return { key, turns: typeof next === "function" ? next(was) : next };
+    });
+  };
   const listed = useMemo<ListedTurn[]>(() => {
-    const shape = { verbose: false, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
+    const shape = { verbose, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
     return turns.rows.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(c, shape)) }));
-  }, [turns.rows, rows.alertsByProcess, incomplete, current?.processesCut]);
+  }, [turns.rows, rows.alertsByProcess, incomplete, current?.processesCut, verbose]);
   // The search's hits are found in these groups, so a matching row is marked and listed past the cap, and its command opens.
   const scoped = useMemo<SessionRows>(
     () => ({ ...rows, hits: searchCommands(listed.flatMap((t) => t.groups), query) }),
@@ -839,14 +931,25 @@ function ConversationBody({ hostId, sessionId, query, incomplete }: {
       : "No prompts are recorded for this session.";
     return <>{cutNotice}<EmptyState>{none}</EmptyState></>;
   }
+  const isOpen = (listedTurn: ListedTurn): boolean => opened.get(turnKey(listedTurn.turn)) ?? turnOpensByDefault(listedTurn, query, rows);
+  const allOpen = listed.every(isOpen);
   return (
     <SessionRowsContext.Provider value={scoped}>
       {cutNotice}
+      <div className="session-view__turns-actions">
+        <Button variant="text-link" onClick={() => { setOpened(new Map(listed.map((t) => [turnKey(t.turn), !allOpen]))); }}>
+          {allOpen ? "Collapse all" : "Expand all"}
+        </Button>
+      </div>
       <ol className="session-view__turns">
-        {listed.map(({ turn, groups }) => (
-          <TurnEntry key={`${turn.prompt_id ?? ""}/${String(turn.uid ?? "")}`} turn={turn} groups={groups}
-            promptsHidden={current?.promptsHidden === true} />
-        ))}
+        {listed.map((listedTurn) => {
+          const key = turnKey(listedTurn.turn);
+          const open = isOpen(listedTurn);
+          return (
+            <TurnEntry key={key} turn={listedTurn.turn} groups={listedTurn.groups} promptsHidden={current?.promptsHidden === true}
+              open={open} onToggle={() => { setOpened((m) => new Map(m).set(key, !open)); }} />
+          );
+        })}
       </ol>
       {turns.error && <p className="session-view__notice" role="alert">The next turns could not be loaded: {turns.error}</p>}
       {turns.hasMore && (
@@ -858,40 +961,115 @@ function ConversationBody({ hostId, sessionId, query, incomplete }: {
   );
 }
 
-// TurnEntry is one turn: the prompt the person typed, labelled as the agent's report since the transcript is the user's to write,
-// then the commands the agent ran for it and the tool calls that ran none.
-function TurnEntry({ turn, groups, promptsHidden }: {
+// rowClick makes a disclosure's whole header open and close it for a mouse, while leaving its text selectable and copyable (the toggle
+// itself is the header's own button, which keyboard and screen reader users reach). A click on a control inside the header is that
+// control's; a click that ends a drag-selection selects; and the second click of a double-click undoes the first, so a word
+// double-clicked to select it leaves the disclosure as it was. A third click selects the line and is left alone too.
+function rowClick(toggle: () => void): (e: MouseEvent<HTMLElement>) => void {
+  return (e) => {
+    if (e.target instanceof Element && e.target.closest("button, a")) return;
+    if (e.detail === 2) {
+      toggle();
+      return;
+    }
+    if (e.detail > 2 || (window.getSelection()?.toString() ?? "") !== "") return;
+    toggle();
+  };
+}
+
+// DisclosureToggle is a disclosure header's own button: a chevron, named by the header's text, pointing right when closed and down when
+// open.
+function DisclosureToggle({ expanded, controls, labelledBy, onToggle, children }: {
+  readonly expanded: boolean;
+  readonly controls: string;
+  readonly labelledBy: string;
+  readonly onToggle: () => void;
+  readonly children?: ReactNode;
+}) {
+  return (
+    <button type="button" className="session-view__toggle" aria-expanded={expanded} aria-controls={expanded ? controls : undefined}
+      aria-labelledby={labelledBy} onClick={onToggle}>
+      <span className="session-view__chevron" aria-hidden="true" />
+      {children}
+    </button>
+  );
+}
+
+// turnKey names a turn among a session's: its prompt and the user whose transcript recorded it.
+function turnKey(turn: ConversationTurn): string {
+  return `${turn.prompt_id ?? ""}/${String(turn.uid ?? "")}`;
+}
+
+// turnOpensByDefault says whether a turn the operator has not opened or closed is open: one an alert was raised in, so what was flagged
+// is in view, and every turn while a search is on, since the server listed only the turns holding what was searched for.
+function turnOpensByDefault({ groups }: ListedTurn, query: string, rows: SessionRows): boolean {
+  return query !== "" || groups.some((g) => g.processIds.some((id) => rows.alertsByProcess.has(id)));
+}
+
+// TurnItem is one thing the agent did in a turn: a command the sensor observed, or a tool call that started no process.
+type TurnItem = { kind: "command"; group: Command; at: number } | { kind: "call"; call: AgentToolCall; at: number };
+
+// turnItems lists a turn's commands and the tool calls that ran none in the order they happened.
+function turnItems(turn: ConversationTurn, groups: readonly Command[]): TurnItem[] {
+  const items: TurnItem[] = [
+    ...groups.map((group): TurnItem => ({ kind: "command", group, at: group.startNs })),
+    ...turn.calls.map((call): TurnItem => ({ kind: "call", call, at: call.called_at_ns })),
+  ];
+  return items.sort((a, b) => a.at - b.at);
+}
+
+// TurnEntry is one turn, a disclosure: its header is the prompt, labelled as one and as the agent's report since the transcript is the
+// user's to write, with how much the agent did for it; opened, it lists what the agent did, in order.
+function TurnEntry({ turn, groups, promptsHidden, open, onToggle }: {
   readonly turn: ConversationTurn;
   readonly groups: Command[];
   readonly promptsHidden: boolean;
+  readonly open: boolean;
+  readonly onToggle: () => void;
 }) {
   const { alertsByProcess } = useSessionRows();
+  const alerts = groups.flatMap((g) => g.processIds.flatMap((id) => alertsByProcess.get(id) ?? []));
+  const toolCalls = turn.calls.length + turn.commands.filter((c) => c.tool_call !== undefined).length;
+  const processes = groups.reduce((sum, g) => sum + g.processCount, 0);
+  const outside = turn.prompt_id === undefined;
+  const ids = useId();
+  const [labelId, textId, bodyId] = [`${ids}-label`, `${ids}-text`, `${ids}-body`];
+  // Only a prompt's own text is copied: not the notes that say it was not captured or is hidden.
+  const copyable = !outside && turn.prompt && !promptsHidden ? turn.prompt.text : null;
   return (
     <li className="session-view__turn">
-      <div className="session-view__prompt">
-        {turn.prompt_id === undefined ? (
-          <span className="session-view__prompt-text">Outside any prompt</span>
-        ) : (
-          <>
-            {/* Only a prompt the agent captured is its report; an uncaptured one says so instead. */}
-            {turn.prompt && <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>}
-            <span className="session-view__prompt-text">{promptText(turn, promptsHidden)}</span>
-          </>
-        )}
-        <span className="session-view__meta">{formatNs(turn.at_ns)}</span>
+      <div className="session-view__prompt" onClick={rowClick(onToggle)}>
+        <DisclosureToggle expanded={open} controls={bodyId} labelledBy={`${labelId} ${textId}`} onToggle={onToggle}>
+          <span id={labelId} className="session-view__prompt-label">{outside ? "No prompt" : "Prompt"}</span>
+        </DisclosureToggle>
+        <span className="session-view__prompt-body">
+          <span id={textId} className="session-view__prompt-text">{outside ? "Outside any prompt" : promptText(turn, promptsHidden)}</span>
+          {copyable !== null && (
+            <span className="session-view__copy"><CopyButton value={copyable} label="Copy prompt" size="small" /></span>
+          )}
+        </span>
+        <span className="session-view__prompt-meta">
+          {/* Only a prompt the agent captured is its report; an uncaptured one says so instead. */}
+          {turn.prompt && <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>}
+          <span className="session-view__meta">
+            {[formatNs(turn.at_ns), plural(toolCalls, "tool call", "tool calls"), plural(processes, "process", "processes")].join(" · ")}
+          </span>
+          {alerts.length > 0 && (
+            <Badge variant={severityBadgeVariant(highestSeverity(alerts))}>{plural(alerts.length, "alert", "alerts")}</Badge>
+          )}
+        </span>
       </div>
-      {groups.length > 0 && (
-        <ol className="session-view__calls">
-          {groups.map((group) => {
-            const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
-            return <CommandGroup key={group.key} group={group} match={group.toolCall} alerts={alerts} defaultOpen={alerts.length > 0} />;
+      {open && (
+        <ol id={bodyId} className="session-view__calls session-view__turn-items">
+          {turnItems(turn, groups).map((item) => {
+            if (item.kind === "call") return <TurnCall key={`${item.call.tool_use_id}/${String(item.call.uid)}`} call={item.call} />;
+            const commandAlerts = item.group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
+            return (
+              <CommandGroup key={item.group.key} group={item.group} match={item.group.toolCall} alerts={commandAlerts}
+                defaultOpen={commandAlerts.length > 0} />
+            );
           })}
         </ol>
-      )}
-      {turn.calls.length > 0 && (
-        <ul className="session-view__turn-calls">
-          {turn.calls.map((call) => <TurnCall key={`${call.tool_use_id}/${String(call.uid)}`} call={call} />)}
-        </ul>
       )}
     </li>
   );
@@ -904,13 +1082,23 @@ function promptText(turn: ConversationTurn, promptsHidden: boolean): string {
   return turn.prompt.text;
 }
 
-// TurnCall is a tool call of a turn that ran no command: a file read or edit, a web fetch, an MCP tool.
+// TurnCall is a tool call of a turn that started no process: a file read or edit, a web fetch, an MCP tool. It is laid out as a
+// command's header is, its target where the command would be and the call the agent reported beneath, labelled the same way.
 function TurnCall({ call }: { readonly call: AgentToolCall }) {
+  const target = call.file_path ?? call.command ?? call.tool_name;
   return (
-    <li className="session-view__turn-call">
-      <code className="session-view__tool-name">{call.tool_name}</code>
-      <span className="session-view__mono">{call.file_path ?? call.command ?? ""}</span>
-      <span className="session-view__meta">{formatNs(call.called_at_ns)}</span>
+    <li className="session-view__call">
+      <div className="session-view__call-header session-view__call-header--static">
+        <code className="session-view__command">{target}</code>
+        <span className="session-view__copy"><CopyButton value={target} label="Copy" size="small" /></span>
+        <span className="session-view__meta">{formatNs(call.called_at_ns)}</span>
+        <span className="session-view__agent-call">
+          <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
+          <code className="session-view__tool-name">{call.tool_name}</code>
+          {call.description && <span>{call.description}</span>}
+          <code className="session-view__tool-use-id">{call.tool_use_id}</code>
+        </span>
+      </div>
     </li>
   );
 }
@@ -930,15 +1118,15 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
   const expanded = (toggled ?? defaultOpen) || found > 0;
   // A credential the command read, or was stopped from reading, is said in words beside it, open or closed (issue #1432).
   const reads = credentialReads(alerts);
+  const ids = useId();
+  const [commandId, bodyId] = [`${ids}-command`, `${ids}-body`];
+  const toggle = () => { setToggled(!expanded); };
   return (
     <li className="session-view__call">
-      <button
-        type="button"
-        className="session-view__call-header"
-        aria-expanded={expanded}
-        onClick={() => { setToggled(!expanded); }}
-      >
-        <code className="session-view__command">{group.command}</code>
+      <div className={`session-view__call-header${expanded ? " session-view__call-header--open" : ""}`} onClick={rowClick(toggle)}>
+        <DisclosureToggle expanded={expanded} controls={bodyId} labelledBy={commandId} onToggle={toggle} />
+        <code id={commandId} className="session-view__command">{group.command}</code>
+        <span className="session-view__copy"><CopyButton value={group.command} label="Copy command" size="small" /></span>
         <span className="session-view__meta">
           {formatNs(group.startNs)} · {plural(group.processCount, "process", "processes")}
         </span>
@@ -947,7 +1135,7 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
         )}
         {found > 0 && <span className="session-view__found">{plural(found, "match", "matches")}</span>}
         {match && <AgentCall match={match} />}
-      </button>
+      </div>
       {reads.length > 0 && (
         <ul className="session-view__credential-reads">
           {reads.map((r) => (
@@ -961,15 +1149,19 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
           ))}
         </ul>
       )}
-      {expanded && group.rows.length > 0 && <ProcessRows rows={group.rows} />}
-      {expanded && group.processesCut && (
-        <p className="session-view__notice" role="status">
-          {"Some of this command's processes are not listed. "}
-          <Button variant="text-link" disabled={wholeRead === "loading"} onClick={() => { readWhole(group.key); }}>
-            {`Show all ${group.processCount.toLocaleString()} processes`}
-          </Button>
-          {wholeRead === "failed" && " They could not be loaded."}
-        </p>
+      {expanded && (
+        <div id={bodyId}>
+          {group.rows.length > 0 && <ProcessRows rows={group.rows} />}
+          {group.processesCut && (
+            <p className="session-view__notice" role="status">
+              {"Some of this command's processes are not listed. "}
+              <Button variant="text-link" disabled={wholeRead === "loading"} onClick={() => { readWhole(group.key); }}>
+                {`Show all ${group.processCount.toLocaleString()} processes`}
+              </Button>
+              {wholeRead === "failed" && " They could not be loaded."}
+            </p>
+          )}
+        </div>
       )}
     </li>
   );
@@ -992,6 +1184,7 @@ function AgentCall({ match }: { readonly match: ToolCallMatch }) {
   return (
     <span className="session-view__agent-call">
       <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
+      <code className="session-view__tool-name">{match.call.tool_name}</code>
       {match.call.description && <span>{match.call.description}</span>}
       <code className="session-view__tool-use-id">{match.call.tool_use_id}</code>
     </span>

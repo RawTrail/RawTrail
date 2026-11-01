@@ -79,7 +79,7 @@ export function SessionSummary({ hostId, alerts, totals, agent, project, firstNs
             : (
               <p>
                 {`${plural(totals.alerts.total, "alert was", "alerts were")} raised in this session. `}
-                <Button variant="text-link" onClick={onAlerts}>See them in Commands</Button>
+                <Button variant="text-link" onClick={onAlerts}>See them in the Timeline</Button>
               </p>
             )}
         </section>

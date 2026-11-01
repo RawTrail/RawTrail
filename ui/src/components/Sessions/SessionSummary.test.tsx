@@ -205,7 +205,7 @@ describe("SessionSummary", () => {
     const onAlerts = renderSummary(busy());
     await card();
     expect(screen.getByText(/^2 alerts were raised in this session\./)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "See them in Commands" }));
+    fireEvent.click(screen.getByRole("button", { name: "See them in the Timeline" }));
     expect(onAlerts).toHaveBeenCalledOnce();
   });
 

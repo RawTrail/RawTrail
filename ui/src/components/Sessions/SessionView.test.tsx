@@ -6,23 +6,28 @@ import { SessionView } from "./SessionView";
 import * as api from "../../api";
 import { proc, realSession, SESSION, sessionCommands } from "../../test/agentSession";
 import type {
-  AgentSessionSummary, AgentToolCall, Alert, ProcessNode, SessionCommandsResponse, SessionConversationResponse, TreeResponse,
+  AgentSessionSummary, AgentSessionTotals, AgentToolCall, Alert, ProcessNode, SessionCommandsResponse, SessionConversationResponse, TreeResponse,
 } from "../../types";
 
 function tree(over: Partial<TreeResponse> = {}): TreeResponse {
   return { roots: realSession(), returned: 16, total_matched: 16, total_matched_capped: false, truncated: false, ...over };
 }
 
-// renderView opens the session and switches to lens, Commands unless told otherwise; a session opens on its Summary.
+// LINKED_VIEWS are the links that open the Timeline grouped one way, whatever the session's default: the views it replaced.
+const LINKED_VIEWS = new Map([["Commands", "commands"], ["Conversation", "conversation"]]);
+
+// renderView opens the session and switches to lens, the Timeline's commands unless told otherwise; a session opens on its Summary.
+// Commands and Conversation open the Timeline ungrouped and grouped through the links that name them.
 function renderView(lens: string | null = "Commands") {
+  const linked = lens === null ? undefined : LINKED_VIEWS.get(lens);
   const result = render(
-    <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
+    <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}${linked ? `?view=${linked}` : ""}`]}>
       <Routes>
         <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
       </Routes>
     </MemoryRouter>,
   );
-  if (lens) openLens(lens);
+  if (lens && !linked) openLens(lens);
   return result;
 }
 
@@ -30,9 +35,44 @@ function openLens(lens: string) {
   fireEvent.click(within(screen.getByRole("group", { name: "Session view" })).getByRole("button", { name: lens }));
 }
 
+// openCommands opens the Timeline and, once the session's read settles it grouped by prompt (its totals unread, so the default), lists
+// the commands ungrouped. The choice holds for the sessions opened after it.
+async function openCommands() {
+  openLens("Timeline");
+  fireEvent.click(await screen.findByRole("switch", { name: "Group by prompt", checked: true }));
+}
+
 // names returns the process names listed in an element, in order. A process's name is the button that selects it.
 function names(el: HTMLElement): (string | null)[] {
   return within(el).queryAllByRole("button", { pressed: false }).map((b) => b.textContent);
+}
+
+// toggleOf is the disclosure button of the header holding el: a command card's or a turn's. The header's text is not in the button, so
+// it stays selectable.
+function toggleOf(el: Element | null): HTMLElement {
+  const toggle = el?.closest(".session-view__call-header, .session-view__prompt")?.querySelector(".session-view__toggle");
+  if (!(toggle instanceof HTMLElement)) throw new Error("no disclosure");
+  return toggle;
+}
+
+// headerOf is the whole header a disclosure's toggle sits in: its text, badges and the tool call it reports.
+function headerOf(toggle: Element): HTMLElement {
+  const header = toggle.closest(".session-view__call-header, .session-view__prompt");
+  if (!(header instanceof HTMLElement)) throw new Error("no header");
+  return header;
+}
+
+// findNotice is the view's status notice, as distinct from the copy buttons' own announcements.
+async function findNotice(): Promise<HTMLElement> {
+  const all = await screen.findAllByRole("status");
+  const notice = all.find((el) => el.classList.contains("session-view__notice"));
+  if (!notice) throw new Error("no notice");
+  return notice;
+}
+
+// commandOf is the command a command card's toggle opens.
+function commandOf(toggle: Element): string | null | undefined {
+  return toggle.closest(".session-view__call-header")?.querySelector("code")?.textContent;
 }
 
 // callHeaders returns the tool-call group headers, in the order the page lists them.
@@ -43,6 +83,8 @@ function callHeaders(): HTMLElement[] {
 // The record, alert, totals and lineage reads decorate the session; by default the session has none of them, and each test overrides
 // what it is about. The commands are the server's grouping of the tree the test reads (issue #1423), so a test names its session once.
 beforeEach(() => {
+  // The Timeline's grouping is kept in this browser; each test starts with none chosen.
+  localStorage.clear();
   vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
   vi.spyOn(api, "listAlerts").mockResolvedValue([]);
   vi.spyOn(api, "getAgentSessionTotals").mockRejectedValue(new Error("not read"));
@@ -171,8 +213,8 @@ describe("SessionView conversation", () => {
     };
   };
   const openConversation = async () => {
-    renderView();
-    fireEvent.click(await screen.findByRole("button", { name: "Conversation" }));
+    renderView("Conversation");
+    await screen.findByRole("button", { name: "Timeline", pressed: true });
   };
 
   // spec:web-ui/agent-session-conversation-view/each-prompt-shows-what-the-agent-did-for-it
@@ -181,20 +223,45 @@ describe("SessionView conversation", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
     const read = vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
     await openConversation();
-    const first = (await screen.findByText("run both steps")).closest(".session-view__turn");
+    // Each turn opens closed: its header is the prompt, labelled as one, with how much the agent did for it.
+    const firstHeader = toggleOf(await screen.findByText("run both steps"));
+    expect(firstHeader).toHaveAttribute("aria-expanded", "false");
+    expect(within(firstHeader).getByText("Prompt")).toBeVisible();
+    // The toggle is named by its label and the prompt, whose text sits outside it so it can be selected and copied.
+    expect(firstHeader).toHaveAccessibleName("Prompt run both steps");
+    const firstRow = firstHeader.closest(".session-view__prompt");
+    if (!(firstRow instanceof HTMLElement)) throw new Error("no row");
+    expect(within(firstRow).getByText("Reported by agent")).toBeVisible();
+    expect(within(firstRow).getByRole("button", { name: "Copy prompt" })).toBeInTheDocument();
+    // The Read is a tool call; the fixture's command pairs with none, so it counts its processes alone.
+    expect(firstRow).toHaveTextContent(/1 tool call · 2 processes/);
+    expect(screen.queryByText("/repo/README.md")).toBeNull();
+
+    fireEvent.click(firstHeader);
+    const first = firstHeader.closest(".session-view__turn");
     if (!(first instanceof HTMLElement)) throw new Error("no turn");
-    expect(within(first).getByText("Reported by agent")).toBeVisible();
-    expect(within(first).getByText("step 0")).toBeVisible();
-    expect(within(first).getByText("/repo/README.md")).toBeVisible();
-    expect(within(first).getByText("Read")).toBeVisible();
-    const uncaptured = screen.getByText("Prompt not captured").closest(".session-view__turn");
-    if (!(uncaptured instanceof HTMLElement)) throw new Error("no turn");
-    expect(within(uncaptured).getByText("https://example.com")).toBeVisible();
-    expect(within(uncaptured).queryByText("Reported by agent")).toBeNull();
-    const outside = screen.getByText("Outside any prompt").closest(".session-view__turn");
-    if (!(outside instanceof HTMLElement)) throw new Error("no turn");
-    expect(within(outside).getByText("step 1")).toBeVisible();
-    expect(within(outside).queryByText("Reported by agent")).toBeNull();
+    // What the agent did is listed in the order it happened: the Read before the command, each labelled as reported.
+    const items = [...first.querySelectorAll(".session-view__turn-items > li .session-view__command")].map((c) => c.textContent);
+    expect(items).toEqual(["/repo/README.md", "step 0"]);
+    const readCall = screen.getByText("/repo/README.md").closest("li");
+    if (!readCall) throw new Error("no call");
+    expect(within(readCall).getByText("Reported by agent")).toBeVisible();
+    expect(within(readCall).getByText("Read")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    const uncapturedHeader = toggleOf(screen.getByText("Prompt not captured"));
+    const uncapturedRow = uncapturedHeader.closest(".session-view__prompt");
+    if (!(uncapturedRow instanceof HTMLElement)) throw new Error("no row");
+    expect(within(uncapturedRow).queryByText("Reported by agent")).toBeNull();
+    // A note that a prompt was not captured is not a prompt to copy.
+    expect(within(uncapturedRow).queryByRole("button", { name: "Copy prompt" })).toBeNull();
+    expect(screen.getByText("https://example.com")).toBeVisible();
+    const outsideHeader = toggleOf(screen.getByText("Outside any prompt"));
+    expect(within(outsideHeader).getByText("No prompt")).toBeVisible();
+    expect(outsideHeader.closest(".session-view__prompt")).not.toHaveTextContent("Reported by agent");
+    expect(screen.getByText("step 1")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(screen.queryByText("step 1")).toBeNull();
     expect(read).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ cursor: "", q: "" }));
   });
 
@@ -223,7 +290,7 @@ describe("SessionView conversation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more turns (2 more)" }));
     expect(await screen.findByText("Outside any prompt")).toBeVisible();
     const box = screen.getByRole("searchbox", { name: "Search this session" });
-    expect(box).toHaveAttribute("placeholder", "Search conversation");
+    expect(box).toHaveAttribute("placeholder", "Search timeline");
     fireEvent.change(box, { target: { value: " example " } });
     await waitFor(() => { expect(screen.queryByText("run both steps")).toBeNull(); });
     expect(screen.getByText("https://example.com")).toBeVisible();
@@ -244,6 +311,7 @@ describe("SessionView conversation", () => {
     vi.spyOn(api, "listAlerts").mockRejectedValue(new Error("alerts down"));
     vi.spyOn(api, "getSessionConversation").mockResolvedValue(foldable());
     await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
     fireEvent.click(await screen.findByText("loop"));
     await waitFor(() => { expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(3); });
     expect(screen.queryByText("×3")).toBeNull();
@@ -256,11 +324,11 @@ describe("SessionView conversation", () => {
     read.turns[0].commands = sessionCommands(manyCalls(11)).commands.slice(5, 6);
     vi.spyOn(api, "getSessionConversation").mockResolvedValue(read);
     await openConversation();
-    const header = (await screen.findByText("step 5")).closest("button");
-    if (!header) throw new Error("no header");
+    fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
+    const header = toggleOf(await screen.findByText("step 5"));
     expect(header).toHaveAttribute("aria-expanded", "false");
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "echo" } });
-    await waitFor(() => { expect(screen.getByText("step 5").closest("button")).toHaveAttribute("aria-expanded", "true"); });
+    await waitFor(() => { expect(toggleOf(screen.getByText("step 5"))).toHaveAttribute("aria-expanded", "true"); });
     for (const echo of screen.getAllByRole("button", { name: "echo" })) {
       expect(echo.closest(".session-view__row")).toHaveClass("session-view__row--hit");
     }
@@ -307,6 +375,211 @@ describe("SessionView conversation", () => {
     expect(await screen.findByText(/holds more than the server reads/)).toBeVisible();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "nothing" } });
     expect(await screen.findByText("No turn of this session matches.")).toBeVisible();
+  });
+
+  // withPrompts is a session's totals recording that many prompts, which decides how its Timeline opens.
+  const withPrompts = (prompts: number): AgentSessionTotals => ({
+    commands: 2, processes: 4, alerts: { total: 0, by_severity: {} }, tool_calls: { total: 0, by_tool: [] },
+    digest: {
+      prompts, programs: [], directories: [], directories_truncated: false,
+      files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
+      timeline: [], command_timeline: [], timeline_start_ns: 0, timeline_bucket_ns: 1,
+    },
+  });
+
+  // spec:web-ui/agent-session-timeline-view/a-session-with-prompts-opens-grouped-by-them
+  it("opens the Timeline grouped by prompt when the session recorded one, and lists its commands alone when switched off", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(3));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    renderView("Timeline");
+    const grouping = await screen.findByRole("switch", { name: "Group by prompt", checked: true });
+    expect(await screen.findByText("run both steps")).toBeVisible();
+
+    fireEvent.click(grouping);
+    expect(grouping).not.toBeChecked();
+    expect(screen.queryByText("run both steps")).toBeNull();
+    expect(await screen.findByText("step 1", { selector: "code" })).toBeVisible();
+  });
+
+  // spec:web-ui/agent-session-timeline-view/a-session-with-no-prompt-opens-on-its-commands
+  it("opens the Timeline on the session's commands when it recorded no prompt, without reading its turns", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(0));
+    const turns = vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    renderView("Timeline");
+    expect(await screen.findByText("step 1", { selector: "code" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
+    expect(turns).not.toHaveBeenCalled();
+  });
+
+  it("keeps the operator's grouping when they move to another session", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(3));
+    const turns = vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    render(
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}`]}>
+        <Link to="/agent-sessions/H1/other-session">next</Link>
+        <Routes>
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    openLens("Timeline");
+    fireEvent.click(await screen.findByRole("switch", { name: "Group by prompt", checked: true }));
+    fireEvent.click(screen.getByRole("link", { name: "next" }));
+    openLens("Timeline");
+    expect(await screen.findByText("step 1", { selector: "code" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
+    expect(turns).not.toHaveBeenCalledWith("H1", "other-session", expect.anything());
+  });
+
+  // renderAt opens the session view at a link, as following one from the sessions list mounts it afresh.
+  const renderAt = (search = "") => render(
+    <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}${search}`]}>
+      <Routes>
+        <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  it("keeps the operator's grouping in this browser, so a session opened from the list again keeps it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(3));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const first = renderAt();
+    openLens("Timeline");
+    fireEvent.click(await screen.findByRole("switch", { name: "Group by prompt", checked: true }));
+    first.unmount();
+
+    renderAt();
+    openLens("Timeline");
+    expect(await screen.findByText("step 1", { selector: "code" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
+  });
+
+  it("opens a link naming a replaced view in its grouping, whatever the operator chose before", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(3));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const first = renderAt();
+    openLens("Timeline");
+    fireEvent.click(await screen.findByRole("switch", { name: "Group by prompt", checked: true }));
+    first.unmount();
+
+    renderAt("?view=conversation");
+    expect(await screen.findByRole("switch", { name: "Group by prompt" })).toBeChecked();
+    expect(await screen.findByText("run both steps")).toBeVisible();
+  });
+
+  it("lists the commands for the alerts link without changing the operator's grouping", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({ ...withPrompts(3), alerts: { total: 1, by_severity: { high: 1 } } });
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const first = renderAt();
+    fireEvent.click(await screen.findByRole("button", { name: "See them in the Timeline" }));
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
+    first.unmount();
+
+    renderAt();
+    openLens("Timeline");
+    expect(await screen.findByRole("switch", { name: "Group by prompt", checked: true })).toBeVisible();
+  });
+
+  it("decides the Timeline's grouping from the session's totals alone, while its process tree is still being read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(api, "getSessionCommands").mockResolvedValue(sessionCommands(manyCalls(2)));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(0));
+    renderView("Timeline");
+    expect(await screen.findByText("step 1", { selector: "code" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
+  });
+
+  it("shows the shell plumbing of a turn's commands with verbose on", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
+    const header = toggleOf(await screen.findByText("step 0", { selector: "code" }));
+    const call = header.closest("li");
+    if (!call) throw new Error("no command");
+    fireEvent.click(header);
+    expect(names(call)).toEqual(["echo"]);
+    fireEvent.click(screen.getByRole("switch", { name: "Show shell plumbing" }));
+    expect(names(call)).toEqual(["zsh", "echo"]);
+  });
+
+  // spec:web-ui/timeline-headers-stay-selectable/selecting-a-prompt-does-not-close-it
+  it("opens a turn from anywhere on its header, but not when the click selects its text or copies it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    await openConversation();
+    const text = await screen.findByText("run both steps");
+    const toggle = toggleOf(text);
+
+    fireEvent.click(text, { detail: 1 });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // The second click of a double-click lands with the word it selected, and undoes the first: the turn is left as it was.
+    const selection = vi.spyOn(window, "getSelection").mockReturnValue({ toString: () => "both" } as Selection);
+    fireEvent.click(text, { detail: 2 });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // A click that ends a drag-selection selects.
+    fireEvent.click(text, { detail: 1 });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    selection.mockRestore();
+
+    fireEvent.click(within(headerOf(toggle)).getByRole("button", { name: "Copy prompt" }));
+    await waitFor(() => { expect(writeText).toHaveBeenCalledWith("run both steps"); });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    vi.unstubAllGlobals();
+  });
+
+  it("opens a command from anywhere on its header, with its command copyable", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
+    const command = await screen.findByText("step 0", { selector: "code" });
+    const toggle = toggleOf(command);
+    expect(toggle).toHaveAccessibleName("step 0");
+    fireEvent.click(headerOf(toggle), { detail: 1 });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-controls", expect.any(String));
+    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")).toBeVisible();
+    fireEvent.click(within(headerOf(toggle)).getByRole("button", { name: "Copy command" }));
+    await waitFor(() => { expect(writeText).toHaveBeenCalledWith("step 0"); });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    vi.unstubAllGlobals();
+  });
+
+  it("opens a turn an alert was raised in, and every turn a search lists", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    const read = conversation();
+    const alerted = read.turns[0].commands[0].process_ids[0];
+    vi.spyOn(api, "listAlerts").mockResolvedValue([alert({ process_id: alerted, severity: "high" })]);
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(read);
+    await openConversation();
+    const flagged = toggleOf(await screen.findByText("run both steps"));
+    await waitFor(() => { expect(flagged).toHaveAttribute("aria-expanded", "true"); });
+    expect(toggleOf(screen.getByText("Outside any prompt"))).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "step" } });
+    await waitFor(() => { expect(toggleOf(screen.getByText("Outside any prompt"))).toHaveAttribute("aria-expanded", "true"); });
   });
 });
 
@@ -520,7 +793,7 @@ describe("SessionView commands from the server", () => {
         </Routes>
       </MemoryRouter>,
     );
-    openLens("Commands");
+    openLens("Timeline");
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
     fireEvent.click(await screen.findByRole("button", { name: "Load more processes" }));
     fireEvent.click(screen.getByRole("link", { name: "next" }));
@@ -584,21 +857,24 @@ describe("SessionView commands from the server", () => {
     renderView(null);
     const views = screen.getByRole("group", { name: "Session view" });
     expect(within(views).getAllByRole("button").map((b) => b.textContent))
-      .toEqual(["Summary", "Conversation", "Commands", "Processes", "Activity"]);
+      .toEqual(["Summary", "Timeline", "Processes", "Activity"]);
     expect(within(views).getByRole("button", { name: "Summary" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(views).getByRole("button", { name: "Commands" }));
-    // A search left over from Commands would hide the commands the alerts link leads to, so following it clears the search.
+    fireEvent.click(within(views).getByRole("button", { name: "Timeline" }));
+    // A search left over from the Timeline would hide the commands the alerts link leads to, so following it clears the search.
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "nothing alerted" } });
     fireEvent.click(within(views).getByRole("button", { name: "Summary" }));
     expect(await screen.findByRole("img", { name: /^A summary card of a .+ session/ })).toBeVisible();
     expect(screen.getByLabelText("Search this session")).not.toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "See them in Commands" }));
-    expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "See them in the Timeline" }));
+    expect(within(views).getByRole("button", { name: "Timeline" })).toHaveAttribute("aria-pressed", "true");
+    // The alerts are on commands, so the link lists the commands ungrouped, whatever the session's default.
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
     expect(screen.getByRole("searchbox", { name: "Search this session" })).toHaveValue("");
   });
 
   // spec:web-ui/agent-prompt-search/an-operator-finds-a-prompt-across-sessions
-  it("opens on the view a link names, as a prompt search's result opens the Conversation", () => {
+  // spec:web-ui/agent-session-timeline-view/a-link-to-a-replaced-view-opens-the-timeline
+  it("opens on the view a link names, as a prompt search's result opens the Timeline grouped by prompt", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
     vi.spyOn(api, "getSessionConversation").mockReturnValue(new Promise(() => undefined));
@@ -610,9 +886,10 @@ describe("SessionView commands from the server", () => {
       </MemoryRouter>,
     );
     const views = screen.getByRole("group", { name: "Session view" });
-    expect(within(views).getByRole("button", { name: "Conversation" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(views).getByRole("button", { name: "Commands" }));
-    expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(views).getByRole("button", { name: "Timeline" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).toBeChecked();
+    fireEvent.click(within(views).getByRole("button", { name: "Processes" }));
+    expect(within(views).getByRole("button", { name: "Processes" })).toHaveAttribute("aria-pressed", "true");
   });
 
   // spec:web-ui/agent-prompt-search/an-operator-finds-a-prompt-across-sessions
@@ -630,6 +907,25 @@ describe("SessionView commands from the server", () => {
     expect(screen.getByRole("searchbox", { name: "Search this session" })).toHaveValue("deploy it");
     await waitFor(() => { expect(spy).toHaveBeenCalled(); });
     expect(spy.mock.calls[0][2]).toMatchObject({ q: "deploy it" });
+  });
+
+  // spec:web-ui/agent-session-timeline-view/a-prompt-search-result-opens-the-timeline-grouped
+  it("opens a prompt search's result grouped by prompt though the operator last chose to list commands", () => {
+    localStorage.setItem("rawtrail.timelineGroupedByPrompt", "0");
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getSessionConversation").mockReturnValue(new Promise(() => undefined));
+    render(
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}?view=timeline&group=prompt&q=deploy`]}>
+        <Routes>
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const views = screen.getByRole("group", { name: "Session view" });
+    expect(within(views).getByRole("button", { name: "Timeline" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).toBeChecked();
+    expect(screen.getByRole("searchbox", { name: "Search this session" })).toHaveValue("deploy");
   });
 
   it("opens on the Summary when a link names no view it has", () => {
@@ -732,7 +1028,7 @@ describe("SessionView commands from the server", () => {
     expect(screen.queryAllByRole("button", { expanded: true })).toHaveLength(0);
     landAlerts([alert({ process_id: 71 })]);
     await screen.findByRole("link", { name: "System discovery" });
-    expect(screen.getAllByRole("button", { expanded: true }).map((b) => b.querySelector("code")?.textContent)).toEqual(["step 6"]);
+    expect(screen.getAllByRole("button", { expanded: true }).map((b) => commandOf(b))).toEqual(["step 6"]);
   });
 });
 
@@ -752,20 +1048,20 @@ describe("SessionView", () => {
     renderView();
     const headers = await screen.findAllByRole("button", { expanded: true });
     expect(spy).toHaveBeenCalledWith("H1", SESSION, expect.objectContaining({ cursor: "" }));
-    expect(within(headers[0]).getByText("First step")).toBeVisible();
-    expect(within(headers[0]).getByText("toolu_a")).toBeVisible();
+    expect(within(headerOf(headers[0])).getByText("First step")).toBeVisible();
+    expect(within(headerOf(headers[0])).getByText("toolu_a")).toBeVisible();
     // Both the paired call and the ambiguous one say they are the agent's report; the unpaired command says nothing.
-    expect(within(headers[0]).getByText("Reported by agent")).toBeVisible();
-    expect(within(headers[1]).getByText("Reported by agent")).toBeVisible();
+    expect(within(headerOf(headers[0])).getByText("Reported by agent")).toBeVisible();
+    expect(within(headerOf(headers[1])).getByText("Reported by agent")).toBeVisible();
     // Both labels say where the report comes from: the outer title on an ambiguous call names its candidates instead.
     for (const header of headers.slice(0, 2)) {
-      expect(within(header).getByText("Reported by agent")).toHaveAttribute("title", expect.stringContaining("not observed by the sensor"));
+      expect(within(headerOf(header)).getByText("Reported by agent")).toHaveAttribute("title", expect.stringContaining("not observed by the sensor"));
     }
-    expect(within(headers[2]).queryByText("Reported by agent")).toBeNull();
-    const ambiguous = within(headers[1]).getByText(/One of 2 identical calls made at once/);
+    expect(within(headerOf(headers[2])).queryByText("Reported by agent")).toBeNull();
+    const ambiguous = within(headerOf(headers[1])).getByText(/One of 2 identical calls made at once/);
     expect(ambiguous).toBeVisible();
     expect(ambiguous).toHaveAttribute("title", "One of: toolu_b, toolu_c");
-    expect(within(headers[2]).queryByText(/toolu_/)).toBeNull();
+    expect(within(headerOf(headers[2])).queryByText(/toolu_/)).toBeNull();
   });
 
   it("says when the agent reported more tool calls than were read", async () => {
@@ -799,7 +1095,7 @@ describe("SessionView", () => {
     renderView();
     expect(await screen.findByRole("heading", { name: "claude-code 2.1.296" })).toBeVisible();
     expect(spy).toHaveBeenCalledWith("H1", SESSION);
-    expect(callHeaders().map((h) => h.querySelector("code")?.textContent)).toEqual([
+    expect(callHeaders().map((h) => commandOf(h))).toEqual([
       "ls /private/tmp | head -3",
       "(sleep 47 &)",
       "nohup sleep 48 >/dev/null 2>&1 &",
@@ -809,7 +1105,7 @@ describe("SessionView", () => {
     expect(screen.getByText("/private/tmp")).toBeVisible();
     expect(await screen.findByText("qa-1280-vm")).toBeVisible();
     expect(screen.getByText("16 processes")).toBeVisible();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(document.querySelector(".session-view__notice[role=status]")).toBeNull();
   });
 
   // spec:web-ui/ai-agent-session-view/shell-plumbing-is-hidden-unless-verbose
@@ -829,8 +1125,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
     renderView();
-    const header = (await screen.findByText("ls /private/tmp | head -3")).closest("button");
-    if (!header) throw new Error("no header");
+    const header = toggleOf(await screen.findByText("ls /private/tmp | head -3"));
     expect(screen.getByRole("button", { name: "ls" })).toBeVisible();
     fireEvent.click(header);
     expect(header).toHaveAttribute("aria-expanded", "false");
@@ -863,9 +1158,9 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, returned: 16, total_matched: 2500 }));
     renderView();
     // The commands say their read was cut; the process tree, in its own view, how much of the session it shows.
-    expect(await screen.findByRole("status")).toHaveTextContent("ran more processes than the server reads");
+    expect(await findNotice()).toHaveTextContent("ran more processes than the server reads");
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Showing the first 16 of 2,500 processes in this session.");
+    expect(await findNotice()).toHaveTextContent("Showing the first 16 of 2,500 processes in this session.");
   });
 
   // spec:web-ui/ai-agent-session-view-badges/the-header-reads-the-session-s-record
@@ -907,9 +1202,8 @@ describe("SessionView", () => {
     expect(link).toHaveAttribute("href", "/alerts/2047");
     // One past the cap, so a session with more alerts than are read is reported.
     expect(spy).toHaveBeenCalledWith({ host_id: "H1", agent_session: SESSION, limit: 1001 });
-    const header = screen.getByText("ls /private/tmp | head -3").closest("button");
-    if (!header) throw new Error("no header");
-    expect(within(header).getByText("1 alert")).toHaveClass("badge--critical");
+    const header = toggleOf(screen.getByText("ls /private/tmp | head -3"));
+    expect(within(headerOf(header)).getByText("1 alert")).toHaveClass("badge--critical");
   });
 
   // spec:web-ui/a-command-that-read-a-credential-says-so/a-command-names-the-credential-it-read
@@ -960,7 +1254,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "listAlerts").mockResolvedValue([alert({ process_id: 71 })]);
     renderView();
     await screen.findByRole("link", { name: "System discovery" });
-    expect(screen.getAllByRole("button", { expanded: true }).map((b) => b.querySelector("code")?.textContent)).toEqual(["step 6"]);
+    expect(screen.getAllByRole("button", { expanded: true }).map((b) => commandOf(b))).toEqual(["step 6"]);
     expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(10);
   });
 
@@ -1033,10 +1327,9 @@ describe("SessionView", () => {
     await screen.findByText("step 7");
     expect(screen.queryByRole("button", { name: "echo" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "echo 7" } });
-    const header = screen.getByText("step 7").closest("button");
-    if (!header) throw new Error("no header");
+    const header = toggleOf(screen.getByText("step 7"));
     expect(header).toHaveAttribute("aria-expanded", "true");
-    expect(within(header).getByText("1 match")).toBeVisible();
+    expect(within(headerOf(header)).getByText("1 match")).toBeVisible();
     expect(screen.getAllByRole("button", { expanded: true })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "echo" }).closest(".session-view__row")).toHaveClass("session-view__row--hit");
   });
@@ -1099,10 +1392,10 @@ describe("SessionView", () => {
         </Routes>
       </MemoryRouter>,
     );
-    openLens("Commands");
+    await openCommands();
     fireEvent.click(await screen.findByRole("button", { name: "Show all 26 processes" }));
     fireEvent.click(screen.getByRole("link", { name: "next" }));
-    openLens("Commands");
+    openLens("Timeline");
     fireEvent.click(await screen.findByRole("button", { name: "Show all 26 processes" }));
     expect(await screen.findByRole("button", { name: "Show 5 more processes" })).toBeVisible();
     act(() => { landFirst(cut); });
@@ -1155,7 +1448,7 @@ describe("SessionView", () => {
     const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'loop'"], children, { tool_call_group: 1 });
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], truncated: true, total_matched: 5000 }));
     renderView();
-    await screen.findByRole("status");
+    await findNotice();
     expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(3);
   });
 
@@ -1193,7 +1486,7 @@ describe("SessionView", () => {
     expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ls (80728)" }));
     expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Commands" }));
+    fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
     expect(screen.getByText("ls /private/tmp | head -3")).toBeVisible();
   });
 
@@ -1325,9 +1618,10 @@ describe("SessionView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
     expect(screen.getByRole("button", { name: "Processes", pressed: true })).toBeVisible();
     expect(await screen.findByText("3 processes", { selector: ".session-view__processes-summary" })).toBeVisible();
-    // Hidden but kept in place, so the header wraps as it does in Commands and the view switcher stays where it was.
-    // spec:web-ui/stable-session-view-switcher/the-plumbing-toggle-is-hidden-not-removed-outside-commands
+    // Hidden but kept in place, so the header wraps as it does in the Timeline and the view switcher stays where it was.
+    // spec:web-ui/stable-session-view-header/the-timeline-s-switches-are-hidden-not-removed-outside-it
     expect(screen.getByText("Show shell plumbing")).not.toBeVisible();
+    expect(screen.getByText("Group by prompt")).not.toBeVisible();
     // The agent leads, its command's wrapper and the subshell's copy of zsh are listed, and the daemon is under the copy that made it.
     const names = [...document.querySelectorAll(".session-view__processes .session-view__name")].map((b) => b.textContent);
     expect(names).toEqual(["claude", "zsh", "zsh", "sleep"]);
@@ -1452,7 +1746,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, total_matched: 10_000, total_matched_capped: true }));
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Showing the first 16 of more than 10,000 processes in this session.");
+    expect(await findNotice()).toHaveTextContent("Showing the first 16 of more than 10,000 processes in this session.");
   });
 
   it("does not show the previous session's processes while the next session loads", async () => {
@@ -1471,10 +1765,10 @@ describe("SessionView", () => {
         </Routes>
       </MemoryRouter>,
     );
-    openLens("Commands");
+    await openCommands();
     expect(await screen.findByText("ls /private/tmp | head -3")).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
-    openLens("Commands");
+    openLens("Timeline");
     expect(await screen.findByText("Loading...")).toBeVisible();
     expect(screen.queryByText("ls /private/tmp | head -3")).not.toBeInTheDocument();
   });
@@ -1493,13 +1787,13 @@ describe("SessionView", () => {
         </Routes>
       </MemoryRouter>,
     );
-    openLens("Commands");
+    await openCommands();
     fireEvent.click(await screen.findByRole("button", { name: "ls" }));
     expect(screen.getByRole("heading", { name: "Process detail" })).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
     // A session reached from another opens on its Summary, whichever view the operator had open.
     expect(screen.getByRole("button", { name: "Summary", pressed: true })).toBeVisible();
-    openLens("Commands");
+    openLens("Timeline");
     expect(await screen.findByRole("button", { name: "ls" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Process detail" })).not.toBeInTheDocument();
   });
@@ -1522,10 +1816,10 @@ describe("SessionView", () => {
         </Routes>
       </MemoryRouter>,
     );
-    openLens("Commands");
+    await openCommands();
     expect(await screen.findByText("Error: boom")).toBeVisible();
     fireEvent.click(screen.getByRole("link", { name: "next" }));
-    openLens("Commands");
+    openLens("Timeline");
     expect(await screen.findByText("Loading...")).toBeVisible();
     expect(screen.queryByText("Error: boom")).not.toBeInTheDocument();
     resolveNext(tree());
