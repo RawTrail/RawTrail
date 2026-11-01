@@ -132,9 +132,9 @@ function SummaryTouched({ totals, digest, project }: {
       <p>{`${across}: ${operations}.`}</p>
       {project && (
         <p>
-          {digest.outside_project === 0
+          {digest.files.outside_project === 0
             ? "Nothing outside this project."
-            : `${plural(digest.outside_project, "path", "paths")} outside this project.`}
+            : `${plural(digest.files.outside_project, "path", "paths")} outside this project.`}
         </p>
       )}
       <CountList

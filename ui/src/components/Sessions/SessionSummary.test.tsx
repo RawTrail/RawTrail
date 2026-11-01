@@ -9,7 +9,7 @@ const MINUTE_NS = 60e9;
 
 function digest(over: Partial<AgentSessionDigest> = {}): AgentSessionDigest {
   return {
-    prompts: 0, programs: [], directories: [], directories_truncated: false, outside_project: 0, domains: [], domains_truncated: false,
+    prompts: 0, programs: [], directories: [], directories_truncated: false, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
     timeline: [0, 0], command_timeline: [0, 0], timeline_start_ns: 0, timeline_bucket_ns: 1, ...over,
   };
 }
@@ -43,7 +43,7 @@ function busy(): AgentSessionTotals {
       directories: [{ directory: "/Users/dev/app/src", paths: 3, by_operation: { modify: 6 } },
         { directory: "/etc", paths: 1, by_operation: { create: 2 } }],
       directories_truncated: true,
-      outside_project: 1,
+      files: { changed: 3, outside_project: 1, temporary: 0, agent_files: 0 },
       domains: [{ domain: "github.com", lookups: 2, connections: 3, new: false },
         { domain: "anthropic.com", lookups: 1, connections: 0, new: false },
         { domain: "evil.test", lookups: 1, connections: 0, new: true }],
@@ -185,7 +185,7 @@ describe("SessionSummary", () => {
 
   it("says nothing was outside a project it touched only inside", () => {
     const inside = busy();
-    renderSummary({ ...inside, digest: { ...digest(), ...inside.digest, outside_project: 0 } });
+    renderSummary({ ...inside, digest: { ...digest(), ...inside.digest, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 } } });
     expect(within(section("What it touched")).getByText("Nothing outside this project.")).toBeVisible();
   });
 
