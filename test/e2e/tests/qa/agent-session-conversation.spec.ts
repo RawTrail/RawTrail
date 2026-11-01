@@ -144,7 +144,7 @@ test.describe("the timeline grouped by prompt", () => {
     await expect(rows.first().locator("mark")).toHaveText(seeded.token);
     await rows.first().getByRole("link").click();
     await expect(page).toHaveURL(
-      new RegExp(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}\\?view=timeline&q=${seeded.token.toUpperCase()}$`));
+      new RegExp(String.raw`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}\?view=timeline&q=${seeded.token.toUpperCase()}$`));
     await expect(page.getByRole("button", { name: "Timeline", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("switch", { name: "Group by prompt" })).toBeChecked();
     // The Timeline opens searched for the word, so the turn is listed however far into the session it is.

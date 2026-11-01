@@ -2,7 +2,7 @@
 
 ### Requirement: Agent session timeline view
 
-The agent session view SHALL list what the session ran in one Timeline view, with a "Group by prompt" switch: on, it lists each prompt with the commands and tool calls made for it; off, it lists the commands alone in the order they started. It SHALL open grouped when the session recorded a prompt and ungrouped when it recorded none, keep the operator's choice across sessions, and open a link naming `conversation` or `commands` grouped or ungrouped.
+The agent session view SHALL list what the session ran in one Timeline view, with a "Group by prompt" switch: on, it lists each prompt with the commands and tool calls made for it; off, it lists the commands alone in the order they started. It SHALL open grouped when the session recorded a prompt and ungrouped when it recorded none, keep the operator's choice in the browser across sessions, and open a link naming `conversation` or `commands` grouped or ungrouped whatever was chosen.
 
 #### Scenario: A session with prompts opens grouped by them
 

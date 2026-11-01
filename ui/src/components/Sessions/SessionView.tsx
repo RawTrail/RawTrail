@@ -155,14 +155,17 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error";
 }
 
-async function readSession(key: string, hostId: string, sessionId: string): Promise<SessionRead> {
+// readSession reads the session for the view. Its totals are read by the caller, which also needs them alone and sooner: the Timeline's
+// default grouping waits on their prompt count and nothing else.
+async function readSession(key: string, hostId: string, sessionId: string, totalsRead: Promise<AgentSessionTotals | undefined>,
+): Promise<SessionRead> {
   const [tree, record, alerts, totals, lineage] = await Promise.all([
     getSessionTree(hostId, sessionId).catch((err: unknown) => message(err)),
     listAgentSessions({ host_id: hostId, session: sessionId })
       .then((res) => res.rows[0] as AgentSessionSummary | undefined)
       .catch(() => undefined),
     listAlerts({ host_id: hostId, agent_session: sessionId, limit: MAX_SESSION_ALERTS + 1 }).catch(() => null),
-    getAgentSessionTotals(hostId, sessionId).catch(() => undefined),
+    totalsRead,
     getAgentSessionLineage(hostId, sessionId).catch(() => undefined),
   ]);
   // A failed tree read costs the Processes view only: the commands are read on their own, and still carry the session's alerts.
@@ -223,13 +226,53 @@ function useDebounced(value: string, delayMs: number): string {
   return settled;
 }
 
-// useTimelineGrouping is whether the Timeline lists the commands under their prompts: as the operator chose, kept from session to session
-// as the plumbing toggle is; as a link's view asked; or else by default when the session recorded a prompt, so a session with none
-// opens on its commands. prompts is undefined until the session is read, and so is the default: the Timeline waits rather than switch
-// under the operator.
-function useTimelineGrouping(linkedView: string, prompts: number | undefined): [boolean | undefined, (grouped: boolean) => void] {
-  const [chosen, setChosen] = useState<boolean | null>(null);
-  return [chosen ?? linkedGrouping(linkedView) ?? (prompts === undefined ? undefined : prompts > 0), setChosen];
+// GROUPING_KEY is where the operator's choice of grouping the Timeline by prompt is kept, in this browser only.
+const GROUPING_KEY = "rawtrail.timelineGroupedByPrompt";
+
+function storedGrouping(): boolean | undefined {
+  try {
+    const stored = localStorage.getItem(GROUPING_KEY);
+    return stored === null ? undefined : stored === "1";
+  } catch {
+    // Storage blocked (a private window, cleared site data): the default applies, and a choice holds for this page's life only.
+    return undefined;
+  }
+}
+
+function storeGrouping(grouped: boolean): void {
+  try {
+    localStorage.setItem(GROUPING_KEY, grouped ? "1" : "0");
+  } catch {
+    // As above.
+  }
+}
+
+interface TimelineGrouping {
+  // grouped is undefined until it can be decided.
+  grouped: boolean | undefined;
+  // choose is the operator's switch: it holds for this page and is kept for the sessions they open after it.
+  choose: (grouped: boolean) => void;
+  // showCommands lists this page's commands ungrouped, as the alerts link does, without changing what the operator chose.
+  showCommands: () => void;
+}
+
+// useTimelineGrouping is whether the Timeline lists the commands under their prompts: as chosen on this page; else as a link's view asked;
+// else as the operator last chose, kept in this browser from session to session; else by default when the session recorded a prompt, so
+// a session with none opens on its commands. prompts is undefined until the session's totals are read, and so is the default: the
+// Timeline waits rather than switch under the operator. pageKey names the page, so a choice made on one is not taken as another's.
+function useTimelineGrouping(pageKey: string, linkedView: string, prompts: number | undefined): TimelineGrouping {
+  const [onPage, setOnPage] = useState<{ key: string; grouped: boolean } | null>(null);
+  const [stored, setStored] = useState(storedGrouping);
+  const own = onPage?.key === pageKey ? onPage.grouped : undefined;
+  return {
+    grouped: own ?? linkedGrouping(linkedView) ?? stored ?? (prompts === undefined ? undefined : prompts > 0),
+    choose: (grouped) => {
+      setOnPage({ key: pageKey, grouped });
+      setStored(grouped);
+      storeGrouping(grouped);
+    },
+    showCommands: () => { setOnPage({ key: pageKey, grouped: false }); },
+  };
 }
 
 // SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its commands ran, one
@@ -261,12 +304,18 @@ export function SessionView() {
   const setView = useCallback((lens: SessionLens) => { setChosenLens({ key: readKey, lens }); }, [readKey]);
   const [read, setRead] = useState<SessionRead | null>(null);
   const current = read?.key === readKey ? read : null;
-  const [grouped, setGrouped] = useTimelineGrouping(linkedView, current === null ? undefined : current.totals?.digest?.prompts ?? 1);
+  // The session's prompt count, read with its totals ahead of the rest of the session; unreadable totals count as a prompt recorded.
+  const [promptsRead, setPromptsRead] = useState<{ key: string; prompts: number } | null>(null);
+  const prompts = promptsRead?.key === readKey ? promptsRead.prompts : undefined;
+  const timeline = useTimelineGrouping(`${readKey}\n${linkedView}`, linkedView, prompts);
+  const grouped = timeline.grouped;
   const tree = current?.tree ?? null;
 
   useEffect(() => {
     let cancelled = false;
-    void readSession(readKey, hostId, sessionId).then((res) => { if (!cancelled) setRead(res); });
+    const totals = getAgentSessionTotals(hostId, sessionId).catch(() => undefined);
+    void totals.then((t) => { if (!cancelled) setPromptsRead({ key: readKey, prompts: t?.digest?.prompts ?? 1 }); });
+    void readSession(readKey, hostId, sessionId, totals).then((res) => { if (!cancelled) setRead(res); });
     return () => { cancelled = true; };
   }, [hostId, sessionId, readKey]);
 
@@ -430,7 +479,7 @@ export function SessionView() {
                 id="session-grouped"
                 label="Group by prompt"
                 checked={grouped === true}
-                onChange={(e) => { setGrouped(e.target.checked); }}
+                onChange={(e) => { timeline.choose(e.target.checked); }}
               />
             </span>
             <span style={view === "timeline" ? undefined : { visibility: "hidden" }}>
@@ -472,7 +521,7 @@ export function SessionView() {
                 project={project}
                 firstNs={firstNs}
                 lastNs={lastNs}
-                onAlerts={() => { setQuery(""); setGrouped(false); setView("timeline"); }}
+                onAlerts={() => { setQuery(""); timeline.showCommands(); setView("timeline"); }}
               />
             )}
             {view === "timeline" && grouped === undefined && <EmptyState>Loading...</EmptyState>}

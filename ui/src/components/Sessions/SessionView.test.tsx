@@ -83,6 +83,8 @@ function callHeaders(): HTMLElement[] {
 // The record, alert, totals and lineage reads decorate the session; by default the session has none of them, and each test overrides
 // what it is about. The commands are the server's grouping of the tree the test reads (issue #1423), so a test names its session once.
 beforeEach(() => {
+  // The Timeline's grouping is kept in this browser; each test starts with none chosen.
+  localStorage.clear();
   vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
   vi.spyOn(api, "listAlerts").mockResolvedValue([]);
   vi.spyOn(api, "getAgentSessionTotals").mockRejectedValue(new Error("not read"));
@@ -432,6 +434,71 @@ describe("SessionView conversation", () => {
     expect(await screen.findByText("step 1", { selector: "code" })).toBeVisible();
     expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
     expect(turns).not.toHaveBeenCalledWith("H1", "other-session", expect.anything());
+  });
+
+  // renderAt opens the session view at a link, as following one from the sessions list mounts it afresh.
+  const renderAt = (search = "") => render(
+    <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}${search}`]}>
+      <Routes>
+        <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  it("keeps the operator's grouping in this browser, so a session opened from the list again keeps it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(3));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const first = renderAt();
+    openLens("Timeline");
+    fireEvent.click(await screen.findByRole("switch", { name: "Group by prompt", checked: true }));
+    first.unmount();
+
+    renderAt();
+    openLens("Timeline");
+    expect(await screen.findByText("step 1", { selector: "code" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
+  });
+
+  it("opens a link naming a replaced view in its grouping, whatever the operator chose before", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(3));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const first = renderAt();
+    openLens("Timeline");
+    fireEvent.click(await screen.findByRole("switch", { name: "Group by prompt", checked: true }));
+    first.unmount();
+
+    renderAt("?view=conversation");
+    expect(await screen.findByRole("switch", { name: "Group by prompt" })).toBeChecked();
+    expect(await screen.findByText("run both steps")).toBeVisible();
+  });
+
+  it("lists the commands for the alerts link without changing the operator's grouping", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({ ...withPrompts(3), alerts: { total: 1, by_severity: { high: 1 } } });
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const first = renderAt();
+    fireEvent.click(await screen.findByRole("button", { name: "See them in the Timeline" }));
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
+    first.unmount();
+
+    renderAt();
+    openLens("Timeline");
+    expect(await screen.findByRole("switch", { name: "Group by prompt", checked: true })).toBeVisible();
+  });
+
+  it("decides the Timeline's grouping from the session's totals alone, while its process tree is still being read", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockReturnValue(new Promise(() => undefined));
+    vi.spyOn(api, "getSessionCommands").mockResolvedValue(sessionCommands(manyCalls(2)));
+    vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue(withPrompts(0));
+    renderView("Timeline");
+    expect(await screen.findByText("step 1", { selector: "code" })).toBeVisible();
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
   });
 
   it("shows the shell plumbing of a turn's commands with verbose on", async () => {
