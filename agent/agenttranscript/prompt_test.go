@@ -42,6 +42,9 @@ func TestParseLine_Prompt(t *testing.T) {
 				Text: "/ai-review-fixes PR #1438", Length: len("<command-message>ai-review-fixes</command-message>\n" +
 					"<command-name>/ai-review-fixes</command-name>\n<command-args>PR #1438</command-args>"), Source: "typed",
 				CWD: "/Users/dev/project", At: at}},
+		// spec:endpoint-event-collection/agent-prompt-capture/a-prompt-passed-on-the-command-line-is-reported
+		{"a prompt passed on the command line, which records no origin", userLine(`"write the release notes"`, `,"promptSource":"sdk"`),
+			prompt("write the release notes", "sdk")},
 		{"a prompt that mentions the command tags is kept as typed",
 			userLine(`"Explain <command-name>/deploy</command-name> before using it"`, typed),
 			prompt("Explain <command-name>/deploy</command-name> before using it", "typed")},
@@ -67,6 +70,10 @@ func TestParseLine_NotAPrompt(t *testing.T) {
 		"a background task's notification":       userLine(`"<task-notification>done</task-notification>"`, `,"origin":{"kind":"task-notification"},"promptSource":"system"`),
 		"a peer session's message":               userLine(`"hello from the other lane"`, `,"origin":{"kind":"peer"},"promptSource":"system","isMeta":true`),
 		"a compacted history":                    userLine(`"This session is being continued from a previous conversation"`, `,"isCompactSummary":true`),
+		"a compacted history of a claude -p run": userLine(`"This session is being continued"`, `,"promptSource":"sdk","isCompactSummary":true`),
+		"a claude -p run's own instructions":     userLine(`"Caveat: the messages below were generated"`, `,"promptSource":"sdk","isMeta":true`),
+		"a /clear, which records no source":      userLine(`"<command-name>/clear</command-name>"`, ""),
+		"a source of sdk beside another origin":  userLine(`"done"`, `,"origin":{"kind":"task-notification"},"promptSource":"sdk"`),
 		"a subagent's instructions":              userLine(`"Search the repo for the config loader"`, typed+`,"isSidechain":true`),
 		"an older agent that records no origin":  userLine(`"fix it"`, ""),
 		"a tool's result":                        userLine(`[{"tool_use_id":"toolu_1","type":"tool_result","content":"secret output"}]`, typed),
