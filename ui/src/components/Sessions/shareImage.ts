@@ -1,17 +1,11 @@
-// The image a session is shared as (issue #1430): an SVG drawn from a share card alone, and the PNG made from it in the browser.
-// Nothing here reads anything but the card, so nothing the card leaves out can reach the image, and no request is made: the text uses
-// the system's fonts.
+// The image a session is shared as (issue #1430), which its Summary shows too: an SVG drawn from a share card alone, and the PNG made
+// from it in the browser. Nothing here reads anything but the card, so nothing the card leaves out can reach the image, and no request
+// is made: the text uses the system's fonts.
 
-import { headline, type ShareCard } from "./shareCard";
+import { domainCount, filesNotes, HEADLINE, type ShareCard } from "./shareCard";
 
-export type ShareSize = "portrait" | "landscape";
-
-// SIZES are the two shapes a card is drawn in: 4:5 portrait, which a feed shows largest, and 16:9 landscape, which X and link
-// previews show uncropped.
-export const SIZES: Readonly<Record<ShareSize, { width: number; height: number; label: string }>> = {
-  portrait: { width: 1080, height: 1350, label: "Portrait 1080 x 1350, for LinkedIn" },
-  landscape: { width: 1200, height: 675, label: "Landscape 1200 x 675, for X" },
-};
+// SIZE is the card's shape: 4:5 portrait, which a feed shows largest.
+export const SIZE = { width: 1080, height: 1350 } as const;
 
 // SCALE is how many image pixels each card pixel becomes: 2, so the image stays sharp on a high-density screen.
 export const SCALE = 2;
@@ -29,26 +23,14 @@ const WIDE_GLYPH = 1;
 const WIDE: readonly { lo: number; hi: number }[] = [{ lo: 0x1100, hi: 0x115f }, { lo: 0x2e80, hi: 0xa4cf }, { lo: 0xac00, hi: 0xd7a3 },
   { lo: 0xf900, hi: 0xfaff }, { lo: 0xfe30, hi: 0xfe4f }, { lo: 0xff00, hi: 0xff60 }, { lo: 0xffe0, hi: 0xffe6 },
   { lo: 0x1f000, hi: 0x10ffff }];
-const STAT_COLUMNS = 4;
-const TITLE_LINES = 3;
 const GUARD_LINES = 2;
-// BAR is the timeline's bars: the gap between them, the least height a bucket with anything in it shows, and their corner radius.
-const BAR = { gap: 6, least: 4, radius: 3 };
-
-// Each size's measurements, in card pixels. Text sizes are what a phone-width feed still reads: 22 px and up on a 1080-wide card.
-const PORTRAIT = {
-  pad: 80, label: 26, labelGap: 52, title: 64, titleLine: 72, titleBaseline: 14, afterTitle: 52, stat: 58, statLabelGap: 40,
-  afterStats: 156, strip: 110, stripGap: 20, axis: 24, axisGap: 62, afterStrip: 232, row: 30, rowGap: 46, listGap: 50, columnGap: 48,
-  afterList: 70, detail: 22, detailGap: 30, dateWidth: 220, footerRoom: 60, guardText: 30, guardLine: 40, guardPad: 48, guardIcon: 44,
-  guardInset: 28,
-  guardTextInset: 96, guardRadius: 16,
-  guardBaseline: 8, footer: 24,
-} as const;
-const LANDSCAPE = {
-  pad: 64, top: 60, label: 22, labelGap: 30, title: 46, titleLine: 52, titleBaseline: 10, afterTitle: 40, stat: 52, statLabelGap: 32,
-  statRow: 104, columnGap: 56, strip: 110, stripGap: 16, afterStrip: 170, row: 24, rowGap: 42, rowLine: 32, afterRow: 84, afterGroups: 52,
-  guardPad: 40, guardLine: 28, guardIcon: 34, guardInset: 18, guardTextInset: 66, guardBaseline: 8, guardRadius: 14, footer: 22,
-  footerBottom: 44,
+// L is the card's measurements, in card pixels. Text sizes are what a phone-width feed still reads: 22 px and up on a 1080-wide card.
+const L = {
+  pad: 80, label: 26, labelGap: 52, dateWidth: 220, title: 64, titleLine: 72, titleBaseline: 14, effort: 30, effortGap: 44,
+  afterTitle: 48, stat: 92, statLabelGap: 44, statNoteGap: 36, statNote: 24, statNoteLine: 32, statRow: 224, afterStats: 44,
+  row: 30, rowGap: 46, listGap: 50, columnGap: 48, afterList: 56,
+  detail: 22, detailGap: 30, footerRoom: 60, guardText: 30, guardLine: 40, guardPad: 48, guardIcon: 44, guardInset: 28,
+  guardTextInset: 96, guardRadius: 16, guardBaseline: 8, footer: 24,
 } as const;
 // MARK is the footer's square: how much larger than the text it is, its corner radius, and the gap before the text.
 const MARK = { grow: 4, radius: 6, gap: 18 };
@@ -135,45 +117,36 @@ function rect(x: number, y: number, width: number, height: number, fill: string,
     + `fill="${fill}"/>`;
 }
 
-// stats are the card's headline numbers, the ones it has, up to four.
-function stats(card: ShareCard): { value: string; label: string }[] {
-  const all = [
-    card.duration && { value: card.duration, label: "ran for" },
-    { value: card.commands.toLocaleString(), label: card.commands === 1 ? "command" : "commands" },
-    { value: card.toolCalls.toLocaleString(), label: card.toolCalls === 1 ? "tool call" : "tool calls" },
-    card.tokens && { value: card.tokens, label: "tokens" },
-    { value: card.prompts.toLocaleString(), label: card.prompts === 1 ? "prompt" : "prompts" },
-  ];
-  return all.filter((s): s is { value: string; label: string } => Boolean(s)).slice(0, STAT_COLUMNS);
-}
-
-// bars draws the timeline's buckets across width, the tallest filling height; a bucket with anything in it shows at least a sliver,
-// so a quiet stretch reads as quiet rather than empty.
-function bars(timeline: readonly number[], x: number, y: number, width: number, height: number): string {
-  const max = Math.max(0, ...timeline);
-  if (max === 0) return "";
-  const barWidth = (width - BAR.gap * (timeline.length - 1)) / timeline.length;
-  return timeline.map((n, i) => {
-    const h = n === 0 ? 0 : Math.max(BAR.least, Math.round((n / max) * height));
-    return rect(x + i * (barWidth + BAR.gap), y + height - h, barWidth, h, COLORS.accent, BAR.radius);
-  }).join("") + rect(x, y + height, width, 2, COLORS.rule, 0);
-}
-
 function shield(x: number, y: number, size: number): string {
   return `<g transform="translate(${String(x)} ${String(y)}) scale(${String(size / ICON_BOX)})" fill="none" stroke="${COLORS.accent}" `
     + `stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"/>`
     + `<path d="M8.5 12l2.5 2.5 4.5-5"/></g>`;
 }
 
-// guardLine says what the credential guard stopped, in full on the portrait card and shortened where the landscape card has less room.
-function guardLine(card: ShareCard, short = false): string {
+// guardLine says what the credential guard stopped.
+function guardLine(card: ShareCard): string {
   if (!card.guard) return "";
-  return `${short ? "Stopped" : "The credential guard stopped"} it reading ${card.guard.credentials.join(" and ")}`;
+  return `The credential guard stopped it reading ${card.guard.credentials.join(" and ")}`;
 }
 
-// sessionLabel names the session as the card's heading does: its agent, and its project when the person chose to show it.
-function sessionLabel(card: ShareCard): string {
-  return card.project ? `${card.agent} session · ${card.project}` : `${card.agent} session`;
+// effort is the line under the title: how long the session ran and the tokens it used, those the card has.
+function effort(card: ShareCard): string {
+  return [card.duration && `Ran for ${card.duration}`, card.tokens && `${card.tokens} tokens`].filter((s): s is string => Boolean(s))
+    .join(" · ");
+}
+
+// STATS are the card's headline numbers, in two rows of two: what the agent's log reports beside what actually ran, then what it
+// changed and where it reached. The processes, the number the card is about, are drawn in the accent.
+function stats(card: ShareCard): { value: string; label: string; notes: string[]; accent?: boolean }[] {
+  return [
+    { value: card.toolCalls.toLocaleString(), label: card.toolCalls === 1 ? "tool call" : "tool calls",
+      notes: ["in the agent's own log"] },
+    { value: card.processes.toLocaleString(), label: card.processes === 1 ? "process" : "processes", notes: ["actually ran"],
+      accent: true },
+    { value: card.filesChanged.toLocaleString(), label: card.filesChanged === 1 ? "file changed" : "files changed",
+      notes: filesNotes(card) },
+    { value: domainCount(card), label: card.domains === 1 && !card.domainsCut ? "domain contacted" : "domains contacted", notes: [] },
+  ];
 }
 
 // footer credits the recording along the card's bottom edge: a mark, "Recorded with RawTrail", and the project's address.
@@ -185,43 +158,35 @@ function footer(width: number, pad: number, y: number, size: number): string {
 }
 
 function portrait(card: ShareCard): string {
-  const L = PORTRAIT;
-  const { width, height } = SIZES.portrait;
+  const { width, height } = SIZE;
   const inner = width - 2 * L.pad;
+  const half = (inner - L.columnGap) / 2;
   const parts: string[] = [];
   let y = L.pad + L.label;
-  const heading = wrap(sessionLabel(card), L.label, (inner - L.dateWidth) / CAPS_WIDTH, 1)[0] ?? "";
+  const heading = wrap(`${card.agent} session`, L.label, (inner - L.dateWidth) / CAPS_WIDTH, 1)[0] ?? "";
   parts.push(text({ x: L.pad, y, text: heading, size: L.label, color: COLORS.muted, bold: true, caps: true }));
   if (card.date) parts.push(text({ x: width - L.pad, y, text: card.date, size: L.label, color: COLORS.muted, end: true }));
-  y += L.labelGap;
-  for (const line of wrap(card.title ?? headline(card), L.title, inner, TITLE_LINES)) {
-    y += L.titleLine;
-    parts.push(text({ x: L.pad, y: y - L.titleBaseline, text: line, size: L.title, bold: true }));
+  y += L.labelGap + L.titleLine;
+  parts.push(text({ x: L.pad, y: y - L.titleBaseline, text: HEADLINE, size: L.title, bold: true }));
+  const ran = effort(card);
+  if (ran) {
+    y += L.effortGap;
+    parts.push(text({ x: L.pad, y, text: ran, size: L.effort, color: COLORS.muted }));
   }
   y += L.afterTitle;
   stats(card).forEach((s, i) => {
-    const x = L.pad + i * (inner / STAT_COLUMNS);
+    const x = L.pad + (i % 2) * (half + L.columnGap);
+    const top = y + Math.floor(i / 2) * L.statRow;
     parts.push(
-      text({ x, y: y + L.stat, text: s.value, size: L.stat, bold: true, color: i === 0 ? COLORS.accent : COLORS.text }),
-      text({ x, y: y + L.stat + L.statLabelGap, text: s.label, size: L.label, color: COLORS.muted }),
+      text({ x, y: top + L.stat, text: s.value, size: L.stat, bold: true, color: s.accent ? COLORS.accent : COLORS.text }),
+      text({ x, y: top + L.stat + L.statLabelGap, text: s.label, size: L.label, bold: true, color: COLORS.muted }),
     );
+    s.notes.forEach((note, line) => {
+      const noteY = top + L.stat + L.statLabelGap + L.statNoteGap + line * L.statNoteLine;
+      parts.push(text({ x, y: noteY, text: wrap(note, L.statNote, half, 1)[0] ?? "", size: L.statNote, color: COLORS.faint }));
+    });
   });
-  y += L.afterStats;
-  if (card.timeline.length > 0) {
-    parts.push(
-      text({ x: L.pad, y, text: "When it was busy", size: L.label, bold: true, color: COLORS.muted }),
-      bars(card.timeline, L.pad, y + L.stripGap, inner, L.strip),
-    );
-    if (card.timelineStart && card.timelineEnd) {
-      const axisY = y + L.stripGap + L.strip + L.axisGap - L.stripGap;
-      parts.push(
-        text({ x: L.pad, y: axisY, text: card.timelineStart, size: L.axis, color: COLORS.faint }),
-        text({ x: width - L.pad, y: axisY, text: card.timelineEnd, size: L.axis, color: COLORS.faint, end: true }),
-      );
-    }
-    y += L.afterStrip;
-  }
-  const half = (inner - L.columnGap) / 2;
+  y += 2 * L.statRow + L.afterStats;
   // list draws a titled column of named counts, each with an optional detail line under it, and returns how tall it drew.
   const list = (title: string, x: number, rows: { name: string; value: string; mono: boolean; detail?: string }[]): number => {
     parts.push(text({ x, y, text: title, size: L.label, bold: true, color: COLORS.muted }));
@@ -267,74 +232,14 @@ function portrait(card: ShareCard): string {
   return frame(width, height, parts);
 }
 
-function landscape(card: ShareCard): string {
-  const L = LANDSCAPE;
-  const { width, height } = SIZES.landscape;
-  const column = (width - 2 * L.pad - L.columnGap) / 2;
-  const right = L.pad + column + L.columnGap;
-  const parts: string[] = [];
-  let y = L.top + L.label;
-  const heading = wrap([sessionLabel(card), card.date].filter((s) => s !== null).join(" · "), L.label, column / CAPS_WIDTH, 1)[0] ?? "";
-  parts.push(text({ x: L.pad, y, text: heading, size: L.label, color: COLORS.muted, bold: true, caps: true }));
-  y += L.labelGap;
-  for (const line of wrap(card.title ?? headline(card), L.title, column, TITLE_LINES)) {
-    y += L.titleLine;
-    parts.push(text({ x: L.pad, y: y - L.titleBaseline, text: line, size: L.title, bold: true }));
-  }
-  y += L.afterTitle;
-  stats(card).forEach((s, i) => {
-    const x = L.pad + (i % 2) * (column / 2);
-    const top = y + Math.floor(i / 2) * L.statRow;
-    parts.push(
-      text({ x, y: top + L.stat, text: s.value, size: L.stat, bold: true, color: i === 0 ? COLORS.accent : COLORS.text }),
-      text({ x, y: top + L.stat + L.statLabelGap, text: s.label, size: L.label, color: COLORS.muted }),
-    );
-  });
-  let ry = L.top + L.label;
-  if (card.timeline.length > 0) {
-    parts.push(
-      text({ x: right, y: ry, text: "When it was busy", size: L.label, bold: true, color: COLORS.muted }),
-      bars(card.timeline, right, ry + L.stripGap, column, L.strip),
-    );
-    ry += L.afterStrip;
-  }
-  if (card.programs.length > 0) {
-    parts.push(text({ x: right, y: ry, text: "Programs it ran most", size: L.label, bold: true, color: COLORS.muted }));
-    const names = card.programs.map((p) => `${p.name} ${p.count.toLocaleString()}`).join("   ");
-    parts.push(text({ x: right, y: ry + L.rowGap, text: wrap(names, L.row, column, 1)[0] ?? "", size: L.row, mono: true }));
-    ry += L.afterRow;
-  }
-  if (card.destinations.length > 0) {
-    parts.push(text({ x: right, y: ry, text: "Where it talked to", size: L.label, bold: true, color: COLORS.muted }));
-    const groups = card.destinations.map((d) => (d.domains.length > 0 ? `${d.label}: ${d.domains.join(", ")}` : d.label)).join(" · ");
-    const lines = wrap(groups, L.row, column, 2);
-    lines.forEach((line, i) => { parts.push(text({ x: right, y: ry + L.rowGap + i * L.rowLine, text: line, size: L.row })); });
-    ry += L.rowGap + lines.length * L.rowLine + L.afterGroups - L.rowLine;
-  }
-  if (card.guard) {
-    const lines = wrap(guardLine(card, true), L.label, column - L.guardTextInset - L.guardInset, GUARD_LINES);
-    const box = L.guardPad + lines.length * L.guardLine;
-    parts.push(
-      rect(right, ry, column, box, COLORS.panel, L.guardRadius),
-      shield(right + L.guardInset, ry + (box - L.guardIcon) / 2, L.guardIcon),
-    );
-    lines.forEach((line, i) => {
-      parts.push(text({ x: right + L.guardTextInset, y: ry + L.guardPad / 2 + (i + 1) * L.guardLine - L.guardBaseline, text: line,
-        size: L.label }));
-    });
-  }
-  parts.push(footer(width, L.pad, height - L.footerBottom, L.footer));
-  return frame(width, height, parts);
-}
-
 function frame(width: number, height: number, parts: readonly string[]): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(height)}" `
     + `viewBox="0 0 ${String(width)} ${String(height)}"><rect width="100%" height="100%" fill="${COLORS.ground}"/>${parts.join("")}</svg>`;
 }
 
-// shareSvg draws the card in the chosen size.
-export function shareSvg(card: ShareCard, size: ShareSize): string {
-  return size === "portrait" ? portrait(card) : landscape(card);
+// shareSvg draws the card.
+export function shareSvg(card: ShareCard): string {
+  return portrait(card);
 }
 
 // svgDataUrl is the SVG as a URL an <img> shows without a request.
@@ -343,8 +248,8 @@ export function svgDataUrl(svg: string): string {
 }
 
 // sharePng draws the SVG onto a canvas SCALE times its size and returns the PNG, all in the browser.
-export async function sharePng(svg: string, size: ShareSize): Promise<Blob> {
-  const { width, height } = size === "portrait" ? SIZES.portrait : SIZES.landscape;
+export async function sharePng(svg: string): Promise<Blob> {
+  const { width, height } = SIZE;
   const image = new Image();
   image.src = svgDataUrl(svg);
   await image.decode();

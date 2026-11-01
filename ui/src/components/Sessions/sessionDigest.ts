@@ -1,8 +1,6 @@
-// What an AI agent session's Summary says about it (issue #1429), shaped from the summary endpoint's digest: where it talked to by
-// organization, what it touched by directory, and its timeline.
+// Where an AI agent session talked to, by organization, as its Summary card groups the summary endpoint's domains (issue #1429).
 
 import type { DomainActivity } from "../../types";
-import { barHeight } from "../barHeight";
 
 // ORGANIZATIONS names the kinds of destination a Summary groups domains by, in the order it lists them, each with the registrable
 // domains that belong to it. A domain none names is under "Everything else".
@@ -33,45 +31,4 @@ export function groupDomains(domains: readonly DomainActivity[]): DomainGroup[] 
     groups[at === -1 ? ORGANIZATIONS.length : at].domains.push(d);
   }
   return groups.filter((g) => g.domains.length > 0);
-}
-
-// directoryLabel names a directory as the Summary lists it: relative to the session's project when it is the project or under it,
-// as recorded otherwise.
-export function directoryLabel(directory: string, project: string | undefined): string {
-  let root = project ?? "";
-  while (root.endsWith("/")) root = root.slice(0, -1);
-  if (!root) return directory;
-  if (directory === root) return ".";
-  return directory.startsWith(`${root}/`) ? `./${directory.slice(root.length + 1)}` : directory;
-}
-
-// FILE_OPERATIONS reads the file events' operations as a Summary counts them: an agent's own operation and the watched-path event
-// that means the same thing count together.
-const FILE_OPERATIONS: readonly { label: string; keys: readonly string[] }[] = [
-  { label: "created", keys: ["create"] },
-  { label: "modified", keys: ["modify", "file_truncate"] },
-  { label: "renamed", keys: ["rename", "file_rename"] },
-  { label: "deleted", keys: ["delete", "file_delete"] },
-  { label: "opened", keys: ["open"] },
-  { label: "connected", keys: ["connect"] },
-];
-
-export interface OperationCount {
-  label: string;
-  count: number;
-}
-
-// fileOperations counts file events by what they did, in a fixed order, leaving out what none did.
-export function fileOperations(byOperation: Readonly<Record<string, number>>): OperationCount[] {
-  const counts = new Map(Object.entries(byOperation));
-  return FILE_OPERATIONS
-    .map(({ label, keys }) => ({ label, count: keys.reduce((sum, k) => sum + (counts.get(k) ?? 0), 0) }))
-    .filter((o) => o.count > 0);
-}
-
-// barHeights is each bucket's bar height as barHeight draws it. A timeline with nothing in it has no bars.
-export function barHeights(counts: readonly number[]): number[] {
-  const max = Math.max(0, ...counts);
-  if (max === 0) return [];
-  return counts.map((n) => barHeight(n, max));
 }

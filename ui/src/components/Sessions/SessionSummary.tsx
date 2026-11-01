@@ -1,18 +1,19 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./SessionSummary.scss";
-import type { AgentSessionDigest, AgentSessionTotals, Alert } from "../../types";
-import { Badge } from "../ui/Badge";
+import { getHostDetail } from "../../api";
+import type { AgentSessionTotals, Alert } from "../../types";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/Table";
 import { scopeNote } from "../Activity/activityScope";
-import { formatNs, plural } from "../Search/format";
-import { BYPASS_MODE, formatSpan, formatTokens, usageLine } from "./sessionUsage";
-import { barHeights, directoryLabel, fileOperations, groupDomains } from "./sessionDigest";
-import { ShareDialog } from "./ShareDialog";
+import { plural } from "../Search/format";
+import { altText, shareCard } from "./shareCard";
+import { shareSvg, svgDataUrl } from "./shareImage";
+import { homeUsernames } from "./shareRedact";
+import { SharePanel } from "./SharePanel";
 
 interface SessionSummaryProps {
   readonly hostId: string;
-  // alerts are the session's, read for its views; the Share dialog shows what the credential guard stopped from them.
+  // alerts are the session's, read for its views; the card says what the credential guard stopped from them.
   readonly alerts: readonly Alert[];
   // totals is the session's summary as the server counted it; undefined when it could not be read.
   readonly totals: AgentSessionTotals | undefined;
@@ -24,231 +25,63 @@ interface SessionSummaryProps {
   readonly onAlerts: () => void;
 }
 
-// SessionSummary describes a session at a glance (issue #1429): what it was asked and ran, what it used, what it touched, where it
-// talked to, what it cost in tokens, and when it was busy. It is built on the summary endpoint alone, so it reads the whole session,
-// not a page of it. The tone is descriptive: alerts are a count with a link, not the headline.
+// HostName is the host's name as the Summary read it: needed before the card is drawn, since it is a name redaction must remove.
+type HostName = { state: "loading" } | { state: "read"; hostname: string } | { state: "failed" };
+
+// SessionSummary shows a session as the card it is shared as (issues #1429, #1430): what the agent's log reports beside what actually
+// ran, what it changed and where it reached, the programs it ran most and where it talked to. The card shown is the image shared, so
+// the two cannot differ. Beside it are the ways to share it, the session's alerts as a count with a link, and what the card leaves out.
 export function SessionSummary({ hostId, alerts, totals, agent, project, firstNs, lastNs, onAlerts }: SessionSummaryProps) {
-  const [sharing, setSharing] = useState(false);
-  const digest = totals?.digest;
-  if (!totals || !digest) return <EmptyState>The session&apos;s summary could not be read.</EmptyState>;
+  const [host, setHost] = useState<HostName>({ state: "loading" });
+  useEffect(() => {
+    let live = true;
+    getHostDetail(hostId)
+      // A host with no enrolled name is read as unreadable: with no name to remove, nothing can be shared.
+      .then((d) => { if (live) setHost(d.hostname.trim() ? { state: "read", hostname: d.hostname.trim() } : { state: "failed" }); })
+      .catch(() => { if (live) setHost({ state: "failed" }); });
+    return () => { live = false; };
+  }, [hostId]);
+  // The card is drawn once the host's name is known or known to be unreadable: a host whose name cannot be read still has a Summary,
+  // and nothing is offered to share it.
+  const card = useMemo(() => {
+    if (!totals?.digest || host.state === "loading") return null;
+    const usernames = homeUsernames(project, ...totals.digest.directories.map((d) => d.directory),
+      ...totals.digest.programs.map((p) => p.program));
+    const identities = { usernames, hostnames: host.state === "read" ? [host.hostname] : [] };
+    return shareCard({ totals, alerts, agent, project, firstNs, lastNs, identities });
+  }, [host, totals, alerts, agent, project, firstNs, lastNs]);
+  const svg = useMemo(() => (card ? shareSvg(card) : null), [card]);
+  if (!totals?.digest) return <EmptyState>The session&apos;s summary could not be read.</EmptyState>;
   const partial = totals.scope && scopeNote(totals.scope);
+  const agentFiles = totals.digest.files.agent_files;
   return (
     <div className="session-summary">
-      <div className="session-summary__share">
-        <Button variant="inverse" onClick={() => { setSharing(true); }}>Share as image</Button>
-      </div>
-      {sharing && (
-        <ShareDialog hostId={hostId} totals={totals} alerts={alerts} agent={agent} project={project} firstNs={firstNs} lastNs={lastNs}
-          onClose={() => { setSharing(false); }} />
-      )}
       {partial && <p className="session-summary__note" role="status">{partial}</p>}
-      <SummarySection title="At a glance">
-        <ul className="session-summary__facts">
-          <li>{agent}</li>
-          {project && <li className="session-summary__mono">{project}</li>}
-          {firstNs !== undefined && lastNs !== undefined && <li>{`Ran for ${formatSpan(lastNs - firstNs)}`}</li>}
-          <li>{plural(digest.prompts, "prompt", "prompts")}</li>
-          <li>{plural(totals.commands, "command", "commands")}</li>
-        </ul>
-      </SummarySection>
-      <SummaryUsed totals={totals} digest={digest} />
-      <SummaryTouched totals={totals} digest={digest} project={project} />
-      <SummaryTalked totals={totals} digest={digest} />
-      <SummaryEffort totals={totals} />
-      <SummaryTimeline digest={digest} />
-      <SummarySection title="Alerts">
-        {totals.alerts.total === 0
-          ? <p>No alerts were raised in this session.</p>
-          : (
-            <p>
-              {`${plural(totals.alerts.total, "alert was", "alerts were")} raised in this session. `}
-              <Button variant="text-link" onClick={onAlerts}>See them in Commands</Button>
-            </p>
-          )}
-      </SummarySection>
-    </div>
-  );
-}
-
-function SummarySection({ title, children }: { readonly title: string; readonly children: ReactNode }) {
-  const id = useId();
-  return (
-    <section className="session-summary__section" aria-labelledby={id}>
-      <h2 id={id} className="session-summary__title">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-// CountList lists named counts, most first as the server ordered them.
-function CountList({ label, rows }: { readonly label: string; readonly rows: readonly { name: string; count: number | string }[] }) {
-  return (
-    <ul className="session-summary__counts" aria-label={label}>
-      {rows.map((r) => (
-        <li key={r.name}>
-          <span className="session-summary__mono">{r.name}</span>
-          <span className="session-summary__count">{r.count.toLocaleString()}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function SummaryUsed({ totals, digest }: { readonly totals: AgentSessionTotals; readonly digest: AgentSessionDigest }) {
-  const tools = totals.tool_calls.by_tool;
-  return (
-    <SummarySection title="What it used">
-      <div className="session-summary__columns">
-        <div>
-          <h3 className="session-summary__subtitle">{plural(totals.tool_calls.total, "tool call", "tool calls")}</h3>
-          {tools.length === 0
-            ? <p>No tool calls were recorded.</p>
-            : <CountList label="Tool calls by tool" rows={tools.map((t) => ({ name: t.tool, count: t.count }))} />}
-        </div>
-        <div>
-          <h3 className="session-summary__subtitle">Programs it ran most</h3>
-          {digest.programs.length === 0
-            ? <p>Its commands ran no programs.</p>
-            : <CountList label="Programs by processes run" rows={digest.programs.map((p) => ({ name: p.program, count: p.count }))} />}
-        </div>
+      <figure className="session-summary__card">
+        {svg && card
+          ? <img src={svgDataUrl(svg)} alt={altText(card)} className="session-summary__image" />
+          : <div className="session-summary__image" aria-busy="true" />}
+      </figure>
+      <div className="session-summary__aside">
+        <SharePanel card={card} svg={svg} hostUnread={host.state === "failed"} />
+        <section className="session-summary__section" aria-label="Alerts">
+          <h2 className="session-summary__title">Alerts</h2>
+          {totals.alerts.total === 0
+            ? <p>No alerts were raised in this session.</p>
+            : (
+              <p>
+                {`${plural(totals.alerts.total, "alert was", "alerts were")} raised in this session. `}
+                <Button variant="text-link" onClick={onAlerts}>See them in Commands</Button>
+              </p>
+            )}
+        </section>
+        {agentFiles > 0 && (
+          <p className="session-summary__note">
+            {`Not counted: ${plural(agentFiles, "file", "files")} Claude Code keeps for itself, its transcripts, settings and command `}
+            output. The Activity view lists every file.
+          </p>
+        )}
       </div>
-    </SummarySection>
-  );
-}
-
-function SummaryTouched({ totals, digest, project }: {
-  readonly totals: AgentSessionTotals;
-  readonly digest: AgentSessionDigest;
-  readonly project: string | undefined;
-}) {
-  const files = totals.activity?.files;
-  if (!files || files.events === 0) {
-    return <SummarySection title="What it touched"><p>No file activity was recorded.</p></SummarySection>;
-  }
-  const operations = operationsText(files.by_operation);
-  const across = `${plural(files.events, "file event", "file events")} across ${plural(files.distinct, "path", "paths")}`;
-  return (
-    <SummarySection title="What it touched">
-      <p>{`${across}: ${operations}.`}</p>
-      {project && (
-        <p>
-          {digest.files.outside_project === 0
-            ? "Nothing outside this project."
-            : `${plural(digest.files.outside_project, "path", "paths")} outside this project.`}
-        </p>
-      )}
-      <CountList
-        label="File events by directory"
-        rows={digest.directories.map((d) => ({ name: directoryLabel(d.directory, project), count: operationsText(d.by_operation) }))}
-      />
-      {digest.directories_truncated && <p className="session-summary__note">The busiest directories are listed.</p>}
-    </SummarySection>
-  );
-}
-
-function operationsText(byOperation: Readonly<Record<string, number>>): string {
-  return fileOperations(byOperation).map((o) => `${o.count.toLocaleString()} ${o.label}`).join(", ");
-}
-
-function SummaryTalked({ totals, digest }: { readonly totals: AgentSessionTotals; readonly digest: AgentSessionDigest }) {
-  const network = totals.activity?.network.events ?? 0;
-  const dns = totals.activity?.dns.events ?? 0;
-  if (network === 0 && dns === 0) {
-    return <SummarySection title="Where it talked to"><p>No network activity was recorded.</p></SummarySection>;
-  }
-  const fresh = digest.domains.filter((d) => d.new).length;
-  // A cut list counts only the new domains it lists, so the sentence says so.
-  const [one, many] = digest.domains_truncated ? ["listed domain", "listed domains"] : ["domain", "domains"];
-  return (
-    <SummarySection title="Where it talked to">
-      <p>
-        {`${plural(dns, "DNS lookup", "DNS lookups")}, ${plural(network, "connection", "connections")}`}
-        {fresh > 0 && `, ${plural(fresh, one, many)} this host had not looked up before`}
-        .
-      </p>
-      {groupDomains(digest.domains).map((group) => (
-        <div key={group.label} className="session-summary__group">
-          <h3 className="session-summary__subtitle">{group.label}</h3>
-          <ul className="session-summary__counts" aria-label={group.label}>
-            {group.domains.map((d) => (
-              <li key={d.domain}>
-                <span className="session-summary__mono">{d.domain}</span>
-                {d.new && <Badge variant="neutral">New to this host</Badge>}
-                <span className="session-summary__count">
-                  {[d.lookups > 0 && plural(d.lookups, "lookup", "lookups"), d.connections > 0 && plural(d.connections, "connection",
-                    "connections")].filter(Boolean).join(", ")}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-      {digest.domains_truncated && <p className="session-summary__note">The busiest domains are listed.</p>}
-    </SummarySection>
-  );
-}
-
-function SummaryEffort({ totals }: { readonly totals: AgentSessionTotals }) {
-  const usage = usageLine(totals.usage);
-  if (!usage) return <SummarySection title="Effort"><p>No token usage was recorded.</p></SummarySection>;
-  return (
-    <SummarySection title="Effort">
-      <p>
-        {`${formatTokens(usage.total)} tokens: ${formatTokens(usage.input)} in, ${formatTokens(usage.cache)} through the prompt cache, `}
-        {`${formatTokens(usage.output)} out, on ${usage.models.join(", ")}.`}
-      </p>
-      <ul className="session-summary__counts" aria-label="Time by permission mode">
-        {usage.modes.map((m) => (
-          <li key={m.mode}>
-            <Badge variant={m.mode === BYPASS_MODE ? "high" : "neutral"}>{m.label}</Badge>
-            <span className="session-summary__count">{`${plural(m.messages, "reply", "replies")} in ${formatSpan(m.spanNs)}`}</span>
-          </li>
-        ))}
-      </ul>
-    </SummarySection>
-  );
-}
-
-// stripLabel is a strip's accessible name: its total, and its busiest bucket's count and when that bucket began, so a reader who cannot
-// see the bars still learns when the session was busy.
-function stripLabel(label: string, counts: readonly number[], digest: AgentSessionDigest): string {
-  const busiest = Math.max(...counts);
-  const at = digest.timeline_start_ns + digest.timeline_bucket_ns * counts.indexOf(busiest);
-  return `${label}: ${counts.reduce((a, b) => a + b, 0).toLocaleString()} across the session, busiest bucket ${busiest.toLocaleString()} `
-    + `from ${formatNs(at)}`;
-}
-
-// SummaryTimeline shows when the session was busy: one strip of the commands it started, one of the file, network and DNS events, each
-// over the digest's span, which reaches from the first thing the session did to the last. Each strip is one hue; its accessible label
-// carries the numbers.
-function SummaryTimeline({ digest }: { readonly digest: AgentSessionDigest }) {
-  const strips = [
-    { label: "Commands started", counts: digest.command_timeline },
-    { label: "File, network and DNS events", counts: digest.timeline },
-  ].map((s) => ({ ...s, heights: barHeights(s.counts) })).filter((s) => s.heights.length > 0);
-  if (strips.length === 0) return <SummarySection title="Timeline"><p>Nothing was recorded over time.</p></SummarySection>;
-  const endNs = digest.timeline_start_ns + digest.timeline_bucket_ns * digest.timeline.length;
-  return (
-    <SummarySection title="Timeline">
-      {strips.map((s) => (
-        <div key={s.label} className="session-summary__strip">
-          <h3 className="session-summary__subtitle">{s.label}</h3>
-          <div
-            className="session-summary__bars"
-            role="img"
-            aria-label={stripLabel(s.label, s.counts, digest)}
-          >
-            {s.heights.map((h, i) => (
-              // A bucket is a position on the strip: its index is its identity.
-              <span key={i} className="session-summary__bar" style={{ height: `${String(h)}%` }} />
-            ))}
-          </div>
-        </div>
-      ))}
-      <p className="session-summary__axis">
-        <span>{formatNs(digest.timeline_start_ns)}</span>
-        <span>{formatNs(endNs)}</span>
-      </p>
-    </SummarySection>
+    </div>
   );
 }

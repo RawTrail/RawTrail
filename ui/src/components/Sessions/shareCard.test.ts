@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSessionDigest, AgentSessionTotals, Alert } from "../../types";
-import { altText, caption, DEFAULT_SHARE_OPTIONS, headline, shareCard, type ShareInput, type ShareOptions } from "./shareCard";
-import { HIDDEN, type Identities } from "./shareRedact";
+import { altText, caption, domainCount, filesNotes, shareCard, type ShareInput } from "./shareCard";
+import type { Identities } from "./shareRedact";
 
 const MINUTE_NS = 60e9;
 
 function digest(over: Partial<AgentSessionDigest> = {}): AgentSessionDigest {
   return {
-    prompts: 0, programs: [], directories: [], directories_truncated: false, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
+    prompts: 0, programs: [], directories: [], directories_truncated: false,
+    files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
     timeline: [0, 0], command_timeline: [0, 0], timeline_start_ns: 0, timeline_bucket_ns: MINUTE_NS, ...over,
   };
 }
@@ -33,6 +34,7 @@ function input(over: Partial<ShareInput> = {}): ShareInput {
   return {
     totals: totals({
       commands: 412,
+      processes: 903,
       tool_calls: { total: 1286, by_tool: [] },
       activity: {
         files: { events: 312, distinct: 48, by_operation: {} }, network: { events: 5, distinct: 3 }, dns: { events: 9, distinct: 4 },
@@ -46,7 +48,7 @@ function input(over: Partial<ShareInput> = {}): ShareInput {
         prompts: 6,
         programs: [{ program: "/opt/homebrew/bin/go", count: 132 }, { program: "git", count: 61 }, { program: "rg", count: 44 },
           { program: "npm", count: 18 }, { program: "make", count: 2 }],
-        files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 },
+        files: { changed: 41, outside_project: 4, temporary: 12, agent_files: 60 },
         domains: [{ domain: "api.anthropic.com", lookups: 3, connections: 2, new: false },
           { domain: "github.com", lookups: 2, connections: 1, new: false },
           { domain: "wiki.example.com", lookups: 1, connections: 1, new: true },
@@ -65,50 +67,38 @@ function input(over: Partial<ShareInput> = {}): ShareInput {
   };
 }
 
-// spec:web-ui/a-shared-session-image-carries-no-identifying-detail/the-card-shows-only-what-the-person-chose
+// spec:web-ui/a-shared-session-image-carries-no-identifying-detail/the-card-shows-no-title-project-or-internal-domain
 describe("shareCard", () => {
-  it("shows counts, program names and public domains, and hides the project, internal domains and addresses by default", () => {
-    const card = shareCard(input(), DEFAULT_SHARE_OPTIONS);
-    expect(card).toMatchObject({
-      agent: "Claude Code", title: null, project: null, duration: "47 min", prompts: 6, commands: 412, toolCalls: 1286, tokens: "3.1M",
-      timeline: [1, 4, 2], fileEvents: 312, paths: 48, outsideProject: 0,
+  it("shows what the log reports beside what ran, the files changed, program names and public domains, and nothing it may not", () => {
+    const card = shareCard(input());
+    expect(card).toEqual({
+      agent: "Claude Code", date: expect.any(String) as string, duration: "47 min", tokens: "3.1M", toolCalls: 1286, processes: 903,
+      filesChanged: 41, outsideProject: 4, temporary: 12, domains: 2, domainsCut: false,
+      programs: [{ name: "go", count: 132 }, { name: "git", count: 61 }, { name: "rg", count: 44 }, { name: "npm", count: 18 }],
+      // The internal wiki and the .local name are not shown or counted, and neither is the address.
+      destinations: [{ label: "Model APIs", count: 1, domains: ["api.anthropic.com"] }, { label: "Git hosts", count: 1, domains: ["github.com"] }],
+      guard: { credentials: ["my AWS credentials"] },
     });
-    expect(card.programs).toEqual([{ name: "go", count: 132 }, { name: "git", count: 61 }, { name: "rg", count: 44 },
-      { name: "npm", count: 18 }]);
-    expect(card.destinations).toEqual([
-      { label: "Model APIs", count: 1, domains: ["api.anthropic.com"] },
-      { label: "Git hosts", count: 1, domains: ["github.com"] },
-    ]);
-    expect(card.guard).toEqual({ credentials: ["my AWS credentials"] });
+    expect(JSON.stringify(card)).not.toContain("webhooks");
   });
 
-  it("shows what the person chose: a redacted title, the project's name, internal domains", () => {
-    const options: ShareOptions = { title: "Fix the deploy from anns-mbp to 10.0.0.7", showProject: true, showInternalDomains: true,
-      showGuard: false };
-    const card = shareCard(input(), options);
-    expect(card.title).toBe(`Fix the deploy from ${HIDDEN} to ${HIDDEN}`);
-    expect(card.project).toBe("webhooks");
-    expect(card.destinations.map((d) => d.label)).toContain("Everything else");
-    // An internal domain the person chose to show still names no host: the host's own name is removed, so it is left off.
-    expect(card.destinations.flatMap((d) => d.domains)).not.toContain("10.0.0.7");
-    expect(card.guard).toBeNull();
+  it("says a short session's length in seconds, never as a phrase", () => {
+    expect(shareCard(input({ lastNs: 26e9 })).duration).toBe("26s");
+    expect(shareCard(input({ lastNs: 0 })).duration).toBe("1s");
+    expect(shareCard(input({ lastNs: 61 * MINUTE_NS })).duration).toBe("1 h 1 min");
   });
 
   it("redacts a path before taking its name, so a home folder never becomes a username", () => {
     const nobody: Identities = { usernames: [], hostnames: [] };
-    const options: ShareOptions = { ...DEFAULT_SHARE_OPTIONS, showProject: true };
-    const session = (project: string, program: string) => input({
-      project, identities: nobody,
-      totals: totals({ digest: digest({ programs: [{ program, count: 2 }, { program: "/usr/bin/git", count: 1 }] }) }),
+    const session = (program: string) => input({
+      identities: nobody, totals: totals({ digest: digest({ programs: [{ program, count: 2 }, { program: "/usr/bin/git", count: 1 }] }) }),
     });
-    for (const project of ["/Users/ann", "/Users/ann/", "C:\\Users\\Ann Smith"]) {
-      const card = shareCard(session(project, "/Users/ann"), options);
-      expect(card.project).toBeNull();
+    for (const home of ["/Users/ann", "/Users/ann/", "C:\\Users\\Ann Smith"]) {
+      const card = shareCard(session(home));
       expect(card.programs).toEqual([{ name: "git", count: 1 }]);
       expect(JSON.stringify(card).toLowerCase()).not.toContain("ann");
     }
-    expect(shareCard(session("/Users/ann/src/app", "/Users/ann/bin/tool"), options))
-      .toMatchObject({ project: "app", programs: [{ name: "tool", count: 2 }, { name: "git", count: 1 }] });
+    expect(shareCard(session("/Users/ann/bin/tool")).programs).toEqual([{ name: "tool", count: 2 }, { name: "git", count: 1 }]);
   });
 
   it("names a group's first domains that survive redaction, counts all it holds, and leaves off a group with none", () => {
@@ -116,55 +106,44 @@ describe("shareCard", () => {
     const card = shareCard(input({
       totals: totals({ digest: digest({ domains: [domain("anns-mbp.example.org"), domain("anns-mbp.io"), domain("example.net"),
         domain("anns-mbp.github.com")] }) }),
-    }), DEFAULT_SHARE_OPTIONS);
+    }));
     expect(card.destinations).toEqual([{ label: "Everything else", count: 3, domains: ["example.net"] }]);
-  });
-
-  it("drops a title the person emptied, and cuts a long one", () => {
-    expect(shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title: "   " }).title).toBeNull();
-    expect(shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title: "x".repeat(200) }).title).toHaveLength(90);
-  });
-
-  it("cuts a long title between code points, never inside an emoji", () => {
-    const title = shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title: `${"x".repeat(89)}😀 more` }).title ?? "";
-    expect(title).toBe(`${"x".repeat(89)}😀`);
-    expect(() => encodeURIComponent(title)).not.toThrow();
-  });
-
-  it("redacts a title before cutting it, so the cut cannot leave part of a name", () => {
-    const title = `${"x".repeat(85)} anns-mbp.example.com`;
-    const card = shareCard(input(), { ...DEFAULT_SHARE_OPTIONS, title });
-    expect(card.title).toBe(`${"x".repeat(85)} ${HIDDEN}`);
-    expect(card.title).not.toContain("ann");
   });
 
   it("names the credentials the guard stopped, once each, however many alerts", () => {
     const card = shareCard(input({ alerts: [stoppedRead(1, "your AWS credentials"), stoppedRead(2, "your AWS credentials"),
-      stoppedRead(3, "your SSH private key")] }), DEFAULT_SHARE_OPTIONS);
+      stoppedRead(3, "your SSH private key")] }));
     expect(card.guard).toEqual({ credentials: ["my AWS credentials", "my SSH private key"] });
   });
 
   it("reads a session with no digest, usage or project", () => {
     const card = shareCard(input({ totals: totals({ digest: undefined, usage: undefined }), project: undefined, alerts: [],
-      firstNs: undefined }), DEFAULT_SHARE_OPTIONS);
-    expect(card).toMatchObject({ duration: null, tokens: null, timeline: [], timelineStart: null, outsideProject: null, guard: null,
-      date: null });
-    expect(headline(card)).toBe("What my AI agent did");
+      firstNs: undefined }));
+    expect(card).toMatchObject({ date: null, duration: null, tokens: null, filesChanged: 0, outsideProject: null, temporary: 0, domains: 0,
+      programs: [], destinations: [], guard: null });
+    expect(filesNotes(card)).toEqual([]);
+  });
+
+  it("notes what is outside the project and the temporary files left out, and counts a cut domain list as at least its length", () => {
+    const card = shareCard(input());
+    expect(filesNotes(card)).toEqual(["4 outside the project", "12 temporary files not counted"]);
+    expect(domainCount(card)).toBe("2");
+    const cut = shareCard(input({ totals: totals({ digest: digest({ domains: input().totals.digest?.domains, domains_truncated: true }) }) }));
+    expect(domainCount(cut)).toBe("2+");
   });
 });
 
 describe("caption and altText", () => {
   it("say what the card says and nothing else", () => {
-    const card = shareCard(input(), DEFAULT_SHARE_OPTIONS);
-    expect(caption(card)).toBe("47 min, 412 commands and 1,286 tool calls: what my AI agent actually did, recorded at the kernel. "
+    const card = shareCard(input());
+    expect(caption(card)).toBe("My AI agent's log shows 1,286 tool calls. The kernel saw 903 processes run. "
       + "The credential guard stopped it reading my AWS credentials. Recorded with RawTrail.");
     // The date is written in the browser's locale, so it is matched loosely and everything around it exactly.
     const alt = altText(card);
-    expect(alt).toMatch(/^A summary card of a Claude Code session on [^:]+: /);
-    expect(alt.slice(alt.indexOf(": ") + 2)).toBe("What my AI agent did in 47 min. "
-      + "Ran for 47 min, 412 commands, 1,286 tool calls, 3.1M tokens. "
-      + "Programs it ran most: go, git, rg and npm. It talked to model apis (1) and git hosts (1). "
-      + "The credential guard stopped it reading my AWS credentials.");
+    expect(alt).toMatch(/^A summary card of a Claude Code session on .+, running 47 min: /);
+    expect(alt.slice(alt.indexOf(": ") + 2)).toBe("What my AI agent did. 1,286 tool calls in its log, 903 processes ran. "
+      + "41 files changed, 4 outside the project. 2 domains contacted. Programs it ran most: go, git, rg and npm. "
+      + "It talked to model apis (1) and git hosts (1). The credential guard stopped it reading my AWS credentials.");
   });
 });
 
@@ -199,7 +178,7 @@ describe("a shared card names no person or machine", () => {
         `C:\\Users\\${user} ${token(4)}\\repo`, `backup_${ipv4}`, `backup_${ipv6}`, user.toUpperCase()]);
       const sentence = (): string => `${token(4)} ${anywhere()} ${token(3)} ${anywhere()}`;
       const session = input({
-        agent: pick(["Claude Code", `Claude Code on ${host}`, `${user}'s agent`]),
+        agent: pick(["Claude Code", `Claude Code on ${host}`, `${user}'s agent`, sentence()]),
         project: pick([`/Users/${user}/src/${token(5)}`, `/home/${user}/${label}`, `/srv/${host}/${user}`]),
         identities: { usernames: [user], hostnames: [host] },
         totals: totals({
@@ -214,9 +193,7 @@ describe("a shared card names no person or machine", () => {
           }),
         }),
       });
-      const options: ShareOptions = { title: sentence(), showProject: random() < 0.5, showInternalDomains: random() < 0.5,
-        showGuard: random() < 0.5 };
-      const card = shareCard(session, options);
+      const card = shareCard(session);
       const out = [JSON.stringify(card), caption(card), altText(card)].join("\n").toLowerCase();
       for (const s of secrets) expect(out, `run ${String(run)} leaked ${s}`).not.toContain(s.toLowerCase());
     }

@@ -2,7 +2,7 @@
 
 ### Requirement: Agent session summary tab
 
-The agent session view SHALL list a Summary first among its views and open on it, built only on the session summary. It SHALL describe the session's prompts and commands, tools and programs, files by directory and outside its project, destinations by organization with domains new to the host marked, tokens and permission modes, and a timeline. Alerts SHALL be a count with a link, not the headline.
+The agent session view SHALL list a Summary first among its views and open on it, built only on the session summary. It SHALL show the session as the card it is shared as: the tool calls its log reports beside the processes that ran, the files it changed, the domains it contacted, the programs it ran most and where it talked to. Alerts SHALL be a count with a link, and the Summary SHALL say how many of Claude Code's own files it left out.
 
 #### Scenario: The summary is the first view
 
@@ -13,12 +13,13 @@ The agent session view SHALL list a Summary first among its views and open on it
 
 #### Scenario: The summary describes the session
 
-- **GIVEN** a session that was sent prompts, ran commands, wrote files in and outside its project, and talked to a Git host and a domain new to the host
+- **GIVEN** a session that made tool calls, ran processes, changed files in and outside its project, made temporary files, wrote Claude Code's own files, and talked to a Git host
 - **WHEN** the operator opens its Summary
-- **THEN** each section describes that, the destinations grouped by organization with the new domain marked, and the alerts are a count with a link at the end
+- **THEN** its card counts the tool calls beside the processes, the files changed with those outside the project and the temporary ones left out, and the domains, and groups the Git host by organization
+- **AND** the alerts are a count with a link, and the Summary says how many of Claude Code's own files were left out
 
 #### Scenario: An empty session reads as empty
 
-- **GIVEN** a session that recorded no tool calls, files, network activity or usage
+- **GIVEN** a session that recorded no tool calls, processes, files, network activity or usage
 - **WHEN** the operator opens its Summary
-- **THEN** each section says plainly that none was recorded
+- **THEN** its card counts zero of each and lists no programs or destinations, and the Summary says no alert was raised

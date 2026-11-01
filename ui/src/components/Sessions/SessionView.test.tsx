@@ -589,7 +589,7 @@ describe("SessionView commands from the server", () => {
     // A search left over from Commands would hide the commands the alerts link leads to, so following it clears the search.
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "nothing alerted" } });
     fireEvent.click(within(views).getByRole("button", { name: "Summary" }));
-    expect(await screen.findByText("3 prompts")).toBeVisible();
+    expect(await screen.findByRole("img", { name: /^A summary card of a .+ session/ })).toBeVisible();
     expect(screen.getByLabelText("Search this session")).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "See them in Commands" }));
     expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");
