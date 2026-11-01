@@ -29,6 +29,9 @@ const PromptEventType = "agent_prompt"
 // UsageEventType is the event type of the tokens one assistant message used (issue #1427).
 const UsageEventType = "agent_usage"
 
+// sdkPromptSource is the prompt source Claude Code records for a prompt passed on the command line (claude -p), which records no origin.
+const sdkPromptSource = "sdk"
+
 // maxPromptBytes caps a prompt's text on the wire. A prompt can hold a pasted file; the first 16 KiB say what was asked.
 const maxPromptBytes = 16 << 10
 
@@ -102,21 +105,22 @@ func (c ToolCall) Payload() map[string]any {
 	return p
 }
 
-// Prompt is one prompt the user typed to an agent, as its transcript records it.
+// Prompt is one prompt the user gave an agent, typed or passed on the command line, as its transcript records it.
 type Prompt struct {
 	SessionID string
 	// EntryID is the transcript entry's own id, which names the prompt however many times it is read.
 	EntryID string
 	// PromptID names the turn the prompt began; the tool calls the agent made for it carry the same id.
 	PromptID string
-	// Text is what the user typed, known secrets redacted and cut to maxPromptBytes; a slash command reads as "/name args".
+	// Text is what the user typed or passed, known secrets redacted and cut to maxPromptBytes; a slash command reads as "/name args".
 	Text string
-	// Length is the prompt's length in bytes as typed, before redaction and the cut.
+	// Length is the prompt's length in bytes as given, before redaction and the cut.
 	Length int
 	// Truncated reports that Text was cut; Redacted counts the secrets replaced in it.
 	Truncated bool
 	Redacted  int
-	// Source is how the prompt was entered, as the agent records it: typed, queued while the agent worked, or a suggestion accepted.
+	// Source is how the prompt was entered, as the agent records it: typed, queued while the agent worked, a suggestion accepted, or
+	// sdk for one passed on the command line.
 	Source string
 	CWD    string
 	At     time.Time
@@ -171,6 +175,8 @@ type transcriptLine struct {
 	IsSidechain   bool   `json:"isSidechain"`
 	// IsMeta marks a turn the agent wrote into the conversation itself (a skill's instructions, a command's caveat).
 	IsMeta bool `json:"isMeta"`
+	// IsCompactSummary marks the history the agent wrote in place of a compacted conversation.
+	IsCompactSummary bool `json:"isCompactSummary"`
 	// Origin says who a user turn came from: a person typing ("human"), or the agent's own notifications and peers.
 	Origin struct {
 		Kind string `json:"kind"`
@@ -354,11 +360,13 @@ func parseCalls(line transcriptLine) ([]ToolCall, error) {
 	return calls, nil
 }
 
-// parsePrompt reads the prompt of a user turn a person typed: its origin is human, it is not one the agent wrote itself, and its
-// content is the text as typed. A tool's result, the agent's own notifications, a compacted history, a subagent's instructions (a
-// sidechain, which the agent writes) and an older agent that records no origin are not prompts.
+// parsePrompt reads the prompt of a user turn a person gave the agent: typed (its origin is human), or passed on the command line with
+// claude -p, which records no origin and the prompt source "sdk"; not one the agent wrote itself; and its content the text as given.
+// A tool's result, the agent's own notifications, a compacted history, a subagent's instructions (a sidechain, which the agent writes)
+// and a turn recording neither origin nor source, as an older agent's and a /clear do, are not prompts.
 func parsePrompt(line transcriptLine) (*Prompt, error) {
-	if line.Origin.Kind != "human" || line.IsMeta || line.IsSidechain || len(line.Message.Content) == 0 || line.Message.Content[0] != '"' {
+	given := line.Origin.Kind == "human" || line.Origin.Kind == "" && line.PromptSource == sdkPromptSource
+	if !given || line.IsMeta || line.IsSidechain || line.IsCompactSummary || len(line.Message.Content) == 0 || line.Message.Content[0] != '"' {
 		return nil, nil
 	}
 	var typed string

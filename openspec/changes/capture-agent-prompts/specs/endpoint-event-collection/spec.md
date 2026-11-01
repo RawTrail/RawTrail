@@ -40,7 +40,7 @@ The agent SHALL report each tool call an AI agent records in its session transcr
 
 ### Requirement: Agent prompt capture
 
-Unless prompt capture is off, the agent SHALL report each prompt a person typed to an AI agent, as its transcript records it, as an `agent_prompt` event stamped at the transcript's time, carrying the session id, the turn, the text with each recognizable credential replaced and cut to 16 KiB, the length as typed and the owner's uid. A turn the agent or its tooling wrote SHALL NOT be reported. A prompt naming a session not its transcript's SHALL be skipped.
+Unless prompt capture is off, the agent SHALL report each prompt a person typed to an AI agent or passed it on the command line, as its transcript records it, as an `agent_prompt` event stamped at the transcript's time, carrying the session id, the turn, the text with each recognizable credential replaced and cut to 16 KiB, the length as typed and the owner's uid. A turn the agent or its tooling wrote SHALL NOT be reported. A prompt naming a session not its transcript's SHALL be skipped.
 
 #### Scenario: A typed prompt is reported with its turn
 
@@ -52,9 +52,15 @@ Unless prompt capture is off, the agent SHALL report each prompt a person typed 
 
 #### Scenario: Only what a person typed is a prompt
 
-- **GIVEN** a transcript holding a skill's instructions the agent wrote, a background task's notification, a compacted history, a subagent's instructions, a tool's result, and a turn from an agent that records no origin
+- **GIVEN** a transcript holding a skill's instructions the agent wrote, a background task's notification, a compacted history, a subagent's instructions, a tool's result, and a turn that records neither an origin nor a prompt source
 - **WHEN** the agent reads it
 - **THEN** none of them is reported as a prompt
+
+#### Scenario: A prompt passed on the command line is reported
+
+- **GIVEN** a person runs `claude -p` with a prompt, which the transcript records with no origin and the prompt source `sdk`
+- **WHEN** the agent reads the transcript
+- **THEN** an `agent_prompt` event carries the prompt's text, with `sdk` as its source
 
 #### Scenario: A prompt is redacted and bounded before it leaves
 

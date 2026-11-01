@@ -416,15 +416,15 @@
     "agent_prompt_payload": {
       "type": "object",
       "required": ["agent_session_id", "prompt_id", "text", "length", "uid"],
-      "description": "One prompt a person typed to an AI agent, read by the agent from the session transcript on disk unless prompt capture is off. The envelope timestamp_ns is the time the transcript gives the prompt. Known secrets are redacted and the text is cut to 16 KiB before it is sent.",
+      "description": "One prompt a person gave an AI agent, typed or passed on the command line with claude -p, read by the agent from the session transcript on disk unless prompt capture is off. The envelope timestamp_ns is the time the transcript gives the prompt. Known secrets are redacted and the text is cut to 16 KiB before it is sent.",
       "properties": {
         "agent_session_id": { "type": "string", "description": "The agent's own session id, as on agent_tool_call." },
         "prompt_id": { "type": "string", "description": "The turn the prompt began; the agent_tool_call events of the turn carry the same id." },
-        "text": { "type": "string", "description": "What the person typed, each recognized credential replaced by [REDACTED:<kind>], at most 16 KiB. A slash command reads as /name args." },
-        "length": { "type": "integer", "minimum": 0, "description": "The prompt's length in bytes as typed, before redaction and the cut." },
+        "text": { "type": "string", "description": "What the person typed or passed, each recognized credential replaced by [REDACTED:<kind>], at most 16 KiB. A slash command reads as /name args." },
+        "length": { "type": "integer", "minimum": 0, "description": "The prompt's length in bytes as given, before redaction and the cut." },
         "truncated": { "type": "boolean", "description": "Optional. True when text was cut to its 16 KiB limit." },
         "redacted": { "type": "integer", "minimum": 1, "description": "Optional. How many credentials were replaced in text." },
-        "source": { "type": "string", "description": "Optional. How the prompt was entered, as the agent records it: typed, queued while the agent worked, or a suggestion accepted." },
+        "source": { "type": "string", "description": "Optional. How the prompt was entered, as the agent records it: typed, queued while the agent worked, a suggestion accepted, or sdk for one passed on the command line with claude -p." },
         "cwd": { "type": "string", "description": "Optional. The session's working directory when the prompt was sent." },
         "uid": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "The uid of the transcript's owner, as on agent_tool_call." }
       }
