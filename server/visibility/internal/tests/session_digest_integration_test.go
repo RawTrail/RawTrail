@@ -158,11 +158,20 @@ func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 		file(`"operation":"create","path":"/private/tmp/claude-4b72-cwd"`),
 		file(`"operation":"delete","path":"/private/tmp/claude-4b72-cwd"`),
 		file(`"operation":"create","path":"/Users/dev/Library/Caches/claude-cli-nodejs/-p/log.jsonl"`),
-		// Names that only look like Claude Code's are the session's own changes.
+		// Names that only look like Claude Code's are the session's own changes: these two, and .claude.jsonnet below.
 		file(`"operation":"create","path":"/Users/dev/.claudette/x"`),
 		file(`"operation":"create","path":"/private/tmp/claude-notes.txt"`),
-		// A socket reached and a file read change nothing.
+		file(`"operation":"create","path":"/Users/dev/.claude.jsonnet"`),
+		// A file deleted and made again changed, however it began; so did a directory a rolled-up create and delete both name, whose
+		// rows stand for different files.
+		file(`"operation":"delete","path":"/Users/dev/report.txt"`),
+		file(`"operation":"create","path":"/Users/dev/report.txt"`),
+		file(`"operation":"create","path":"/p/node_modules","rolled_up":true,"coalesced_count":4`),
+		file(`"operation":"delete","path":"/p/node_modules","rolled_up":true,"coalesced_count":2`),
+		// A socket reached and a file read change nothing, Claude Code's own among them.
 		file(`"operation":"connect","path":"/private/var/run/mDNSResponder"`),
+		file(`"operation":"connect","path":"/private/tmp/cc-socks/501.sock"`),
+		file(`"operation":"open","path":"/Users/dev/.claude/settings.json"`),
 		activityEvent("o1", "h1", "open", base+100, `{"pid":300,"pidversion":3,"path":"/etc/hosts","flags":1}`),
 	}))
 	filter := visibilityapi.DigestFilter{
@@ -173,7 +182,7 @@ func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		got, err := arch.ActivityDigest(ctx, filter)
 		require.NoError(c, err)
-		assert.Equal(c, visibilityapi.FileDigest{Changed: 6, OutsideProject: 3, Temporary: 2, AgentFiles: 5}, got.Files)
+		assert.Equal(c, visibilityapi.FileDigest{Changed: 9, OutsideProject: 5, Temporary: 2, AgentFiles: 5}, got.Files)
 	}, 5*time.Second, 100*time.Millisecond)
 
 	t.Run("without a project nothing is outside it", func(t *testing.T) {
@@ -182,7 +191,7 @@ func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 		unknown.Project = ""
 		got, err := arch.ActivityDigest(ctx, unknown)
 		require.NoError(t, err)
-		assert.Equal(t, visibilityapi.FileDigest{Changed: 6, Temporary: 2, AgentFiles: 5}, got.Files)
+		assert.Equal(t, visibilityapi.FileDigest{Changed: 9, Temporary: 2, AgentFiles: 5}, got.Files)
 	})
 }
 

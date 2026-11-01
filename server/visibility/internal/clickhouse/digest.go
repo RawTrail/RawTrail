@@ -108,33 +108,38 @@ func (s *Store) digestDirectories(ctx context.Context, scope string, args []any)
 // agentStatePath matches the files Claude Code keeps for itself, which every session writes whatever it was asked to do: its settings,
 // transcripts and caches under the home folder, and under /tmp its commands' output, the shell's working-directory note and its
 // sockets. A path ES reports is resolved, so /tmp is /private/tmp.
-const agentStatePath = `^(/Users/[^/]+/(\.claude(/|\.json|$)|\.local/(state|share)/claude(/|$)|Library/Caches/claude-cli-nodejs(/|$))` +
+const agentStatePath = `^(/Users/[^/]+/(\.claude(/|\.json($|\.)|$)|\.local/(state|share)/claude(/|$)|Library/Caches/claude-cli-nodejs(/|$))` +
 	`|/private/tmp/(claude-[0-9]+(/|$)|claude-[0-9a-f]+-cwd$|cc-socks(/|$)))`
 
 // digestFileOperations are the operations that change a file: an open reads one and a connect reaches a socket.
 const digestFileOperations = "['create', 'modify', 'rename', 'delete', 'file_rename', 'file_truncate', 'file_delete']"
 
 // digestFiles counts the paths the scope changed, as a summary reads them. Claude Code's own files are counted apart and nowhere else.
-// A temporary file, created and then deleted or renamed away in the scope as an atomic write's is, is counted apart too. The rest are
-// the files changed, and those outside the project are counted again; with no project, none are outside it.
+// A temporary file, created and then, last of all, deleted or renamed away in the scope as an atomic write's is, is counted apart too:
+// a file deleted and created again is a change. A rolled-up row stands for many files under a directory, so it is never temporary.
+// The rest are the files changed, and those outside the project are counted again; with no project, none are outside it. A path only
+// read or connected to is counted nowhere.
 func (s *Store) digestFiles(ctx context.Context, scope string, args []any, project string) (api.FileDigest, error) {
 	root := strings.TrimSuffix(project, "/")
 	var out api.FileDigest
 	query := `
-		SELECT toInt64(countIf(own)), toInt64(countIf(NOT own AND changed AND NOT temporary)),
+		SELECT toInt64(countIf(own AND changed)), toInt64(countIf(NOT own AND changed AND NOT temporary)),
 			toInt64(countIf(NOT own AND changed AND NOT temporary AND ? != '' AND path != ? AND NOT startsWith(path, ?))),
 			toInt64(countIf(NOT own AND temporary))
 		FROM (
-			SELECT path, match(path, ?) AS own, hasAny(ops, ` + digestFileOperations + `) AS changed,
-				has(ops, 'create') AND hasAny(ops, ['delete', 'file_delete', 'moved_away']) AS temporary
+			SELECT path, match(path, ?) AS own, changes > 0 AS changed, NOT rolled AND created > 0 AND removed > created AS temporary
 			FROM (
-				SELECT path, groupUniqArray(operation) AS ops
+				SELECT path, countIf(has(` + digestFileOperations + `, operation)) AS changes, max(rolled_up) AS rolled,
+					maxIf(timestamp_ns, operation = 'create') AS created,
+					maxIf(timestamp_ns, operation IN ('delete', 'file_delete', 'moved_away')) AS removed
 				FROM (
-					SELECT ` + digestPath + ` AS path, ` + activityFileOperation + ` AS operation
+					SELECT ` + digestPath + ` AS path, ` + activityFileOperation + ` AS operation, timestamp_ns,
+						JSONExtractBool(payload, 'rolled_up') AS rolled_up
 					FROM events FINAL
 					WHERE event_type IN ` + activityFileTypes + ` AND ` + scope + `
 					UNION ALL
-					SELECT JSONExtractString(payload, 'source_path') AS path, 'moved_away' AS operation
+					SELECT JSONExtractString(payload, 'source_path') AS path, 'moved_away' AS operation, timestamp_ns,
+						JSONExtractBool(payload, 'rolled_up') AS rolled_up
 					FROM events FINAL
 					WHERE event_type IN ` + activityFileTypes + ` AND JSONExtractString(payload, 'source_path') != '' AND ` + scope + `
 				)

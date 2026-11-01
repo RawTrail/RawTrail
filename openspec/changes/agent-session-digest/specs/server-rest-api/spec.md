@@ -12,9 +12,9 @@ The agent session summary SHALL carry `digest`, over the scope its activity tota
 
 #### Scenario: The digest counts the files the session changed
 
-- **GIVEN** a session that changed files in and outside its project, made and removed a scratch file, wrote a file by renaming a temporary one over it, read a file, reached a socket, and wrote Claude Code's own transcript and settings
+- **GIVEN** a session that changed files in and outside its project, made and removed a scratch file, deleted a file and made it again, wrote a file by renaming a temporary one over it, read a file, reached a socket, and wrote Claude Code's own transcript and settings
 - **WHEN** a client reads its summary
-- **THEN** `digest.files.changed` counts the files it changed, the renamed-over target among them, and `digest.files.outside_project` those outside its project
+- **THEN** `digest.files.changed` counts the files it changed, the renamed-over target and the file made again among them, and `digest.files.outside_project` those outside its project
 - **AND** the scratch file and the renamed temporary file are counted in `digest.files.temporary`, Claude Code's own files in `digest.files.agent_files`, and the read and the socket nowhere
 
 #### Scenario: The digest names the programs the commands ran

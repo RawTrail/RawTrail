@@ -1273,7 +1273,7 @@ paths:
                         properties:
                           changed: {type: integer, format: int64, description: "Files created, modified, renamed, truncated or deleted."}
                           outside_project: {type: integer, format: int64, description: "Changed files outside the session's project; 0 when its project is unknown."}
-                          temporary: {type: integer, format: int64, description: Files created and then deleted or renamed away in the session.}
+                          temporary: {type: integer, format: int64, description: "Files created and then, last of all, deleted or renamed away in the session; a file deleted and created again changed."}
                           agent_files: {type: integer, format: int64, description: "Claude Code's own files the session wrote."}
                       domains:
                         type: array
