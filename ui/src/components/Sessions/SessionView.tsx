@@ -63,10 +63,11 @@ const SESSION_LENSES: readonly { lens: SessionLens; label: string }[] = [
   { lens: "activity", label: "Activity" },
 ];
 
-// linkedGrouping reads a link's view as the Timeline it opens: the views the Timeline replaced, Conversation and Commands, open it
-// grouped and ungrouped, so a link saved before the merge still lands where it pointed. Any other view names no grouping.
-function linkedGrouping(view: string): boolean | undefined {
-  if (view === "conversation") return true;
+// linkedGrouping reads a link as the Timeline it opens: the views the Timeline replaced, Conversation and Commands, open it grouped and
+// ungrouped, so a link saved before the merge still lands where it pointed, and group=prompt opens it grouped, as a prompt search's
+// result does whatever the operator last chose. Any other link names no grouping.
+function linkedGrouping(view: string, group: string): boolean | undefined {
+  if (view === "conversation" || group === "prompt") return true;
   if (view === "commands") return false;
   return undefined;
 }
@@ -256,16 +257,16 @@ interface TimelineGrouping {
   showCommands: () => void;
 }
 
-// useTimelineGrouping is whether the Timeline lists the commands under their prompts: as chosen on this page; else as a link's view asked;
+// useTimelineGrouping is whether the Timeline lists the commands under their prompts: as chosen on this page; else as a link asked;
 // else as the operator last chose, kept in this browser from session to session; else by default when the session recorded a prompt, so
 // a session with none opens on its commands. prompts is undefined until the session's totals are read, and so is the default: the
 // Timeline waits rather than switch under the operator. pageKey names the page, so a choice made on one is not taken as another's.
-function useTimelineGrouping(pageKey: string, linkedView: string, prompts: number | undefined): TimelineGrouping {
+function useTimelineGrouping(pageKey: string, linked: { view: string; group: string }, prompts: number | undefined): TimelineGrouping {
   const [onPage, setOnPage] = useState<{ key: string; grouped: boolean } | null>(null);
   const [stored, setStored] = useState(storedGrouping);
   const own = onPage?.key === pageKey ? onPage.grouped : undefined;
   return {
-    grouped: own ?? linkedGrouping(linkedView) ?? stored ?? (prompts === undefined ? undefined : prompts > 0),
+    grouped: own ?? linkedGrouping(linked.view, linked.group) ?? stored ?? (prompts === undefined ? undefined : prompts > 0),
     choose: (grouped) => {
       setOnPage({ key: pageKey, grouped });
       setStored(grouped);
@@ -298,7 +299,8 @@ export function SessionView() {
   // including one reached from another session's lineage, so the lens chosen is kept for the session it was chosen in.
   const [chosenLens, setChosenLens] = useState<{ key: string; lens: SessionLens } | null>(null);
   const linkedView = searchParams.get("view") ?? "";
-  const linkedLens = linkedGrouping(linkedView) !== undefined ? "timeline"
+  const linkedGroup = searchParams.get("group") ?? "";
+  const linkedLens = linkedGrouping(linkedView, linkedGroup) !== undefined ? "timeline"
     : SESSION_LENSES.find(({ lens }) => lens === linkedView)?.lens ?? "summary";
   const view: SessionLens = chosenLens?.key === readKey ? chosenLens.lens : linkedLens;
   const setView = useCallback((lens: SessionLens) => { setChosenLens({ key: readKey, lens }); }, [readKey]);
@@ -307,7 +309,7 @@ export function SessionView() {
   // The session's prompt count, read with its totals ahead of the rest of the session; unreadable totals count as a prompt recorded.
   const [promptsRead, setPromptsRead] = useState<{ key: string; prompts: number } | null>(null);
   const prompts = promptsRead?.key === readKey ? promptsRead.prompts : undefined;
-  const timeline = useTimelineGrouping(`${readKey}\n${linkedView}`, linkedView, prompts);
+  const timeline = useTimelineGrouping(`${readKey}\n${linkedView}\n${linkedGroup}`, { view: linkedView, group: linkedGroup }, prompts);
   const grouped = timeline.grouped;
   const tree = current?.tree ?? null;
 

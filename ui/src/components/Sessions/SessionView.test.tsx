@@ -907,6 +907,25 @@ describe("SessionView commands from the server", () => {
     expect(spy.mock.calls[0][2]).toMatchObject({ q: "deploy it" });
   });
 
+  // spec:web-ui/agent-session-timeline-view/a-prompt-search-result-opens-the-timeline-grouped
+  it("opens a prompt search's result grouped by prompt though the operator last chose to list commands", () => {
+    localStorage.setItem("rawtrail.timelineGroupedByPrompt", "0");
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
+    vi.spyOn(api, "getSessionConversation").mockReturnValue(new Promise(() => undefined));
+    render(
+      <MemoryRouter initialEntries={[`/agent-sessions/H1/${SESSION}?view=timeline&group=prompt&q=deploy`]}>
+        <Routes>
+          <Route path="/agent-sessions/:hostId/:sessionId" element={<SessionView />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const views = screen.getByRole("group", { name: "Session view" });
+    expect(within(views).getByRole("button", { name: "Timeline" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("switch", { name: "Group by prompt" })).toBeChecked();
+    expect(screen.getByRole("searchbox", { name: "Search this session" })).toHaveValue("deploy");
+  });
+
   it("opens on the Summary when a link names no view it has", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockReturnValue(new Promise(() => undefined));
