@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ShareCard } from "./shareCard";
 import { SCALE, sharePng, shareSvg, SIZE, svgDataUrl, wrap } from "./shareImage";
-import { labelled } from "../../test/svgText";
+import { labelled, texts } from "../../test/svgText";
 
 function card(over: Partial<ShareCard> = {}): ShareCard {
   return {
@@ -98,6 +98,9 @@ describe("shareSvg", () => {
   it("shows what the credential guard stopped only when the card has it", () => {
     expect(shareSvg(card())).toContain(">The credential guard stopped it reading my AWS<");
     expect(shareSvg(card({ guard: null }))).not.toContain("credential guard");
+    // Three credentials read as the caption words them, "A, B and C", up to where the line is cut to the card's width.
+    const three = card({ guard: { credentials: ["my SSH private key", "my AWS credentials", "my GitHub CLI token"] } });
+    expect(texts(shareSvg(three)).join(" ")).toContain("reading my SSH private key, my AWS credentials and my GitHub");
   });
 
   it("never draws over the footer: a full card shows its groups without their domains", () => {

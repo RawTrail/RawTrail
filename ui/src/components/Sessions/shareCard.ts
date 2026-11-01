@@ -121,7 +121,7 @@ function mine(credential: string): string {
   return credential.replace(/\byour\b/g, "my");
 }
 
-function list(items: readonly string[]): string {
+export function list(items: readonly string[]): string {
   if (items.length <= 1) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }

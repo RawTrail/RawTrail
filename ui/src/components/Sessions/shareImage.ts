@@ -2,7 +2,7 @@
 // from it in the browser. Nothing here reads anything but the card, so nothing the card leaves out can reach the image, and no request
 // is made: the text uses the system's fonts.
 
-import { domainCount, filesNotes, HEADLINE, type ShareCard } from "./shareCard";
+import { domainCount, filesNotes, HEADLINE, list, type ShareCard } from "./shareCard";
 
 // SIZE is the card's shape: 4:5 portrait, which a feed shows largest.
 export const SIZE = { width: 1080, height: 1350 } as const;
@@ -126,7 +126,7 @@ function shield(x: number, y: number, size: number): string {
 // guardLine says what the credential guard stopped.
 function guardLine(card: ShareCard): string {
   if (!card.guard) return "";
-  return `The credential guard stopped it reading ${card.guard.credentials.join(" and ")}`;
+  return `The credential guard stopped it reading ${list(card.guard.credentials)}`;
 }
 
 // effort is the line under the title: how long the session ran and the tokens it used, those the card has.
