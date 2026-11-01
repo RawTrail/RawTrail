@@ -33,6 +33,17 @@ The agent session view SHALL lay out its header the same in the Timeline, Proces
 - **WHEN** the operator switches to Processes
 - **THEN** both switches are hidden but keep their place in the header, and cannot be focused
 
+### Requirement: Timeline headers stay selectable
+
+A Timeline turn or command SHALL open and close from a click anywhere on its header and from its own toggle button, and SHALL keep its header's text selectable: a click that selects text, or the second click of a double-click, SHALL leave it as it was. A prompt the operator may read, and a command, SHALL offer a button copying its text.
+
+#### Scenario: Selecting a prompt does not close it
+
+- **GIVEN** an open turn in the Timeline
+- **WHEN** the operator drags across its prompt to select it, or double-clicks a word of it
+- **THEN** the text is selected and the turn stays open
+- **AND** its copy button copies the whole prompt without opening or closing it
+
 ## REMOVED Requirements
 
 ### Requirement: Stable session view switcher

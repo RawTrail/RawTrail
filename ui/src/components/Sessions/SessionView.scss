@@ -111,27 +111,67 @@
     overflow: hidden;
   }
 
+  // The header opens and closes the turn on a click anywhere a mouse lands, but its text stays selectable: only the toggle is a button.
   &__prompt {
     align-items: baseline;
-    background: none;
-    border: 0;
     color: $core-black;
     cursor: pointer;
     display: grid;
-    font: inherit;
     gap: 0.25rem 0.6rem;
-    grid-template-columns: auto auto 1fr;
+    grid-template-columns: auto 1fr;
     padding: 0.75rem 0.9rem;
-    text-align: left;
-    width: 100%;
 
     &:hover {
       background: $ui-black-5;
     }
 
-    &[aria-expanded="true"] {
+    &:has(> .session-view__toggle[aria-expanded="true"]) {
       border-bottom: 1px solid $ui-black-10;
     }
+  }
+
+  // A disclosure's own button: its chevron, and on a turn its "Prompt" label.
+  &__toggle {
+    align-items: center;
+    align-self: center;
+    background: none;
+    border: 0;
+    border-radius: 4px;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    gap: 0.5rem;
+    padding: 0.15rem 0.3rem;
+
+    &:hover {
+      background: $ui-black-10;
+    }
+  }
+
+  &__prompt-body {
+    align-items: baseline;
+    display: flex;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+
+  // A copy button shows where a pointer rests or keyboard focus is, and always on a touch screen, which has no hover.
+  &__copy {
+    align-self: center;
+    flex: none;
+    opacity: 0;
+
+    @media (hover: none) {
+      opacity: 1;
+    }
+  }
+
+  &__prompt:hover &__copy,
+  &__prompt:focus-within &__copy,
+  &__call-header:hover &__copy,
+  &__call-header:focus-within &__copy {
+    opacity: 1;
   }
 
   // A chevron drawn from two borders, pointing right when the turn is closed and down when it is open.
@@ -145,7 +185,7 @@
     width: 0.45rem;
   }
 
-  &__prompt[aria-expanded="true"] &__chevron {
+  &__toggle[aria-expanded="true"] &__chevron {
     transform: rotate(45deg);
   }
 
@@ -158,6 +198,7 @@
   }
 
   &__prompt-text {
+    cursor: text;
     font-size: 0.95rem;
     font-weight: 600;
     overflow-wrap: anywhere;
@@ -166,7 +207,7 @@
   }
 
   // A closed turn shows the first two lines of its prompt; an open one shows all of it.
-  &__prompt[aria-expanded="false"] &__prompt-text {
+  &__toggle[aria-expanded="false"] + &__prompt-body &__prompt-text {
     -webkit-box-orient: vertical;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -179,7 +220,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    grid-column: 3;
+    grid-column: 2;
   }
 
   &__turn-items {
@@ -210,16 +251,13 @@
   &__call-header {
     align-items: baseline;
     background: $ui-black-5;
-    border: 0;
     cursor: pointer;
     display: flex;
     flex-wrap: wrap;
-    gap: 0.75rem;
+    gap: 0.5rem 0.75rem;
     padding: 0.6rem 0.9rem;
-    text-align: left;
-    width: 100%;
 
-    &[aria-expanded="true"] {
+    &--open {
       border-bottom: 1px solid $ui-black-10;
     }
 
@@ -231,6 +269,7 @@
 
   &__command {
     color: $core-black;
+    cursor: text;
     font-size: 0.9rem;
     overflow-wrap: anywhere;
     white-space: pre-wrap;

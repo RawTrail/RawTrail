@@ -110,7 +110,7 @@ test.describe("the timeline grouped by prompt", () => {
     const turns = page.locator(".session-view__turn");
     await expect(turns).toHaveCount(2, { timeout: 20_000 });
     // Each turn opens closed, headed by its prompt; Expand all opens them to what the agent did.
-    await expect(turns.nth(0).locator(".session-view__prompt")).toHaveAttribute("aria-expanded", "false");
+    await expect(turns.nth(0).locator(".session-view__prompt > .session-view__toggle")).toHaveAttribute("aria-expanded", "false");
     await expect(turns.nth(0).locator(".session-view__prompt-label")).toHaveText("Prompt");
     await page.getByRole("button", { name: "Expand all" }).click();
     const first = turns.nth(0);

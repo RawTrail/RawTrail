@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import "./SessionView.scss";
 import {
@@ -16,6 +16,7 @@ import { Button } from "../ui/Button";
 import { ProcessDetail } from "../ProcessDetail";
 import { ActivityTabs } from "../Activity/ActivityTabs";
 import { Badge } from "../ui/Badge";
+import { CopyButton } from "../ui/CopyButton";
 import { EmptyState } from "../ui/Table";
 import { severityBadgeVariant, severityRank } from "../ui/severity";
 import { formatNs, executableName, plural } from "../Search/format";
@@ -909,6 +910,40 @@ function ConversationBody({ hostId, sessionId, query, incomplete, verbose }: {
   );
 }
 
+// rowClick makes a disclosure's whole header open and close it for a mouse, while leaving its text selectable and copyable (the toggle
+// itself is the header's own button, which keyboard and screen reader users reach). A click on a control inside the header is that
+// control's; a click that ends a drag-selection selects; and the second click of a double-click undoes the first, so a word
+// double-clicked to select it leaves the disclosure as it was. A third click selects the line and is left alone too.
+function rowClick(toggle: () => void): (e: MouseEvent<HTMLElement>) => void {
+  return (e) => {
+    if (e.target instanceof Element && e.target.closest("button, a")) return;
+    if (e.detail === 2) {
+      toggle();
+      return;
+    }
+    if (e.detail > 2 || (window.getSelection()?.toString() ?? "") !== "") return;
+    toggle();
+  };
+}
+
+// DisclosureToggle is a disclosure header's own button: a chevron, named by the header's text, pointing right when closed and down when
+// open.
+function DisclosureToggle({ expanded, controls, labelledBy, onToggle, children }: {
+  readonly expanded: boolean;
+  readonly controls: string;
+  readonly labelledBy: string;
+  readonly onToggle: () => void;
+  readonly children?: ReactNode;
+}) {
+  return (
+    <button type="button" className="session-view__toggle" aria-expanded={expanded} aria-controls={expanded ? controls : undefined}
+      aria-labelledby={labelledBy} onClick={onToggle}>
+      <span className="session-view__chevron" aria-hidden="true" />
+      {children}
+    </button>
+  );
+}
+
 // turnKey names a turn among a session's: its prompt and the user whose transcript recorded it.
 function turnKey(turn: ConversationTurn): string {
   return `${turn.prompt_id ?? ""}/${String(turn.uid ?? "")}`;
@@ -946,12 +981,22 @@ function TurnEntry({ turn, groups, promptsHidden, open, onToggle }: {
   const toolCalls = turn.calls.length + turn.commands.filter((c) => c.tool_call !== undefined).length;
   const processes = groups.reduce((sum, g) => sum + g.processCount, 0);
   const outside = turn.prompt_id === undefined;
+  const ids = useId();
+  const [labelId, textId, bodyId] = [`${ids}-label`, `${ids}-text`, `${ids}-body`];
+  // Only a prompt's own text is copied: not the notes that say it was not captured or is hidden.
+  const copyable = !outside && turn.prompt && !promptsHidden ? turn.prompt.text : null;
   return (
     <li className="session-view__turn">
-      <button type="button" className="session-view__prompt" aria-expanded={open} onClick={onToggle}>
-        <span className="session-view__chevron" aria-hidden="true" />
-        <span className="session-view__prompt-label">{outside ? "No prompt" : "Prompt"}</span>
-        <span className="session-view__prompt-text">{outside ? "Outside any prompt" : promptText(turn, promptsHidden)}</span>
+      <div className="session-view__prompt" onClick={rowClick(onToggle)}>
+        <DisclosureToggle expanded={open} controls={bodyId} labelledBy={`${labelId} ${textId}`} onToggle={onToggle}>
+          <span id={labelId} className="session-view__prompt-label">{outside ? "No prompt" : "Prompt"}</span>
+        </DisclosureToggle>
+        <span className="session-view__prompt-body">
+          <span id={textId} className="session-view__prompt-text">{outside ? "Outside any prompt" : promptText(turn, promptsHidden)}</span>
+          {copyable !== null && (
+            <span className="session-view__copy"><CopyButton value={copyable} label="Copy prompt" size="small" /></span>
+          )}
+        </span>
         <span className="session-view__prompt-meta">
           {/* Only a prompt the agent captured is its report; an uncaptured one says so instead. */}
           {turn.prompt && <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>}
@@ -962,9 +1007,9 @@ function TurnEntry({ turn, groups, promptsHidden, open, onToggle }: {
             <Badge variant={severityBadgeVariant(highestSeverity(alerts))}>{plural(alerts.length, "alert", "alerts")}</Badge>
           )}
         </span>
-      </button>
+      </div>
       {open && (
-        <ol className="session-view__calls session-view__turn-items">
+        <ol id={bodyId} className="session-view__calls session-view__turn-items">
           {turnItems(turn, groups).map((item) => {
             if (item.kind === "call") return <TurnCall key={`${item.call.tool_use_id}/${String(item.call.uid)}`} call={item.call} />;
             const commandAlerts = item.group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
@@ -989,10 +1034,12 @@ function promptText(turn: ConversationTurn, promptsHidden: boolean): string {
 // TurnCall is a tool call of a turn that started no process: a file read or edit, a web fetch, an MCP tool. It is laid out as a
 // command's header is, its target where the command would be and the call the agent reported beneath, labelled the same way.
 function TurnCall({ call }: { readonly call: AgentToolCall }) {
+  const target = call.file_path ?? call.command ?? call.tool_name;
   return (
     <li className="session-view__call">
       <div className="session-view__call-header session-view__call-header--static">
-        <code className="session-view__command">{call.file_path ?? call.command ?? call.tool_name}</code>
+        <code className="session-view__command">{target}</code>
+        <span className="session-view__copy"><CopyButton value={target} label="Copy" size="small" /></span>
         <span className="session-view__meta">{formatNs(call.called_at_ns)}</span>
         <span className="session-view__agent-call">
           <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
@@ -1020,15 +1067,15 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
   const expanded = (toggled ?? defaultOpen) || found > 0;
   // A credential the command read, or was stopped from reading, is said in words beside it, open or closed (issue #1432).
   const reads = credentialReads(alerts);
+  const ids = useId();
+  const [commandId, bodyId] = [`${ids}-command`, `${ids}-body`];
+  const toggle = () => { setToggled(!expanded); };
   return (
     <li className="session-view__call">
-      <button
-        type="button"
-        className="session-view__call-header"
-        aria-expanded={expanded}
-        onClick={() => { setToggled(!expanded); }}
-      >
-        <code className="session-view__command">{group.command}</code>
+      <div className={`session-view__call-header${expanded ? " session-view__call-header--open" : ""}`} onClick={rowClick(toggle)}>
+        <DisclosureToggle expanded={expanded} controls={bodyId} labelledBy={commandId} onToggle={toggle} />
+        <code id={commandId} className="session-view__command">{group.command}</code>
+        <span className="session-view__copy"><CopyButton value={group.command} label="Copy command" size="small" /></span>
         <span className="session-view__meta">
           {formatNs(group.startNs)} · {plural(group.processCount, "process", "processes")}
         </span>
@@ -1037,7 +1084,7 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
         )}
         {found > 0 && <span className="session-view__found">{plural(found, "match", "matches")}</span>}
         {match && <AgentCall match={match} />}
-      </button>
+      </div>
       {reads.length > 0 && (
         <ul className="session-view__credential-reads">
           {reads.map((r) => (
@@ -1051,15 +1098,19 @@ function CommandGroup({ group, match, alerts, defaultOpen }: {
           ))}
         </ul>
       )}
-      {expanded && group.rows.length > 0 && <ProcessRows rows={group.rows} />}
-      {expanded && group.processesCut && (
-        <p className="session-view__notice" role="status">
-          {"Some of this command's processes are not listed. "}
-          <Button variant="text-link" disabled={wholeRead === "loading"} onClick={() => { readWhole(group.key); }}>
-            {`Show all ${group.processCount.toLocaleString()} processes`}
-          </Button>
-          {wholeRead === "failed" && " They could not be loaded."}
-        </p>
+      {expanded && (
+        <div id={bodyId}>
+          {group.rows.length > 0 && <ProcessRows rows={group.rows} />}
+          {group.processesCut && (
+            <p className="session-view__notice" role="status">
+              {"Some of this command's processes are not listed. "}
+              <Button variant="text-link" disabled={wholeRead === "loading"} onClick={() => { readWhole(group.key); }}>
+                {`Show all ${group.processCount.toLocaleString()} processes`}
+              </Button>
+              {wholeRead === "failed" && " They could not be loaded."}
+            </p>
+          )}
+        </div>
       )}
     </li>
   );

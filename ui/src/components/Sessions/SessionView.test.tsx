@@ -47,6 +47,34 @@ function names(el: HTMLElement): (string | null)[] {
   return within(el).queryAllByRole("button", { pressed: false }).map((b) => b.textContent);
 }
 
+// toggleOf is the disclosure button of the header holding el: a command card's or a turn's. The header's text is not in the button, so
+// it stays selectable.
+function toggleOf(el: Element | null): HTMLElement {
+  const toggle = el?.closest(".session-view__call-header, .session-view__prompt")?.querySelector(".session-view__toggle");
+  if (!(toggle instanceof HTMLElement)) throw new Error("no disclosure");
+  return toggle;
+}
+
+// headerOf is the whole header a disclosure's toggle sits in: its text, badges and the tool call it reports.
+function headerOf(toggle: Element): HTMLElement {
+  const header = toggle.closest(".session-view__call-header, .session-view__prompt");
+  if (!(header instanceof HTMLElement)) throw new Error("no header");
+  return header;
+}
+
+// findNotice is the view's status notice, as distinct from the copy buttons' own announcements.
+async function findNotice(): Promise<HTMLElement> {
+  const all = await screen.findAllByRole("status");
+  const notice = all.find((el) => el.classList.contains("session-view__notice"));
+  if (!notice) throw new Error("no notice");
+  return notice;
+}
+
+// commandOf is the command a command card's toggle opens.
+function commandOf(toggle: Element): string | null | undefined {
+  return toggle.closest(".session-view__call-header")?.querySelector("code")?.textContent;
+}
+
 // callHeaders returns the tool-call group headers, in the order the page lists them.
 function callHeaders(): HTMLElement[] {
   return screen.getAllByRole("button", { expanded: true });
@@ -194,13 +222,17 @@ describe("SessionView conversation", () => {
     const read = vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
     await openConversation();
     // Each turn opens closed: its header is the prompt, labelled as one, with how much the agent did for it.
-    const firstHeader = (await screen.findByText("run both steps")).closest("button");
-    if (!firstHeader) throw new Error("no turn");
+    const firstHeader = toggleOf(await screen.findByText("run both steps"));
     expect(firstHeader).toHaveAttribute("aria-expanded", "false");
     expect(within(firstHeader).getByText("Prompt")).toBeVisible();
-    expect(within(firstHeader).getByText("Reported by agent")).toBeVisible();
+    // The toggle is named by its label and the prompt, whose text sits outside it so it can be selected and copied.
+    expect(firstHeader).toHaveAccessibleName("Prompt run both steps");
+    const firstRow = firstHeader.closest(".session-view__prompt");
+    if (!(firstRow instanceof HTMLElement)) throw new Error("no row");
+    expect(within(firstRow).getByText("Reported by agent")).toBeVisible();
+    expect(within(firstRow).getByRole("button", { name: "Copy prompt" })).toBeInTheDocument();
     // The Read is a tool call; the fixture's command pairs with none, so it counts its processes alone.
-    expect(firstHeader).toHaveTextContent(/1 tool call · 2 processes/);
+    expect(firstRow).toHaveTextContent(/1 tool call · 2 processes/);
     expect(screen.queryByText("/repo/README.md")).toBeNull();
 
     fireEvent.click(firstHeader);
@@ -215,14 +247,16 @@ describe("SessionView conversation", () => {
     expect(within(readCall).getByText("Read")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
-    const uncapturedHeader = screen.getByText("Prompt not captured").closest("button");
-    if (!uncapturedHeader) throw new Error("no turn");
-    expect(within(uncapturedHeader).queryByText("Reported by agent")).toBeNull();
+    const uncapturedHeader = toggleOf(screen.getByText("Prompt not captured"));
+    const uncapturedRow = uncapturedHeader.closest(".session-view__prompt");
+    if (!(uncapturedRow instanceof HTMLElement)) throw new Error("no row");
+    expect(within(uncapturedRow).queryByText("Reported by agent")).toBeNull();
+    // A note that a prompt was not captured is not a prompt to copy.
+    expect(within(uncapturedRow).queryByRole("button", { name: "Copy prompt" })).toBeNull();
     expect(screen.getByText("https://example.com")).toBeVisible();
-    const outsideHeader = screen.getByText("Outside any prompt").closest("button");
-    if (!outsideHeader) throw new Error("no turn");
+    const outsideHeader = toggleOf(screen.getByText("Outside any prompt"));
     expect(within(outsideHeader).getByText("No prompt")).toBeVisible();
-    expect(within(outsideHeader).queryByText("Reported by agent")).toBeNull();
+    expect(outsideHeader.closest(".session-view__prompt")).not.toHaveTextContent("Reported by agent");
     expect(screen.getByText("step 1")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
     expect(screen.queryByText("step 1")).toBeNull();
@@ -289,11 +323,10 @@ describe("SessionView conversation", () => {
     vi.spyOn(api, "getSessionConversation").mockResolvedValue(read);
     await openConversation();
     fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
-    const header = (await screen.findByText("step 5")).closest("button");
-    if (!header) throw new Error("no header");
+    const header = toggleOf(await screen.findByText("step 5"));
     expect(header).toHaveAttribute("aria-expanded", "false");
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "echo" } });
-    await waitFor(() => { expect(screen.getByText("step 5").closest("button")).toHaveAttribute("aria-expanded", "true"); });
+    await waitFor(() => { expect(toggleOf(screen.getByText("step 5"))).toHaveAttribute("aria-expanded", "true"); });
     for (const echo of screen.getAllByRole("button", { name: "echo" })) {
       expect(echo.closest(".session-view__row")).toHaveClass("session-view__row--hit");
     }
@@ -407,13 +440,62 @@ describe("SessionView conversation", () => {
     vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
     await openConversation();
     fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
-    const header = (await screen.findByText("step 0", { selector: "code" })).closest("button");
-    const call = header?.closest("li");
-    if (!header || !call) throw new Error("no command");
+    const header = toggleOf(await screen.findByText("step 0", { selector: "code" }));
+    const call = header.closest("li");
+    if (!call) throw new Error("no command");
     fireEvent.click(header);
     expect(names(call)).toEqual(["echo"]);
     fireEvent.click(screen.getByRole("switch", { name: "Show shell plumbing" }));
     expect(names(call)).toEqual(["zsh", "echo"]);
+  });
+
+  // spec:web-ui/timeline-headers-stay-selectable/selecting-a-prompt-does-not-close-it
+  it("opens a turn from anywhere on its header, but not when the click selects its text or copies it", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    await openConversation();
+    const text = await screen.findByText("run both steps");
+    const toggle = toggleOf(text);
+
+    fireEvent.click(text, { detail: 1 });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // The second click of a double-click lands with the word it selected, and undoes the first: the turn is left as it was.
+    const selection = vi.spyOn(window, "getSelection").mockReturnValue({ toString: () => "both" } as Selection);
+    fireEvent.click(text, { detail: 2 });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // A click that ends a drag-selection selects.
+    fireEvent.click(text, { detail: 1 });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    selection.mockRestore();
+
+    fireEvent.click(within(headerOf(toggle)).getByRole("button", { name: "Copy prompt" }));
+    await waitFor(() => { expect(writeText).toHaveBeenCalledWith("run both steps"); });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    vi.unstubAllGlobals();
+  });
+
+  it("opens a command from anywhere on its header, with its command copyable", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
+    const command = await screen.findByText("step 0", { selector: "code" });
+    const toggle = toggleOf(command);
+    expect(toggle).toHaveAccessibleName("step 0");
+    fireEvent.click(headerOf(toggle), { detail: 1 });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-controls", expect.any(String));
+    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")).toBeVisible();
+    fireEvent.click(within(headerOf(toggle)).getByRole("button", { name: "Copy command" }));
+    await waitFor(() => { expect(writeText).toHaveBeenCalledWith("step 0"); });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    vi.unstubAllGlobals();
   });
 
   it("opens a turn an alert was raised in, and every turn a search lists", async () => {
@@ -424,12 +506,12 @@ describe("SessionView conversation", () => {
     vi.spyOn(api, "listAlerts").mockResolvedValue([alert({ process_id: alerted, severity: "high" })]);
     vi.spyOn(api, "getSessionConversation").mockResolvedValue(read);
     await openConversation();
-    const flagged = (await screen.findByText("run both steps")).closest("button");
+    const flagged = toggleOf(await screen.findByText("run both steps"));
     await waitFor(() => { expect(flagged).toHaveAttribute("aria-expanded", "true"); });
-    expect(screen.getByText("Outside any prompt").closest("button")).toHaveAttribute("aria-expanded", "false");
+    expect(toggleOf(screen.getByText("Outside any prompt"))).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "step" } });
-    await waitFor(() => { expect(screen.getByText("Outside any prompt").closest("button")).toHaveAttribute("aria-expanded", "true"); });
+    await waitFor(() => { expect(toggleOf(screen.getByText("Outside any prompt"))).toHaveAttribute("aria-expanded", "true"); });
   });
 });
 
@@ -858,7 +940,7 @@ describe("SessionView commands from the server", () => {
     expect(screen.queryAllByRole("button", { expanded: true })).toHaveLength(0);
     landAlerts([alert({ process_id: 71 })]);
     await screen.findByRole("link", { name: "System discovery" });
-    expect(screen.getAllByRole("button", { expanded: true }).map((b) => b.querySelector("code")?.textContent)).toEqual(["step 6"]);
+    expect(screen.getAllByRole("button", { expanded: true }).map((b) => commandOf(b))).toEqual(["step 6"]);
   });
 });
 
@@ -878,20 +960,20 @@ describe("SessionView", () => {
     renderView();
     const headers = await screen.findAllByRole("button", { expanded: true });
     expect(spy).toHaveBeenCalledWith("H1", SESSION, expect.objectContaining({ cursor: "" }));
-    expect(within(headers[0]).getByText("First step")).toBeVisible();
-    expect(within(headers[0]).getByText("toolu_a")).toBeVisible();
+    expect(within(headerOf(headers[0])).getByText("First step")).toBeVisible();
+    expect(within(headerOf(headers[0])).getByText("toolu_a")).toBeVisible();
     // Both the paired call and the ambiguous one say they are the agent's report; the unpaired command says nothing.
-    expect(within(headers[0]).getByText("Reported by agent")).toBeVisible();
-    expect(within(headers[1]).getByText("Reported by agent")).toBeVisible();
+    expect(within(headerOf(headers[0])).getByText("Reported by agent")).toBeVisible();
+    expect(within(headerOf(headers[1])).getByText("Reported by agent")).toBeVisible();
     // Both labels say where the report comes from: the outer title on an ambiguous call names its candidates instead.
     for (const header of headers.slice(0, 2)) {
-      expect(within(header).getByText("Reported by agent")).toHaveAttribute("title", expect.stringContaining("not observed by the sensor"));
+      expect(within(headerOf(header)).getByText("Reported by agent")).toHaveAttribute("title", expect.stringContaining("not observed by the sensor"));
     }
-    expect(within(headers[2]).queryByText("Reported by agent")).toBeNull();
-    const ambiguous = within(headers[1]).getByText(/One of 2 identical calls made at once/);
+    expect(within(headerOf(headers[2])).queryByText("Reported by agent")).toBeNull();
+    const ambiguous = within(headerOf(headers[1])).getByText(/One of 2 identical calls made at once/);
     expect(ambiguous).toBeVisible();
     expect(ambiguous).toHaveAttribute("title", "One of: toolu_b, toolu_c");
-    expect(within(headers[2]).queryByText(/toolu_/)).toBeNull();
+    expect(within(headerOf(headers[2])).queryByText(/toolu_/)).toBeNull();
   });
 
   it("says when the agent reported more tool calls than were read", async () => {
@@ -925,7 +1007,7 @@ describe("SessionView", () => {
     renderView();
     expect(await screen.findByRole("heading", { name: "claude-code 2.1.296" })).toBeVisible();
     expect(spy).toHaveBeenCalledWith("H1", SESSION);
-    expect(callHeaders().map((h) => h.querySelector("code")?.textContent)).toEqual([
+    expect(callHeaders().map((h) => commandOf(h))).toEqual([
       "ls /private/tmp | head -3",
       "(sleep 47 &)",
       "nohup sleep 48 >/dev/null 2>&1 &",
@@ -935,7 +1017,7 @@ describe("SessionView", () => {
     expect(screen.getByText("/private/tmp")).toBeVisible();
     expect(await screen.findByText("qa-1280-vm")).toBeVisible();
     expect(screen.getByText("16 processes")).toBeVisible();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(document.querySelector(".session-view__notice[role=status]")).toBeNull();
   });
 
   // spec:web-ui/ai-agent-session-view/shell-plumbing-is-hidden-unless-verbose
@@ -955,8 +1037,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
     renderView();
-    const header = (await screen.findByText("ls /private/tmp | head -3")).closest("button");
-    if (!header) throw new Error("no header");
+    const header = toggleOf(await screen.findByText("ls /private/tmp | head -3"));
     expect(screen.getByRole("button", { name: "ls" })).toBeVisible();
     fireEvent.click(header);
     expect(header).toHaveAttribute("aria-expanded", "false");
@@ -989,9 +1070,9 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, returned: 16, total_matched: 2500 }));
     renderView();
     // The commands say their read was cut; the process tree, in its own view, how much of the session it shows.
-    expect(await screen.findByRole("status")).toHaveTextContent("ran more processes than the server reads");
+    expect(await findNotice()).toHaveTextContent("ran more processes than the server reads");
     fireEvent.click(screen.getByRole("button", { name: "Processes" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Showing the first 16 of 2,500 processes in this session.");
+    expect(await findNotice()).toHaveTextContent("Showing the first 16 of 2,500 processes in this session.");
   });
 
   // spec:web-ui/ai-agent-session-view-badges/the-header-reads-the-session-s-record
@@ -1033,9 +1114,8 @@ describe("SessionView", () => {
     expect(link).toHaveAttribute("href", "/alerts/2047");
     // One past the cap, so a session with more alerts than are read is reported.
     expect(spy).toHaveBeenCalledWith({ host_id: "H1", agent_session: SESSION, limit: 1001 });
-    const header = screen.getByText("ls /private/tmp | head -3").closest("button");
-    if (!header) throw new Error("no header");
-    expect(within(header).getByText("1 alert")).toHaveClass("badge--critical");
+    const header = toggleOf(screen.getByText("ls /private/tmp | head -3"));
+    expect(within(headerOf(header)).getByText("1 alert")).toHaveClass("badge--critical");
   });
 
   // spec:web-ui/a-command-that-read-a-credential-says-so/a-command-names-the-credential-it-read
@@ -1086,7 +1166,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "listAlerts").mockResolvedValue([alert({ process_id: 71 })]);
     renderView();
     await screen.findByRole("link", { name: "System discovery" });
-    expect(screen.getAllByRole("button", { expanded: true }).map((b) => b.querySelector("code")?.textContent)).toEqual(["step 6"]);
+    expect(screen.getAllByRole("button", { expanded: true }).map((b) => commandOf(b))).toEqual(["step 6"]);
     expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(10);
   });
 
@@ -1159,10 +1239,9 @@ describe("SessionView", () => {
     await screen.findByText("step 7");
     expect(screen.queryByRole("button", { name: "echo" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "echo 7" } });
-    const header = screen.getByText("step 7").closest("button");
-    if (!header) throw new Error("no header");
+    const header = toggleOf(screen.getByText("step 7"));
     expect(header).toHaveAttribute("aria-expanded", "true");
-    expect(within(header).getByText("1 match")).toBeVisible();
+    expect(within(headerOf(header)).getByText("1 match")).toBeVisible();
     expect(screen.getAllByRole("button", { expanded: true })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "echo" }).closest(".session-view__row")).toHaveClass("session-view__row--hit");
   });
@@ -1281,7 +1360,7 @@ describe("SessionView", () => {
     const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'loop'"], children, { tool_call_group: 1 });
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call], truncated: true, total_matched: 5000 }));
     renderView();
-    await screen.findByRole("status");
+    await findNotice();
     expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(3);
   });
 
@@ -1579,7 +1658,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ truncated: true, total_matched: 10_000, total_matched_capped: true }));
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Processes" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Showing the first 16 of more than 10,000 processes in this session.");
+    expect(await findNotice()).toHaveTextContent("Showing the first 16 of more than 10,000 processes in this session.");
   });
 
   it("does not show the previous session's processes while the next session loads", async () => {
