@@ -175,13 +175,30 @@ describe("SessionSummary", () => {
   it.each([
     ["cannot be read", () => Promise.reject(new Error("boom"))],
     ["is empty", () => Promise.resolve(host("  "))],
-  ])("offers nothing to share when the host's name %s, and still shows the card", async (_name, read) => {
+  ])("shows no card and offers nothing to share when the host's name %s", async (_name, read) => {
     vi.spyOn(api, "getHostDetail").mockImplementation(read);
     renderSummary(busy());
     expect(await screen.findByRole("alert")).toHaveTextContent("This host's name could not be read");
-    expect(await card()).toBeVisible();
+    // A shown image can be copied from the page whatever the buttons offer, so one that cannot be checked is not drawn.
+    expect(screen.queryByRole("img")).toBeNull();
+    // Nor is a card left loading that will never be drawn.
+    expect(document.querySelector("[aria-busy='true']")).toBeNull();
     for (const name of ["Copy image", "Download PNG", "Copy caption"]) expect(screen.getByRole("button", { name })).toBeDisabled();
     expect(screen.queryByRole("link", { name: "Open LinkedIn" })).toBeNull();
+  });
+
+  it("draws no card for another host until that host's name is read, never redacting against the last one", async () => {
+    vi.spyOn(api, "getHostDetail").mockImplementation((id) => id === "host-1" ? Promise.resolve(host("devs-mbp"))
+      : new Promise(() => undefined));
+    const summary = (hostId: string) => (
+      <SessionSummary hostId={hostId} alerts={[]} totals={busy()} agent="claude-code 2.1.0" project="/Users/dev/app" firstNs={0}
+        lastNs={42 * MINUTE_NS} onAlerts={vi.fn()} />
+    );
+    const { rerender } = render(summary("host-1"));
+    await card();
+    rerender(summary("host-2"));
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy image" })).toBeDisabled();
   });
 
   it("counts its alerts and links to where they are shown, without leading with them", async () => {

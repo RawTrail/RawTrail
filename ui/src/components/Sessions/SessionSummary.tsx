@@ -25,29 +25,35 @@ interface SessionSummaryProps {
   readonly onAlerts: () => void;
 }
 
-// HostName is the host's name as the Summary read it: needed before the card is drawn, since it is a name redaction must remove.
-type HostName = { state: "loading" } | { state: "read"; hostname: string } | { state: "failed" };
+// HostName is the host's name as the Summary read it, for the host it was read for: needed before the card is drawn, since it is a name
+// redaction must remove.
+type HostName = { hostId: string; state: "read"; hostname: string } | { hostId: string; state: "failed" };
 
 // SessionSummary shows a session as the card it is shared as (issues #1429, #1430): what the agent's log reports beside what actually
 // ran, what it changed and where it reached, the programs it ran most and where it talked to. The card shown is the image shared, so
 // the two cannot differ. Beside it are the ways to share it, the session's alerts as a count with a link, and what the card leaves out.
 export function SessionSummary({ hostId, alerts, totals, agent, project, firstNs, lastNs, onAlerts }: SessionSummaryProps) {
-  const [host, setHost] = useState<HostName>({ state: "loading" });
+  const [hostRead, setHostRead] = useState<HostName | null>(null);
   useEffect(() => {
     let live = true;
     getHostDetail(hostId)
-      // A host with no enrolled name is read as unreadable: with no name to remove, nothing can be shared.
-      .then((d) => { if (live) setHost(d.hostname.trim() ? { state: "read", hostname: d.hostname.trim() } : { state: "failed" }); })
-      .catch(() => { if (live) setHost({ state: "failed" }); });
+      // A host with no enrolled name is read as unreadable: with no name to remove, nothing can be drawn.
+      .then((d) => {
+        const hostname = d.hostname.trim();
+        if (live) setHostRead(hostname ? { hostId, state: "read", hostname } : { hostId, state: "failed" });
+      })
+      .catch(() => { if (live) setHostRead({ hostId, state: "failed" }); });
     return () => { live = false; };
   }, [hostId]);
-  // The card is drawn once the host's name is known or known to be unreadable: a host whose name cannot be read still has a Summary,
-  // and nothing is offered to share it.
+  // A name read for another host is still loading for this one, so a card is never redacted against the wrong host's name.
+  const host = hostRead?.hostId === hostId ? hostRead : null;
+  // The card is drawn only once the host's name is read: an image drawn without it could carry it, and a shown image can be copied
+  // from the page whatever the share buttons offer.
   const card = useMemo(() => {
-    if (!totals?.digest || host.state === "loading") return null;
+    if (!totals?.digest || host?.state !== "read") return null;
     const usernames = homeUsernames(project, ...totals.digest.directories.map((d) => d.directory),
       ...totals.digest.programs.map((p) => p.program));
-    const identities = { usernames, hostnames: host.state === "read" ? [host.hostname] : [] };
+    const identities = { usernames, hostnames: [host.hostname] };
     return shareCard({ totals, alerts, agent, project, firstNs, lastNs, identities });
   }, [host, totals, alerts, agent, project, firstNs, lastNs]);
   const svg = useMemo(() => (card ? shareSvg(card) : null), [card]);
@@ -57,13 +63,15 @@ export function SessionSummary({ hostId, alerts, totals, agent, project, firstNs
   return (
     <div className="session-summary">
       {partial && <p className="session-summary__note" role="status">{partial}</p>}
-      <figure className="session-summary__card">
-        {svg && card
-          ? <img src={svgDataUrl(svg)} alt={altText(card)} className="session-summary__image" />
-          : <div className="session-summary__image" aria-busy="true" />}
-      </figure>
+      {host?.state !== "failed" && (
+        <figure className="session-summary__card">
+          {svg && card
+            ? <img src={svgDataUrl(svg)} alt={altText(card)} className="session-summary__image" />
+            : <div className="session-summary__image" aria-busy="true" />}
+        </figure>
+      )}
       <div className="session-summary__aside">
-        <SharePanel card={card} svg={svg} hostUnread={host.state === "failed"} />
+        <SharePanel card={card} svg={svg} hostUnread={host?.state === "failed"} />
         <section className="session-summary__section" aria-label="Alerts">
           <h2 className="session-summary__title">Alerts</h2>
           {totals.alerts.total === 0

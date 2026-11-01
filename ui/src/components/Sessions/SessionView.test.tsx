@@ -572,6 +572,7 @@ describe("SessionView commands from the server", () => {
   // spec:web-ui/agent-session-summary-tab/the-summary-is-the-first-view
   it("opens on the Summary, listed first among the session's views, and shows it from the session's summary", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getHostDetail").mockResolvedValue({ host_id: "H1", hostname: "devs-mbp" } as Awaited<ReturnType<typeof api.getHostDetail>>);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
     vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({
       commands: 2, processes: 4, alerts: { total: 1, by_severity: { high: 1 } }, tool_calls: { total: 0, by_tool: [] },

@@ -15,7 +15,7 @@ interface SharePanelProps {
   // card and svg are what the Summary shows, so what is shared is what the person sees; null until the host's name is read.
   readonly card: ShareCard | null;
   readonly svg: string | null;
-  // hostUnread says the host's name could not be read, so the image cannot be checked for it and nothing is offered.
+  // hostUnread says the host's name could not be read, so the card is not drawn and nothing is offered.
   readonly hostUnread: boolean;
 }
 
@@ -78,7 +78,7 @@ export function SharePanel({ card, svg, hostUnread }: SharePanelProps) {
       </p>
       {hostUnread && (
         <p className="share-panel__error" role="alert">
-          This host&apos;s name could not be read, so the image cannot be checked for it. Try again later.
+          This host&apos;s name could not be read, so the card cannot be checked for it and is not shown. Try again later.
         </p>
       )}
       <div className="share-panel__buttons">

@@ -149,17 +149,23 @@ export function caption(card: ShareCard): string {
 
 // altText reads the card out for a screen reader, from the card alone.
 export function altText(card: ShareCard): string {
-  const when = [card.date ? `on ${card.date}` : "", card.duration ? `running ${card.duration}` : ""].filter((s) => s !== "").join(", ");
+  const when = [
+    card.date ? `on ${card.date}` : "",
+    card.duration ? `running ${card.duration}` : "",
+    card.tokens ? `${card.tokens} tokens` : "",
+  ].filter((s) => s !== "").join(", ");
   const parts = [
     `${HEADLINE}.`,
     `${plural(card.toolCalls, "tool call", "tool calls")} in its log, ${plural(card.processes, "process", "processes")} ran.`,
-    `${plural(card.filesChanged, "file", "files")} changed${card.outsideProject === null ? "" : `, ${String(card.outsideProject)} `
-      + "outside the project"}.`,
+    `${[plural(card.filesChanged, "file changed", "files changed"), ...filesNotes(card)].join(", ")}.`,
     `${domainCount(card)} ${card.domains === 1 && !card.domainsCut ? "domain" : "domains"} contacted.`,
   ];
-  if (card.programs.length > 0) parts.push(`Programs it ran most: ${list(card.programs.map((p) => p.name))}.`);
+  if (card.programs.length > 0) {
+    parts.push(`Programs it ran most: ${list(card.programs.map((p) => `${p.name} (${p.count.toLocaleString()})`))}.`);
+  }
   if (card.destinations.length > 0) {
-    parts.push(`It talked to ${list(card.destinations.map((d) => `${d.label.toLowerCase()} (${String(d.count)})`))}.`);
+    const places = card.destinations.map((d) => `${d.label.toLowerCase()} (${d.count.toLocaleString()}: ${d.domains.join(", ")})`);
+    parts.push(`It talked to ${list(places)}.`);
   }
   if (card.guard) parts.push(`The credential guard stopped it reading ${list([...card.guard.credentials])}.`);
   return `A summary card of a ${card.agent} session${when ? ` ${when}` : ""}: ${parts.join(" ")}`;

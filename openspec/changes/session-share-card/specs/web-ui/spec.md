@@ -24,7 +24,7 @@ A session shared as an image SHALL be drawn only from a card of counts, program 
 
 ### Requirement: A session can be shared as an image made in the browser
 
-The Summary SHALL show the session's card as the 1080 x 1350 image it shares, and offer to share it as a PNG drawn at twice that size, made in the browser from the redacted card with no request. It SHALL copy the image or download it, copy a suggested caption, and open the LinkedIn or X composer, and SHALL offer none of them while the host's name is unread or empty.
+The Summary SHALL show the session's card as the 1080 x 1350 image it shares, and offer to share it as a PNG drawn at twice that size, made in the browser from the redacted card with no request. It SHALL copy the image or download it, copy a suggested caption, and open the LinkedIn or X composer, and SHALL neither draw the card nor offer any of them while the host's name is unread or empty.
 
 #### Scenario: The Summary shows the image it shares
 
@@ -48,4 +48,4 @@ The Summary SHALL show the session's card as the 1080 x 1350 image it shares, an
 
 - **GIVEN** a host whose name the Summary cannot read
 - **WHEN** the person opens a session's Summary
-- **THEN** it says the image cannot be checked for the name, and offers nothing to copy, download or post
+- **THEN** it says the card cannot be checked for the name, shows no card, and offers nothing to copy, download or post

@@ -91,6 +91,6 @@ export function formatSpan(spanNs: number): string {
 // shortSpan is a span as the share card says it, where a phrase does not fit: seconds under a minute, at least one, and formatSpan's
 // minutes and hours from a minute on.
 export function shortSpan(spanNs: number): string {
-  if (Math.round(spanNs / MINUTE_NS) >= 1) return formatSpan(spanNs);
-  return `${String(Math.max(1, Math.round(spanNs / SECOND_NS)))}s`;
+  if (spanNs >= MINUTE_NS) return formatSpan(spanNs);
+  return `${String(Math.max(1, Math.floor(spanNs / SECOND_NS)))}s`;
 }

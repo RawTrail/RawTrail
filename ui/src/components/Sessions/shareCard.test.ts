@@ -85,6 +85,10 @@ describe("shareCard", () => {
   it("says a short session's length in seconds, never as a phrase", () => {
     expect(shareCard(input({ lastNs: 26e9 })).duration).toBe("26s");
     expect(shareCard(input({ lastNs: 0 })).duration).toBe("1s");
+    // Seconds hold until a whole minute, though half of one would round up to it.
+    for (const [seconds, said] of [[30, "30s"], [45, "45s"], [59.9, "59s"], [60, "1 min"]] as const) {
+      expect(shareCard(input({ lastNs: seconds * 1e9 })).duration).toBe(said);
+    }
     expect(shareCard(input({ lastNs: 61 * MINUTE_NS })).duration).toBe("1 h 1 min");
   });
 
@@ -140,10 +144,12 @@ describe("caption and altText", () => {
       + "The credential guard stopped it reading my AWS credentials. Recorded with RawTrail.");
     // The date is written in the browser's locale, so it is matched loosely and everything around it exactly.
     const alt = altText(card);
-    expect(alt).toMatch(/^A summary card of a Claude Code session on .+, running 47 min: /);
+    expect(alt).toMatch(/^A summary card of a Claude Code session on .+, running 47 min, 3\.1M tokens: /);
     expect(alt.slice(alt.indexOf(": ") + 2)).toBe("What my AI agent did. 1,286 tool calls in its log, 903 processes ran. "
-      + "41 files changed, 4 outside the project. 2 domains contacted. Programs it ran most: go, git, rg and npm. "
-      + "It talked to model apis (1) and git hosts (1). The credential guard stopped it reading my AWS credentials.");
+      + "41 files changed, 4 outside the project, 12 temporary files not counted. 2 domains contacted. "
+      + "Programs it ran most: go (132), git (61), rg (44) and npm (18). "
+      + "It talked to model apis (1: api.anthropic.com) and git hosts (1: github.com). "
+      + "The credential guard stopped it reading my AWS credentials.");
   });
 });
 
