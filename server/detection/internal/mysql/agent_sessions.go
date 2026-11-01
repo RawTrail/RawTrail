@@ -89,8 +89,10 @@ func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string
 }
 
 // sessionOwnerUID is an agent_sessions row's owner: the uid of its earliest retained process, which the kernel stamped (issue #1478).
-// NULL once the session's processes have aged out. The one definition the session read, the list and its bypass mark share.
-const sessionOwnerUID = `(SELECT p.uid FROM processes p
+// NULL once the session's processes have aged out. The one definition the session read, the list and its bypass mark share. The index
+// is forced: given ORDER BY ... LIMIT 1, MySQL walks idx_processes_fork_id across every host's processes instead, which on a 15M-row
+// table held the sessions list past the server's write timeout, and never ended for a session with no process left to find.
+const sessionOwnerUID = `(SELECT p.uid FROM processes p FORCE INDEX (idx_processes_host_agent_session_fork)
 	WHERE p.host_id = agent_sessions.host_id AND p.agent_session_id = agent_sessions.agent_session_id AND p.uid IS NOT NULL
 	ORDER BY p.fork_time_ns, p.id LIMIT 1)`
 
