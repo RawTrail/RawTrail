@@ -16,7 +16,7 @@ function digest(over: Partial<AgentSessionDigest> = {}): AgentSessionDigest {
   return {
     prompts: 3, programs: [{ program: "/usr/bin/git", count: 7 }],
     directories: [{ directory: "/Users/ann/app/src", paths: 2, by_operation: {} }],
-    directories_truncated: false, outside_project: 0,
+    directories_truncated: false, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 },
     domains: [{ domain: "github.com", lookups: 1, connections: 1, new: false },
       { domain: "anns-mbp.local", lookups: 1, connections: 0, new: false }],
     domains_truncated: false, timeline: [1, 2], command_timeline: [1, 2], timeline_start_ns: 0, timeline_bucket_ns: MINUTE_NS, ...over,

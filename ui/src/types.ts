@@ -400,7 +400,8 @@ export interface AgentSessionDigest {
   programs: { program: string; count: number }[];
   directories: { directory: string; paths: number; by_operation: Record<string, number> }[];
   directories_truncated: boolean;
-  outside_project: number;
+  // files counts the distinct paths the session changed; Claude Code's own files and temporary files are counted apart.
+  files: { changed: number; outside_project: number; temporary: number; agent_files: number };
   domains: DomainActivity[];
   domains_truncated: boolean;
   timeline: number[];

@@ -159,10 +159,10 @@ func TestAgentSessionSummary_Totals(t *testing.T) {
 		},
 		prompts: 4,
 		digest: visibilityapi.ActivityDigest{
-			Directories:    []visibilityapi.DirectoryActivity{{Directory: "/src", Paths: 2, ByOperation: map[string]int64{"modify": 5}}},
-			OutsideProject: 1,
-			Domains:        []visibilityapi.DomainActivity{{Domain: "github.com", Lookups: 1, Connections: 2, New: true}},
-			Timeline:       make([]int64, digestBuckets),
+			Directories: []visibilityapi.DirectoryActivity{{Directory: "/src", Paths: 2, ByOperation: map[string]int64{"modify": 5}}},
+			Files:       visibilityapi.FileDigest{Changed: 3, OutsideProject: 1, Temporary: 1, AgentFiles: 7},
+			Domains:     []visibilityapi.DomainActivity{{Domain: "github.com", Lookups: 1, Connections: 2, New: true}},
+			Timeline:    make([]int64, digestBuckets),
 			// The commands' processes carry no times, so they start at zero, and the span reaches back to them.
 			TimelineStartNs: 0, TimelineBucketNs: 20_000_000_000_000/digestBuckets + 1,
 		},

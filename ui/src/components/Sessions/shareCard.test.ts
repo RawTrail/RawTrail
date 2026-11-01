@@ -7,7 +7,7 @@ const MINUTE_NS = 60e9;
 
 function digest(over: Partial<AgentSessionDigest> = {}): AgentSessionDigest {
   return {
-    prompts: 0, programs: [], directories: [], directories_truncated: false, outside_project: 0, domains: [], domains_truncated: false,
+    prompts: 0, programs: [], directories: [], directories_truncated: false, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
     timeline: [0, 0], command_timeline: [0, 0], timeline_start_ns: 0, timeline_bucket_ns: MINUTE_NS, ...over,
   };
 }
@@ -46,7 +46,7 @@ function input(over: Partial<ShareInput> = {}): ShareInput {
         prompts: 6,
         programs: [{ program: "/opt/homebrew/bin/go", count: 132 }, { program: "git", count: 61 }, { program: "rg", count: 44 },
           { program: "npm", count: 18 }, { program: "make", count: 2 }],
-        outside_project: 0,
+        files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 },
         domains: [{ domain: "api.anthropic.com", lookups: 3, connections: 2, new: false },
           { domain: "github.com", lookups: 2, connections: 1, new: false },
           { domain: "wiki.example.com", lookups: 1, connections: 1, new: true },

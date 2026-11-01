@@ -110,7 +110,7 @@ export function shareCard(input: ShareInput, options: ShareOptions): ShareCard {
     destinations: destinations(digest?.domains ?? [], options, identities),
     fileEvents: files?.events ?? 0,
     paths: files?.distinct ?? 0,
-    outsideProject: input.project ? (digest?.outside_project ?? 0) : null,
+    outsideProject: input.project ? (digest?.files.outside_project ?? 0) : null,
     guard: options.showGuard ? guard(input.alerts) : null,
   };
 }

@@ -363,19 +363,31 @@ type DigestFilter struct {
 }
 
 // ActivityDigest is what a scope touched, in the shape a summary reads it (issue #1429). Directories lists the directories with the
-// most file events, most first, and DirectoriesTruncated reports that more had events. OutsideProject counts the distinct paths
-// outside the project. Domains lists the domains with the most lookups and connections, most first. Timeline counts the scope's
+// most file events, most first, and DirectoriesTruncated reports that more had events. Files counts the paths the scope changed.
+// Domains lists the domains with the most lookups and connections, most first. Timeline counts the scope's
 // file, network and DNS events in equal buckets, from TimelineStartNs, TimelineBucketNs wide, a coalesced event counting as the
 // occurrences it stands for. The buckets split the filter's span widened to the scope's first and last event, so every event is on it.
 type ActivityDigest struct {
 	Directories          []DirectoryActivity `json:"directories"`
 	DirectoriesTruncated bool                `json:"directories_truncated"`
-	OutsideProject       int64               `json:"outside_project"`
+	Files                FileDigest          `json:"files"`
 	Domains              []DomainActivity    `json:"domains"`
 	DomainsTruncated     bool                `json:"domains_truncated"`
 	Timeline             []int64             `json:"timeline"`
 	TimelineStartNs      int64               `json:"timeline_start_ns"`
 	TimelineBucketNs     int64               `json:"timeline_bucket_ns"`
+}
+
+// FileDigest counts the distinct paths a scope changed, as a summary reads them (issue #1429). AgentFiles are the files Claude Code keeps
+// for itself, its settings, transcripts, caches and command output, which any session writes and none is about; they are counted here
+// and in no other field. Temporary files were created and then deleted or renamed away in the scope. Changed counts the rest: the
+// paths created, modified, renamed, truncated or deleted, not opened or connected to. OutsideProject counts the changed paths outside
+// the project, 0 when it is unknown.
+type FileDigest struct {
+	Changed        int64 `json:"changed"`
+	OutsideProject int64 `json:"outside_project"`
+	Temporary      int64 `json:"temporary"`
+	AgentFiles     int64 `json:"agent_files"`
 }
 
 // DirectoryActivity is the file events under one directory, keyed by operation as FileTotals.ByOperation is, and the distinct paths

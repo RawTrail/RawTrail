@@ -1237,7 +1237,7 @@ paths:
                       The session described for its Summary, over the scope `activity` is counted over. Its timelines split a span
                       holding every one of the session's commands and events, from `timeline_start_ns`, into 48 buckets
                       `timeline_bucket_ns` wide.
-                    required: [prompts, programs, directories, directories_truncated, outside_project, domains, domains_truncated, timeline, command_timeline, timeline_start_ns, timeline_bucket_ns]
+                    required: [prompts, programs, directories, directories_truncated, files, domains, domains_truncated, timeline, command_timeline, timeline_start_ns, timeline_bucket_ns]
                     properties:
                       prompts: {type: integer, format: int64, description: "The prompts the session was sent, counted without reading their text."}
                       programs:
@@ -1263,7 +1263,18 @@ paths:
                               description: Events by operation, keyed as `activity.files.by_operation` is.
                               additionalProperties: {type: integer, format: int64}
                       directories_truncated: {type: boolean, description: More directories had file events than are listed.}
-                      outside_project: {type: integer, format: int64, description: "Distinct paths outside the session's project; 0 when its project is unknown."}
+                      files:
+                        type: object
+                        description: >-
+                          Distinct paths the session changed. Files Claude Code keeps for itself (its settings, transcripts, caches and
+                          command output) are counted only in `agent_files`, and files created and then deleted or renamed away only in
+                          `temporary`. A read or a socket connect changes nothing.
+                        required: [changed, outside_project, temporary, agent_files]
+                        properties:
+                          changed: {type: integer, format: int64, description: "Files created, modified, renamed, truncated or deleted."}
+                          outside_project: {type: integer, format: int64, description: "Changed files outside the session's project; 0 when its project is unknown."}
+                          temporary: {type: integer, format: int64, description: Files created and then deleted or renamed away in the session.}
+                          agent_files: {type: integer, format: int64, description: "Claude Code's own files the session wrote."}
                       domains:
                         type: array
                         description: >-

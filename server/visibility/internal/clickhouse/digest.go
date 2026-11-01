@@ -48,12 +48,10 @@ func (s *Store) ActivityDigest(ctx context.Context, filter api.DigestFilter) (ap
 		out.Directories, out.DirectoriesTruncated, err = s.digestDirectories(gctx, scope, args)
 		return err
 	})
-	if filter.Project != "" {
-		g.Go(func() (err error) {
-			out.OutsideProject, err = s.digestOutsideProject(gctx, scope, args, filter.Project)
-			return err
-		})
-	}
+	g.Go(func() (err error) {
+		out.Files, err = s.digestFiles(gctx, scope, args, filter.Project)
+		return err
+	})
 	g.Go(func() (err error) {
 		out.Domains, out.DomainsTruncated, err = s.digestDomains(gctx, scope, args, filter.HostID, filter.StartNs)
 		return err
@@ -107,18 +105,49 @@ func (s *Store) digestDirectories(ctx context.Context, scope string, args []any)
 	return out, truncated, nil
 }
 
-// digestOutsideProject counts the distinct paths the scope's file events touched that are neither the project nor under it.
-func (s *Store) digestOutsideProject(ctx context.Context, scope string, args []any, project string) (int64, error) {
-	var n int64
-	err := s.db.QueryRowContext(ctx, `
-		SELECT toInt64(uniqExactIf(`+digestPath+`, `+digestPath+` != ? AND NOT startsWith(`+digestPath+`, ?)))
-		FROM events FINAL
-		WHERE event_type IN `+activityFileTypes+` AND `+scope,
-		append([]any{strings.TrimSuffix(project, "/"), strings.TrimSuffix(project, "/") + "/"}, args...)...).Scan(&n)
+// agentStatePath matches the files Claude Code keeps for itself, which every session writes whatever it was asked to do: its settings,
+// transcripts and caches under the home folder, and under /tmp its commands' output, the shell's working-directory note and its
+// sockets. A path ES reports is resolved, so /tmp is /private/tmp.
+const agentStatePath = `^(/Users/[^/]+/(\.claude(/|\.json|$)|\.local/(state|share)/claude(/|$)|Library/Caches/claude-cli-nodejs(/|$))` +
+	`|/private/tmp/(claude-[0-9]+(/|$)|claude-[0-9a-f]+-cwd$|cc-socks(/|$)))`
+
+// digestFileOperations are the operations that change a file: an open reads one and a connect reaches a socket.
+const digestFileOperations = "['create', 'modify', 'rename', 'delete', 'file_rename', 'file_truncate', 'file_delete']"
+
+// digestFiles counts the paths the scope changed, as a summary reads them. Claude Code's own files are counted apart and nowhere else.
+// A temporary file, created and then deleted or renamed away in the scope as an atomic write's is, is counted apart too. The rest are
+// the files changed, and those outside the project are counted again; with no project, none are outside it.
+func (s *Store) digestFiles(ctx context.Context, scope string, args []any, project string) (api.FileDigest, error) {
+	root := strings.TrimSuffix(project, "/")
+	var out api.FileDigest
+	query := `
+		SELECT toInt64(countIf(own)), toInt64(countIf(NOT own AND changed AND NOT temporary)),
+			toInt64(countIf(NOT own AND changed AND NOT temporary AND ? != '' AND path != ? AND NOT startsWith(path, ?))),
+			toInt64(countIf(NOT own AND temporary))
+		FROM (
+			SELECT path, match(path, ?) AS own, hasAny(ops, ` + digestFileOperations + `) AS changed,
+				has(ops, 'create') AND hasAny(ops, ['delete', 'file_delete', 'moved_away']) AS temporary
+			FROM (
+				SELECT path, groupUniqArray(operation) AS ops
+				FROM (
+					SELECT ` + digestPath + ` AS path, ` + activityFileOperation + ` AS operation
+					FROM events FINAL
+					WHERE event_type IN ` + activityFileTypes + ` AND ` + scope + `
+					UNION ALL
+					SELECT JSONExtractString(payload, 'source_path') AS path, 'moved_away' AS operation
+					FROM events FINAL
+					WHERE event_type IN ` + activityFileTypes + ` AND JSONExtractString(payload, 'source_path') != '' AND ` + scope + `
+				)
+				GROUP BY path
+			)
+		)`
+	queryArgs := append([]any{root, root, root + "/", agentStatePath}, args...)
+	err := s.db.QueryRowContext(ctx, query, append(queryArgs, args...)...).Scan(&out.AgentFiles, &out.Changed, &out.OutsideProject,
+		&out.Temporary)
 	if err != nil {
-		return 0, fmt.Errorf("clickhouse digest outside project: %w", err)
+		return api.FileDigest{}, fmt.Errorf("clickhouse digest files: %w", err)
 	}
-	return n, nil
+	return out, nil
 }
 
 // digestDomains groups the scope's lookups and named connections by registrable domain, most first, and marks the domains the host had
