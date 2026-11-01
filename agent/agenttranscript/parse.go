@@ -105,16 +105,16 @@ func (c ToolCall) Payload() map[string]any {
 	return p
 }
 
-// Prompt is one prompt the user typed to an agent, as its transcript records it.
+// Prompt is one prompt the user gave an agent, typed or passed on the command line, as its transcript records it.
 type Prompt struct {
 	SessionID string
 	// EntryID is the transcript entry's own id, which names the prompt however many times it is read.
 	EntryID string
 	// PromptID names the turn the prompt began; the tool calls the agent made for it carry the same id.
 	PromptID string
-	// Text is what the user typed, known secrets redacted and cut to maxPromptBytes; a slash command reads as "/name args".
+	// Text is what the user typed or passed, known secrets redacted and cut to maxPromptBytes; a slash command reads as "/name args".
 	Text string
-	// Length is the prompt's length in bytes as typed, before redaction and the cut.
+	// Length is the prompt's length in bytes as given, before redaction and the cut.
 	Length int
 	// Truncated reports that Text was cut; Redacted counts the secrets replaced in it.
 	Truncated bool
