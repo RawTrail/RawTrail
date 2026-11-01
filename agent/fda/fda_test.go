@@ -46,3 +46,9 @@ func TestExtensionRefusal(t *testing.T) {
 	}
 	assert.Empty(t, Probe{StatusPath: filepath.Join(dir, "none.json")}.ExtensionRefusal(), "no record, no refusal")
 }
+
+func TestNewProbeReadsTheSystemPaths(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, Probe{TCCPath: "/Library/Application Support/com.apple.TCC/TCC.db", StatusPath: "/var/db/io.rawtrail/es-client-status.json"},
+		NewProbe())
+}

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"time"
+
 	"github.com/rawtrail/rawtrail/agent/fda"
 	"github.com/rawtrail/rawtrail/agent/health"
 )
@@ -18,5 +21,22 @@ func applyFullDiskAccess(reg *health.Registry, probe fda.Probe) {
 	}
 	if probe.ExtensionRefusal() == fda.RefusedNotPermitted {
 		reg.MarkFullDiskAccessMissing(health.ComponentEndpointSecurityExtension)
+	}
+}
+
+// watchFullDiskAccessWith registers the agent's own Full Disk Access component and keeps it, and the security extension's refusal,
+// current every interval until ctx ends.
+func watchFullDiskAccessWith(ctx context.Context, reg *health.Registry, probe fda.Probe, interval time.Duration) {
+	reg.Register(health.ComponentAgentFullDiskAccess, "Agent")
+	applyFullDiskAccess(reg, probe)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			applyFullDiskAccess(reg, probe)
+		}
 	}
 }

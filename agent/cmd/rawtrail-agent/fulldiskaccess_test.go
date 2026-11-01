@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,12 +54,42 @@ func TestApplyFullDiskAccess(t *testing.T) {
 	applyFullDiskAccess(reg, fda.Probe{TCCPath: filepath.Join(dir, "absent.db"), StatusPath: refusal})
 	assert.Equal(t, "full_disk_access_granted", reasons(reg)[health.ComponentAgentFullDiskAccess])
 
-	// One it may not read is the grant revoked. (A file mode refuses everyone but root, so the case needs a non-root test run.)
-	if os.Geteuid() == 0 {
+	// One it may not read is the grant revoked. (A file mode refuses everyone but root, and nobody on Windows, so the case needs a
+	// non-root test run off Windows.)
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		return
 	}
 	refused := filepath.Join(dir, "refused.db")
 	require.NoError(t, os.WriteFile(refused, []byte("db"), 0o000))
 	applyFullDiskAccess(reg, fda.Probe{TCCPath: refused, StatusPath: refusal})
 	assert.Equal(t, health.ReasonFullDiskAccessMissing, reasons(reg)[health.ComponentAgentFullDiskAccess])
+}
+
+func TestWatchFullDiskAccessWith(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	refusal := filepath.Join(dir, "es-client-status.json")
+	reg := health.NewRegistry()
+	reg.Register(health.ComponentEndpointSecurityExtension, "Security extension")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		watchFullDiskAccessWith(ctx, reg, fda.Probe{TCCPath: filepath.Join(dir, "TCC.db"), StatusPath: refusal}, time.Millisecond)
+		close(done)
+	}()
+
+	// It registers the agent's component, then picks up a refusal recorded after it started.
+	require.Eventually(t, func() bool { _, ok := reasons(reg)[health.ComponentAgentFullDiskAccess]; return ok }, time.Second, time.Millisecond)
+	require.NoError(t, os.WriteFile(refusal, []byte(`{"refused":"not_permitted","at":"x"}`), 0o600))
+	require.Eventually(t, func() bool {
+		return reasons(reg)[health.ComponentEndpointSecurityExtension] == health.ReasonFullDiskAccessMissing
+	}, time.Second, time.Millisecond)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("the watch did not stop when its context ended")
+	}
 }
