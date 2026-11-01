@@ -101,7 +101,8 @@ async function removeSession({ hostId }: Seeded): Promise<void> {
 
 // texts are the text nodes of the card's SVG, in the order it draws them.
 function texts(svg: string): string[] {
-  return Array.from(svg.matchAll(/>([^<]*)<\/text>/g), (m) => m[1]);
+  // Each text node's content is what follows the last ">" before its closing tag: a split, which cannot backtrack.
+  return svg.split("</text>").slice(0, -1).map((chunk) => chunk.slice(chunk.lastIndexOf(">") + 1));
 }
 
 test.describe("a session's Summary", () => {
