@@ -17,12 +17,12 @@ const STATE_BADGE: Record<StepState, { variant: BadgeVariant; label: string }> =
   waiting: { variant: "neutral", label: "Waiting" },
 };
 
-// readMac reads what the checklist shows. A Mac named by ?host= is that one, and otherwise the Mac that reported last. Its health and
-// sessions are read best effort: a failed read leaves those steps waiting rather than failing the page. Sessions are read only by an
-// operator who may read them.
+// readMac reads what the checklist shows. A Mac named by ?host= is that one (a host on another platform is no Mac to set up), and
+// otherwise the Mac that reported last. Its health and sessions are read best effort: a failed read leaves those steps waiting rather
+// than failing the page. Sessions are read only by an operator who may read them.
 async function readMac(wanted: string | null, canReadSessions: boolean): Promise<SetupInputs> {
   const hosts = await listHosts();
-  const host = wanted ? (hosts.find((h) => h.host_id === wanted) ?? null) : latestMac(hosts);
+  const host = latestMac(wanted ? hosts.filter((h) => h.host_id === wanted) : hosts);
   if (!host) return { host: null, health: null, sessions: null, canReadSessions };
   const [health, sessions] = await Promise.all([
     getHostHealth(host.host_id).catch(() => null),

@@ -147,6 +147,16 @@ describe("SetupChecklist", () => {
     expect(listHosts).toHaveBeenCalledTimes(1);
   });
 
+  it("sets up no host when ?host= names one on another platform", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([host({ host_id: "win", platform: "windows" }), host()]);
+    const getHealth = vi.spyOn(api, "getHostHealth");
+    renderAt("/setup?host=win");
+    await settle();
+
+    expect(screen.getByText("Waiting for this Mac to enroll")).toBeVisible();
+    expect(getHealth).not.toHaveBeenCalled();
+  });
+
   it("waits for a Mac to enroll when there is none, and keeps reading", async () => {
     const listHosts = vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const getHealth = vi.spyOn(api, "getHostHealth");
