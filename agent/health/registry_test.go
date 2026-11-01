@@ -170,3 +170,43 @@ func TestRegistry_MarkRebootRequiredUntilTheNextSession(t *testing.T) {
 	assert.Equal(t, StatusDegraded, got.Status)
 	assert.Equal(t, reasonAwaitingProviders, got.Reason, "an established session replaces reboot_required")
 }
+
+// spec:agent-status-reporting/a-missing-full-disk-access-grant-is-reported/a-refused-extension-reports-the-missing-grant
+func TestRegistry_FullDiskAccessMissingOnTheExtension(t *testing.T) {
+	t.Parallel()
+	r := newRegistryWithClock(seqClock(100))
+	r.Register(ComponentEndpointSecurityExtension, "Security extension")
+
+	r.MarkFullDiskAccessMissing(ComponentEndpointSecurityExtension)
+	snap := r.Snapshot()[0]
+	assert.Equal(t, StatusUnhealthy, snap.Status)
+	assert.Equal(t, ReasonFullDiskAccessMissing, snap.Reason)
+	assert.Contains(t, snap.Message, "Security extension does not have Full Disk Access")
+	assert.Contains(t, snap.Message, "System Settings > Privacy & Security > Full Disk Access")
+
+	// The receiver's reconnect attempts do not trade the cause for never_connected.
+	r.MarkDisconnected(ComponentEndpointSecurityExtension)
+	assert.Equal(t, ReasonFullDiskAccessMissing, r.Snapshot()[0].Reason)
+
+	// Granted, the extension connects, which clears it; a stale refusal read afterwards does not bring it back.
+	r.MarkConnected(ComponentEndpointSecurityExtension)
+	r.MarkFullDiskAccessMissing(ComponentEndpointSecurityExtension)
+	assert.Equal(t, StatusHealthy, r.Snapshot()[0].Status)
+	assert.Equal(t, reasonActivated, r.Snapshot()[0].Reason)
+}
+
+// spec:agent-status-reporting/a-missing-full-disk-access-grant-is-reported/the-agent-reports-its-own-grant
+func TestRegistry_AgentFullDiskAccessFollowsTheGrant(t *testing.T) {
+	t.Parallel()
+	r := newRegistryWithClock(seqClock(100))
+	r.Register(ComponentAgentFullDiskAccess, "Agent")
+
+	r.MarkFullDiskAccessGranted(ComponentAgentFullDiskAccess)
+	assert.Equal(t, Component{Type: ComponentAgentFullDiskAccess, Status: StatusHealthy, Reason: reasonFullDiskAccessGranted,
+		Message: "Agent has Full Disk Access", LastTransitionNs: 101}, r.Snapshot()[0])
+
+	// Revoked, it turns missing at once: no connection stands for the agent's own grant.
+	r.MarkFullDiskAccessMissing(ComponentAgentFullDiskAccess)
+	assert.Equal(t, StatusUnhealthy, r.Snapshot()[0].Status)
+	assert.Equal(t, ReasonFullDiskAccessMissing, r.Snapshot()[0].Reason)
+}

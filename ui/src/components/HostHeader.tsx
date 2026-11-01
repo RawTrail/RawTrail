@@ -20,6 +20,8 @@ interface HostHeaderProps {
 const COMPONENT_LABELS: Record<string, string> = {
   endpoint_security_extension: "Security extension",
   network_extension: "Network extension",
+  // Whether the agent itself has Full Disk Access (issue #1436); the security extension's own grant shows on its condition above.
+  agent_full_disk_access: "Agent Full Disk Access",
   // Agent-reported capture providers (issue #702). The network extension reports each one separately, so a wedged provider is
   // distinguishable from a healthy host rather than hidden inside the extension's single rollup above.
   content_filter: "Content filter",

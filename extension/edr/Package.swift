@@ -125,6 +125,9 @@ let package = Package(
                 // CredentialGuard.swift is the credential guard's pure half (#1431): the protected files, their owner tools and the
                 // decision for an agent's process opening one. CredentialGuardSubscriber applies it.
                 "extension/CredentialGuard.swift",
+                // ESClientStatus.swift records why macOS refused an Endpoint Security client (#1436), for the agent to report. Pure
+                // Foundation over AtomicFile; ESFSubscriber maps the EndpointSecurity refusal onto its names.
+                "extension/ESClientStatus.swift",
                 "extension/FileHashCache.swift",
                 "extension/SigningInfoFallback.swift",
                 // SnapshotSigning.swift reads a running process's signature for the startup snapshot. Security and Darwin only.

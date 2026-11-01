@@ -218,6 +218,25 @@ describe("HostHeader agent health", () => {
     expect(screen.getByText("Network extension")).toBeInTheDocument();
   });
 
+  it("names a missing Full Disk Access grant on the extension and on the agent", async () => {
+    const detail = detailFixture();
+    vi.spyOn(api, "getHostDetail").mockResolvedValue(detail);
+    const nowNs = Date.now() * NANOSECONDS_PER_MILLISECOND;
+    vi.spyOn(api, "getHostHealth").mockResolvedValue(healthFixture({
+      overall_status: "unhealthy",
+      components: [
+        { type: "endpoint_security_extension", status: "unhealthy", reason: "full_disk_access_missing", last_transition_ns: nowNs,
+          message: "Security extension does not have Full Disk Access: turn it on in System Settings" },
+        { type: "agent_full_disk_access", status: "unhealthy", reason: "full_disk_access_missing", last_transition_ns: nowNs,
+          message: "Agent does not have Full Disk Access: turn it on in System Settings" },
+      ],
+    }));
+    renderHeader(detail.host_id);
+    fireEvent.click(await screen.findByRole("button", { name: /Details/ }));
+    expect(screen.getByText("Agent Full Disk Access")).toBeVisible();
+    expect(screen.getByText(/^Security extension does not have Full Disk Access/)).toBeVisible();
+  });
+
   // spec:web-ui/the-host-detail-surfaces-the-health-conditions/a-fully-healthy-host-shows-a-single-healthy-rollup
   it("shows no attention dot when healthy and reveals the single healthy rollup on demand", async () => {
     const detail = detailFixture();

@@ -23,6 +23,8 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 	if d.cfg.NetXPCService != "" {
 		d.health.Register(health.ComponentNetworkExtension, "Network extension")
 	}
+	// Full Disk Access, the agent's own and the extension's (issue #1436), so a missing grant is reported as itself.
+	go watchFullDiskAccess(ctx, d.health)
 
 	go startReceiverLoop(ctx, receiverLoopParams{
 		logger:       d.logger,

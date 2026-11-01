@@ -171,6 +171,8 @@ The Endpoint Security extension creates its ES client with `es_new_client`, whic
 3. Add the agent: click **+**, press Cmd+Shift+G, enter `/usr/local/bin/rawtrail-agent`, and toggle it ON.
 4. If no **"RawTrail Security Extension"** entry is listed, reset its TCC state and reboot to force a fresh prompt: `sudo tccutil reset SystemPolicyAllFiles io.rawtrail.securityextension`.
 
+The host's page in RawTrail says which grant is missing: under **Details**, the Security extension and the **Agent Full Disk Access** condition each say they do not have Full Disk Access and where to turn it on, the extension while macOS refuses it an ES client and the agent until it has its own grant. The agent reports the change within a minute of the grant; reload the host's page to see it.
+
 Granting FDA mid-loop lets the next relaunch succeed within a few seconds; if the warnings don't clear, reboot. You don't need to grant FDA to the Network Extension ("RawTrail Network Extension") or to `/Applications/RawTrail.app`.
 
 ## Step 7: verify end-to-end

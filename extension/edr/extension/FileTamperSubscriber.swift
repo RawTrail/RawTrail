@@ -67,6 +67,7 @@ final class FileTamperSubscriber: Sendable {
         }
         guard result == ES_NEW_CLIENT_RESULT_SUCCESS, let rawClient else {
             logger.error("Failed to create file-tamper ES client: \(result.rawValue)")
+            recordRefusal(result)
             exit(EXIT_FAILURE)
         }
         self.client = rawClient
