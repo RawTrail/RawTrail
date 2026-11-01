@@ -4,7 +4,8 @@ import "./SetupChecklist.scss";
 import { getHostHealth, listAgentSessions, listHosts } from "../../api";
 import { PageHeader } from "../ui/PageHeader";
 import { Badge, type BadgeVariant } from "../ui/Badge";
-import { latestHost, setupSteps, type SetupInputs, type StepState } from "./setupSteps";
+import { latestMac, setupSteps, type SetupInputs, type StepState } from "./setupSteps";
+import { PermissionAction, useCan } from "../../permissions-core";
 
 // POLL_MS is how often the checklist rereads the Mac while a step is open. The agent reports its health every 30 seconds, so a faster
 // read would show nothing new.
@@ -16,17 +17,18 @@ const STATE_BADGE: Record<StepState, { variant: BadgeVariant; label: string }> =
   waiting: { variant: "neutral", label: "Waiting" },
 };
 
-// readMac reads what the checklist shows. A Mac named by ?host= is that one, and otherwise the one that reported last. Its health and
-// sessions are read best effort: a failed read leaves those steps waiting rather than failing the page.
-async function readMac(wanted: string | null): Promise<SetupInputs> {
+// readMac reads what the checklist shows. A Mac named by ?host= is that one, and otherwise the Mac that reported last. Its health and
+// sessions are read best effort: a failed read leaves those steps waiting rather than failing the page. Sessions are read only by an
+// operator who may read them.
+async function readMac(wanted: string | null, canReadSessions: boolean): Promise<SetupInputs> {
   const hosts = await listHosts();
-  const host = wanted ? (hosts.find((h) => h.host_id === wanted) ?? null) : latestHost(hosts);
-  if (!host) return { host: null, health: null, sessions: null };
+  const host = wanted ? (hosts.find((h) => h.host_id === wanted) ?? null) : latestMac(hosts);
+  if (!host) return { host: null, health: null, sessions: null, canReadSessions };
   const [health, sessions] = await Promise.all([
     getHostHealth(host.host_id).catch(() => null),
-    listAgentSessions({ host_id: host.host_id }).then((r) => r.total_matched, () => null),
+    canReadSessions ? listAgentSessions({ host_id: host.host_id }).then((r) => r.total_matched, () => null) : null,
   ]);
-  return { host, health, sessions };
+  return { host, health, sessions, canReadSessions };
 }
 
 // SetupChecklist is the first-run checklist (issue #1436): the approvals a Mac needs before it captures, in order, each with where to
@@ -34,6 +36,7 @@ async function readMac(wanted: string | null): Promise<SetupInputs> {
 export function SetupChecklist() {
   const [params] = useSearchParams();
   const wanted = params.get("host");
+  const canReadSessions = useCan()(PermissionAction.ProcessRead);
   const [inputs, setInputs] = useState<SetupInputs | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -41,7 +44,7 @@ export function SetupChecklist() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = () => {
-      readMac(wanted)
+      readMac(wanted, canReadSessions)
         .then((read) => {
           if (cancelled) return;
           setInputs(read);
@@ -59,7 +62,7 @@ export function SetupChecklist() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [wanted]);
+  }, [wanted, canReadSessions]);
 
   const steps = inputs ? setupSteps(inputs) : [];
   const remaining = steps.filter((s) => s.state !== "done").length;

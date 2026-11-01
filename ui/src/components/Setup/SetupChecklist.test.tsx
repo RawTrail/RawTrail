@@ -2,6 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../api";
+import { PermissionAction, PermissionsContext } from "../../permissions-core";
 import type { ComponentHealth, HostHealth, HostSummary } from "../../types";
 import { POLL_MS, SetupChecklist } from "./SetupChecklist";
 
@@ -34,10 +35,12 @@ const ALL_DONE = health(
   component("agent_full_disk_access", "healthy", "full_disk_access_granted"),
 );
 
-function renderAt(path = "/setup") {
+function renderAt(path = "/setup", permissions?: string[]) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <SetupChecklist />
+      <PermissionsContext.Provider value={permissions}>
+        <SetupChecklist />
+      </PermissionsContext.Provider>
     </MemoryRouter>,
   );
 }
@@ -126,6 +129,22 @@ describe("SetupChecklist", () => {
     expect(screen.getByText("named.local")).toBeVisible();
     expect(getHealth).toHaveBeenCalledWith("named");
     expect(sessions).toHaveBeenCalledWith({ host_id: "named" });
+  });
+
+  it("neither reads nor lists sessions for an operator who may not read them, and finishes without them", async () => {
+    const listHosts = vi.spyOn(api, "listHosts").mockResolvedValue([host({ event_count: 4 })]);
+    vi.spyOn(api, "getHostHealth").mockResolvedValue(ALL_DONE);
+    const sessions = vi.spyOn(api, "listAgentSessions");
+    renderAt("/setup", [PermissionAction.HostRead]);
+    await settle();
+
+    expect(sessions).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Record the first agent session" })).toBeNull();
+    expect(screen.getByText(/Everything is set up/)).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_MS * 2);
+    });
+    expect(listHosts).toHaveBeenCalledTimes(1);
   });
 
   it("waits for a Mac to enroll when there is none, and keeps reading", async () => {
