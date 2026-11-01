@@ -1,110 +1,115 @@
 @use "../../styles/var/colors" as *;
+@use "../../styles/var/padding" as *;
 
-// A session's Summary (issue #1429): sections of plain facts and short lists, with two single-hue activity strips.
+// A session's Summary (issues #1429, #1430): the card it is shared as at the left, the ways to share it and the session's alerts at the
+// right. On a narrow screen the card stacks above them.
 .session-summary {
+  align-items: start;
   display: grid;
-  gap: 1.25rem;
-  max-width: 60rem;
+  gap: $pad-xlarge;
+  grid-template-columns: minmax(0, 34rem) minmax(16rem, 1fr);
+  max-width: 64rem;
 
-  &__share {
-    display: flex;
-    justify-content: flex-end;
+  @media (width <= 52rem) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  &__note {
+    color: $ui-black-75;
+    font-size: 0.85rem;
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+
+  &__aside &__note {
+    grid-column: auto;
+  }
+
+  &__card {
+    margin: 0;
+  }
+
+  &__image {
+    aspect-ratio: 1080 / 1350;
+    background: $ui-black-5;
+    border-radius: 12px;
+    box-shadow: 0 0 0 1px $ui-black-10;
+    display: block;
+    width: 100%;
+  }
+
+  &__aside {
+    display: grid;
+    gap: $pad-large;
   }
 
   &__section {
     border-top: 1px solid $ui-black-10;
-    padding-top: 0.75rem;
+    padding-top: $pad-medium;
+
+    p {
+      margin: 0;
+    }
   }
 
   &__title {
     font-size: 1rem;
-    margin: 0 0 0.5rem;
+    margin: 0 0 $pad-small;
   }
+}
 
-  &__subtitle {
-    color: $ui-black-75;
-    font-size: 0.85rem;
-    font-weight: 600;
-    margin: 0 0 0.25rem;
-  }
+// Sharing the Summary's card (issue #1430): what is removed, the ways out, and the caption to post with it.
+.share-panel {
+  display: grid;
+  gap: $pad-medium;
 
-  &__mono {
-    font-family: ui-monospace, sfmono-regular, Menlo, monospace;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-
-  &__facts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem 1.25rem;
-    list-style: none;
+  &__title {
+    font-size: 1rem;
     margin: 0;
-    padding: 0;
-  }
-
-  &__columns {
-    display: grid;
-    gap: 1rem;
-    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-  }
-
-  &__group {
-    margin-top: 0.75rem;
-  }
-
-  &__counts {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-
-    li {
-      align-items: center;
-      display: flex;
-      gap: 0.5rem;
-      padding: 0.125rem 0;
-    }
-  }
-
-  .badge {
-    white-space: nowrap;
-  }
-
-  &__count {
-    color: $ui-black-75;
-    margin-left: auto;
-    white-space: nowrap;
   }
 
   &__note {
-    color: $ui-black-50;
-    font-size: 0.85rem;
-  }
-
-  &__strip {
-    margin-bottom: 0.5rem;
-  }
-
-  // Thin baseline-anchored bars, 2px apart, as the host page's activity strip draws them.
-  &__bars {
-    align-items: flex-end;
-    border-bottom: 1px solid $ui-black-10;
-    display: flex;
-    gap: 2px;
-    height: 40px;
-  }
-
-  &__bar {
-    background: $core-green;
-    border-radius: 2px 2px 0 0;
-    flex: 1 1 0;
-  }
-
-  &__axis {
-    color: $ui-black-50;
-    display: flex;
-    font-size: 0.8rem;
-    justify-content: space-between;
+    color: $ui-black-75;
     margin: 0;
+  }
+
+  &__error {
+    color: $ui-error-down;
+    margin: 0;
+  }
+
+  &__buttons,
+  &__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $pad-small;
+    margin: 0;
+  }
+
+  &__links a {
+    align-items: center;
+    display: inline-flex;
+    font-weight: 600;
+    min-height: 44px;
+    padding: 0 $pad-smedium;
+  }
+
+  &__field {
+    color: $ui-black-75;
+    display: grid;
+    gap: $pad-xsmall;
+
+    textarea {
+      border: 1px solid $ui-black-25;
+      border-radius: 8px;
+      color: $core-black;
+      font: inherit;
+      padding: $pad-small $pad-smedium;
+      resize: none;
+    }
+  }
+
+  &__status {
+    color: $ui-black-75;
   }
 }

@@ -79,7 +79,8 @@ func TestEventArchive_ActivityDigest(t *testing.T) {
 			{Directory: "/p", Paths: 2, ByOperation: map[string]int64{"modify": 2}},
 			{Directory: "/etc", Paths: 1, ByOperation: map[string]int64{"open": 1}},
 		},
-		OutsideProject: 1,
+		// /etc/hosts was read, not changed, so nothing outside the project was.
+		Files: visibilityapi.FileDigest{Changed: 6},
 		Domains: []visibilityapi.DomainActivity{
 			{Domain: "github.com", Lookups: 1, Connections: 2},
 			{Domain: "example.com", Lookups: 1, New: true},
@@ -122,7 +123,75 @@ func TestEventArchive_ActivityDigest(t *testing.T) {
 		unknown.Project = ""
 		got, err := arch.ActivityDigest(ctx, unknown)
 		require.NoError(t, err)
-		assert.Zero(t, got.OutsideProject)
+		assert.Zero(t, got.Files.OutsideProject)
+	})
+}
+
+// A session's file counts leave out the files Claude Code keeps for itself, count apart the temporary files it created and removed, and
+// count the files changed outside its project. Opens and socket connects change nothing.
+//
+// spec:server-rest-api/agent-session-digest/the-digest-counts-the-files-the-session-changed
+func TestEventArchive_ActivityDigestFiles(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().Add(-time.Hour).UnixNano()
+	n := 0
+	file := func(payload string) visibilityapi.Event {
+		n++
+		return activityEvent("f"+strconv.Itoa(n), "h1", "file_activity", base+int64(n), `{"pid":300,"pidversion":3,`+payload+`}`)
+	}
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
+		file(`"operation":"modify","path":"/p/a.go"`),
+		file(`"operation":"create","path":"/Users/dev/notes.txt"`),
+		// A scratch file made and removed, and an atomic write: the temporary file renamed over its target, which is what changed.
+		file(`"operation":"create","path":"/private/var/folders/x/T/tmp1"`),
+		file(`"operation":"delete","path":"/private/var/folders/x/T/tmp1"`),
+		file(`"operation":"create","path":"/p/b.go.tmp.123"`),
+		file(`"operation":"rename","path":"/p/b.go","source_path":"/p/b.go.tmp.123"`),
+		// A file that was there before and was renamed: its new name changed, its old name is not a file of the session's.
+		file(`"operation":"rename","path":"/p/new.txt","source_path":"/p/old.txt"`),
+		// Claude Code's own files, a scratch one among them, are counted apart.
+		file(`"operation":"modify","path":"/Users/dev/.claude/projects/-p/s.jsonl"`),
+		file(`"operation":"create","path":"/Users/dev/.claude.json.tmp.1"`),
+		file(`"operation":"modify","path":"/private/tmp/claude-501/-p/s/tasks/a.output"`),
+		file(`"operation":"create","path":"/private/tmp/claude-4b72-cwd"`),
+		file(`"operation":"delete","path":"/private/tmp/claude-4b72-cwd"`),
+		file(`"operation":"create","path":"/Users/dev/Library/Caches/claude-cli-nodejs/-p/log.jsonl"`),
+		// Names that only look like Claude Code's are the session's own changes: these two, and .claude.jsonnet below.
+		file(`"operation":"create","path":"/Users/dev/.claudette/x"`),
+		file(`"operation":"create","path":"/private/tmp/claude-notes.txt"`),
+		file(`"operation":"create","path":"/Users/dev/.claude.jsonnet"`),
+		// A file deleted and made again changed, however it began; so did a directory a rolled-up create and delete both name, whose
+		// rows stand for different files.
+		file(`"operation":"delete","path":"/Users/dev/report.txt"`),
+		file(`"operation":"create","path":"/Users/dev/report.txt"`),
+		file(`"operation":"create","path":"/p/node_modules","rolled_up":true,"coalesced_count":4`),
+		file(`"operation":"delete","path":"/p/node_modules","rolled_up":true,"coalesced_count":2`),
+		// A socket reached and a file read change nothing, Claude Code's own among them.
+		file(`"operation":"connect","path":"/private/var/run/mDNSResponder"`),
+		file(`"operation":"connect","path":"/private/tmp/cc-socks/501.sock"`),
+		file(`"operation":"open","path":"/Users/dev/.claude/settings.json"`),
+		activityEvent("o1", "h1", "open", base+100, `{"pid":300,"pidversion":3,"path":"/etc/hosts","flags":1}`),
+	}))
+	filter := visibilityapi.DigestFilter{
+		ActivityFilter: visibilityapi.ActivityFilter{HostID: "h1", Generations: []visibilityapi.ProcessGeneration{{PID: 300, PIDVersion: 3}}},
+		Project:        "/p/", StartNs: base, EndNs: base + 200, Buckets: 2,
+	}
+	// The archive shows inserted rows a part at a time, so the counts are read until they settle.
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		got, err := arch.ActivityDigest(ctx, filter)
+		require.NoError(c, err)
+		assert.Equal(c, visibilityapi.FileDigest{Changed: 9, OutsideProject: 5, Temporary: 2, AgentFiles: 5}, got.Files)
+	}, 5*time.Second, 100*time.Millisecond)
+
+	t.Run("without a project nothing is outside it", func(t *testing.T) {
+		t.Parallel()
+		unknown := filter
+		unknown.Project = ""
+		got, err := arch.ActivityDigest(ctx, unknown)
+		require.NoError(t, err)
+		assert.Equal(t, visibilityapi.FileDigest{Changed: 9, Temporary: 2, AgentFiles: 5}, got.Files)
 	})
 }
 

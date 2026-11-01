@@ -381,7 +381,8 @@ describe("SessionView conversation", () => {
   const withPrompts = (prompts: number): AgentSessionTotals => ({
     commands: 2, processes: 4, alerts: { total: 0, by_severity: {} }, tool_calls: { total: 0, by_tool: [] },
     digest: {
-      prompts, programs: [], directories: [], directories_truncated: false, outside_project: 0, domains: [], domains_truncated: false,
+      prompts, programs: [], directories: [], directories_truncated: false,
+      files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
       timeline: [], command_timeline: [], timeline_start_ns: 0, timeline_bucket_ns: 1,
     },
   });
@@ -844,11 +845,12 @@ describe("SessionView commands from the server", () => {
   // spec:web-ui/agent-session-summary-tab/the-summary-is-the-first-view
   it("opens on the Summary, listed first among the session's views, and shows it from the session's summary", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getHostDetail").mockResolvedValue({ host_id: "H1", hostname: "devs-mbp" } as Awaited<ReturnType<typeof api.getHostDetail>>);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
     vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({
       commands: 2, processes: 4, alerts: { total: 1, by_severity: { high: 1 } }, tool_calls: { total: 0, by_tool: [] },
       digest: {
-        prompts: 3, programs: [], directories: [], directories_truncated: false, outside_project: 0, domains: [], domains_truncated: false,
+        prompts: 3, programs: [], directories: [], directories_truncated: false, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
         timeline: [], command_timeline: [], timeline_start_ns: 0, timeline_bucket_ns: 1,
       },
     });
@@ -861,7 +863,7 @@ describe("SessionView commands from the server", () => {
     // A search left over from the Timeline would hide the commands the alerts link leads to, so following it clears the search.
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "nothing alerted" } });
     fireEvent.click(within(views).getByRole("button", { name: "Summary" }));
-    expect(await screen.findByText("3 prompts")).toBeVisible();
+    expect(await screen.findByRole("img", { name: /^A summary card of a .+ session/ })).toBeVisible();
     expect(screen.getByLabelText("Search this session")).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "See them in the Timeline" }));
     expect(within(views).getByRole("button", { name: "Timeline" })).toHaveAttribute("aria-pressed", "true");
