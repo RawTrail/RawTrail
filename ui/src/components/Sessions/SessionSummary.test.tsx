@@ -164,7 +164,7 @@ describe("SessionSummary", () => {
     const onAlerts = renderSummary(busy());
     const alerts = section("Alerts");
     expect(within(alerts).getByText(/2 alerts were raised in this session/)).toBeVisible();
-    fireEvent.click(within(alerts).getByRole("button", { name: "See them in Commands" }));
+    fireEvent.click(within(alerts).getByRole("button", { name: "See them in the Timeline" }));
     expect(onAlerts).toHaveBeenCalledOnce();
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings[headings.length - 1]).toBe("Alerts");

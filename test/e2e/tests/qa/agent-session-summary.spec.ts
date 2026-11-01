@@ -114,7 +114,7 @@ test.describe("a session's Summary", () => {
     if (!seeded) throw new Error("no session was seeded");
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
     const views = page.getByRole("group", { name: "Session view" });
-    await expect(views.getByRole("button")).toHaveText(["Summary", "Conversation", "Commands", "Processes", "Activity"], { timeout: 20_000 });
+    await expect(views.getByRole("button")).toHaveText(["Summary", "Timeline", "Processes", "Activity"], { timeout: 20_000 });
     await expect(views.getByRole("button", { name: "Summary", pressed: true })).toBeVisible();
 
     const glance = page.getByRole("region", { name: "At a glance" });

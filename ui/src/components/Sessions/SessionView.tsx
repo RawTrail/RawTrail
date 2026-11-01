@@ -52,16 +52,23 @@ const AUTO_EXPAND_GROUPS = 10;
 // all of them. A row that holds a search hit is shown regardless.
 const ROW_CAP = 20;
 
-// SESSION_LENSES are the session's views, in order: the session at a glance; its turns, each prompt with what the agent did for it
-// (issue #1322); what it ran as commands; every process as one tree; and what it touched.
-type SessionLens = "summary" | "conversation" | "commands" | "processes" | "activity";
+// SESSION_LENSES are the session's views, in order: the session at a glance; its timeline, the commands it ran, grouped by default under
+// the prompt each was run for (issue #1322); every process as one tree; and what it touched.
+type SessionLens = "summary" | "timeline" | "processes" | "activity";
 const SESSION_LENSES: readonly { lens: SessionLens; label: string }[] = [
   { lens: "summary", label: "Summary" },
-  { lens: "conversation", label: "Conversation" },
-  { lens: "commands", label: "Commands" },
+  { lens: "timeline", label: "Timeline" },
   { lens: "processes", label: "Processes" },
   { lens: "activity", label: "Activity" },
 ];
+
+// linkedGrouping reads a link's view as the Timeline it opens: the views the Timeline replaced, Conversation and Commands, open it
+// grouped and ungrouped, so a link saved before the merge still lands where it pointed. Any other view names no grouping.
+function linkedGrouping(view: string): boolean | undefined {
+  if (view === "conversation") return true;
+  if (view === "commands") return false;
+  return undefined;
+}
 
 // REPORTED_LABEL marks what the agent reported about a command, as distinct from what the sensor observed (issue #1333).
 const REPORTED_LABEL = "Reported by agent";
@@ -215,6 +222,15 @@ function useDebounced(value: string, delayMs: number): string {
   return settled;
 }
 
+// useTimelineGrouping is whether the Timeline lists the commands under their prompts: as the operator chose, kept from session to session
+// as the plumbing toggle is; as a link's view asked; or else by default when the session recorded a prompt, so a session with none
+// opens on its commands. prompts is undefined until the session is read, and so is the default: the Timeline waits rather than switch
+// under the operator.
+function useTimelineGrouping(linkedView: string, prompts: number | undefined): [boolean | undefined, (grouped: boolean) => void] {
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  return [chosen ?? linkedGrouping(linkedView) ?? (prompts === undefined ? undefined : prompts > 0), setChosen];
+}
+
 // SessionView answers "what did this agent session do" (issue #1284): the session's processes in the order its commands ran, one
 // group per command the agent ran, and under it everything that command started, daemons included. The shell plumbing that runs a
 // command is hidden unless the operator turns on verbose. Alerts and privilege changes are badged where they happened, and a command
@@ -227,21 +243,24 @@ export function SessionView() {
   // showOwn lists the processes the agent ran for itself in the Processes view (issue #1361); off by default, so the session's own
   // work reads first, and their count says how many are one click away.
   const [showOwn, setShowOwn] = useState(false);
-  // A link may name the lens to open on and a search to open with, as a prompt search's result opens the Conversation filtered to
-  // the turns holding what was searched for, wherever in the session they are (issue #1428).
+  // A link may name the lens to open on and a search to open with, as a prompt search's result opens the Timeline grouped by prompt,
+  // filtered to the turns holding what was searched for, wherever in the session they are (issue #1428).
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [selected, setSelected] = useState<{ key: string; node: ProcessNode } | null>(null);
   const readKey = `${hostId}/${sessionId}`;
-  // view picks what the session's main column shows: its summary (issue #1429), its turns (issue #1322), its commands, every process it
-  // ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary, including one
-  // reached from another session's lineage, so the lens chosen is kept for the session it was chosen in.
+  // view picks what the session's main column shows: its summary (issue #1429), its timeline of commands, by prompt (issue #1322) or
+  // not, every process it ran as one tree (issue #1335), or the totals of what it touched (issue #1285). A session opens on its summary,
+  // including one reached from another session's lineage, so the lens chosen is kept for the session it was chosen in.
   const [chosenLens, setChosenLens] = useState<{ key: string; lens: SessionLens } | null>(null);
-  const linkedLens = SESSION_LENSES.find(({ lens }) => lens === searchParams.get("view"))?.lens ?? "summary";
+  const linkedView = searchParams.get("view") ?? "";
+  const linkedLens = linkedGrouping(linkedView) !== undefined ? "timeline"
+    : SESSION_LENSES.find(({ lens }) => lens === linkedView)?.lens ?? "summary";
   const view: SessionLens = chosenLens?.key === readKey ? chosenLens.lens : linkedLens;
   const setView = useCallback((lens: SessionLens) => { setChosenLens({ key: readKey, lens }); }, [readKey]);
   const [read, setRead] = useState<SessionRead | null>(null);
   const current = read?.key === readKey ? read : null;
+  const [grouped, setGrouped] = useTimelineGrouping(linkedView, current === null ? undefined : current.totals?.digest?.prompts ?? 1);
   const tree = current?.tree ?? null;
 
   useEffect(() => {
@@ -398,14 +417,22 @@ export function SessionView() {
               <Input
                 type="search"
                 aria-label="Search this session"
-                placeholder={view === "commands" ? "Search commands" : `Search ${view}`}
+                placeholder={`Search ${view}`}
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); }}
               />
             </span>
-            {/* The plumbing toggle belongs to Commands alone: Processes lists every process already. It keeps its space in every view,
-                hidden rather than removed, so the header wraps alike in all three and the view switcher below never moves. */}
-            <span style={view === "commands" ? undefined : { visibility: "hidden" }}>
+            {/* The Timeline's toggles belong to it alone: Processes lists every process already. They keep their space in every view,
+                hidden rather than removed, so the header wraps alike in all of them and the view switcher below never moves. */}
+            <span style={view === "timeline" ? undefined : { visibility: "hidden" }}>
+              <Toggle
+                id="session-grouped"
+                label="Group by prompt"
+                checked={grouped === true}
+                onChange={(e) => { setGrouped(e.target.checked); }}
+              />
+            </span>
+            <span style={view === "timeline" ? undefined : { visibility: "hidden" }}>
               <Toggle
                 id="session-verbose"
                 label="Show shell plumbing"
@@ -417,7 +444,7 @@ export function SessionView() {
         )}
       />
       <SessionLineageLine hostId={hostId} lineage={current?.lineage} />
-      <SessionNotices read={current} meta={meta} view={view} />
+      <SessionNotices read={current} meta={meta} commandsShown={view === "timeline" && grouped === false} view={view} />
       <SessionRowsContext.Provider value={rowsContext}>
         <div className="session-view__layout">
           <div className="session-view__main">
@@ -444,13 +471,14 @@ export function SessionView() {
                 project={project}
                 firstNs={firstNs}
                 lastNs={lastNs}
-                onAlerts={() => { setQuery(""); setView("commands"); }}
+                onAlerts={() => { setQuery(""); setGrouped(false); setView("timeline"); }}
               />
             )}
-            {view === "conversation" && (
-              <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} incomplete={sessionIncomplete} />
+            {view === "timeline" && grouped === undefined && <EmptyState>Loading...</EmptyState>}
+            {view === "timeline" && grouped === true && (
+              <ConversationBody hostId={hostId} sessionId={sessionId} query={searched} incomplete={sessionIncomplete} verbose={verbose} />
             )}
-            {view === "commands" && (
+            {view === "timeline" && grouped === false && (
               <SessionBody
                 groups={groups}
                 commands={commands}
@@ -570,9 +598,11 @@ function beganBeforeRetention(read: SessionRead): boolean {
 }
 
 // Each read's cut is told with the view it cuts: the commands with Commands, the process tree with Processes.
-function SessionNotices({ read, meta, view }: {
+function SessionNotices({ read, meta, commandsShown, view }: {
   readonly read: SessionRead | null;
   readonly meta: CommandsMeta | null;
+  // commandsShown is set while the Timeline lists the commands ungrouped, the list the commands read's cuts belong to.
+  readonly commandsShown: boolean;
   readonly view: SessionLens;
 }) {
   if (!read) return null;
@@ -594,12 +624,12 @@ function SessionNotices({ read, meta, view }: {
       {read.alertsFailed && (
         <p className="session-view__notice" role="status">This session&apos;s alerts could not be loaded, so none are shown.</p>
       )}
-      {view === "commands" && meta?.truncated && (
+      {commandsShown && meta?.truncated && (
         <p className="session-view__notice" role="status">
           This session ran more processes than the server reads, so its later commands are not listed.
         </p>
       )}
-      {view === "commands" && meta?.toolCallsTruncated && (
+      {commandsShown && meta?.toolCallsTruncated && (
         <p className="session-view__notice" role="status">
           The agent reported more tool calls than are read, so some commands may show without the tool call the agent reported for
           them.
@@ -794,10 +824,11 @@ interface ConversationMeta {
 // commands the agent ran for it and the tool calls it made that ran none, and last what belongs to no prompt. A search asks the
 // server, over prompt text the operator may read, commands and calls. The pages are read as the server sends them and shaped here, so
 // alerts read later reshape the turns already loaded rather than reading them again.
-function ConversationBody({ hostId, sessionId, query, incomplete }: {
+function ConversationBody({ hostId, sessionId, query, incomplete, verbose }: {
   readonly hostId: string;
   readonly sessionId: string;
   readonly query: string;
+  readonly verbose: boolean;
   // incomplete is the session view's own: its record or alerts are unread or cut, or retention removed early processes.
   readonly incomplete: boolean;
 }) {
@@ -818,9 +849,9 @@ function ConversationBody({ hostId, sessionId, query, incomplete }: {
   const turns = useCursorList(key, fetchPage);
   const current = meta?.key === key ? meta : null;
   const listed = useMemo<ListedTurn[]>(() => {
-    const shape = { verbose: false, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
+    const shape = { verbose, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
     return turns.rows.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(c, shape)) }));
-  }, [turns.rows, rows.alertsByProcess, incomplete, current?.processesCut]);
+  }, [turns.rows, rows.alertsByProcess, incomplete, current?.processesCut, verbose]);
   // The search's hits are found in these groups, so a matching row is marked and listed past the cap, and its command opens.
   const scoped = useMemo<SessionRows>(
     () => ({ ...rows, hits: searchCommands(listed.flatMap((t) => t.groups), query) }),
