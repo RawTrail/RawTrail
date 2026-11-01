@@ -109,13 +109,19 @@ test.describe("the timeline grouped by prompt", () => {
 
     const turns = page.locator(".session-view__turn");
     await expect(turns).toHaveCount(2, { timeout: 20_000 });
+    // Each turn opens closed, headed by its prompt; Expand all opens them to what the agent did.
+    await expect(turns.nth(0).locator(".session-view__prompt")).toHaveAttribute("aria-expanded", "false");
+    await expect(turns.nth(0).locator(".session-view__prompt-label")).toHaveText("Prompt");
+    await page.getByRole("button", { name: "Expand all" }).click();
     const first = turns.nth(0);
     await expect(first.locator(".session-view__prompt-text")).toHaveText("check the repo state");
     await expect(first.locator(".session-view__prompt .session-view__reported")).toHaveText("Reported by agent");
-    await expect(first.locator(".session-view__command").first()).toHaveText("git status");
+    // What the agent did, in the order it happened: it read package.json, then ran git status.
+    await expect(first.locator(".session-view__turn-items > li .session-view__command"))
+      .toHaveText(["/Users/qa/conversation/package.json", "git status"]);
     // The command is paired with the Bash call the agent made for it in this turn.
-    await expect(first.locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_git");
-    await expect(first.locator(".session-view__turn-call")).toContainText("/Users/qa/conversation/package.json");
+    const command = first.locator(".session-view__turn-items > li", { hasText: "git status" });
+    await expect(command.locator(".session-view__tool-use-id")).toHaveText("toolu_e2e_git");
     const second = turns.nth(1);
     await expect(second.locator(".session-view__prompt-text")).toHaveText(`now run the tests ${seeded.token}`);
     await expect(second.locator(".session-view__command").first()).toHaveText("npm test");

@@ -193,20 +193,39 @@ describe("SessionView conversation", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
     const read = vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
     await openConversation();
-    const first = (await screen.findByText("run both steps")).closest(".session-view__turn");
+    // Each turn opens closed: its header is the prompt, labelled as one, with how much the agent did for it.
+    const firstHeader = (await screen.findByText("run both steps")).closest("button");
+    if (!firstHeader) throw new Error("no turn");
+    expect(firstHeader).toHaveAttribute("aria-expanded", "false");
+    expect(within(firstHeader).getByText("Prompt")).toBeVisible();
+    expect(within(firstHeader).getByText("Reported by agent")).toBeVisible();
+    // The Read is a tool call; the fixture's command pairs with none, so it counts its processes alone.
+    expect(firstHeader).toHaveTextContent(/1 tool call · 2 processes/);
+    expect(screen.queryByText("/repo/README.md")).toBeNull();
+
+    fireEvent.click(firstHeader);
+    const first = firstHeader.closest(".session-view__turn");
     if (!(first instanceof HTMLElement)) throw new Error("no turn");
-    expect(within(first).getByText("Reported by agent")).toBeVisible();
-    expect(within(first).getByText("step 0")).toBeVisible();
-    expect(within(first).getByText("/repo/README.md")).toBeVisible();
-    expect(within(first).getByText("Read")).toBeVisible();
-    const uncaptured = screen.getByText("Prompt not captured").closest(".session-view__turn");
-    if (!(uncaptured instanceof HTMLElement)) throw new Error("no turn");
-    expect(within(uncaptured).getByText("https://example.com")).toBeVisible();
-    expect(within(uncaptured).queryByText("Reported by agent")).toBeNull();
-    const outside = screen.getByText("Outside any prompt").closest(".session-view__turn");
-    if (!(outside instanceof HTMLElement)) throw new Error("no turn");
-    expect(within(outside).getByText("step 1")).toBeVisible();
-    expect(within(outside).queryByText("Reported by agent")).toBeNull();
+    // What the agent did is listed in the order it happened: the Read before the command, each labelled as reported.
+    const items = [...first.querySelectorAll(".session-view__turn-items > li .session-view__command")].map((c) => c.textContent);
+    expect(items).toEqual(["/repo/README.md", "step 0"]);
+    const readCall = screen.getByText("/repo/README.md").closest("li");
+    if (!readCall) throw new Error("no call");
+    expect(within(readCall).getByText("Reported by agent")).toBeVisible();
+    expect(within(readCall).getByText("Read")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    const uncapturedHeader = screen.getByText("Prompt not captured").closest("button");
+    if (!uncapturedHeader) throw new Error("no turn");
+    expect(within(uncapturedHeader).queryByText("Reported by agent")).toBeNull();
+    expect(screen.getByText("https://example.com")).toBeVisible();
+    const outsideHeader = screen.getByText("Outside any prompt").closest("button");
+    if (!outsideHeader) throw new Error("no turn");
+    expect(within(outsideHeader).getByText("No prompt")).toBeVisible();
+    expect(within(outsideHeader).queryByText("Reported by agent")).toBeNull();
+    expect(screen.getByText("step 1")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(screen.queryByText("step 1")).toBeNull();
     expect(read).toHaveBeenLastCalledWith("H1", SESSION, expect.objectContaining({ cursor: "", q: "" }));
   });
 
@@ -256,6 +275,7 @@ describe("SessionView conversation", () => {
     vi.spyOn(api, "listAlerts").mockRejectedValue(new Error("alerts down"));
     vi.spyOn(api, "getSessionConversation").mockResolvedValue(foldable());
     await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
     fireEvent.click(await screen.findByText("loop"));
     await waitFor(() => { expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(3); });
     expect(screen.queryByText("×3")).toBeNull();
@@ -268,6 +288,7 @@ describe("SessionView conversation", () => {
     read.turns[0].commands = sessionCommands(manyCalls(11)).commands.slice(5, 6);
     vi.spyOn(api, "getSessionConversation").mockResolvedValue(read);
     await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
     const header = (await screen.findByText("step 5")).closest("button");
     if (!header) throw new Error("no header");
     expect(header).toHaveAttribute("aria-expanded", "false");
@@ -385,6 +406,7 @@ describe("SessionView conversation", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
     vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation());
     await openConversation();
+    fireEvent.click(await screen.findByRole("button", { name: "Expand all" }));
     const header = (await screen.findByText("step 0", { selector: "code" })).closest("button");
     const call = header?.closest("li");
     if (!header || !call) throw new Error("no command");
@@ -392,6 +414,22 @@ describe("SessionView conversation", () => {
     expect(names(call)).toEqual(["echo"]);
     fireEvent.click(screen.getByRole("switch", { name: "Show shell plumbing" }));
     expect(names(call)).toEqual(["zsh", "echo"]);
+  });
+
+  it("opens a turn an alert was raised in, and every turn a search lists", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
+    const read = conversation();
+    const alerted = read.turns[0].commands[0].process_ids[0];
+    vi.spyOn(api, "listAlerts").mockResolvedValue([alert({ process_id: alerted, severity: "high" })]);
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(read);
+    await openConversation();
+    const flagged = (await screen.findByText("run both steps")).closest("button");
+    await waitFor(() => { expect(flagged).toHaveAttribute("aria-expanded", "true"); });
+    expect(screen.getByText("Outside any prompt").closest("button")).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "step" } });
+    await waitFor(() => { expect(screen.getByText("Outside any prompt").closest("button")).toHaveAttribute("aria-expanded", "true"); });
   });
 });
 

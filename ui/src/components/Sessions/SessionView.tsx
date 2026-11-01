@@ -848,6 +848,15 @@ function ConversationBody({ hostId, sessionId, query, incomplete, verbose }: {
   }, [hostId, sessionId, query, key]);
   const turns = useCursorList(key, fetchPage);
   const current = meta?.key === key ? meta : null;
+  // opened holds the turns the operator opened or closed, for the list they did it in; the rest follow turnOpensByDefault.
+  const [openedFor, setOpenedFor] = useState<{ key: string; turns: ReadonlyMap<string, boolean> }>({ key, turns: new Map() });
+  const opened = openedFor.key === key ? openedFor.turns : new Map<string, boolean>();
+  const setOpened = (next: ReadonlyMap<string, boolean> | ((m: ReadonlyMap<string, boolean>) => ReadonlyMap<string, boolean>)) => {
+    setOpenedFor((o) => {
+      const was = o.key === key ? o.turns : new Map<string, boolean>();
+      return { key, turns: typeof next === "function" ? next(was) : next };
+    });
+  };
   const listed = useMemo<ListedTurn[]>(() => {
     const shape = { verbose, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
     return turns.rows.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(c, shape)) }));
@@ -870,14 +879,25 @@ function ConversationBody({ hostId, sessionId, query, incomplete, verbose }: {
       : "No prompts are recorded for this session.";
     return <>{cutNotice}<EmptyState>{none}</EmptyState></>;
   }
+  const isOpen = (listedTurn: ListedTurn): boolean => opened.get(turnKey(listedTurn.turn)) ?? turnOpensByDefault(listedTurn, query, rows);
+  const allOpen = listed.every(isOpen);
   return (
     <SessionRowsContext.Provider value={scoped}>
       {cutNotice}
+      <div className="session-view__turns-actions">
+        <Button variant="text-link" onClick={() => { setOpened(new Map(listed.map((t) => [turnKey(t.turn), !allOpen]))); }}>
+          {allOpen ? "Collapse all" : "Expand all"}
+        </Button>
+      </div>
       <ol className="session-view__turns">
-        {listed.map(({ turn, groups }) => (
-          <TurnEntry key={`${turn.prompt_id ?? ""}/${String(turn.uid ?? "")}`} turn={turn} groups={groups}
-            promptsHidden={current?.promptsHidden === true} />
-        ))}
+        {listed.map((listedTurn) => {
+          const key = turnKey(listedTurn.turn);
+          const open = isOpen(listedTurn);
+          return (
+            <TurnEntry key={key} turn={listedTurn.turn} groups={listedTurn.groups} promptsHidden={current?.promptsHidden === true}
+              open={open} onToggle={() => { setOpened((m) => new Map(m).set(key, !open)); }} />
+          );
+        })}
       </ol>
       {turns.error && <p className="session-view__notice" role="alert">The next turns could not be loaded: {turns.error}</p>}
       {turns.hasMore && (
@@ -889,40 +909,71 @@ function ConversationBody({ hostId, sessionId, query, incomplete, verbose }: {
   );
 }
 
-// TurnEntry is one turn: the prompt the person typed, labelled as the agent's report since the transcript is the user's to write,
-// then the commands the agent ran for it and the tool calls that ran none.
-function TurnEntry({ turn, groups, promptsHidden }: {
+// turnKey names a turn among a session's: its prompt and the user whose transcript recorded it.
+function turnKey(turn: ConversationTurn): string {
+  return `${turn.prompt_id ?? ""}/${String(turn.uid ?? "")}`;
+}
+
+// turnOpensByDefault says whether a turn the operator has not opened or closed is open: one an alert was raised in, so what was flagged
+// is in view, and every turn while a search is on, since the server listed only the turns holding what was searched for.
+function turnOpensByDefault({ groups }: ListedTurn, query: string, rows: SessionRows): boolean {
+  return query !== "" || groups.some((g) => g.processIds.some((id) => rows.alertsByProcess.has(id)));
+}
+
+// TurnItem is one thing the agent did in a turn: a command the sensor observed, or a tool call that started no process.
+type TurnItem = { kind: "command"; group: Command; at: number } | { kind: "call"; call: AgentToolCall; at: number };
+
+// turnItems lists a turn's commands and the tool calls that ran none in the order they happened.
+function turnItems(turn: ConversationTurn, groups: readonly Command[]): TurnItem[] {
+  const items: TurnItem[] = [
+    ...groups.map((group): TurnItem => ({ kind: "command", group, at: group.startNs })),
+    ...turn.calls.map((call): TurnItem => ({ kind: "call", call, at: call.called_at_ns })),
+  ];
+  return items.sort((a, b) => a.at - b.at);
+}
+
+// TurnEntry is one turn, a disclosure: its header is the prompt, labelled as one and as the agent's report since the transcript is the
+// user's to write, with how much the agent did for it; opened, it lists what the agent did, in order.
+function TurnEntry({ turn, groups, promptsHidden, open, onToggle }: {
   readonly turn: ConversationTurn;
   readonly groups: Command[];
   readonly promptsHidden: boolean;
+  readonly open: boolean;
+  readonly onToggle: () => void;
 }) {
   const { alertsByProcess } = useSessionRows();
+  const alerts = groups.flatMap((g) => g.processIds.flatMap((id) => alertsByProcess.get(id) ?? []));
+  const toolCalls = turn.calls.length + turn.commands.filter((c) => c.tool_call !== undefined).length;
+  const processes = groups.reduce((sum, g) => sum + g.processCount, 0);
+  const outside = turn.prompt_id === undefined;
   return (
     <li className="session-view__turn">
-      <div className="session-view__prompt">
-        {turn.prompt_id === undefined ? (
-          <span className="session-view__prompt-text">Outside any prompt</span>
-        ) : (
-          <>
-            {/* Only a prompt the agent captured is its report; an uncaptured one says so instead. */}
-            {turn.prompt && <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>}
-            <span className="session-view__prompt-text">{promptText(turn, promptsHidden)}</span>
-          </>
-        )}
-        <span className="session-view__meta">{formatNs(turn.at_ns)}</span>
-      </div>
-      {groups.length > 0 && (
-        <ol className="session-view__calls">
-          {groups.map((group) => {
-            const alerts = group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
-            return <CommandGroup key={group.key} group={group} match={group.toolCall} alerts={alerts} defaultOpen={alerts.length > 0} />;
+      <button type="button" className="session-view__prompt" aria-expanded={open} onClick={onToggle}>
+        <span className="session-view__chevron" aria-hidden="true" />
+        <span className="session-view__prompt-label">{outside ? "No prompt" : "Prompt"}</span>
+        <span className="session-view__prompt-text">{outside ? "Outside any prompt" : promptText(turn, promptsHidden)}</span>
+        <span className="session-view__prompt-meta">
+          {/* Only a prompt the agent captured is its report; an uncaptured one says so instead. */}
+          {turn.prompt && <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>}
+          <span className="session-view__meta">
+            {[formatNs(turn.at_ns), plural(toolCalls, "tool call", "tool calls"), plural(processes, "process", "processes")].join(" · ")}
+          </span>
+          {alerts.length > 0 && (
+            <Badge variant={severityBadgeVariant(highestSeverity(alerts))}>{plural(alerts.length, "alert", "alerts")}</Badge>
+          )}
+        </span>
+      </button>
+      {open && (
+        <ol className="session-view__calls session-view__turn-items">
+          {turnItems(turn, groups).map((item) => {
+            if (item.kind === "call") return <TurnCall key={`${item.call.tool_use_id}/${String(item.call.uid)}`} call={item.call} />;
+            const commandAlerts = item.group.processIds.flatMap((id) => alertsByProcess.get(id) ?? []);
+            return (
+              <CommandGroup key={item.group.key} group={item.group} match={item.group.toolCall} alerts={commandAlerts}
+                defaultOpen={commandAlerts.length > 0} />
+            );
           })}
         </ol>
-      )}
-      {turn.calls.length > 0 && (
-        <ul className="session-view__turn-calls">
-          {turn.calls.map((call) => <TurnCall key={`${call.tool_use_id}/${String(call.uid)}`} call={call} />)}
-        </ul>
       )}
     </li>
   );
@@ -935,13 +986,21 @@ function promptText(turn: ConversationTurn, promptsHidden: boolean): string {
   return turn.prompt.text;
 }
 
-// TurnCall is a tool call of a turn that ran no command: a file read or edit, a web fetch, an MCP tool.
+// TurnCall is a tool call of a turn that started no process: a file read or edit, a web fetch, an MCP tool. It is laid out as a
+// command's header is, its target where the command would be and the call the agent reported beneath, labelled the same way.
 function TurnCall({ call }: { readonly call: AgentToolCall }) {
   return (
-    <li className="session-view__turn-call">
-      <code className="session-view__tool-name">{call.tool_name}</code>
-      <span className="session-view__mono">{call.file_path ?? call.command ?? ""}</span>
-      <span className="session-view__meta">{formatNs(call.called_at_ns)}</span>
+    <li className="session-view__call">
+      <div className="session-view__call-header session-view__call-header--static">
+        <code className="session-view__command">{call.file_path ?? call.command ?? call.tool_name}</code>
+        <span className="session-view__meta">{formatNs(call.called_at_ns)}</span>
+        <span className="session-view__agent-call">
+          <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
+          <code className="session-view__tool-name">{call.tool_name}</code>
+          {call.description && <span>{call.description}</span>}
+          <code className="session-view__tool-use-id">{call.tool_use_id}</code>
+        </span>
+      </div>
     </li>
   );
 }
@@ -1023,6 +1082,7 @@ function AgentCall({ match }: { readonly match: ToolCallMatch }) {
   return (
     <span className="session-view__agent-call">
       <span className="session-view__reported" title={REPORTED_TITLE}>{REPORTED_LABEL}</span>
+      <code className="session-view__tool-name">{match.call.tool_name}</code>
       {match.call.description && <span>{match.call.description}</span>}
       <code className="session-view__tool-use-id">{match.call.tool_use_id}</code>
     </span>
