@@ -1,6 +1,6 @@
-// A session's Summary (issue #1429) describes it from the summary endpoint alone: its prompts and commands, the programs it ran, the
-// files it touched by directory and outside its project, and where it talked to by organization with a domain new to the host
-// marked. The session is written straight into the dev databases on a fresh host, as the paging spec writes its session. The test
+// A session's Summary (issues #1429, #1430) shows it as the card it is shared as, from the summary endpoint alone: the tool calls its
+// log reports beside the processes that ran, the files it changed in and outside its project, the domains it contacted, the programs it
+// ran most and where it talked to by organization. The session is written straight into the dev databases on a fresh host, as the paging spec writes its session. The test
 // removes its MySQL rows afterwards; its archive events stay, on a host nothing else names, until the archive's TTL expires them
 // (a ClickHouse delete rewrites every part of the events table).
 
@@ -42,7 +42,7 @@ async function seedSession(): Promise<Seeded> {
         rows.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 501, ?, ?, 'event', 0, ?, 'claude-code', '2.1.302')").join(", "),
       rows.flatMap((r) => [r[0], hostId, ...r.slice(1), Number(r[5]) + 1, Number(r[5]) + 5_000_000, sessionId]),
     );
-    // The host's record and its enrolled name, which the Share dialog reads to redact.
+    // The host's record and its enrolled name, which the Summary reads to redact its card.
     await db.query("INSERT INTO hosts (host_id, event_count, last_seen_ns) VALUES (?, 0, ?)", [hostId, startNs + 120e9]);
     await db.query(
       `INSERT INTO enrollments (host_id, hostname, agent_version, os_version, platform, source_ip)
@@ -99,6 +99,11 @@ async function removeSession({ hostId }: Seeded): Promise<void> {
   }
 }
 
+// texts are the text nodes of the card's SVG, in the order it draws them.
+function texts(svg: string): string[] {
+  return Array.from(svg.matchAll(/>([^<]*)<\/text>/g), (m) => m[1]);
+}
+
 test.describe("a session's Summary", () => {
   let seeded: Seeded | undefined;
   test.beforeEach(async () => { seeded = await seedSession(); });
@@ -109,7 +114,8 @@ test.describe("a session's Summary", () => {
 
   // spec:web-ui/agent-session-summary-tab/the-summary-is-the-first-view
   // spec:web-ui/agent-session-summary-tab/the-summary-describes-the-session
-  test("describes what the session was asked, ran, touched and talked to", async ({ page }) => {
+  // spec:web-ui/a-shared-session-image-carries-no-identifying-detail/the-card-shows-no-title-project-or-internal-domain
+  test("shows the session as the card it is shared as", async ({ page }) => {
     await signInAsAdminViaForgedSession(page);
     if (!seeded) throw new Error("no session was seeded");
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
@@ -117,73 +123,47 @@ test.describe("a session's Summary", () => {
     await expect(views.getByRole("button")).toHaveText(["Summary", "Conversation", "Commands", "Processes", "Activity"], { timeout: 20_000 });
     await expect(views.getByRole("button", { name: "Summary", pressed: true })).toBeVisible();
 
-    const glance = page.getByRole("region", { name: "At a glance" });
-    await expect(glance.getByText("2 prompts")).toBeVisible({ timeout: 20_000 });
-    await expect(glance.getByText("2 commands")).toBeVisible();
-
-    const programs = page.getByRole("list", { name: "Programs by processes run" }).getByRole("listitem");
-    await expect(programs).toHaveText(["git1", "npm1"]);
-
-    const touched = page.getByRole("region", { name: "What it touched" });
-    await expect(touched.getByText("3 file events across 3 paths: 2 created, 1 modified.")).toBeVisible();
-    await expect(touched.getByText("1 path outside this project.")).toBeVisible();
-    await expect(touched.getByRole("list", { name: "File events by directory" }).getByRole("listitem"))
-      .toHaveText(["./src1 created, 1 modified", "/Users/qa/.npm/_cacache1 created"]);
-
-    const talked = page.getByRole("region", { name: "Where it talked to" });
-    // The host's own .local name is a lookup the share test seeds; the Summary, unlike a shared image, shows it.
-    await expect(talked.getByText("3 DNS lookups, 1 connection, 2 domains this host had not looked up before.")).toBeVisible();
-    await expect(talked.getByRole("list", { name: "Git hosts" })).toContainText("github.com1 lookup, 1 connection");
-    await expect(talked.getByRole("list", { name: "Git hosts" }).getByText("New to this host")).toHaveCount(0);
-    await expect(talked.getByRole("list", { name: "Package registries" }).getByText("New to this host")).toBeVisible();
-
-    await expect(page.getByRole("region", { name: "Timeline" }).getByRole("img", { name: /^Commands started: 2 across the session/ }))
-      .toBeVisible();
+    const card = page.getByRole("img", { name: /^A summary card of a claude-code 2\.1\.302 session/ });
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    const drawn = texts(decodeURIComponent((await card.getAttribute("src")) ?? ""));
+    // Two commands ran a process each under the agent's wrapper shell; no tool call was reported for them.
+    for (const [value, label] of [["0", "tool calls"], ["4", "processes"], ["3", "files changed"], ["2", "domains contacted"]]) {
+      expect(drawn[drawn.indexOf(value) + 1], `${value} ${label}`).toBe(label);
+    }
+    expect(drawn).toContain("1 outside the project");
+    expect(drawn).toEqual(expect.arrayContaining(["Programs it ran most", "git", "npm", "Where it talked to", "Git hosts",
+      "Package registries"]));
+    // The host's own .local name is internal: it is neither named nor counted, and the user and project are named nowhere.
+    expect(drawn.join(" ")).not.toMatch(/\bqa\b|qa-mbp|summary/i);
+    expect(await card.getAttribute("alt")).not.toMatch(/\bqa\b|qa-mbp/i);
     await expect(page.getByRole("region", { name: "Alerts" }).getByText("No alerts were raised in this session.")).toBeVisible();
   });
 
   // spec:web-ui/a-session-can-be-shared-as-an-image-made-in-the-browser/the-image-is-drawn-in-the-browser-without-a-request
-  // spec:web-ui/a-shared-session-image-carries-no-identifying-detail/the-card-shows-only-what-the-person-chose
-  test("shares the session as a redacted image made in the browser", async ({ page }) => {
+  test("shares the card it shows as an image made in the browser", async ({ page }) => {
     await signInAsAdminViaForgedSession(page);
     if (!seeded) throw new Error("no session was seeded");
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
-    await page.getByRole("button", { name: "Share as image" }).click({ timeout: 20_000 });
-
-    const dialog = page.getByRole("dialog", { name: "Share this session as an image" });
-    const preview = dialog.getByRole("img", { name: /^A summary card of a claude-code/ });
-    await expect(preview).toBeVisible({ timeout: 20_000 });
-    await expect(dialog.getByText("Nothing is uploaded, and there are no share links.", { exact: false })).toBeVisible();
-    await expect(dialog).toMatchAriaSnapshot(`
-      - heading "Share this session as an image" [level=2]
-      - group "Size":
-        - button /Portrait 1080 x 1350/ [pressed]
-        - button /Landscape 1200 x 675/
-      - group "Hidden unless you show them":
-        - switch "Show a prompt as the title"
-        - switch "Show the project name"
-        - switch "Show internal domains"
-        - switch "Show what the credential guard stopped"
+    await expect(page.getByRole("img", { name: /^A summary card of a claude-code/ })).toBeVisible({ timeout: 20_000 });
+    const panel = page.getByRole("region", { name: "Share as an image" });
+    await expect(panel.getByText("Nothing is uploaded, and there are no share links.", { exact: false })).toBeVisible();
+    await expect(panel).toMatchAriaSnapshot(`
+      - heading "Share as an image" [level=2]
+      - button "Copy image"
+      - button "Download PNG"
+      - button "Copy caption"
     `);
-
-    // The image names neither the user (qa, from the project's home folder) nor the host, and shows its public destinations.
-    const svg = decodeURIComponent((await preview.getAttribute("src")) ?? "");
-    // The text between the SVG's tags: every other piece when split at angle brackets.
-    const words = svg.split(/[<>]/).filter((_, i) => i % 2 === 0).join(" ");
-    expect(words).not.toMatch(/\bqa\b|qa-mbp/i);
-    expect(words).toContain("Git hosts");
-    expect(await preview.getAttribute("alt")).not.toMatch(/\bqa\b|qa-mbp/i);
 
     // Exporting makes no request: the PNG is drawn in the page.
     const requests: string[] = [];
     page.on("request", (r) => { if (/^https?:/.test(r.url())) requests.push(r.url()); });
-    const [download] = await Promise.all([page.waitForEvent("download"), dialog.getByRole("button", { name: "Download PNG" }).click()]);
+    const [download] = await Promise.all([page.waitForEvent("download"), panel.getByRole("button", { name: "Download PNG" }).click()]);
     expect(download.suggestedFilename()).toBe("rawtrail-session.png");
     const png = await readFile(await download.path());
     expect(png.subarray(1, 4).toString()).toBe("PNG");
     // The IHDR chunk holds the width and height: the portrait card at twice its size.
     expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([2160, 2700]);
     expect(requests).toEqual([]);
-    await expect(dialog.getByRole("status")).toHaveText("Image downloaded.");
+    await expect(panel.getByText("Image downloaded.")).toBeVisible();
   });
 });

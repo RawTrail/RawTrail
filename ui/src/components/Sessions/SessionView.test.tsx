@@ -572,6 +572,7 @@ describe("SessionView commands from the server", () => {
   // spec:web-ui/agent-session-summary-tab/the-summary-is-the-first-view
   it("opens on the Summary, listed first among the session's views, and shows it from the session's summary", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "getHostDetail").mockResolvedValue({ host_id: "H1", hostname: "devs-mbp" } as Awaited<ReturnType<typeof api.getHostDetail>>);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: manyCalls(2) }));
     vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({
       commands: 2, processes: 4, alerts: { total: 1, by_severity: { high: 1 } }, tool_calls: { total: 0, by_tool: [] },
@@ -589,7 +590,7 @@ describe("SessionView commands from the server", () => {
     // A search left over from Commands would hide the commands the alerts link leads to, so following it clears the search.
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "nothing alerted" } });
     fireEvent.click(within(views).getByRole("button", { name: "Summary" }));
-    expect(await screen.findByText("3 prompts")).toBeVisible();
+    expect(await screen.findByRole("img", { name: /^A summary card of a .+ session/ })).toBeVisible();
     expect(screen.getByLabelText("Search this session")).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "See them in Commands" }));
     expect(within(views).getByRole("button", { name: "Commands" })).toHaveAttribute("aria-pressed", "true");

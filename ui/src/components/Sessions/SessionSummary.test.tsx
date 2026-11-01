@@ -1,15 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import type { AgentSessionDigest, AgentSessionTotals } from "../../types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { AgentSessionDigest, AgentSessionTotals, Alert, HostDetail } from "../../types";
 import * as api from "../../api";
-import { formatNs } from "../Search/format";
 import { SessionSummary } from "./SessionSummary";
+import { sharePng } from "./shareImage";
+import { labelled } from "../../test/svgText";
+
+vi.mock("./shareImage", async (original) => ({
+  ...await original<typeof import("./shareImage")>(),
+  sharePng: vi.fn(() => Promise.resolve(new Blob(["png"], { type: "image/png" }))),
+}));
 
 const MINUTE_NS = 60e9;
 
 function digest(over: Partial<AgentSessionDigest> = {}): AgentSessionDigest {
   return {
-    prompts: 0, programs: [], directories: [], directories_truncated: false, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
+    prompts: 0, programs: [], directories: [], directories_truncated: false,
+    files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
     timeline: [0, 0], command_timeline: [0, 0], timeline_start_ns: 0, timeline_bucket_ns: 1, ...over,
   };
 }
@@ -25,6 +32,7 @@ function totals(over: Partial<AgentSessionTotals> = {}): AgentSessionTotals {
 function busy(): AgentSessionTotals {
   return totals({
     commands: 31,
+    processes: 140,
     alerts: { total: 2, by_severity: { high: 2 } },
     tool_calls: { total: 12, by_tool: [{ tool: "Bash", count: 8 }, { tool: "Edit", count: 4 }] },
     activity: {
@@ -43,7 +51,7 @@ function busy(): AgentSessionTotals {
       directories: [{ directory: "/Users/dev/app/src", paths: 3, by_operation: { modify: 6 } },
         { directory: "/etc", paths: 1, by_operation: { create: 2 } }],
       directories_truncated: true,
-      files: { changed: 3, outside_project: 1, temporary: 0, agent_files: 0 },
+      files: { changed: 3, outside_project: 1, temporary: 2, agent_files: 40 },
       domains: [{ domain: "github.com", lookups: 2, connections: 3, new: false },
         { domain: "anthropic.com", lookups: 1, connections: 0, new: false },
         { domain: "evil.test", lookups: 1, connections: 0, new: true }],
@@ -55,162 +63,175 @@ function busy(): AgentSessionTotals {
   });
 }
 
-function renderSummary(read: AgentSessionTotals | undefined, onAlerts = vi.fn()) {
+function host(hostname: string): HostDetail {
+  return { host_id: "host-1", hostname } as HostDetail;
+}
+
+function stoppedRead(): Alert {
+  return {
+    id: 7, host_id: "host-1", rule_id: "agent_credential_read", source: "detection", severity: "high", title: "AI agent read a credential file",
+    description: "An AI agent's /bin/cat was stopped from reading your SSH private key (/Users/dev/.ssh/id_ed25519)",
+  } as Alert;
+}
+
+function renderSummary(read: AgentSessionTotals | undefined, { onAlerts = vi.fn(), alerts = [] as Alert[] } = {}) {
   render(
-    <SessionSummary hostId="host-1" alerts={[]} totals={read} agent="claude-code 2.1.0" project="/Users/dev/app" firstNs={0}
-      lastNs={42 * MINUTE_NS}
-      onAlerts={onAlerts} />,
+    <SessionSummary hostId="host-1" alerts={alerts} totals={read} agent="claude-code 2.1.0" project="/Users/dev/app" firstNs={0}
+      lastNs={42 * MINUTE_NS} onAlerts={onAlerts} />,
   );
   return onAlerts;
 }
 
-function section(name: string): HTMLElement {
-  return screen.getByRole("region", { name });
+// card is the Summary's card, once the host's name is read: the image it shares, named by its alt text.
+async function card(): Promise<HTMLElement> {
+  return screen.findByRole("img", { name: /^A summary card of a claude-code 2\.1\.0 session/ });
 }
 
-// spec:web-ui/agent-session-summary-tab/the-summary-describes-the-session
+// drawn is the SVG the card's image shows.
+function drawn(image: HTMLElement): string {
+  return decodeURIComponent(image.getAttribute("src") ?? "");
+}
+
+// press clicks one of the share buttons and waits for the panel to say what came of it.
+async function press(name: string, says: string) {
+  fireEvent.click(screen.getByRole("button", { name }));
+  await waitFor(() => { expect(screen.getByText(says)).toBeVisible(); });
+}
+
+let clipboard: { write: ReturnType<typeof vi.fn>; writeText: ReturnType<typeof vi.fn> };
+
+beforeEach(() => {
+  vi.mocked(sharePng).mockClear();
+  vi.spyOn(api, "getHostDetail").mockResolvedValue(host("devs-mbp"));
+  clipboard = { write: vi.fn(() => Promise.resolve()), writeText: vi.fn(() => Promise.resolve()) };
+  vi.stubGlobal("navigator", Object.defineProperty(Object.create(navigator) as Navigator, "clipboard", { value: clipboard }));
+  vi.stubGlobal("ClipboardItem", class { constructor(readonly items: Record<string, Promise<Blob>>) {} });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
 describe("SessionSummary", () => {
-  it("leads with the agent, its project, how long it ran, its prompts and its commands", () => {
-    renderSummary(busy());
-    const glance = section("At a glance");
-    for (const fact of ["claude-code 2.1.0", "/Users/dev/app", "Ran for 42 min", "5 prompts", "31 commands"]) {
-      expect(within(glance).getByText(fact)).toBeVisible();
+  // spec:web-ui/agent-session-summary-tab/the-summary-describes-the-session
+  it("shows the session as the card it is shared as: what its log reports beside what ran, what it changed and where it reached", async () => {
+    renderSummary(busy(), { alerts: [stoppedRead()] });
+    const image = await card();
+    expect(image).toBeVisible();
+    const svg = drawn(image);
+    expect(svg).toContain('width="1080" height="1350"');
+    for (const [value, label] of [["12", "tool calls"], ["140", "processes"], ["3", "files changed"], ["3", "domains contacted"]]) {
+      expect(labelled(svg, value, label)).toBe(true);
     }
+    expect(svg).toContain(">1 outside the project<");
+    expect(svg).toContain(">2 temporary files not counted<");
+    expect(svg).toContain(">Ran for 42 min · 50k tokens<");
+    expect(svg).toContain(">git<");
+    expect(svg).toContain(">Git hosts<");
+    expect(svg).toContain(">The credential guard stopped it reading my SSH<");
+    // The host's name and the person's home folder never reach it.
+    expect(svg).not.toMatch(/devs-mbp|\/Users\/dev/);
+    expect(screen.getByText(/^Not counted: 40 files Claude Code keeps for itself/)).toBeVisible();
   });
 
-  it("lists the tools it called and the programs it ran most", () => {
-    renderSummary(busy());
-    const used = section("What it used");
-    expect(within(used).getByText("12 tool calls")).toBeVisible();
-    expect(within(within(used).getByRole("list", { name: "Tool calls by tool" })).getAllByRole("listitem").map((li) => li.textContent))
-      .toEqual(["Bash8", "Edit4"]);
-    expect(within(within(used).getByRole("list", { name: "Programs by processes run" })).getAllByRole("listitem")
-      .map((li) => li.textContent)).toEqual(["git7", "go3"]);
-  });
-
-  it("says what it did to files, by directory relative to the project, and what it touched outside it", () => {
-    renderSummary(busy());
-    const touched = section("What it touched");
-    expect(within(touched).getByText("9 file events across 5 paths: 2 created, 6 modified, 1 deleted.")).toBeVisible();
-    expect(within(touched).getByText("1 path outside this project.")).toBeVisible();
-    expect(within(within(touched).getByRole("list", { name: "File events by directory" })).getAllByRole("listitem")
-      .map((li) => li.textContent)).toEqual(["./src6 modified", "/etc2 created"]);
-    expect(within(touched).getByText("The busiest directories are listed.")).toBeVisible();
-  });
-
-  it("groups where it talked to by organization and marks a domain new to the host", () => {
-    renderSummary(busy());
-    const talked = section("Where it talked to");
-    expect(within(talked).getByText("4 DNS lookups, 3 connections, 1 domain this host had not looked up before.")).toBeVisible();
-    expect(within(talked).getAllByRole("heading", { level: 3 }).map((h) => h.textContent))
-      .toEqual(["Model APIs", "Git hosts", "Everything else"]);
-    expect(within(within(talked).getByRole("list", { name: "Git hosts" })).getByRole("listitem"))
-      .toHaveTextContent("github.com2 lookups, 3 connections");
-    const fresh = within(within(talked).getByRole("list", { name: "Everything else" })).getByRole("listitem");
-    expect(within(fresh).getByText("New to this host")).toBeVisible();
-    expect(within(within(talked).getByRole("list", { name: "Git hosts" })).queryByText("New to this host")).toBeNull();
-  });
-
-  it("says what it took in tokens and how long it ran in each mode, bypass flagged", () => {
-    renderSummary(busy());
-    const effort = section("Effort");
-    expect(within(effort).getByText(/^50k tokens: 40 in, 48k through the prompt cache, 2k out, on claude-opus-5-5\.$/)).toBeVisible();
-    expect(within(effort).getByText("Bypass permissions")).toHaveClass("badge--high");
-    expect(within(effort).getByText("4 replies in 10 min")).toBeVisible();
-  });
-
-  it("draws its commands and events over the session's span", () => {
-    renderSummary(busy());
-    const timeline = section("Timeline");
-    const commands = `Commands started: 2 across the session, busiest bucket 2 from ${formatNs(20 * MINUTE_NS)}`;
-    expect(within(timeline).getByRole("img", { name: commands })).toBeVisible();
-    const events = within(timeline).getByRole("img", {
-      name: `File, network and DNS events: 5 across the session, busiest bucket 4 from ${formatNs(0)}`,
+  // spec:web-ui/a-session-can-be-shared-as-an-image-made-in-the-browser/the-summary-shows-the-image-it-shares
+  // spec:web-ui/a-session-can-be-shared-as-an-image-made-in-the-browser/the-image-is-copied-or-downloaded-and-the-caption-copied
+  it("copies the image it shows as a PNG, downloads it, and copies the caption", async () => {
+    const saved: { href: string; download: string }[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push({ href: this.href, download: this.download });
     });
-    expect([...events.children].map((bar) => (bar as HTMLElement).style.height)).toEqual(["100%", "0%", "25%"]);
-    // The axis ends where the digest's span does, which reaches past the session's last sighting (42 min) to its last event.
-    expect(within(timeline).getByText(formatNs(60 * MINUTE_NS))).toBeVisible();
-    expect(within(timeline).queryByText(formatNs(42 * MINUTE_NS))).toBeNull();
-  });
-
-  it("opens the Share dialog from its Share button", async () => {
-    HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
-    const read = vi.spyOn(api, "getHostDetail").mockResolvedValue({ host_id: "host-1", hostname: "dev-mbp" } as never);
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:share"), revokeObjectURL: vi.fn() }));
     renderSummary(busy());
-    expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Share as image" }));
-    expect(await screen.findByRole("img", { name: /^A summary card of a claude-code 2\.1\.0 session/ })).toBeVisible();
-    expect(read).toHaveBeenCalledWith("host-1");
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(screen.queryByRole("img", { name: /summary card/ })).toBeNull();
-    read.mockRestore();
+    const image = await card();
+    expect(screen.getByText(/^The image is the card shown here, made in your browser\. Nothing is uploaded/)).toBeVisible();
+
+    await press("Copy image", "Image copied.");
+    const item = (clipboard.write.mock.calls[0][0] as { items: Record<string, Promise<Blob>> }[])[0];
+    expect(Object.keys(item.items)).toEqual(["image/png"]);
+    expect((await item.items["image/png"]).type).toBe("image/png");
+    // What is copied is drawn from the SVG the Summary shows.
+    expect(drawn(image)).toContain(vi.mocked(sharePng).mock.calls[0][0]);
+
+    await press("Download PNG", "Image downloaded.");
+    expect(saved).toEqual([{ href: "blob:share", download: "rawtrail-session.png" }]);
+
+    await press("Copy caption", "Caption copied.");
+    expect(clipboard.writeText).toHaveBeenCalledWith("My AI agent's log shows 12 tool calls. The kernel saw 140 processes run. "
+      + "Recorded with RawTrail.");
+    expect(screen.getByRole("link", { name: "Open X" }).getAttribute("href")).toMatch(/^https:\/\/x\.com\/intent\/post\?text=My%20AI/);
+    expect(screen.getByRole("link", { name: "Open LinkedIn" }).getAttribute("href")).toMatch(/^https:\/\/www\.linkedin\.com\/feed/);
   });
 
-  it("returns focus to the Share button when the dialog closes", async () => {
-    HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
-    const read = vi.spyOn(api, "getHostDetail").mockResolvedValue({ host_id: "host-1", hostname: "dev-mbp" } as never);
+  it("says so when the browser cannot copy an image", async () => {
+    vi.stubGlobal("ClipboardItem", undefined);
     renderSummary(busy());
-    const share = screen.getByRole("button", { name: "Share as image" });
-    share.focus();
-    fireEvent.click(share);
-    await screen.findByRole("img", { name: /summary card/ });
-    screen.getByRole("button", { name: "Close" }).focus();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(share).toHaveFocus();
-    read.mockRestore();
+    await card();
+    await press("Copy image", "This browser cannot copy an image. Download it instead.");
   });
 
-  it("counts its alerts and links to where they are shown, without leading with them", () => {
+  // spec:web-ui/a-session-can-be-shared-as-an-image-made-in-the-browser/a-host-whose-name-cannot-be-read-is-not-shared
+  it.each([
+    ["cannot be read", () => Promise.reject(new Error("boom"))],
+    ["is empty", () => Promise.resolve(host("  "))],
+  ])("shows no card and offers nothing to share when the host's name %s", async (_name, read) => {
+    vi.spyOn(api, "getHostDetail").mockImplementation(read);
+    renderSummary(busy());
+    expect(await screen.findByRole("alert")).toHaveTextContent("This host's name could not be read");
+    // A shown image can be copied from the page whatever the buttons offer, so one that cannot be checked is not drawn.
+    expect(screen.queryByRole("img")).toBeNull();
+    // Nor is a card left loading that will never be drawn.
+    expect(document.querySelector("[aria-busy='true']")).toBeNull();
+    for (const name of ["Copy image", "Download PNG", "Copy caption"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Open LinkedIn" })).toBeNull();
+  });
+
+  it("draws no card for another host until that host's name is read, never redacting against the last one", async () => {
+    vi.spyOn(api, "getHostDetail").mockImplementation((id) => id === "host-1" ? Promise.resolve(host("devs-mbp"))
+      : new Promise(() => undefined));
+    const summary = (hostId: string) => (
+      <SessionSummary hostId={hostId} alerts={[]} totals={busy()} agent="claude-code 2.1.0" project="/Users/dev/app" firstNs={0}
+        lastNs={42 * MINUTE_NS} onAlerts={vi.fn()} />
+    );
+    const { rerender } = render(summary("host-1"));
+    await card();
+    rerender(summary("host-2"));
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy image" })).toBeDisabled();
+  });
+
+  it("counts its alerts and links to where they are shown, without leading with them", async () => {
     const onAlerts = renderSummary(busy());
-    const alerts = section("Alerts");
-    expect(within(alerts).getByText(/2 alerts were raised in this session/)).toBeVisible();
-    fireEvent.click(within(alerts).getByRole("button", { name: "See them in Commands" }));
+    await card();
+    expect(screen.getByText(/^2 alerts were raised in this session\./)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "See them in Commands" }));
     expect(onAlerts).toHaveBeenCalledOnce();
-    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings[headings.length - 1]).toBe("Alerts");
   });
 
   // spec:web-ui/agent-session-summary-tab/an-empty-session-reads-as-empty
-  it("says plainly what an empty session did not do", () => {
+  it("draws an empty session's card with nothing in it, and says no alert was raised", async () => {
     renderSummary(totals());
-    expect(within(section("At a glance")).getByText("0 prompts")).toBeVisible();
-    expect(within(section("What it used")).getByText("No tool calls were recorded.")).toBeVisible();
-    expect(within(section("What it used")).getByText("Its commands ran no programs.")).toBeVisible();
-    expect(within(section("What it touched")).getByText("No file activity was recorded.")).toBeVisible();
-    expect(within(section("Where it talked to")).getByText("No network activity was recorded.")).toBeVisible();
-    expect(within(section("Effort")).getByText("No token usage was recorded.")).toBeVisible();
-    expect(within(section("Timeline")).getByText("Nothing was recorded over time.")).toBeVisible();
-    expect(within(section("Alerts")).getByText("No alerts were raised in this session.")).toBeVisible();
+    const svg = drawn(await card());
+    for (const label of ["tool calls", "processes", "files changed", "domains contacted"]) {
+      expect(labelled(svg, "0", label)).toBe(true);
+    }
+    expect(svg).not.toContain("Programs it ran most");
+    expect(svg).not.toContain("Where it talked to");
+    expect(screen.getByText("No alerts were raised in this session.")).toBeVisible();
+    expect(screen.queryByText(/^Not counted/)).toBeNull();
   });
 
-  it("says nothing was outside a project it touched only inside", () => {
-    const inside = busy();
-    renderSummary({ ...inside, digest: { ...digest(), ...inside.digest, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 } } });
-    expect(within(section("What it touched")).getByText("Nothing outside this project.")).toBeVisible();
-  });
-
-  it("counts a socket it connected to and qualifies new domains when the list is cut", () => {
-    const cut = busy();
-    renderSummary({
-      ...cut,
-      activity: {
-        network: { events: 3, distinct: 2 }, dns: { events: 4, distinct: 3 }, files: { events: 1, distinct: 1, by_operation: { connect: 1 } },
-      },
-      digest: { ...digest(), ...cut.digest, domains_truncated: true },
-    });
-    expect(within(section("What it touched")).getByText("1 file event across 1 path: 1 connected.")).toBeVisible();
-    expect(within(section("Where it talked to"))
-      .getByText("4 DNS lookups, 3 connections, 1 listed domain this host had not looked up before.")).toBeVisible();
-  });
-
-  it("says when the activity reflects only part of the session", () => {
+  it("says when the activity reflects only part of the session", async () => {
     renderSummary({ ...busy(), scope: { applied: true, processes: 4, unmatched: 0, truncated: true } });
-    expect(screen.getByRole("status")).toHaveTextContent("This scope has more processes than are read, so its activity is partial.");
+    await card();
+    expect(screen.getByText("This scope has more processes than are read, so its activity is partial.")).toBeVisible();
   });
 
-  it("says nothing about scope when the activity reflects the whole session", () => {
+  it("says nothing about scope when the activity reflects the whole session", async () => {
     renderSummary({ ...busy(), scope: { applied: true, processes: 4, unmatched: 0, truncated: false } });
-    expect(screen.queryByRole("status")).toBeNull();
+    await card();
+    expect(screen.queryByText(/its activity is partial/)).toBeNull();
   });
 
   it("says when the summary could not be read", () => {

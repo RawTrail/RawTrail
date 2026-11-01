@@ -17,6 +17,7 @@ const MODE_LABELS: ReadonlyMap<string, string> = new Map([
 const THOUSAND = 1000;
 const MILLION = 1_000_000;
 const MINUTE_NS = 60e9;
+const SECOND_NS = 1e9;
 const MINUTES_PER_HOUR = 60;
 
 // BYPASS_MODE is the mode in which the agent runs tools without asking, the one an operator looks for first.
@@ -85,4 +86,11 @@ export function formatSpan(spanNs: number): string {
   const hours = Math.floor(minutes / MINUTES_PER_HOUR);
   const rest = minutes % MINUTES_PER_HOUR;
   return rest === 0 ? `${String(hours)} h` : `${String(hours)} h ${String(rest)} min`;
+}
+
+// shortSpan is a span as the share card says it, where a phrase does not fit: seconds under a minute, at least one, and formatSpan's
+// minutes and hours from a minute on.
+export function shortSpan(spanNs: number): string {
+  if (spanNs >= MINUTE_NS) return formatSpan(spanNs);
+  return `${String(Math.max(1, Math.floor(spanNs / SECOND_NS)))}s`;
 }

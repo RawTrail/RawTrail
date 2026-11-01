@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ShareCard } from "./shareCard";
-import { SCALE, sharePng, shareSvg, SIZES, svgDataUrl, wrap } from "./shareImage";
+import { SCALE, sharePng, shareSvg, SIZE, svgDataUrl, wrap } from "./shareImage";
+import { labelled, texts } from "../../test/svgText";
 
 function card(over: Partial<ShareCard> = {}): ShareCard {
   return {
-    agent: "Claude Code", date: "Oct 30, 2026", title: null, project: null, duration: "47 min", prompts: 6, commands: 412, toolCalls: 1286,
-    tokens: "3.1M", timeline: [1, 0, 4, 2], timelineStart: "4:14 PM", timelineEnd: "5:02 PM",
+    agent: "Claude Code", date: "Oct 30, 2026", duration: "47 min", tokens: "3.1M", toolCalls: 1286, processes: 903, filesChanged: 41,
+    outsideProject: 4, temporary: 12, domains: 3, domainsCut: false,
     programs: [{ name: "go", count: 132 }, { name: "git", count: 61 }],
     destinations: [{ label: "Model APIs", count: 1, domains: ["api.anthropic.com"] }],
-    fileEvents: 312, paths: 48, outsideProject: 0, guard: { credentials: ["my AWS credentials"] }, ...over,
+    guard: { credentials: ["my AWS credentials"] }, ...over,
   };
 }
 
@@ -48,64 +49,76 @@ describe("wrap", () => {
     for (const lines of [wrap("abcdefghijklmnopqrstuvw😀tail", 64, 920, 3), wrap("😀".repeat(30), 64, 920, 1)]) {
       for (const line of lines) expect(() => encodeURIComponent(line)).not.toThrow();
     }
-    expect(() => svgDataUrl(shareSvg(card({ title: `${"x".repeat(23)}😀${"y".repeat(60)}` }), "portrait"))).not.toThrow();
+    expect(() => svgDataUrl(shareSvg(card({ agent: `${"x".repeat(23)}😀${"y".repeat(60)}` })))).not.toThrow();
   });
 });
 
 describe("shareSvg", () => {
-  it.each([["portrait", 1080, 1350], ["landscape", 1200, 675]] as const)("draws the %s card at %ix%i", (size, width, height) => {
-    const svg = shareSvg(card(), size);
-    expect(svg.startsWith(`<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(height)}" `)).toBe(true);
+  it("draws the portrait card with its headline numbers, what ran in the accent", () => {
+    const svg = shareSvg(card());
+    expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" ')).toBe(true);
+    expect(svg).toContain(">What my AI agent did<");
+    expect(svg).toContain(">Ran for 47 min · 3.1M tokens<");
+    expect(svg).toContain(">CLAUDE CODE SESSION<");
+    expect(svg).toContain(">Oct 30, 2026<");
+    for (const [value, label] of [["1,286", "tool calls"], ["903", "processes"], ["41", "files changed"], ["3", "domains contacted"]]) {
+      expect(labelled(svg, value, label)).toBe(true);
+    }
+    expect(svg).toMatch(/fill="#3fd6b4"[^>]*>903</);
+    expect(svg).toContain(">in the agent&#39;s own log<");
+    expect(svg).toContain(">actually ran<");
+    expect(svg).toContain(">4 outside the project<");
+    expect(svg).toContain(">12 temporary files not counted<");
     expect(svg).toContain(">Recorded with RawTrail<");
     expect(svg).toContain(">github.com/RawTrail/RawTrail<");
-    expect(svg).toContain(">412<");
   });
 
-  it("shows the person's title, or says what the agent did when there is none", () => {
-    expect(shareSvg(card({ title: "Fix the flaky test" }), "portrait")).toContain(">Fix the flaky test<");
-    // A long line wraps, so the headline is checked across its two lines.
-    expect(shareSvg(card(), "portrait")).toMatch(/>What my AI agent did in<\/text><text [^>]*>47 min</);
+  it("says one of each in the singular, and a cut domain list as at least its length", () => {
+    const svg = shareSvg(card({ toolCalls: 1, processes: 1, filesChanged: 1, domains: 1 }));
+    for (const label of ["tool call", "process", "file changed", "domain contacted"]) expect(svg).toContain(`>${label}<`);
+    expect(labelled(shareSvg(card({ domains: 50, domainsCut: true })), "50+", "domains contacted")).toBe(true);
+  });
+
+  it("leaves out what the session does not have: its length, tokens, project and temporary files", () => {
+    const svg = shareSvg(card({ duration: null, tokens: null, date: null, outsideProject: null, temporary: 0 }));
+    expect(svg).not.toContain("Ran for");
+    expect(svg).not.toContain("tokens");
+    expect(svg).not.toContain("outside the project");
+    expect(svg).not.toContain("temporary");
+    expect(shareSvg(card({ duration: null }))).toContain(">3.1M tokens<");
   });
 
   it("escapes every string, so text on the card cannot become markup", () => {
-    const svg = shareSvg(card({ title: `<b>"x"</b> & 'y'`, programs: [{ name: "<img>", count: 1 }] }), "portrait");
+    const svg = shareSvg(card({ agent: `<b>"x"</b> & 'y'`, programs: [{ name: "<img>", count: 1 }] }));
     expect(svg).not.toContain("<b>");
     expect(svg).not.toContain("<img>");
-    expect(svg).toContain(">&lt;b&gt;&quot;x&quot;&lt;/b&gt; &amp; &#39;y&#39;<");
+    expect(svg).toContain("&lt;B&gt;&quot;X&quot;&lt;/B&gt; &amp; &#39;Y&#39;");
   });
 
   it("shows what the credential guard stopped only when the card has it", () => {
-    expect(shareSvg(card(), "portrait")).toContain(">The credential guard stopped it reading my AWS<");
-    expect(shareSvg(card(), "landscape")).toContain("Stopped it reading my AWS");
-    expect(shareSvg(card({ guard: null }), "portrait")).not.toContain("credential guard");
-  });
-
-  it("names the project in the heading when the person chose it, and each group's domains", () => {
-    for (const size of ["portrait", "landscape"] as const) {
-      const svg = shareSvg(card({ project: "webhooks" }), size);
-      expect(svg).toContain("CLAUDE CODE SESSION · WEBHOOKS");
-      expect(svg).toContain("api.anthropic.com");
-      expect(shareSvg(card(), size)).not.toContain("WEBHOOKS");
-    }
+    expect(shareSvg(card())).toContain(">The credential guard stopped it reading my AWS<");
+    expect(shareSvg(card({ guard: null }))).not.toContain("credential guard");
+    // Three credentials read as the caption words them, "A, B and C", up to where the line is cut to the card's width.
+    const three = card({ guard: { credentials: ["my SSH private key", "my AWS credentials", "my GitHub CLI token"] } });
+    expect(texts(shareSvg(three)).join(" ")).toContain("reading my SSH private key, my AWS credentials and my GitHub");
   });
 
   it("never draws over the footer: a full card shows its groups without their domains", () => {
     const groups = ["Model APIs", "Git hosts", "Package registries", "Everything else"].map((label) => ({ label, count: 1,
       domains: [`${label.split(" ")[0].toLowerCase()}.example.com`] }));
     const programs = ["go", "git", "rg", "npm"].map((name) => ({ name, count: 1 }));
-    const full = shareSvg(card({ title: "x ".repeat(80), destinations: groups, programs }), "portrait");
+    const full = shareSvg(card({ destinations: groups, programs }));
     const guard = /<rect x="80\.0" y="([\d.]+)" width="920\.0" height="([\d.]+)" rx="16"/.exec(full);
     expect(guard).not.toBeNull();
-    const footerTop = SIZES.portrait.height - 80 - 24;
+    const footerTop = SIZE.height - 80 - 24;
     expect(Number(guard?.[1]) + Number(guard?.[2])).toBeLessThan(footerTop);
     expect(full).not.toContain("model.example.com");
     // With room to spare, the same groups name their domains.
-    expect(shareSvg(card({ destinations: groups, programs, guard: null }), "portrait")).toContain("model.example.com");
+    expect(shareSvg(card({ destinations: groups, programs, guard: null }))).toContain("model.example.com");
   });
 
-  it("leaves out a timeline, programs and destinations a session does not have", () => {
-    const svg = shareSvg(card({ timeline: [], programs: [], destinations: [], guard: null }), "portrait");
-    expect(svg).not.toContain("When it was busy");
+  it("leaves out programs and destinations a session does not have", () => {
+    const svg = shareSvg(card({ programs: [], destinations: [], guard: null }));
     expect(svg).not.toContain("Programs it ran most");
     expect(svg).not.toContain("Where it talked to");
   });
@@ -119,21 +132,21 @@ describe("sharePng", () => {
     const toBlob = vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(function (this: HTMLCanvasElement, done, type) {
       done(new Blob([`${String(this.width)}x${String(this.height)}`], { type }));
     });
-    const svg = shareSvg(card(), "landscape");
+    const svg = shareSvg(card());
 
-    const png = await sharePng(svg, "landscape");
+    const png = await sharePng(svg);
 
     expect(decode).toHaveBeenCalledOnce();
     expect((drawImage.mock.calls[0][0] as HTMLImageElement).src).toBe(svgDataUrl(svg));
-    expect(drawImage.mock.calls[0].slice(1)).toEqual([0, 0, SIZES.landscape.width * SCALE, SIZES.landscape.height * SCALE]);
+    expect(drawImage.mock.calls[0].slice(1)).toEqual([0, 0, SIZE.width * SCALE, SIZE.height * SCALE]);
     expect(toBlob.mock.calls[0][1]).toBe("image/png");
     expect(png.type).toBe("image/png");
-    expect(await png.text()).toBe("2400x1350");
+    expect(await png.text()).toBe("2160x2700");
   });
 
   it("fails plainly in a browser that cannot draw", async () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-    await expect(sharePng(shareSvg(card(), "portrait"), "portrait")).rejects.toThrow("cannot draw the image");
+    await expect(sharePng(shareSvg(card()))).rejects.toThrow("cannot draw the image");
   });
 
   it("keeps the SVG inside the URL, so showing it makes no request", () => {

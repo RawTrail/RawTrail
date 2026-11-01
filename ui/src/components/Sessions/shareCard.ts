@@ -1,12 +1,12 @@
-// What a session shared as an image says (issue #1430): a card built from the Summary's counts, the programs its commands ran, and
-// the public domains it talked to, every string redacted. The card is the only input the image renderer gets, so nothing that is
-// not on it can reach a shared image.
+// What a session's Summary shows, and the image it is shared as says (issues #1429, #1430): a card built from the session summary's
+// counts, the programs its commands ran and the public domains it talked to, every string redacted. The card is the only input the
+// image renderer gets, so nothing that is not on it can reach a shared image.
 
 import type { AgentSessionTotals, Alert, DomainActivity } from "../../types";
 import { basename, plural } from "../Search/format";
 import { credentialReads } from "./credentialRead";
 import { groupDomains } from "./sessionDigest";
-import { formatSpan, formatTokens, usageLine } from "./sessionUsage";
+import { formatTokens, shortSpan, usageLine } from "./sessionUsage";
 import { HIDDEN, isAddress, isInternalDomain, redact, type Identities } from "./shareRedact";
 
 const NANOSECONDS_PER_MILLISECOND = 1e6;
@@ -14,19 +14,9 @@ const NANOSECONDS_PER_MILLISECOND = 1e6;
 const CARD_PROGRAMS = 4;
 const CARD_GROUPS = 4;
 const CARD_DOMAINS = 2;
-// A title is one prompt, edited down to what fits three lines of the card.
-export const TITLE_MAX = 90;
 
-// ShareOptions are what the person chose to show. Everything else on the card is always shown, and everything not on it never is.
-export interface ShareOptions {
-  // title is the prompt the person chose to show as the card's title, as they edited it, or null to show none.
-  readonly title: string | null;
-  readonly showProject: boolean;
-  readonly showInternalDomains: boolean;
-  readonly showGuard: boolean;
-}
-
-export const DEFAULT_SHARE_OPTIONS: ShareOptions = { title: null, showProject: false, showInternalDomains: false, showGuard: true };
+// HEADLINE is the card's title. A prompt is never one: what a person typed can name anything.
+export const HEADLINE = "What my AI agent did";
 
 export interface CardDestination {
   readonly label: string;
@@ -34,29 +24,28 @@ export interface CardDestination {
   readonly domains: readonly string[];
 }
 
-// ShareCard is everything a shared image shows.
+// ShareCard is everything a session's Summary and its shared image show.
 export interface ShareCard {
   readonly agent: string;
   readonly date: string | null;
-  readonly title: string | null;
-  readonly project: string | null;
+  // duration is how long the session ran, short enough for the card's heading.
   readonly duration: string | null;
-  readonly prompts: number;
-  readonly commands: number;
-  readonly toolCalls: number;
   readonly tokens: string | null;
-  readonly timeline: readonly number[];
-  readonly timelineStart: string | null;
-  readonly timelineEnd: string | null;
+  // toolCalls are what the agent's own log reports it did; processes are what the sensor saw run.
+  readonly toolCalls: number;
+  readonly processes: number;
+  // filesChanged leaves out Claude Code's own files and the temporary files the session created and removed, which temporary counts.
+  readonly filesChanged: number;
+  // outsideProject is how many of the files changed are outside the session's project, or null when it has no project.
+  readonly outsideProject: number | null;
+  readonly temporary: number;
+  // domains counts the public domains the card may name; domainsCut says the digest listed only the busiest.
+  readonly domains: number;
+  readonly domainsCut: boolean;
   readonly programs: readonly { name: string; count: number }[];
   readonly destinations: readonly CardDestination[];
-  readonly fileEvents: number;
-  readonly paths: number;
-  // outsideProject is how many paths the session touched outside its project, or null when it has no project.
-  readonly outsideProject: number | null;
-  // guard is the credentials the credential guard stopped the agent reading, or null when it stopped none or the person chose not to
-  // show it. It says which credentials, not how many reads: the rule folds a session's later reads of one credential into its first
-  // alert.
+  // guard is the credentials the credential guard stopped the agent reading, or null when it stopped none. It says which credentials,
+  // not how many reads: the rule folds a session's later reads of one credential into its first alert.
   readonly guard: { readonly credentials: readonly string[] } | null;
 }
 
@@ -74,44 +63,31 @@ function date(ns: number): string {
   return new Date(ns / NANOSECONDS_PER_MILLISECOND).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function time(ns: number): string {
-  return new Date(ns / NANOSECONDS_PER_MILLISECOND).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
 // shareCard builds the card for a session. A program is named by its last path segment, never with its arguments; a domain that is an
-// address is never shown, nor an internal one unless the person chose to; and every string is redacted.
-export function shareCard(input: ShareInput, options: ShareOptions): ShareCard {
+// address or internal is never shown or counted; and every string is redacted.
+export function shareCard(input: ShareInput): ShareCard {
   const { totals, identities } = input;
   const digest = totals.digest;
   const clean = (s: string): string => redact(s, identities);
-  // Redacted whole, then cut: cutting first can leave part of a name that redaction no longer recognizes.
-  // Cut by code point, so an emoji is never split into a half that cannot be drawn or encoded.
-  const title = options.title === null ? null : Array.from(clean(options.title)).slice(0, TITLE_MAX).join("").trim();
-  const files = totals.activity?.files;
   const usage = usageLine(totals.usage);
-  const timeline = digest?.command_timeline ?? [];
-  const endNs = digest ? digest.timeline_start_ns + digest.timeline_bucket_ns * timeline.length : undefined;
+  const shown = (digest?.domains ?? []).filter((d) => !isAddress(d.domain) && !isInternalDomain(d.domain, identities));
   return {
     agent: clean(input.agent),
     date: input.firstNs === undefined ? null : date(input.firstNs),
-    title: title === "" ? null : title,
-    project: options.showProject && input.project ? named(basename(trimSlashes(clean(input.project)))) : null,
-    duration: input.firstNs !== undefined && input.lastNs !== undefined ? formatSpan(input.lastNs - input.firstNs) : null,
-    prompts: digest?.prompts ?? 0,
-    commands: totals.commands,
-    toolCalls: totals.tool_calls.total,
+    duration: input.firstNs !== undefined && input.lastNs !== undefined ? shortSpan(input.lastNs - input.firstNs) : null,
     tokens: usage ? formatTokens(usage.total) : null,
-    timeline,
-    timelineStart: digest && timeline.length > 0 ? time(digest.timeline_start_ns) : null,
-    timelineEnd: endNs !== undefined && timeline.length > 0 ? time(endNs) : null,
+    toolCalls: totals.tool_calls.total,
+    processes: totals.processes,
+    filesChanged: digest?.files.changed ?? 0,
+    outsideProject: input.project ? (digest?.files.outside_project ?? 0) : null,
+    temporary: digest?.files.temporary ?? 0,
+    domains: shown.length,
+    domainsCut: digest?.domains_truncated ?? false,
     // A path is redacted whole before its last segment is taken: /Users/ann has to read ~ before it can be cut to a name.
     programs: (digest?.programs ?? []).slice(0, CARD_PROGRAMS).map((p) => ({ name: named(basename(clean(p.program))), count: p.count }))
       .filter((p): p is { name: string; count: number } => p.name !== null),
-    destinations: destinations(digest?.domains ?? [], options, identities),
-    fileEvents: files?.events ?? 0,
-    paths: files?.distinct ?? 0,
-    outsideProject: input.project ? (digest?.files.outside_project ?? 0) : null,
-    guard: options.showGuard ? guard(input.alerts) : null,
+    destinations: destinations(shown, identities),
+    guard: guard(input.alerts),
   };
 }
 
@@ -120,17 +96,10 @@ function named(name: string): string | null {
   return name === "" || name === HIDDEN || name === "~" ? null : name;
 }
 
-function trimSlashes(path: string): string {
-  let end = path.length;
-  while (end > 1 && path[end - 1] === "/") end--;
-  return path.slice(0, end);
-}
-
-// destinations groups the domains a card may show: never an address, an internal one only when the person chose to, and by name only a
-// domain redaction left whole, since a partly removed name says nothing and may still hint at one. Each group names the first of its
-// domains that survive, counts all it holds, and is left off when none survives.
-function destinations(domains: readonly DomainActivity[], options: ShareOptions, identities: Identities): CardDestination[] {
-  const shown = domains.filter((d) => !isAddress(d.domain) && (options.showInternalDomains || !isInternalDomain(d.domain, identities)));
+// destinations groups the public domains, naming by name only a domain redaction left whole, since a partly removed name says nothing
+// and may still hint at one. Each group names the first of its domains that survive, counts all it holds, and is left off when none
+// survives.
+function destinations(shown: readonly DomainActivity[], identities: Identities): CardDestination[] {
   return groupDomains(shown)
     .map((g) => ({
       label: g.label,
@@ -152,42 +121,52 @@ function mine(credential: string): string {
   return credential.replace(/\byour\b/g, "my");
 }
 
-// headline is the card's title when the person chose none: what the agent did and for how long.
-export function headline(card: ShareCard): string {
-  return card.duration ? `What my AI agent did in ${card.duration}` : "What my AI agent did";
-}
-
-function list(items: readonly string[]): string {
+export function list(items: readonly string[]): string {
   if (items.length <= 1) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
+// domainCount says how many domains a card counts: a cut list counts only the busiest, so it reads as at least that many.
+export function domainCount(card: ShareCard): string {
+  return `${card.domains.toLocaleString()}${card.domainsCut ? "+" : ""}`;
+}
+
+// filesNotes are the lines the card says under its files changed: how many are outside the project and how many temporary files were
+// left out, those that apply.
+export function filesNotes(card: ShareCard): string[] {
+  return [
+    card.outsideProject === null ? "" : `${card.outsideProject.toLocaleString()} outside the project`,
+    card.temporary > 0 ? `${plural(card.temporary, "temporary file", "temporary files")} not counted` : "",
+  ].filter((s) => s !== "");
+}
+
 // caption is a suggested post to go with the image, built from the card alone.
 export function caption(card: ShareCard): string {
-  const counts = list([
-    ...(card.duration ? [card.duration] : []),
-    plural(card.commands, "command", "commands"),
-    plural(card.toolCalls, "tool call", "tool calls"),
-  ]);
   const guard = card.guard ? ` The credential guard stopped it reading ${list([...card.guard.credentials])}.` : "";
-  return `${counts}: what my AI agent actually did, recorded at the kernel.${guard} Recorded with RawTrail.`;
+  return `My AI agent's log shows ${plural(card.toolCalls, "tool call", "tool calls")}. The kernel saw `
+    + `${plural(card.processes, "process", "processes")} run.${guard} Recorded with RawTrail.`;
 }
 
 // altText reads the card out for a screen reader, from the card alone.
 export function altText(card: ShareCard): string {
-  const where = (card.project ? " in " + card.project : "") + (card.date ? " on " + card.date : "");
-  const counts = [
-    card.duration ? "Ran for " + card.duration : "",
-    plural(card.commands, "command", "commands"),
-    plural(card.toolCalls, "tool call", "tool calls"),
-    card.tokens ? card.tokens + " tokens" : "",
-  ].filter((c) => c !== "");
-  const parts = [`${card.title ?? headline(card)}.`, `${counts.join(", ")}.`];
-  if (card.programs.length > 0) parts.push(`Programs it ran most: ${list(card.programs.map((p) => p.name))}.`);
+  const when = [
+    card.date ? `on ${card.date}` : "",
+    card.duration ? `running ${card.duration}` : "",
+    card.tokens ? `${card.tokens} tokens` : "",
+  ].filter((s) => s !== "").join(", ");
+  const parts = [
+    `${HEADLINE}.`,
+    `${plural(card.toolCalls, "tool call", "tool calls")} in its log, ${plural(card.processes, "process", "processes")} ran.`,
+    `${[plural(card.filesChanged, "file changed", "files changed"), ...filesNotes(card)].join(", ")}.`,
+    `${domainCount(card)} ${card.domains === 1 && !card.domainsCut ? "domain" : "domains"} contacted.`,
+  ];
+  if (card.programs.length > 0) {
+    parts.push(`Programs it ran most: ${list(card.programs.map((p) => `${p.name} (${p.count.toLocaleString()})`))}.`);
+  }
   if (card.destinations.length > 0) {
-    const groups = card.destinations.map((d) => `${d.label.toLowerCase()} (${String(d.count)})`);
-    parts.push(`It talked to ${list(groups)}.`);
+    const places = card.destinations.map((d) => `${d.label.toLowerCase()} (${d.count.toLocaleString()}: ${d.domains.join(", ")})`);
+    parts.push(`It talked to ${list(places)}.`);
   }
   if (card.guard) parts.push(`The credential guard stopped it reading ${list([...card.guard.credentials])}.`);
-  return `A summary card of a ${card.agent} session${where}: ${parts.join(" ")}`;
+  return `A summary card of a ${card.agent} session${when ? ` ${when}` : ""}: ${parts.join(" ")}`;
 }
