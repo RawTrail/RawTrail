@@ -16,6 +16,7 @@ import { sessionPath } from "./sessionPath";
 import { PromptSearch } from "./PromptSearch";
 import { PermissionAction, useCan } from "../../permissions-core";
 import { formatTokens } from "./sessionUsage";
+import { useProfile } from "../../profile-core";
 
 // ACTIVE_WINDOWS are the "active in the last" choices, by the URL value the chip stores. The URL keeps the relative choice rather than
 // absolute bounds so a bookmarked list stays "the last week" when it is reopened.
@@ -66,7 +67,9 @@ export function SessionList() {
   const { activeFilter, filterKey, setFilter } = useUrlFilter(FILTER_KEYS);
   const hostNames = useHostNames();
   // Searching prompts reads what people typed, so it is offered only to an operator who may read prompts (issue #1428).
-  const canReadPrompts = useCan()(PermissionAction.AgentPromptRead);
+  const can = useCan();
+  const canReadPrompts = can(PermissionAction.AgentPromptRead);
+  const { profile } = useProfile();
 
   // The first page resolves the filter, and every later page reuses it: a cursor names a position in one result set, so "Load more"
   // must not move the active window's start to a later clock reading.
@@ -80,10 +83,17 @@ export function SessionList() {
     [filterKey], // eslint-disable-line react-hooks/exhaustive-deps -- activeFilter is captured; filterKey is its stable identity
   );
   const { rows, total, loading, error, hasMore, loadMore } = useCursorList(filterKey, fetchPage);
+  // A laptop with no session at all is most likely still being set up, so it points at the checklist (issue #1436).
+  const unsetLaptop = profile === "laptop" && can(PermissionAction.HostRead) && !loading && !error && total === 0 && filterKey === "{}";
 
   return (
     <div className="search-page">
       {canReadPrompts && <PromptSearch />}
+      {unsetLaptop && (
+        <p>
+          No sessions yet. <Link to="/setup">Set up this Mac</Link> to approve what it needs, then run claude in a terminal.
+        </p>
+      )}
       <FilterChips fields={FILTER_FIELDS} active={activeFilter} onChange={setFilter} />
       <SearchResultsFrame
         loading={loading}

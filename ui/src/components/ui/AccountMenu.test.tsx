@@ -51,6 +51,34 @@ describe("AccountMenu", () => {
     expect(screen.getByRole("link", { name: "Admin settings" })).toHaveAttribute("href", "/admin/settings/data-collection");
   });
 
+  it("offers a laptop's first-run checklist to an operator who can read hosts, and never on a server", () => {
+    const renderOn = (profile: "laptop" | "server", permissions: string[]) =>
+      render(
+        <MemoryRouter>
+          <PermissionsProvider permissions={permissions}>
+            <ProfileProvider profile={profile}>
+              <AccountMenu user={{ id: 1, email: "mike@example.com" }} onLogout={vi.fn()} />
+            </ProfileProvider>
+          </PermissionsProvider>
+        </MemoryRouter>,
+      );
+    const open = () => { fireEvent.click(screen.getByRole("button", { name: "Account menu" })); };
+
+    const laptop = renderOn("laptop", [PermissionAction.HostRead]);
+    open();
+    expect(screen.getByRole("link", { name: "Set up this Mac" })).toHaveAttribute("href", "/setup");
+    laptop.unmount();
+
+    const server = renderOn("server", [PermissionAction.HostRead]);
+    open();
+    expect(screen.queryByRole("link", { name: "Set up this Mac" })).toBeNull();
+    server.unmount();
+
+    renderOn("laptop", [PermissionAction.ProcessRead]);
+    open();
+    expect(screen.queryByRole("link", { name: "Set up this Mac" })).toBeNull();
+  });
+
   it("opens the dropdown and shows Admin settings when sso.manage is granted", () => {
     renderMenu([PermissionAction.SSOManage]);
     fireEvent.click(screen.getByRole("button", { name: "Account menu" }));

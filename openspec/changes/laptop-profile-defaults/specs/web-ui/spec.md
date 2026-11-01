@@ -16,6 +16,28 @@ On a server whose profile is `laptop`, the console SHALL open on Agent sessions 
 - **WHEN** they open Admin settings, then turn on **Show advanced settings**
 - **THEN** single sign-on, containment and service accounts are offered only after the switch is on, and the browser keeps the choice
 
+### Requirement: The first-run checklist walks the approvals from live health
+
+The console SHALL offer a first-run checklist that lists, in order, the approvals a Mac needs to capture: the security extension, the network extension, network filtering, Full Disk Access for the security extension and for the agent, the first event, and the first agent session. Each step SHALL show whether it is done, needs the person, or is waiting, and where to make it, read from the Mac's live agent health. A refused Full Disk Access grant SHALL show as a step that needs the person.
+
+#### Scenario: Each approval shows where it stands
+
+- **GIVEN** a Mac whose agent reports some approvals made and others not
+- **WHEN** the person opens the checklist
+- **THEN** the steps are listed in order, the made ones done, and each open one says where to make it
+
+#### Scenario: A refused Full Disk Access grant is a red step
+
+- **GIVEN** a Mac whose security extension or agent reports `full_disk_access_missing`
+- **WHEN** the person opens the checklist
+- **THEN** that component's Full Disk Access step is shown red as needing the person, with where to grant it
+
+#### Scenario: The checklist follows the Mac as it is set up
+
+- **GIVEN** an open checklist with a step left
+- **WHEN** the agent next reports the approval made
+- **THEN** the step turns done without a reload, and once every step is done the checklist stops rereading and points to Agent sessions
+
 ## MODIFIED Requirements
 
 ### Requirement: Alert list is the home view

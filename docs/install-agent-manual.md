@@ -179,6 +179,8 @@ Granting FDA mid-loop lets the next relaunch succeed within a few seconds; if th
 
 The agent should be enrolled and posting events to the server.
 
+The console's first-run checklist at `/ui/setup` shows the same from the server's side: each approval in order, done or still open, with a missing Full Disk Access grant in red. It updates as the agent reports. It sets up the Mac that reported last; add `?host=<host id>` for another.
+
 On the Mac:
 
 ```sh

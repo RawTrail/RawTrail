@@ -3,7 +3,8 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router";
 
 import { SessionList } from "./SessionList";
-import { PermissionsContext } from "../../permissions-core";
+import { PermissionAction, PermissionsContext } from "../../permissions-core";
+import { ProfileContext, type Profile } from "../../profile-core";
 import * as api from "../../api";
 import type { AgentSessionSummary } from "../../types";
 
@@ -167,5 +168,49 @@ describe("SessionList", () => {
     vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
     renderList();
     expect(await screen.findByText("No AI agent sessions match.")).toBeVisible();
+  });
+
+  describe("on a laptop with no session yet", () => {
+    function renderOn(profile: Profile, perms: string[], initial = "/agent-sessions") {
+      return render(
+        <MemoryRouter initialEntries={[initial]}>
+          <PermissionsContext.Provider value={perms}>
+            <ProfileContext.Provider value={{ profile, showAdvanced: true, setShowAdvanced: vi.fn() }}>
+              <Routes>
+                <Route path="/agent-sessions" element={<SessionList />} />
+              </Routes>
+            </ProfileContext.Provider>
+          </PermissionsContext.Provider>
+        </MemoryRouter>,
+      );
+    }
+    const perms = [PermissionAction.ProcessRead, PermissionAction.HostRead];
+
+    it("points the person at the setup checklist", async () => {
+      vi.spyOn(api, "listHosts").mockResolvedValue([]);
+      vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
+      renderOn("laptop", perms);
+      expect(await screen.findByRole("link", { name: "Set up this Mac" })).toHaveAttribute("href", "/setup");
+    });
+
+    it("does not point there on a server, behind a filter, without host access, or once a session exists", async () => {
+      vi.spyOn(api, "listHosts").mockResolvedValue([]);
+      const sessions = vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
+      const cases: [Profile, string[], string][] = [
+        ["server", perms, "/agent-sessions"],
+        ["laptop", perms, "/agent-sessions?agent=codex"],
+        ["laptop", [PermissionAction.ProcessRead], "/agent-sessions"],
+      ];
+      for (const [profile, granted, at] of cases) {
+        const { unmount } = renderOn(profile, granted, at);
+        expect(await screen.findByText("No AI agent sessions match.")).toBeVisible();
+        expect(screen.queryByRole("link", { name: "Set up this Mac" })).toBeNull();
+        unmount();
+      }
+      sessions.mockResolvedValue({ rows: [session()], total_matched: 1 });
+      renderOn("laptop", perms);
+      expect(await screen.findByText("claude-code")).toBeVisible();
+      expect(screen.queryByRole("link", { name: "Set up this Mac" })).toBeNull();
+    });
   });
 });
