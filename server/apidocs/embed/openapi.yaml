@@ -3545,7 +3545,7 @@ components:
 
     SessionResponse:
       type: object
-      required: [user, csrf_token, roles]
+      required: [user, csrf_token, roles, profile]
       properties:
         user:
           type: object
@@ -3561,6 +3561,12 @@ components:
           description: >-
             The ids of the roles the operator holds deployment-wide, sorted, each once. Always present; empty when the operator holds
             none.
+        profile:
+          type: string
+          enum: [server, laptop]
+          description: >-
+            The deployment profile (`EDR_PROFILE`). The console chooses its defaults from it: a laptop opens on Agent sessions and offers
+            fleet settings behind a switch. It grants and removes nothing.
 
     ErrorResponse:
       type: object

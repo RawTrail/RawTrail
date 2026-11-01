@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { useCan } from "../../permissions-core";
-import { SETTINGS_SECTIONS } from "./sections";
+import { useProfile } from "../../profile-core";
+import { Toggle } from "../ui/Toggle";
+import { offeredSections } from "./sections";
 import "./SettingsLayout.scss";
 
 // SettingsLayout wraps the admin settings pages with a shared sub-navigation between the
@@ -14,7 +16,8 @@ import "./SettingsLayout.scss";
 export function SettingsLayout({ children }: { readonly children: ReactNode }) {
   const can = useCan();
   const { pathname } = useLocation();
-  const sections = SETTINGS_SECTIONS.filter((s) => can(s.action));
+  const { profile, showAdvanced, setShowAdvanced } = useProfile();
+  const sections = offeredSections(can, showAdvanced);
 
   return (
     <div className="settings-layout">
@@ -32,6 +35,12 @@ export function SettingsLayout({ children }: { readonly children: ReactNode }) {
             </Link>
           );
         })}
+        {profile === "laptop" && (
+          <div className="settings-layout__advanced">
+            <Toggle id="settings-show-advanced" label="Show advanced settings" checked={showAdvanced}
+              onChange={(e) => { setShowAdvanced(e.target.checked); }} />
+          </div>
+        )}
       </nav>
       <div className="settings-layout__content">{children}</div>
     </div>

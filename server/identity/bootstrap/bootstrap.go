@@ -43,6 +43,8 @@ type Deps struct {
 	DB           *sqlx.DB
 	Logger       *slog.Logger
 	CookieSecure bool
+	// Profile is the deployment profile (EDR_PROFILE) the session probe reports, so the console can choose its defaults.
+	Profile string
 	// Session timeouts: per-class idle + absolute caps. Zero means use the sessions package defaults: normal 8h idle / 24h absolute,
 	// break-glass 15m / 1h.
 	SessionIdle               time.Duration
@@ -242,6 +244,7 @@ func New(ctx context.Context, deps Deps) (*Identity, error) {
 			Logger:       logger,
 			Audit:        auditStore,
 			Permissions:  authzEngine,
+			Profile:      deps.Profile,
 		}),
 		oidcHandler:       oidcHandler,
 		breakglassHandler: bgHandler,

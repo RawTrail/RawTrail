@@ -456,6 +456,7 @@ func openIdentity(
 		DB:                            db,
 		Logger:                        logger,
 		CookieSecure:                  cfg.ExternalTLS(),
+		Profile:                       cfg.Profile,
 		SessionSigningKey:             sessionSigningKey,
 		OIDCSecretKey:                 oidcSecretKey,
 		ServiceAccountTokenSigningKey: serviceAccountTokenSigningKey,

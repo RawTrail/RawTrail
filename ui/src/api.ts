@@ -113,6 +113,9 @@ export interface SessionInfo {
   // roles are the ids of the roles the operator holds deployment-wide, which the account menu names. Optional for the same reason as
   // permissions: an older server does not send it, and the menu then names no role.
   roles?: string[];
+  // profile is the deployment profile (EDR_PROFILE, issue #1436), from which the console chooses its defaults. An older server does
+  // not send it, and is a server.
+  profile?: string;
 }
 
 export function getCsrfToken(): string {
