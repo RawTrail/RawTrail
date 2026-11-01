@@ -5,5 +5,5 @@
 
 ## 2. First-run checklist
 
-- [ ] 2.1 The agent reports a missing Full Disk Access grant
-- [ ] 2.2 The checklist page walks the approvals from live agent health
+- [x] 2.1 The agent reports a missing Full Disk Access grant
+- [x] 2.2 The checklist page walks the approvals from live agent health

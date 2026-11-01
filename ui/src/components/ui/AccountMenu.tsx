@@ -46,7 +46,8 @@ export function AccountMenu({ user, authMethod, roles, onLogout }: AccountMenuPr
   const { open, setOpen, ref } = useDismiss<HTMLDivElement>();
   // Where "Admin settings" goes, and whether it is offered at all. Gating it on one section's permission hid the whole area from
   // an operator who could open a different one.
-  const settingsTo = settingsEntry(can, useProfile().showAdvanced);
+  const { profile, showAdvanced } = useProfile();
+  const settingsTo = settingsEntry(can, showAdvanced);
 
   const badge = authMethodLabel(authMethod);
   const signIn = signInLabel(authMethod);
@@ -89,6 +90,12 @@ export function AccountMenu({ user, authMethod, roles, onLogout }: AccountMenuPr
               onClick={() => { setOpen(false); }}
             >
               Admin settings
+            </Link>
+          )}
+          {/* A laptop is one person setting up their own Mac, so its first-run checklist is a menu item away (issue #1436). */}
+          {profile === "laptop" && can(PermissionAction.HostRead) && (
+            <Link to="/setup" className="account-menu__item" onClick={() => { setOpen(false); }}>
+              Set up this Mac
             </Link>
           )}
           {can(PermissionAction.DetectionConfigRead) && (

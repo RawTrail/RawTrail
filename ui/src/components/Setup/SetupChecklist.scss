@@ -1,0 +1,52 @@
+@use "../../styles/var/colors" as *;
+@use "../../styles/var/global" as *;
+
+// The checklist reads as one column of steps, capped like a settings form so a step's badge and its instruction stay close on a wide
+// display.
+.setup-checklist {
+  max-width: $settings-form-max-width;
+}
+
+.setup-checklist__summary {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.setup-checklist__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-checklist__step {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid $ui-black-10;
+  border-left-width: 4px;
+  border-radius: 4px;
+}
+
+.setup-checklist__step--done {
+  border-left-color: $core-green;
+}
+
+// A refused grant is the one state that needs the person now, so it is the one drawn red.
+.setup-checklist__step--missing {
+  border-left-color: $core-vibrant-red;
+}
+
+.setup-checklist__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.setup-checklist__instruction {
+  margin: 0.25rem 0 0;
+  color: $ui-black-75;
+}
