@@ -33,7 +33,11 @@ func TestApplyFullDiskAccess(t *testing.T) {
 
 	reg := health.NewRegistry()
 	reg.Register(health.ComponentEndpointSecurityExtension, "Security extension")
-	reg.Register(health.ComponentAgentFullDiskAccess, "Agent")
+
+	// A privacy database that cannot be found says nothing, so the agent reports no component for its grant.
+	applyFullDiskAccess(reg, fda.Probe{TCCPath: filepath.Join(dir, "absent.db"), StatusPath: refusal})
+	assert.Equal(t, map[string]string{health.ComponentEndpointSecurityExtension: "never_connected"}, reasons(reg))
+
 	probe := fda.Probe{TCCPath: tcc, StatusPath: refusal}
 
 	// No refusal recorded: the extension keeps never_connected, and the agent's readable database is a grant.
@@ -50,7 +54,7 @@ func TestApplyFullDiskAccess(t *testing.T) {
 	applyFullDiskAccess(reg, probe)
 	assert.Equal(t, health.ReasonFullDiskAccessMissing, reasons(reg)[health.ComponentEndpointSecurityExtension])
 
-	// A privacy database that cannot be found says nothing, so the agent's last reading stands.
+	// Nor does it, once the agent has read its grant: the last reading stands.
 	applyFullDiskAccess(reg, fda.Probe{TCCPath: filepath.Join(dir, "absent.db"), StatusPath: refusal})
 	assert.Equal(t, "full_disk_access_granted", reasons(reg)[health.ComponentAgentFullDiskAccess])
 
@@ -79,8 +83,7 @@ func TestWatchFullDiskAccessWith(t *testing.T) {
 		close(done)
 	}()
 
-	// It registers the agent's component, then picks up a refusal recorded after it started.
-	require.Eventually(t, func() bool { _, ok := reasons(reg)[health.ComponentAgentFullDiskAccess]; return ok }, time.Second, time.Millisecond)
+	// It picks up a refusal recorded after it started.
 	require.NoError(t, os.WriteFile(refusal, []byte(`{"refused":"not_permitted","at":"x"}`), 0o600))
 	require.Eventually(t, func() bool {
 		return reasons(reg)[health.ComponentEndpointSecurityExtension] == health.ReasonFullDiskAccessMissing
