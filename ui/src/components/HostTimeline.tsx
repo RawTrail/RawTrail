@@ -290,13 +290,14 @@ function detailCell(evt: EventRecord) {
 }
 
 // fileActivityDetail spells an agent's folded file activity (issue #1287): the operation, the path (a rename's source first), and how
-// many operations the row stands for when it folds more than one, under a directory when the extension rolled the row up, and by how
-// many processes when it folded the operations of the processes this one started.
+// many operations the row stands for when it folds more than one, under a directory when the extension rolled the row up (operations,
+// not files: one file changed twice counts twice), and by how many processes when it folded the operations of the processes this one
+// started.
 function fileActivityDetail(p: FileActivityPayload): string {
   const target = p.source_path ? `${p.source_path} → ${p.path}` : p.path;
   const count = p.coalesced_count ?? 1;
   const by = p.process_count ? ` by ${plural(p.process_count, "process", "processes")}` : "";
-  if (p.rolled_up) return `${p.operation} ${plural(count, "file", "files")} under ${target}${by}`;
+  if (p.rolled_up) return `${p.operation} ${plural(count, "file operation", "file operations")} under ${target}${by}`;
   return count > 1 ? `${p.operation} ${target} ×${String(count)}${by}` : `${p.operation} ${target}${by}`;
 }
 

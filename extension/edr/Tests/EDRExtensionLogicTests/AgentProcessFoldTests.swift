@@ -71,28 +71,60 @@ final class AgentProcessFoldTests: XCTestCase {
         XCTAssertEqual(rows.first?.payload.pid, parent.pid, "named for the parent both lineages share")
     }
 
-    // The fold's bookkeeping is bounded on the ES callback path: a lineage names at most maxLineage ancestors, and past maxPending
-    // processes a window reads no more lineages.
+    // The fold's work is bounded on the ES callback path: a lineage names at most maxLineage ancestors, a row reads its lineage once
+    // when it begins, and a chain of forks far deeper than that still folds with every operation counted.
     func testLineageBookkeepingIsBounded() {
-        var set = AgentProcessSet(capacity: 256)
+        var set = AgentProcessSet(capacity: 512)
         var parent = claude
         set.exec(from: ProcessKey(pid: claude.pid, pidVersion: 1), to: claude, root: true)
-        for depth in 1...100 {
+        var chain: [ProcessKey] = []
+        for depth in 1...300 {
             let child = ProcessKey(pid: pid_t(5000 + depth), pidVersion: 1)
             set.fork(parent: parent, child: child, root: false)
+            chain.append(child)
             parent = child
         }
         XCTAssertEqual(set.lineage(of: parent).count, AgentProcessSet.maxLineage)
 
-        var rollup = FileActivityRollup(budget: 64, maxPending: 4)
+        var rollup = FileActivityRollup(budget: 4, maxPending: 4096)
         var reads = 0
-        for pid in 1...10 {
-            rollup.add(record(.modify, "/tmp/f\(pid)", at: 1, by: ProcessKey(pid: pid_t(pid), pidVersion: 1))) {
-                reads += 1
-                return [self.claude]
+        for process in chain {
+            for _ in 0..<2 {
+                rollup.add(record(.modify, "/tmp/chain/\(process.pid)", at: 1, by: process)) {
+                    reads += 1
+                    return set.lineage(of: process)
+                }
             }
         }
-        XCTAssertEqual(reads, 3, "three processes and their root fill the four links; later processes' lineages are not read")
+        XCTAssertEqual(reads, chain.count, "a row reads its lineage when it begins, not on every operation")
+        let rows = rollup.flush()
+        XCTAssertLessThanOrEqual(rows.count, 4)
+        XCTAssertEqual(rows.reduce(0) { $0 + $1.count } + rollup.dropped, 600)
+    }
+
+    // A row reads its lineage when it begins, so one begun after an ancestor exited cannot fold into it, though the same processes'
+    // earlier rows did: a folded row never names a process that was gone at its first operation.
+    func testARowBegunAfterAnAncestorExitedDoesNotNameIt() {
+        var set = AgentProcessSet(capacity: 16)
+        let root = ProcessKey(pid: 10, pidVersion: 1)
+        set.exec(from: ProcessKey(pid: 10, pidVersion: 0), to: root, root: true)
+        let jobs = [ProcessKey(pid: 20, pidVersion: 1), ProcessKey(pid: 21, pidVersion: 1)]
+        jobs.forEach { set.fork(parent: root, child: $0, root: false) }
+        var rollup = FileActivityRollup(budget: 2, maxPending: 4096)
+        for job in jobs {
+            rollup.add(record(.modify, "/tmp/seed.log", at: 1, by: job)) { set.lineage(of: job) }
+        }
+        set.exit(root)
+        for job in jobs {
+            rollup.add(record(.modify, "/tmp/later/out.log", at: 5, by: job)) { set.lineage(of: job) }
+        }
+        let rows = rollup.flush()
+        let seed = rows.first { $0.payload.path == "/tmp/seed.log" }?.payload
+        XCTAssertEqual(seed?.pid, root.pid, "rows begun while the parent ran fold into it")
+        XCTAssertEqual(seed?.processCount, 2)
+        XCTAssertFalse(rows.contains { $0.payload.path.hasPrefix("/tmp/later") && $0.payload.pid == root.pid },
+                       "rows begun after it exited do not")
+        XCTAssertEqual(rows.reduce(0) { $0 + $1.count } + rollup.dropped, 4)
     }
 
     /// Fanout is an agent session's pipeline as edr-dev ran it: Claude Code starts a shell, which starts `xargs`, which forks a child
@@ -172,23 +204,28 @@ final class AgentProcessFoldTests: XCTestCase {
         XCTAssertEqual(rows.first { $0.payload.pid == claude.pid }?.processes.allSatisfy { $0.pid < 5000 }, true)
     }
 
+    /// randomForest makes processes that are each a root or the child of one made before it, with their lineages.
+    private func randomForest(using generator: inout SystemRandomNumberGenerator) -> ([ProcessKey], [ProcessKey: [ProcessKey]]) {
+        var lineages: [ProcessKey: [ProcessKey]] = [:]
+        var processes: [ProcessKey] = []
+        for pid in 1...Int.random(in: 1...40, using: &generator) {
+            let key = ProcessKey(pid: pid_t(pid), pidVersion: 1)
+            if let parent = processes.randomElement(using: &generator), Bool.random(using: &generator) || pid > 3 {
+                lineages[key] = [parent] + (lineages[parent] ?? [])
+            } else {
+                lineages[key] = []
+            }
+            processes.append(key)
+        }
+        return (processes, lineages)
+    }
+
     // spec:endpoint-event-collection/file-activity-rows-fold-by-process/a-fan-out-folds-into-the-process-that-started-it
     // spec:endpoint-event-collection/file-activity-rows-fold-by-process/two-sessions-never-share-a-row
     func testProcessFoldInvariants() {
         var generator = SystemRandomNumberGenerator()
         for _ in 0..<200 {
-            // A random forest: each process is a root, or the child of one made before it.
-            var lineages: [ProcessKey: [ProcessKey]] = [:]
-            var processes: [ProcessKey] = []
-            for pid in 1...Int.random(in: 1...40, using: &generator) {
-                let key = ProcessKey(pid: pid_t(pid), pidVersion: 1)
-                if let parent = processes.randomElement(using: &generator), Bool.random(using: &generator) || pid > 3 {
-                    lineages[key] = [parent] + (lineages[parent] ?? [])
-                } else {
-                    lineages[key] = []
-                }
-                processes.append(key)
-            }
+            let (processes, lineages) = randomForest(using: &generator)
             let budget = Int.random(in: 1...12, using: &generator)
             var rollup = FileActivityRollup(budget: budget, maxPending: Int.random(in: budget...(budget * 4), using: &generator))
             var records: [FileActivityRecord] = []
@@ -209,7 +246,8 @@ final class AgentProcessFoldTests: XCTestCase {
             records.forEach { add($0, to: &rollup, lineages: read) }
             let rows = rollup.flush()
             XCTAssertLessThanOrEqual(rows.count, budget)
-            XCTAssertEqual(rows.reduce(0) { $0 + $1.count } + rollup.dropped, records.count, "every operation is sent or counted as dropped")
+            let sent = rows.reduce(0) { $0 + $1.count }
+            XCTAssertEqual(sent + rollup.dropped, records.count, "every operation is sent or counted as dropped")
             for row in rows {
                 let named = ProcessKey(pid: row.payload.pid, pidVersion: row.payload.pidVersion)
                 let covered = records.filter { covered in

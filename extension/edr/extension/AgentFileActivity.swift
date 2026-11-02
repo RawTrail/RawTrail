@@ -123,8 +123,8 @@ enum FileOperation: String, Codable, Sendable {
 /// by FileActivityRollup. It is a type of its own rather than another `open` or `file_rename`, because those feed detection rules
 /// that read `path` as a file, and a rolled-up row names a directory.
 struct FileActivityPayload: Codable, Sendable, Equatable {
-    let pid: pid_t
-    let pidVersion: UInt32
+    var pid: pid_t
+    var pidVersion: UInt32
     let operation: FileOperation
     /// The file operated on, or, when rolledUp, the directory whose contents the counts cover.
     var path: String
@@ -197,6 +197,10 @@ struct FileActivityRow: Sendable, Equatable {
     var payload: FileActivityPayload
     var firstNs: UInt64
     var processes: Set<ProcessKey>
+    /// lineage is the processes the row may fold into, the named process's parent first: the live ancestors of its own session the
+    /// process had when the row began. Each was running then, and so at the first operation of any row this one takes in, since it was
+    /// running before any of its descendants acted: a folded row never names a process that had exited.
+    var lineage: [ProcessKey] = []
 }
 
 /// FileActivityRollup folds a window of file operations into at most `budget` rows (the spike measured about 6.7k operations for one
@@ -218,11 +222,6 @@ struct FileActivityRollup {
     let budget: Int
     let maxPending: Int
     private var rows: [RowKey: FileActivityRow] = [:]
-    /// parents holds the parent of every process the window names and of their ancestors, nil for the top of a lineage, read from the
-    /// process set when a process's first operation arrived, since it may have exited by the time the window folds. One link per process
-    /// keeps the cost linear in the processes, and past `maxPending` of them a new process's lineage is not read, so its rows fold only
-    /// by directory: the window's memory stays bounded however fast an agent forks.
-    private var parents: [ProcessKey: ProcessKey?] = [:]
     private(set) var dropped = 0
 
     private struct RowKey: Hashable {
@@ -238,21 +237,10 @@ struct FileActivityRollup {
 
     var pendingCount: Int { rows.count }
 
-    /// add folds one operation into the window. lineage is called once per process, for the processes it descends from, parent first.
+    /// add folds one operation into the window. lineage is read when the operation starts a row, for the live processes of its session
+    /// the process descends from, parent first, at most `AgentProcessSet.maxLineage` of them: the window's memory and every fold's work
+    /// stay bounded by its rows.
     mutating func add(_ record: FileActivityRecord, lineage: () -> [ProcessKey] = { [] }) {
-        if parents[record.process] == nil, parents.count < maxPending {
-            var child = record.process
-            for ancestor in lineage() {
-                guard parents[child] == nil else {
-                    break
-                }
-                parents[child] = .some(ancestor)
-                child = ancestor
-            }
-            if parents[child] == nil {
-                parents[child] = .some(nil)
-            }
-        }
         let key = RowKey(process: record.process, operation: record.operation, path: record.path)
         if var row = rows[key] {
             row.merge(count: 1, firstNs: record.timeNs, lastNs: record.timeNs)
@@ -269,7 +257,7 @@ struct FileActivityRollup {
                 pid: record.process.pid, pidVersion: record.process.pidVersion, operation: record.operation, path: record.path,
                 sourcePath: record.operation == .rename ? record.sourcePath : nil
             )
-            rows[key] = FileActivityRow(payload: payload, firstNs: record.timeNs, processes: [record.process])
+            rows[key] = FileActivityRow(payload: payload, firstNs: record.timeNs, processes: [record.process], lineage: lineage())
         }
         if rows.count > maxPending {
             fold(to: budget)
@@ -281,12 +269,11 @@ struct FileActivityRollup {
         fold(to: budget)
         let out = rows.values.sorted { ($0.firstNs, $0.payload.path) < ($1.firstNs, $1.payload.path) }
         rows = [:]
-        parents = [:]
         return out
     }
 
     /// Group is a row as a climb moves it, with what it was folded from: the first row as it stood before the climb, how many rows it
-    /// took in, and the steps every one of them shares: the leading path components, or the trailing processes of their lineages.
+    /// took in, and the steps every one of them shares: the leading path components, or the processes of their lineages.
     private struct Group<Step: Equatable> {
         var row: FileActivityRow
         let first: FileActivityRow
@@ -368,70 +355,91 @@ struct FileActivityRollup {
     }
 
     /// climbProcesses folds the rows of the deepest processes into their parent process, keeping their paths, until at most limit
-    /// remain or every row names the root of its subtree. As with directories, each group settles on the nearest process its rows all
-    /// descend from, and a row that took in no other keeps its own process.
+    /// remain or no row has a lineage left to climb. Each row climbs its own lineage, so it can reach only processes that were running
+    /// when its rows began, and at most `AgentProcessSet.maxLineage` levels. As with directories, each group settles on the nearest
+    /// process its rows all descend from, and a row that took in no other keeps its own process.
     private mutating func climbProcesses(to limit: Int) {
+        // above is what a group can still climb to; common, for settling, is the processes every row it took in shares, the one it
+        // names first. Groups that meet keep the processes in both: lineages read at different times differ past an ancestor that
+        // exited between them, and the process they meet at is in both.
         var groups = Dictionary(uniqueKeysWithValues: rows.map { key, row in
-            (key, Group(row: row, first: row, common: [key.process] + Self.ancestors(of: key.process, in: parents)))
+            (key, (group: Group(row: row, first: row, common: [key.process] + row.lineage), above: row.lineage))
         })
-        // A process's depth is read once per climb, not once per row per level.
-        var depths: [ProcessKey: Int] = [:]
-        let links = parents
-        func depth(_ process: ProcessKey) -> Int {
-            if let known = depths[process] {
-                return known
-            }
-            let found = Self.ancestors(of: process, in: links).count
-            depths[process] = found
-            return found
-        }
+        let depth = Self.depths(of: rows)
         while groups.count > limit {
-            let deepest = groups.keys.map { depth($0.process) }.max() ?? 0
-            guard deepest > 0 else {
+            let climbing = groups.filter { !$0.value.above.isEmpty }
+            guard let deepest = climbing.keys.map({ depth($0.process) }).max() else {
                 break
             }
-            var folded: [RowKey: Group<ProcessKey>] = [:]
-            for (key, group) in groups {
+            var folded: [RowKey: (group: Group<ProcessKey>, above: [ProcessKey])] = [:]
+            for (key, entry) in groups {
+                var next = entry
                 var nextKey = key
-                if depth(key.process) == deepest, let parent = parents[key.process] ?? nil {
-                    nextKey = RowKey(process: parent, operation: key.operation, path: key.path)
+                if !entry.above.isEmpty, depth(key.process) == deepest {
+                    nextKey = RowKey(process: entry.above[0], operation: key.operation, path: key.path)
+                    next.above.removeFirst()
                 }
                 if var existing = folded[nextKey] {
-                    // Lineages read at different times can disagree past an ancestor that exited between them, so the processes two
-                    // groups share are those in both, not a common tail; the process they meet at is always one of them.
-                    let theirs = Set(group.common)
-                    existing.take(group, sharing: existing.common.filter { theirs.contains($0) })
+                    let theirs = Set(next.group.common)
+                    existing.group.take(next.group, sharing: existing.group.common.filter { theirs.contains($0) })
+                    let above = Set(next.above)
+                    existing.above = existing.above.filter { above.contains($0) }
                     folded[nextKey] = existing
                 } else {
-                    folded[nextKey] = group
+                    folded[nextKey] = next
                 }
             }
             groups = folded
         }
-        settle(groups.map { key, group in
+        settle(groups.map { key, entry in
+            let group = entry.group
             guard group.members > 1 else {
                 return group.first
             }
             let ancestor = group.common.first ?? key.process
             var out = group.row
-            out.payload = FileActivityPayload(
-                pid: ancestor.pid, pidVersion: ancestor.pidVersion, operation: out.payload.operation, path: out.payload.path,
-                sourcePath: out.payload.sourcePath, coalescedCount: out.payload.coalescedCount,
-                lastTimestampNs: out.payload.lastTimestampNs, rolledUp: out.payload.rolledUp, processCount: out.payload.processCount
-            )
+            out.payload.pid = ancestor.pid
+            out.payload.pidVersion = ancestor.pidVersion
+            out.lineage = Array(group.common.dropFirst())
             return out
         })
     }
 
-    /// ancestors walks recorded parents up from a process, its parent first.
-    private static func ancestors(of process: ProcessKey, in parents: [ProcessKey: ProcessKey?]) -> [ProcessKey] {
-        var out: [ProcessKey] = []
-        var next = parents[process] ?? nil
-        while let parent = next {
-            out.append(parent)
-            next = parents[parent] ?? nil
+    /// depths reads how deep in its tree each process the rows name is, from their lineages, so rows climb in step and siblings meet
+    /// at their parent even when an exit cut one's lineage short. A process's parent is the same in every lineage that names it, so the
+    /// links form a tree; depth is counted to the top of what the rows know of it, at most `AgentProcessSet.maxLineage`.
+    private static func depths(of rows: [RowKey: FileActivityRow]) -> (ProcessKey) -> Int {
+        var parent: [ProcessKey: ProcessKey] = [:]
+        for (key, row) in rows {
+            for (child, up) in zip([key.process] + row.lineage, row.lineage) where parent[child] == nil {
+                parent[child] = up
+            }
         }
-        return out
+        var known: [ProcessKey: Int] = [:]
+        return { process in
+            // Walk up to a process whose depth is known, the top of the tree, or the cap, then count back down.
+            var path: [ProcessKey] = []
+            var start = 0
+            var at = process
+            while known[at] == nil {
+                path.append(at)
+                guard let up = parent[at] else {
+                    break
+                }
+                guard path.count < AgentProcessSet.maxLineage else {
+                    start = AgentProcessSet.maxLineage
+                    break
+                }
+                at = up
+            }
+            if let found = known[at], !path.isEmpty {
+                start = found + 1
+            }
+            for (offset, step) in path.reversed().enumerated() {
+                known[step] = min(start + offset, AgentProcessSet.maxLineage)
+            }
+            return known[process] ?? 0
+        }
     }
 
     /// settle keys the window again by the process and path each row now names, so a later operation on that path joins it.

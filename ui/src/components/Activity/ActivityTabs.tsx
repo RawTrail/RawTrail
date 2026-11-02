@@ -29,8 +29,10 @@ const DAEMON_TITLE = "The daemon this socket belongs to. The connect is the sess
 const ROLLED_UP_TITLE = "Too many files changed at once to list each: this row counts the files under this directory.";
 
 // FOLDED_TITLE explains a row folded from several processes: past the same budget, the extension counts a fan-out's operations on one
-// path under the process its jobs all descend from.
-const FOLDED_TITLE = "Too many processes did this at once to list each: this row counts their operations under the process that started them.";
+// path under the process its jobs all descend from. The count is summed over each second's fold, so it is at most the processes.
+const FOLDED_TITLE =
+  "Too many processes did this at once to list each: this row counts their operations under the process that started them. " +
+  "Each second counts its processes, so one active across several seconds counts more than once.";
 
 interface ActivityRead {
   key: string;
@@ -314,7 +316,7 @@ function FilesPanel({ activity, rows, processName, hasMore: listsMore, more }: P
                 </td>
                 <td>
                   {r.processes ? (
-                    <span title={FOLDED_TITLE}>{plural(r.processes, "process", "processes")} under {processName(r)}</span>
+                    <span title={FOLDED_TITLE}>up to {plural(r.processes, "process", "processes")} under {processName(r)}</span>
                   ) : (
                     processName(r)
                   )}

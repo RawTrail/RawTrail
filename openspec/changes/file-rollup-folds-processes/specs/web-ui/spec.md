@@ -8,4 +8,4 @@ The Files tab and the host timeline SHALL say how many processes an agent file r
 
 - **GIVEN** a file row folded from 80 processes under `xargs`
 - **WHEN** the Files tab or the host timeline shows it
-- **THEN** the Files tab names "80 processes under" the process, and the timeline spells the operation "by 80 processes"
+- **THEN** the Files tab names "up to 80 processes under" the process, since its count sums each second's fold, and the timeline spells the operation "by 80 processes"

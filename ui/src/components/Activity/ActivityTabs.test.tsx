@@ -159,7 +159,7 @@ describe("ActivityTabs", () => {
     // A row folded from a fan-out names how many processes it counts, under the one they descend from.
     const fanout = screen.getByText("/tmp/b1.output").closest("tr");
     expect(fanout).not.toBeNull();
-    expect(within(fanout as HTMLElement).getByText(/^80 processes under/)).toBeVisible();
+    expect(within(fanout as HTMLElement).getByText(/^up to 80 processes under/)).toBeVisible();
     expect(within(fanout as HTMLElement).getByText("160")).toBeVisible();
   });
 
