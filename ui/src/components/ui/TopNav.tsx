@@ -31,6 +31,8 @@ export function TopNav({ user, authMethod, roles, onLogout }: TopNavProps) {
     <nav className="top-nav">
       <div className="top-nav__inner">
         <div className="top-nav__brand">
+          {/* Decorative: the wordmark beside it names the product. /ui/ is the path the server serves the bundle under. */}
+          <img className="top-nav__logo-mark" src="/ui/favicon.svg" alt="" width={24} height={24} />
           <span className="top-nav__logo-text">
             Raw<span className="top-nav__logo-accent">Trail</span>
           </span>
