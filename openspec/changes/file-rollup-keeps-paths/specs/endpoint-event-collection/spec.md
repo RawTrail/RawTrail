@@ -6,7 +6,7 @@ When a flush folds `file_activity` rows into directories to fit its budget, a ro
 
 #### Scenario: A row that folds nothing keeps its path
 
-- **GIVEN** more processes than the budget each close the same inherited output file within a second
+- **GIVEN** more processes than the budget, none started by another observed process, each close the same file within a second
 - **WHEN** the window is flushed
 - **THEN** every event sent names that file, none of them `rolled_up`
 - **AND** the operations past the budget are logged as dropped

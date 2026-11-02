@@ -95,7 +95,7 @@ final class AgentFileSubscriber: Sendable {
         guard queue.sync(execute: { processes.contains(actor) }), let record = Self.record(of: msg) else {
             return
         }
-        queue.sync { rollup.add(record) }
+        queue.sync { rollup.add(record) { processes.lineage(of: actor) } }
     }
 
     /// record reads a file event into a FileActivityRecord, or nil for a close that changed nothing and for a path not worth sending.

@@ -14,7 +14,7 @@ import (
 // Each activity class's order (issue #1424): first seen, then every column that groups a row, so the order is total and a page can
 // continue from its last row. The names are the list queries' column aliases.
 const (
-	fileOrder    = "first, path, operation, source_path, rolled_up, pid, pv"
+	fileOrder    = "first, path, operation, source_path, rolled_up, folded, pid, pv"
 	networkOrder = "first, address, port, protocol, pid, pv"
 	dnsOrder     = "first, name, pid, pv"
 )
@@ -54,6 +54,7 @@ type activityCursor struct {
 	Op       string `json:"o,omitempty"` // operation or protocol
 	Source   string `json:"s,omitempty"`
 	RolledUp bool   `json:"r,omitempty"`
+	Folded   bool   `json:"f,omitempty"`
 	Port     int64  `json:"n,omitempty"`
 	PID      int64  `json:"p"`
 	PV       int64  `json:"v"`
@@ -69,7 +70,7 @@ func encodeActivityCursor(c activityCursor) string {
 
 func fileCursor(r api.FileActivityRow) string {
 	return encodeActivityCursor(activityCursor{Class: api.ActivityFiles, First: r.FirstNs, Text: r.Path, Op: r.Operation,
-		Source: r.SourcePath, RolledUp: r.RolledUp, PID: r.PID, PV: r.PIDVersion})
+		Source: r.SourcePath, RolledUp: r.RolledUp, Folded: r.Processes > 0, PID: r.PID, PV: r.PIDVersion})
 }
 
 func networkCursor(r api.NetworkActivityRow) string {
@@ -108,7 +109,7 @@ func decodeActivityCursor(class, token string) (keyset, error) {
 	}
 	switch class {
 	case api.ActivityFiles:
-		return keyset{c.First, c.Text, c.Op, c.Source, c.RolledUp, c.PID, c.PV}, nil
+		return keyset{c.First, c.Text, c.Op, c.Source, c.RolledUp, c.Folded, c.PID, c.PV}, nil
 	case api.ActivityNetwork:
 		return keyset{c.First, c.Text, c.Port, c.Op, c.PID, c.PV}, nil
 	default:

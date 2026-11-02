@@ -149,10 +149,11 @@ func (s *Store) fileActivity(ctx context.Context, scope string, args []any, afte
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+activityFileOperation+` AS operation, JSONExtractString(payload, 'path') AS path,
 			JSONExtractString(payload, 'source_path') AS source_path, toBool(JSONExtractBool(payload, 'rolled_up')) AS rolled_up,
+			toBool(JSONHas(payload, 'process_count')) AS folded, toInt64(sum(JSONExtractInt(payload, 'process_count'))),
 			pid, `+activityPIDVersion+` AS pv, toInt64(sum(`+activityWeight+`)), min(timestamp_ns) AS first, max(`+activityLastTimestamp+`)
 		FROM events FINAL
 		WHERE event_type IN `+activityFileTypes+` AND `+scope+`
-		GROUP BY operation, path, source_path, rolled_up, pid, pv
+		GROUP BY operation, path, source_path, rolled_up, folded, pid, pv
 		`+after.having(fileOrder)+`
 		ORDER BY `+fileOrder+`
 		LIMIT ?`, after.args(args, limit+1)...)
@@ -160,7 +161,9 @@ func (s *Store) fileActivity(ctx context.Context, scope string, args []any, afte
 		return nil, false, fmt.Errorf("clickhouse file activity: %w", err)
 	}
 	return scanActivity(rows, limit, func(r *api.FileActivityRow) []any {
-		return []any{&r.Operation, &r.Path, &r.SourcePath, &r.RolledUp, &r.PID, &r.PIDVersion, &r.Count, &r.FirstNs, &r.LastNs}
+		var folded bool
+		return []any{&r.Operation, &r.Path, &r.SourcePath, &r.RolledUp, &folded, &r.Processes, &r.PID, &r.PIDVersion, &r.Count, &r.FirstNs,
+			&r.LastNs}
 	})
 }
 

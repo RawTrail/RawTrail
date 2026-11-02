@@ -63,6 +63,7 @@ describe("HostTimeline", () => {
   });
 
   // spec:web-ui/agent-file-activity-views/the-timeline-shows-an-agent-s-file-activity
+  // spec:web-ui/folded-agent-file-rows-name-their-process-count/a-fan-out-s-row-names-how-many-processes-it-counts
   it("lists an agent's file activity under its process's pid, with each operation spelled out", async () => {
     vi.spyOn(api, "getHostTimeline").mockResolvedValue({
       events: [
@@ -70,14 +71,16 @@ describe("HostTimeline", () => {
         fileEvent("repeated", { path: "/r/notes.md", coalesced_count: 3, last_timestamp_ns: 4_500_000_000 }),
         fileEvent("moved", { operation: "rename", path: "/r/b", source_path: "/r/a" }),
         fileEvent("install", { pid: 5054, operation: "create", path: "/r/node_modules", coalesced_count: 1856, rolled_up: true }),
+        fileEvent("fanout", { pid: 2900, path: "/tmp/b1.output", coalesced_count: 160, process_count: 80 }),
       ],
-      total_matched: 4,
+      total_matched: 5,
     });
     renderTimeline();
     expect(await screen.findByText("modify /r/main.go")).toBeVisible();
     expect(screen.getByText("modify /r/notes.md ×3")).toBeVisible();
     expect(screen.getByText("rename /r/a → /r/b")).toBeVisible();
     expect(screen.getByText("create 1,856 files under /r/node_modules")).toBeVisible();
+    expect(screen.getByText("modify /tmp/b1.output ×160 by 80 processes")).toBeVisible();
     // The cell cuts a long path with an ellipsis; its title keeps the whole of it.
     expect(screen.getByText("modify /r/main.go")).toHaveAttribute("title", "modify /r/main.go");
     // The file path is not the process: the process column names the pid alone.

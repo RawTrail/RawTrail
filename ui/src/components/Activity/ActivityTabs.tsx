@@ -28,6 +28,10 @@ const DAEMON_TITLE = "The daemon this socket belongs to. The connect is the sess
 // counted under their directory.
 const ROLLED_UP_TITLE = "Too many files changed at once to list each: this row counts the files under this directory.";
 
+// FOLDED_TITLE explains a row folded from several processes: past the same budget, the extension counts a fan-out's operations on one
+// path under the process its jobs all descend from.
+const FOLDED_TITLE = "Too many processes did this at once to list each: this row counts their operations under the process that started them.";
+
 interface ActivityRead {
   key: string;
   activity?: ActivityResponse;
@@ -290,7 +294,7 @@ function FilesPanel({ activity, rows, processName, hasMore: listsMore, more }: P
           <thead><tr><th>Operation</th><th>Path</th><th>Process</th><th>Count</th><th>First</th><th>Last</th></tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={`${r.operation}|${r.path}|${r.source_path ?? ""}|${r.rolled_up ? "dir" : ""}|${String(r.pid)}:${String(r.pidversion)}`}>
+              <tr key={`${r.operation}|${r.path}|${r.source_path ?? ""}|${r.rolled_up ? "dir" : ""}|${r.processes ? "folded" : ""}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td>{OPERATION_LABELS[r.operation] ?? r.operation}</td>
                 <td className="activity-tabs__mono">
                   <span className="activity-tabs__file">
@@ -308,7 +312,13 @@ function FilesPanel({ activity, rows, processName, hasMore: listsMore, more }: P
                     {r.operation === "connect" && <>{" "}<DaemonName path={r.path} /></>}
                   </span>
                 </td>
-                <td>{processName(r)}</td>
+                <td>
+                  {r.processes ? (
+                    <span title={FOLDED_TITLE}>{plural(r.processes, "process", "processes")} under {processName(r)}</span>
+                  ) : (
+                    processName(r)
+                  )}
+                </td>
                 <Seen row={r} />
               </tr>
             ))}

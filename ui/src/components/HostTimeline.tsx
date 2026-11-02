@@ -290,12 +290,14 @@ function detailCell(evt: EventRecord) {
 }
 
 // fileActivityDetail spells an agent's folded file activity (issue #1287): the operation, the path (a rename's source first), and how
-// many operations the row stands for when it folds more than one, under a directory when the extension rolled the row up.
+// many operations the row stands for when it folds more than one, under a directory when the extension rolled the row up, and by how
+// many processes when it folded the operations of the processes this one started.
 function fileActivityDetail(p: FileActivityPayload): string {
   const target = p.source_path ? `${p.source_path} → ${p.path}` : p.path;
   const count = p.coalesced_count ?? 1;
-  if (p.rolled_up) return `${p.operation} ${plural(count, "file", "files")} under ${target}`;
-  return count > 1 ? `${p.operation} ${target} ×${String(count)}` : `${p.operation} ${target}`;
+  const by = p.process_count ? ` by ${plural(p.process_count, "process", "processes")}` : "";
+  if (p.rolled_up) return `${p.operation} ${plural(count, "file", "files")} under ${target}${by}`;
+  return count > 1 ? `${p.operation} ${target} ×${String(count)}${by}` : `${p.operation} ${target}${by}`;
 }
 
 // SearchFleetLink is the "search all hosts for this artifact" pivot on a connection/DNS row, the timeline analogue of the network

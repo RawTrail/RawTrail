@@ -444,6 +444,10 @@ type FileActivityRow struct {
 	// RolledUp marks Path as a directory standing for the agent file activity under it, which the extension folded to stay within its
 	// per-second budget.
 	RolledUp bool `json:"rolled_up,omitempty"`
+	// Processes is how many processes the row stands for when the extension folded the operations of several into the one it names,
+	// which they all descend from, to stay within its per-second budget. Each second's fold counts its processes, so one active across
+	// several seconds counts in each. Zero for a row of the named process's own operations, which is listed apart.
+	Processes int64 `json:"processes,omitempty"`
 }
 
 // NetworkActivity lists, per process, the destinations it connected to.

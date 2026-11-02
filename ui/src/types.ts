@@ -235,6 +235,8 @@ export interface FileActivityRow extends ActivityRow {
   source_path?: string;
   // Set when path is a directory standing for the agent file activity under it, folded by the extension.
   rolled_up?: boolean;
+  // Set when the extension folded the operations of this many processes, which descend from the one named, into the row.
+  processes?: number;
 }
 
 export interface NetworkActivityRow extends ActivityRow {
@@ -562,6 +564,7 @@ export interface FileActivityPayload {
   coalesced_count?: number;
   last_timestamp_ns?: number;
   rolled_up?: boolean;
+  process_count?: number;
 }
 
 export interface DNSQueryPayload {
