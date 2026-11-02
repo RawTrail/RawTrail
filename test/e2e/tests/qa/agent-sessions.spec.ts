@@ -61,7 +61,10 @@ test.describe("agent sessions", () => {
     // A session opens on its Summary.
     const views = page.getByRole("group", { name: "Session view" });
     await expect(views.getByRole("button", { name: "Summary", pressed: true })).toBeVisible();
-    await views.getByRole("button", { name: "Commands" }).click();
+    await views.getByRole("button", { name: "Timeline" }).click();
+    // The session recorded no prompt, so its Timeline opens on its commands.
+    // spec:web-ui/agent-session-timeline-view/a-session-with-no-prompt-opens-on-its-commands
+    await expect(page.getByRole("switch", { name: "Group by prompt" })).not.toBeChecked();
 
     // One group per command the agent ran, in order, labelled with that command rather than its wrapper script.
     const commands = page.locator(".session-view__call");
@@ -102,7 +105,7 @@ test.describe("agent sessions", () => {
     const adopted = processes.locator("li", { hasText: "reparented, ppid 1" }).last();
     await expect(adopted.locator(".session-view__name").first()).toHaveText("sleep");
     await expect(adopted.locator("xpath=../../div/button[contains(@class, 'session-view__name')]")).toHaveText("zsh");
-    await views.getByRole("button", { name: "Commands" }).click();
+    await views.getByRole("button", { name: "Timeline" }).click();
 
     // Selecting a process opens its detail beside the session.
     await commands.nth(1).getByRole("button", { name: "sleep", exact: true }).click();
@@ -130,7 +133,7 @@ test.describe("agent sessions", () => {
     // The same edit in git's process detail panel, at a width that puts the panel below the commands: the path keeps to one line and
     // the table scrolls sideways, rather than wrapping the path a few characters at a time.
     await page.setViewportSize({ width: 800, height: 900 });
-    await views.getByRole("button", { name: "Commands" }).click();
+    await views.getByRole("button", { name: "Timeline" }).click();
     await commands.nth(0).getByRole("button", { name: "git", exact: true }).click();
     await page.getByRole("group", { name: "Process activity" }).getByRole("button", { name: /^Files/ }).click();
     const panelRow = page.locator(".process-detail__activity .activity-tabs__panel").getByRole("row").nth(1);

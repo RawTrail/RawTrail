@@ -2,7 +2,7 @@
 
 ### Requirement: Agent session view pages its commands
 
-The session view's Commands SHALL list the commands the server groups for the session a page at a time, offering the next page on request with how many remain. A search there SHALL ask the server for the commands it finds once the operator stops typing. The header SHALL count the session's commands and processes from its totals. Each read's cut SHALL be told with the view it cuts.
+The session view's Timeline, ungrouped, SHALL list the commands the server groups for the session a page at a time, offering the next page on request with how many remain. A search there SHALL ask the server for the commands it finds once the operator stops typing. The header SHALL count the session's commands and processes from its totals. Each read's cut SHALL be told with the view it cuts.
 
 #### Scenario: The rest of the commands come on request
 

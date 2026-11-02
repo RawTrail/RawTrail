@@ -28,7 +28,7 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 describe("PromptSearch", () => {
   // spec:web-ui/agent-prompt-search/an-operator-finds-a-prompt-across-sessions
-  it("searches the window chosen and lists each prompt with its host, the match marked, linking to its conversation", async () => {
+  it("searches the window chosen and lists each prompt with its host, the match marked, linking to its timeline", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([{ host_id: "H1", hostname: "mac-a.local" } as never]);
     vi.spyOn(Date, "now").mockReturnValue(40 * 24 * 3_600_000);
     const spy = vi.spyOn(api, "searchAgentPrompts").mockResolvedValue({ prompts: [found()] });
@@ -40,7 +40,7 @@ describe("PromptSearch", () => {
     expect(await screen.findByText("mac-a.local")).toBeVisible();
     expect(screen.getByText("deploy", { selector: "mark" })).toBeVisible();
     expect(screen.getByRole("link")).toHaveAttribute(
-      "href", "/agent-sessions/H1/169b5bb1-29b5-41da-9a54-92cd72599ad9?view=conversation&q=Deploy");
+      "href", "/agent-sessions/H1/169b5bb1-29b5-41da-9a54-92cd72599ad9?view=timeline&group=prompt&q=Deploy");
     expect(screen.getByText("Every search is recorded in the audit log with its text.")).toBeVisible();
   });
 

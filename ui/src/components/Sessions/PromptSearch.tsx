@@ -25,10 +25,10 @@ const DEFAULT_WINDOW_DAYS = 7;
 const MIN_QUERY = 3;
 // MAX_QUERY_BYTES is the longest text the server searches for, in UTF-8 bytes: the audit row records it whole.
 const MAX_QUERY_BYTES = 255;
-// conversationHref opens a prompt's session on its Conversation, searched for what found the prompt, so its turn is listed however
-// far into the session it is, with what the agent did for it.
+// conversationHref opens a prompt's session on its Timeline grouped by prompt, searched for what found the prompt, so its turn is listed
+// however far into the session it is, with what the agent did for it.
 function conversationHref(p: FoundAgentPrompt, query: string): string {
-  return `${sessionPath(p.host_id, p.agent_session_id)}?view=conversation&q=${encodeURIComponent(query)}`;
+  return `${sessionPath(p.host_id, p.agent_session_id)}?view=timeline&group=prompt&q=${encodeURIComponent(query)}`;
 }
 
 // windowEndingNow is a search of query over the days ending now, both bounds in ns, so every page of it reads the same window.
@@ -91,7 +91,7 @@ export function PromptSearch() {
           type="search"
           className="field__input prompt-search__input"
           aria-label="Prompt text"
-          placeholder="Text people typed to an agent"
+          placeholder="Words in a prompt"
           value={draft}
           onChange={(e) => { setDraft(e.target.value); }}
         />
