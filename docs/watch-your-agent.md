@@ -25,15 +25,15 @@ The installer:
 
 1. Starts the server stack in Docker, reachable from this Mac only, on `https://localhost:8443`. It generates its secrets and a TLS certificate for `localhost` under `~/.rawtrail-laptop`.
 2. Installs the notarized agent package and points it at that server, pinned to its certificate. It asks for your password for this step.
-3. Opens the one-time link that registers your admin passkey (Touch ID). The link is valid for an hour; `rawtrail-laptop login` makes a new one.
+3. Opens the one-time link that registers your admin passkey (Touch ID). The link is valid for an hour; `scripts/laptop/rawtrail-laptop login` makes a new one.
 
 macOS then asks you to allow RawTrail's system extensions in System Settings. The console's setup checklist shows what is still needed, such as Full Disk Access, and confirms when the agent is reporting. Start a Claude Code session and it appears under **Agent sessions**.
 
-`rawtrail-laptop status` shows whether the stack and the agent are running. If the Mac already reports to another RawTrail server, `install` stops; `--replace-config` points it at the laptop server instead, and `uninstall` restores the previous config.
+`scripts/laptop/rawtrail-laptop status` shows whether the stack and the agent are running. If the Mac already reports to another RawTrail server, `install` stops; `--replace-config` points it at the laptop server instead, and `uninstall` restores the previous config.
 
 ## What it costs
 
-The stack keeps 7 days of events. Its containers are capped at about 2 GB of memory together, and an idle stack uses about 450 MB.
+The stack keeps 7 days of events. MySQL is capped at 640 MB of memory and ClickHouse at 1,280 MB; the server itself has no cap. An idle stack uses about 450 MB in all.
 
 | Measure                                   | Value            |
 | ----------------------------------------- | ---------------- |
