@@ -2,7 +2,7 @@
 
 ### Requirement: File activity rows keep their paths
 
-When a flush folds `file_activity` rows into directories to fit its budget, a row that merged with no other SHALL keep its own path and SHALL NOT be marked `rolled_up`, and a row that merged several SHALL name the deepest directory their paths share.
+When a flush folds `file_activity` rows into directories to fit its budget, a row that merged with no other SHALL leave the flush as it entered it, keeping its path and its `rolled_up` flag, and a row that merged several SHALL name the deepest directory their paths share.
 
 #### Scenario: A row that folds nothing keeps its path
 
