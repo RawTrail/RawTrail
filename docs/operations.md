@@ -295,12 +295,12 @@ To change it, open **Detection tuning** and edit **AI agent credential guard** (
 
 ## Sharing an AI agent session as an image
 
-A session's Summary has a **Share as image** button. It makes a PNG card of the session in the browser: nothing is uploaded, and there are no share links. The card shows counts, the programs the agent ran by name, the public domains it talked to, its timeline, and what the credential guard stopped.
+A session's Summary is shown as the card it is shared as, and beside it are **Copy image**, **Download PNG** and **Copy caption**. The image is made in the browser: nothing is uploaded, and there are no share links. The card shows counts, the programs the agent ran by name, the public domains it talked to, and which credentials the credential guard stopped it reading.
 
 - Usernames, hostnames and IP addresses are always removed, home folders show as `~`, and commands show as program names, never their arguments.
-- A prompt shown as the title, the project's name, and internal domains appear only when the person turns them on. Internal domains are names under `.local`, `.lan`, `.internal`, `.corp` and similar, and the domain the host itself is named under.
-- The preview is exactly what is exported, in 1080 x 1350 for LinkedIn or 1200 x 675 for X, at twice that resolution.
-- If the host's name cannot be read, the dialog shares nothing, since it cannot check the image for the name.
+- A prompt is never the card's title, the project's name is not on it, and internal domains are never shown or counted. Internal domains are names under `.local`, `.lan`, `.internal`, `.corp` and similar, and the domain the host itself is named under.
+- The card is 1080 x 1350, exported at twice that resolution, and is exactly what the Summary shows.
+- If the host's name cannot be read, no card is drawn and nothing can be shared, since the image cannot be checked for the name.
 
 ## Process-tree freshness
 
