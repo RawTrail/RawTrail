@@ -216,34 +216,73 @@ struct FileActivityRollup {
         return out
     }
 
+    /// Group is a row as the fold climbs it, with what it was folded from: the first row as it stood before the fold, how many rows it
+    /// took in, and the components every one of their paths starts with.
+    private struct Group {
+        var row: FileActivityRow
+        let first: FileActivityRow
+        var members = 1
+        var common: [Substring]
+
+        /// settled is the row the group stands for: a row that took in no other keeps its own path, and one that did names the deepest
+        /// directory its paths share rather than wherever the climb stopped.
+        var settled: FileActivityRow {
+            guard members > 1 else {
+                return first
+            }
+            var out = row
+            out.payload.path = "/" + common.joined(separator: "/")
+            return out
+        }
+    }
+
     /// fold folds the deepest rows into their parent directories until at most limit remain or every row is at the top level, then
     /// drops the smallest rows past the limit.
+    ///
+    /// Rows of different processes never merge, so climbing a level can leave the count where it was: a pipeline whose every process
+    /// closes the one output file it inherited climbs to `/private` without folding anything. The climb is therefore only a grouping,
+    /// and each group settles on the path its rows share.
     private mutating func fold(to limit: Int) {
-        while rows.count > limit {
-            let deepest = rows.keys.map { Self.depth($0.path) }.max() ?? 0
+        guard rows.count > limit else {
+            return
+        }
+        var groups = rows.mapValues { Group(row: $0, first: $0, common: Self.components($0.payload.path)) }
+        while groups.count > limit {
+            let deepest = groups.keys.map { Self.depth($0.path) }.max() ?? 0
             guard deepest > 1 else {
                 break
             }
-            var folded: [RowKey: FileActivityRow] = [:]
-            for (key, row) in rows {
-                var next = row
+            var folded: [RowKey: Group] = [:]
+            for (key, group) in groups {
+                var next = group
                 var nextKey = key
                 if Self.depth(key.path) == deepest {
                     let parent = Self.parent(of: key.path)
-                    next.payload.path = parent
-                    next.payload.sourcePath = nil
-                    next.payload.rolledUp = true
+                    next.row.payload.path = parent
+                    next.row.payload.sourcePath = nil
+                    next.row.payload.rolledUp = true
                     nextKey = RowKey(process: key.process, operation: key.operation, path: parent)
                 }
                 if var existing = folded[nextKey] {
-                    existing.absorb(next)
+                    existing.row.absorb(next.row)
+                    existing.members += next.members
+                    existing.common = Array(zip(existing.common, next.common).prefix { $0 == $1 }.map(\.0))
                     folded[nextKey] = existing
                 } else {
                     folded[nextKey] = next
                 }
             }
-            rows = folded
+            groups = folded
         }
+        // Each row is keyed again by the path it now names, so a later operation on that path joins it.
+        rows = Dictionary(groups.map { key, group in
+            let row = group.settled
+            return (RowKey(process: key.process, operation: key.operation, path: row.payload.path), row)
+        }, uniquingKeysWith: { kept, other in
+            var merged = kept
+            merged.absorb(other)
+            return merged
+        })
         guard rows.count > limit else {
             return
         }
@@ -254,7 +293,11 @@ struct FileActivityRollup {
 
     /// depth counts a path's components: `/a/b` is 2. The root and a relative path are 0.
     static func depth(_ path: String) -> Int {
-        path.split(separator: "/", omittingEmptySubsequences: true).count
+        components(path).count
+    }
+
+    static func components(_ path: String) -> [Substring] {
+        path.split(separator: "/", omittingEmptySubsequences: true)
     }
 
     /// parent drops a path's last component.
