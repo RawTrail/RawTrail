@@ -8,7 +8,7 @@ vi.mock("./shareImage", () => ({ sharePng: vi.fn(() => Promise.resolve(new Blob(
 
 const CARD: ShareCard = {
   agent: "claude-code 2.1.0", date: "Nov 1, 2026", duration: "42 min", tokens: "50k", toolCalls: 12, processes: 140, filesChanged: 3,
-  outsideProject: 1, temporary: 0, domains: 2, domainsCut: false, programs: [], destinations: [], guard: null,
+  outsideProject: 1, temporary: 0, unrecorded: 0, domains: 2, domainsCut: false, programs: [], destinations: [], guard: null,
 };
 
 // stubClipboard gives the page a clipboard, or none, and says whether the browser can put an image on it.

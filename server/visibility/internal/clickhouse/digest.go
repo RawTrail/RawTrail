@@ -152,6 +152,14 @@ func (s *Store) digestFiles(ctx context.Context, scope string, args []any, proje
 	if err != nil {
 		return api.FileDigest{}, fmt.Errorf("clickhouse digest files: %w", err)
 	}
+	// What the extension dropped past its budget (file_activity_dropped) is counted apart: it names no path.
+	err = s.db.QueryRowContext(ctx, `
+		SELECT toInt64(sum(JSONExtractInt(payload, 'operations')))
+		FROM events FINAL
+		WHERE event_type = 'file_activity_dropped' AND `+scope, args...).Scan(&out.Unrecorded)
+	if err != nil {
+		return api.FileDigest{}, fmt.Errorf("clickhouse digest unrecorded files: %w", err)
+	}
 	return out, nil
 }
 

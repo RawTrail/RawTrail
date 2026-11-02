@@ -170,6 +170,15 @@ final class AgentFileSubscriber: Sendable {
                 onEvent?(data)
             }
         }
+        // Rows past the budget are not sent, but their loss is, so the session they belong to reads as incomplete.
+        for (process, loss) in window.losses {
+            let payload = FileActivityDroppedPayload(
+                pid: process.pid, pidVersion: process.pidVersion, operations: loss.operations, lastTimestampNs: loss.lastNs
+            )
+            if let data = serializer.serialize(eventType: "file_activity_dropped", payload: payload, kernelTimeNs: loss.firstNs) {
+                onEvent?(data)
+            }
+        }
         if window.dropped > 0 || refused > reportedRefusals {
             let summary = "agent-file client over budget: \(window.dropped) operations dropped, " +
                 "\(refused - reportedRefusals) processes unobserved (\(observed) observed)"

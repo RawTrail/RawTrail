@@ -8,7 +8,7 @@ const MINUTE_NS = 60e9;
 function digest(over: Partial<AgentSessionDigest> = {}): AgentSessionDigest {
   return {
     prompts: 0, programs: [], directories: [], directories_truncated: false,
-    files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
+    files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0, unrecorded: 0 }, domains: [], domains_truncated: false,
     timeline: [0, 0], command_timeline: [0, 0], timeline_start_ns: 0, timeline_bucket_ns: MINUTE_NS, ...over,
   };
 }
@@ -48,7 +48,7 @@ function input(over: Partial<ShareInput> = {}): ShareInput {
         prompts: 6,
         programs: [{ program: "/opt/homebrew/bin/go", count: 132 }, { program: "git", count: 61 }, { program: "rg", count: 44 },
           { program: "npm", count: 18 }, { program: "make", count: 2 }],
-        files: { changed: 41, outside_project: 4, temporary: 12, agent_files: 60 },
+        files: { changed: 41, outside_project: 4, temporary: 12, agent_files: 60, unrecorded: 0 },
         domains: [{ domain: "api.anthropic.com", lookups: 3, connections: 2, new: false },
           { domain: "github.com", lookups: 2, connections: 1, new: false },
           { domain: "wiki.example.com", lookups: 1, connections: 1, new: true },
@@ -73,7 +73,7 @@ describe("shareCard", () => {
     const card = shareCard(input());
     expect(card).toEqual({
       agent: "Claude Code", date: expect.any(String) as string, duration: "47 min", tokens: "3.1M", toolCalls: 1286, processes: 903,
-      filesChanged: 41, outsideProject: 4, temporary: 12, domains: 2, domainsCut: false,
+      filesChanged: 41, outsideProject: 4, temporary: 12, unrecorded: 0, domains: 2, domainsCut: false,
       programs: [{ name: "go", count: 132 }, { name: "git", count: 61 }, { name: "rg", count: 44 }, { name: "npm", count: 18 }],
       // The internal wiki and the .local name are not shown or counted, and neither is the address.
       destinations: [{ label: "Model APIs", count: 1, domains: ["api.anthropic.com"] }, { label: "Git hosts", count: 1, domains: ["github.com"] }],
@@ -134,6 +134,14 @@ describe("shareCard", () => {
     expect(domainCount(card)).toBe("2");
     const cut = shareCard(input({ totals: totals({ digest: digest({ domains: input().totals.digest?.domains, domains_truncated: true }) }) }));
     expect(domainCount(cut)).toBe("2+");
+  });
+
+  // spec:web-ui/an-agent-session-says-when-its-file-activity-is-incomplete/the-summary-says-how-many-file-operations-were-not-recorded
+  it("notes the file operations the sensor could not record, after the others", () => {
+    const base = input();
+    const files = { changed: 41, outside_project: 4, temporary: 12, agent_files: 0, unrecorded: 309 };
+    const card = shareCard({ ...base, totals: { ...base.totals, digest: base.totals.digest && { ...base.totals.digest, files } } });
+    expect(filesNotes(card)).toEqual(["4 outside the project", "12 temporary files not counted", "309 operations not recorded"]);
   });
 });
 

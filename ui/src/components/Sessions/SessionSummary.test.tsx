@@ -16,7 +16,7 @@ const MINUTE_NS = 60e9;
 function digest(over: Partial<AgentSessionDigest> = {}): AgentSessionDigest {
   return {
     prompts: 0, programs: [], directories: [], directories_truncated: false,
-    files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
+    files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0, unrecorded: 0 }, domains: [], domains_truncated: false,
     timeline: [0, 0], command_timeline: [0, 0], timeline_start_ns: 0, timeline_bucket_ns: 1, ...over,
   };
 }
@@ -51,7 +51,7 @@ function busy(): AgentSessionTotals {
       directories: [{ directory: "/Users/dev/app/src", paths: 3, by_operation: { modify: 6 } },
         { directory: "/etc", paths: 1, by_operation: { create: 2 } }],
       directories_truncated: true,
-      files: { changed: 3, outside_project: 1, temporary: 2, agent_files: 40 },
+      files: { changed: 3, outside_project: 1, temporary: 2, agent_files: 40, unrecorded: 0 },
       domains: [{ domain: "github.com", lookups: 2, connections: 3, new: false },
         { domain: "anthropic.com", lookups: 1, connections: 0, new: false },
         { domain: "evil.test", lookups: 1, connections: 0, new: true }],
@@ -220,6 +220,16 @@ describe("SessionSummary", () => {
     expect(svg).not.toContain("Where it talked to");
     expect(screen.getByText("No alerts were raised in this session.")).toBeVisible();
     expect(screen.queryByText(/^Not counted/)).toBeNull();
+    expect(screen.queryByText(/^Incomplete/)).toBeNull();
+  });
+
+  // spec:web-ui/an-agent-session-says-when-its-file-activity-is-incomplete/the-summary-says-how-many-file-operations-were-not-recorded
+  it("says when file operations were not recorded", async () => {
+    const read = busy();
+    if (read.digest) read.digest.files.unrecorded = 309;
+    renderSummary(read);
+    await card();
+    expect(screen.getByText(/^Incomplete: 309 file operations came faster than the sensor sends/)).toBeVisible();
   });
 
   it("says when the activity reflects only part of the session", async () => {

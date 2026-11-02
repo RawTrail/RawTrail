@@ -6,7 +6,7 @@ import { labelled, texts } from "../../test/svgText";
 function card(over: Partial<ShareCard> = {}): ShareCard {
   return {
     agent: "Claude Code", date: "Oct 30, 2026", duration: "47 min", tokens: "3.1M", toolCalls: 1286, processes: 903, filesChanged: 41,
-    outsideProject: 4, temporary: 12, domains: 3, domainsCut: false,
+    outsideProject: 4, temporary: 12, unrecorded: 0, domains: 3, domainsCut: false,
     programs: [{ name: "go", count: 132 }, { name: "git", count: 61 }],
     destinations: [{ label: "Model APIs", count: 1, domains: ["api.anthropic.com"] }],
     guard: { credentials: ["my AWS credentials"] }, ...over,
@@ -22,6 +22,19 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("wrap", () => {
+  // spec:web-ui/an-agent-session-says-when-its-file-activity-is-incomplete/the-summary-says-how-many-file-operations-were-not-recorded
+  it("draws a third note under the files changed above the lists that follow", () => {
+    const svg = shareSvg(card({ unrecorded: 309 }));
+    // y is the baseline of the text element drawing label: the last y attribute before it.
+    const y = (label: string): number => {
+      const at = svg.indexOf(`>${label}<`);
+      const start = svg.lastIndexOf(' y="', at) + 4;
+      return Number(svg.slice(start, svg.indexOf('"', start)));
+    };
+    expect(y("309 operations not recorded")).toBeGreaterThan(y("12 temporary files not counted"));
+    expect(y("309 operations not recorded")).toBeLessThan(y("Programs it ran most") - 24);
+  });
+
   it("keeps text that fits on one line", () => {
     expect(wrap("Add retry with backoff", 64, 920, 3)).toEqual(["Add retry with backoff"]);
   });
@@ -69,6 +82,7 @@ describe("shareSvg", () => {
     expect(svg).toContain(">actually ran<");
     expect(svg).toContain(">4 outside the project<");
     expect(svg).toContain(">12 temporary files not counted<");
+    expect(svg).not.toContain("not recorded");
     expect(svg).toContain(">Recorded with RawTrail<");
     expect(svg).toContain(">github.com/RawTrail/RawTrail<");
   });

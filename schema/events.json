@@ -19,7 +19,7 @@
     },
     "event_type": {
       "type": "string",
-      "enum": ["exec", "fork", "exit", "open", "file_rename", "file_truncate", "file_delete", "file_activity", "agent_credential_would_block", "agent_credential_block", "agent_tool_call", "agent_prompt", "agent_usage", "network_connect", "dns_query", "application_control_block", "application_control_would_block", "application_control_undecided", "application_control_resync", "snapshot_heartbeat", "btm_launch_item_add", "sensor_provider_transition", "sensor_recovery_failed", "tcc_modify"],
+      "enum": ["exec", "fork", "exit", "open", "file_rename", "file_truncate", "file_delete", "file_activity", "file_activity_dropped", "agent_credential_would_block", "agent_credential_block", "agent_tool_call", "agent_prompt", "agent_usage", "network_connect", "dns_query", "application_control_block", "application_control_would_block", "application_control_undecided", "application_control_resync", "snapshot_heartbeat", "btm_launch_item_add", "sensor_provider_transition", "sensor_recovery_failed", "tcc_modify"],
       "description": "Type of endpoint security event"
     },
     "platform": {
@@ -64,6 +64,10 @@
     {
       "if": { "properties": { "event_type": { "const": "file_activity" } }, "required": ["event_type"] },
       "then": { "properties": { "payload": { "$ref": "#/definitions/file_activity_payload" } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "file_activity_dropped" } }, "required": ["event_type"] },
+      "then": { "properties": { "payload": { "$ref": "#/definitions/file_activity_dropped_payload" } } }
     },
     {
       "if": { "properties": { "event_type": { "const": "agent_credential_would_block" } }, "required": ["event_type"] },
@@ -371,6 +375,17 @@
         "last_timestamp_ns": { "type": "integer", "description": "Optional. Timestamp (ns since Unix epoch) of the latest operation the event stands for. Present only when coalesced_count is greater than 1." },
         "rolled_up": { "type": "boolean", "description": "Optional. True when the window held more rows than the extension sends a second, and path is a directory folding the operations on the paths under it." },
         "process_count": { "type": "integer", "minimum": 2, "description": "Optional. Set when the window held more rows than the extension sends a second and the event folds the operations of several processes: how many. pid and pidversion then name the nearest process they all descend from, which may be one of them. Absent means the named process did every operation." }
+      }
+    },
+    "file_activity_dropped_payload": {
+      "type": "object",
+      "required": ["pid", "pidversion", "operations", "last_timestamp_ns"],
+      "description": "File operations of an AI agent's subtree that the extension could not send in one second: more rows than its per-second budget remained after folding them into the processes that started them and into their directories. Sent so a session reads as incomplete rather than quietly missing activity. The envelope timestamp_ns is the earliest dropped operation.",
+      "properties": {
+        "pid": { "type": "integer" },
+        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Kernel PID generation of the topmost observed process of the session the dropped operations belong to." },
+        "operations": { "type": "integer", "minimum": 1, "description": "How many file operations were dropped." },
+        "last_timestamp_ns": { "type": "integer", "description": "Timestamp (ns since Unix epoch) of the latest dropped operation." }
       }
     },
     "agent_tool_call_payload": {

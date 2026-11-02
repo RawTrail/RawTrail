@@ -127,6 +127,30 @@ final class AgentProcessFoldTests: XCTestCase {
         XCTAssertEqual(rows.reduce(0) { $0 + $1.count } + rollup.dropped, 4)
     }
 
+    // spec:endpoint-event-collection/dropped-file-activity-is-reported/a-session-s-dropped-operations-are-reported
+    func testDropsAreCountedPerSubtree() throws {
+        // Two sessions' jobs on two files, with room for one row: the other session's row is dropped and charged to its root.
+        var rollup = FileActivityRollup(budget: 1, maxPending: 4096)
+        let roots = [ProcessKey(pid: 100, pidVersion: 1), ProcessKey(pid: 200, pidVersion: 1)]
+        for (index, root) in roots.enumerated() {
+            for job in 0..<(index + 2) {
+                let key = ProcessKey(pid: root.pid + 1 + pid_t(job), pidVersion: 1)
+                add(record(.modify, "/tmp/out\(index).log", at: UInt64(10 * (index + 1) + job), by: key), to: &rollup,
+                    lineages: [key: [root]])
+            }
+        }
+        let rows = rollup.flush()
+        XCTAssertEqual(rows.map(\.payload.pid), [200], "the row standing for more operations is kept")
+        XCTAssertEqual(rollup.dropped, 2)
+        XCTAssertEqual(rollup.losses, [roots[0]: FileActivityLoss(operations: 2, firstNs: 10, lastNs: 11)],
+                       "the dropped row is charged to the root of its session")
+
+        let payload = FileActivityDroppedPayload(pid: 100, pidVersion: 1, operations: 2, lastTimestampNs: 11)
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as? [String: Any]
+        XCTAssertEqual(Set(json?.keys.map { $0 } ?? []), ["pid", "pidversion", "operations", "last_timestamp_ns"])
+        XCTAssertEqual(try JSONDecoder().decode(FileActivityDroppedPayload.self, from: JSONEncoder().encode(payload)), payload)
+    }
+
     /// Fanout is an agent session's pipeline as edr-dev ran it: Claude Code starts a shell, which starts `xargs`, which forks a child
     /// per job; each job closes the output file it inherited, on stdout and on stderr.
     private struct Fanout {
@@ -248,6 +272,7 @@ final class AgentProcessFoldTests: XCTestCase {
             XCTAssertLessThanOrEqual(rows.count, budget)
             let sent = rows.reduce(0) { $0 + $1.count }
             XCTAssertEqual(sent + rollup.dropped, records.count, "every operation is sent or counted as dropped")
+            XCTAssertEqual(rollup.losses.values.reduce(0) { $0 + $1.operations }, rollup.dropped, "every drop is charged to a subtree")
             for row in rows {
                 let named = ProcessKey(pid: row.payload.pid, pidVersion: row.payload.pidVersion)
                 let covered = records.filter { covered in

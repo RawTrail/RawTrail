@@ -16,9 +16,9 @@ import (
 // spec:server-rest-api/agent-session-digest/the-digest-counts-the-files-the-session-changed
 func TestFileDigest_WireShape(t *testing.T) {
 	t.Parallel()
-	got, err := json.Marshal(api.FileDigest{Changed: 12, OutsideProject: 3, Temporary: 4, AgentFiles: 40})
+	got, err := json.Marshal(api.FileDigest{Changed: 12, OutsideProject: 3, Temporary: 4, AgentFiles: 40, Unrecorded: 309})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"changed":12,"outside_project":3,"temporary":4,"agent_files":40}`, string(got))
+	assert.JSONEq(t, `{"changed":12,"outside_project":3,"temporary":4,"agent_files":40,"unrecorded":309}`, string(got))
 }
 
 func TestFileDigest_RoundTrip(t *testing.T) {
@@ -27,6 +27,7 @@ func TestFileDigest_RoundTrip(t *testing.T) {
 		in := api.FileDigest{
 			Changed: rapid.Int64().Draw(t, "changed"), OutsideProject: rapid.Int64().Draw(t, "outside"),
 			Temporary: rapid.Int64().Draw(t, "temporary"), AgentFiles: rapid.Int64().Draw(t, "agent"),
+			Unrecorded: rapid.Int64().Draw(t, "unrecorded"),
 		}
 		raw, err := json.Marshal(in)
 		require.NoError(t, err)

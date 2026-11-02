@@ -39,6 +39,8 @@ export interface ShareCard {
   // outsideProject is how many of the files changed are outside the session's project, or null when it has no project.
   readonly outsideProject: number | null;
   readonly temporary: number;
+  // unrecorded is how many file operations the sensor could not send, which the files changed leave out.
+  readonly unrecorded: number;
   // domains counts the public domains the card may name; domainsCut says the digest listed only the busiest.
   readonly domains: number;
   readonly domainsCut: boolean;
@@ -81,6 +83,7 @@ export function shareCard(input: ShareInput): ShareCard {
     filesChanged: digest?.files.changed ?? 0,
     outsideProject: input.project ? (digest?.files.outside_project ?? 0) : null,
     temporary: digest?.files.temporary ?? 0,
+    unrecorded: digest?.files.unrecorded ?? 0,
     domains: shown.length,
     domainsCut: digest?.domains_truncated ?? false,
     // A path is redacted whole before its last segment is taken: /Users/ann has to read ~ before it can be cut to a name.
@@ -131,12 +134,14 @@ export function domainCount(card: ShareCard): string {
   return `${card.domains.toLocaleString()}${card.domainsCut ? "+" : ""}`;
 }
 
-// filesNotes are the lines the card says under its files changed: how many are outside the project and how many temporary files were
-// left out, those that apply.
+// filesNotes are the lines the card says under its files changed: how many are outside the project, how many temporary files were
+// left out, and how many operations the sensor could not record, those that apply. The last says the count is incomplete, so the
+// shared image never states a total its own data does not hold.
 export function filesNotes(card: ShareCard): string[] {
   return [
     card.outsideProject === null ? "" : `${card.outsideProject.toLocaleString()} outside the project`,
     card.temporary > 0 ? `${plural(card.temporary, "temporary file", "temporary files")} not counted` : "",
+    card.unrecorded > 0 ? `${plural(card.unrecorded, "operation", "operations")} not recorded` : "",
   ].filter((s) => s !== "");
 }
 

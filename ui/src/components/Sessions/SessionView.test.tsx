@@ -382,7 +382,7 @@ describe("SessionView conversation", () => {
     commands: 2, processes: 4, alerts: { total: 0, by_severity: {} }, tool_calls: { total: 0, by_tool: [] },
     digest: {
       prompts, programs: [], directories: [], directories_truncated: false,
-      files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
+      files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0, unrecorded: 0 }, domains: [], domains_truncated: false,
       timeline: [], command_timeline: [], timeline_start_ns: 0, timeline_bucket_ns: 1,
     },
   });
@@ -850,7 +850,7 @@ describe("SessionView commands from the server", () => {
     vi.spyOn(api, "getAgentSessionTotals").mockResolvedValue({
       commands: 2, processes: 4, alerts: { total: 1, by_severity: { high: 1 } }, tool_calls: { total: 0, by_tool: [] },
       digest: {
-        prompts: 3, programs: [], directories: [], directories_truncated: false, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0 }, domains: [], domains_truncated: false,
+        prompts: 3, programs: [], directories: [], directories_truncated: false, files: { changed: 0, outside_project: 0, temporary: 0, agent_files: 0, unrecorded: 0 }, domains: [], domains_truncated: false,
         timeline: [], command_timeline: [], timeline_start_ns: 0, timeline_bucket_ns: 1,
       },
     });
