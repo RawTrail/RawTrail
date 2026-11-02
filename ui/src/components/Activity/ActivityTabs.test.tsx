@@ -132,7 +132,7 @@ describe("ActivityTabs", () => {
   // spec:web-ui/folded-agent-file-rows-name-their-process-count/a-fan-out-s-row-names-how-many-processes-it-counts
   it("lists an agent's file operations, and a rolled-up row as the directory it counts", async () => {
     const files = {
-      events: 1860, distinct: 2, truncated: false,
+      events: 2020, distinct: 3, truncated: false,
       rows: [
         { pid: 4911, pidversion: 9, count: 4, first_ns: S, last_ns: 3 * S, operation: "modify" as const, path: "/r/main.go" },
         { pid: 5054, pidversion: 7, count: 1856, first_ns: 5 * S, last_ns: 6 * S, operation: "create" as const,
@@ -143,8 +143,8 @@ describe("ActivityTabs", () => {
     };
     vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Files 2" }));
-    expect(screen.getByText("1,860 file events on 2 paths")).toBeVisible();
+    fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
+    expect(screen.getByText("2,020 file events on 3 paths")).toBeVisible();
     const edit = screen.getByText("/r/main.go").closest("tr");
     expect(edit).not.toBeNull();
     expect(within(edit as HTMLElement).getByText("modify")).toBeVisible();
