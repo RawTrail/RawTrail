@@ -150,6 +150,54 @@ final class AgentFileActivityTests: XCTestCase {
         XCTAssertEqual(rollup.dropped, 0)
     }
 
+    // spec:endpoint-event-collection/file-activity-rows-keep-their-paths/a-row-that-folds-nothing-keeps-its-path
+    // spec:endpoint-event-collection/file-activity-rows-keep-their-paths/a-folded-row-names-the-directory-its-paths-share
+    func testRowsOfManyProcessesKeepTheirPath() {
+        // A pipeline's every process closes the output file it inherited: one row each, which no directory can fold.
+        var rollup = FileActivityRollup(budget: 64, maxPending: 4096)
+        let output = "/private/tmp/claude-501/-Users-dev-app/0b7c8e5e/tasks/b1.output"
+        for pid in 1...80 {
+            rollup.add(record(.modify, output, at: UInt64(pid), by: ProcessKey(pid: pid_t(pid), pidVersion: 1)))
+        }
+        // One process also writes two files the climb groups, which settle on the directory they share, not on /private.
+        let writer = ProcessKey(pid: 500, pidVersion: 1)
+        for name in ["a", "b"] {
+            for _ in 0..<3 {
+                rollup.add(record(.create, "/private/tmp/build/out/\(name).o", at: 90, by: writer))
+            }
+        }
+        let rows = rollup.flush()
+        XCTAssertEqual(rows.count, 64)
+        let paths = Set(rows.map(\.payload.path))
+        XCTAssertEqual(paths, [output, "/private/tmp/build/out"])
+        XCTAssertTrue(rows.allSatisfy { $0.payload.path != output || !$0.payload.rolledUp }, "a row that folded nothing is not rolled up")
+        let built = rows.first { $0.payload.pid == 500 }?.payload
+        XCTAssertEqual(built?.rolledUp, true)
+        XCTAssertEqual(built?.coalescedCount, 6)
+        XCTAssertEqual(rollup.dropped, 17)
+    }
+
+    // spec:endpoint-event-collection/file-activity-rows-keep-their-paths/a-row-that-folds-nothing-keeps-its-path
+    func testAnEarlyFoldKeysRowsByTheirPath() {
+        // Four processes on one file overflow the window, which folds early; the busiest keeps its row at the file's path.
+        var rollup = FileActivityRollup(budget: 2, maxPending: 3)
+        let output = "/private/tmp/build/output.o"
+        let busiest = ProcessKey(pid: 1, pidVersion: 1)
+        for _ in 0..<3 {
+            rollup.add(record(.modify, output, at: 1, by: busiest))
+        }
+        for pid in 2...4 {
+            rollup.add(record(.modify, output, at: UInt64(pid), by: ProcessKey(pid: pid_t(pid), pidVersion: 1)))
+        }
+        XCTAssertEqual(rollup.pendingCount, 2)
+        // A later operation on that path joins the row rather than starting another.
+        rollup.add(record(.modify, output, at: 9, by: busiest))
+        XCTAssertEqual(rollup.pendingCount, 2)
+        let row = rollup.flush().first { $0.payload.pid == 1 }?.payload
+        XCTAssertEqual(row?.path, output)
+        XCTAssertEqual(row?.coalescedCount, 4)
+    }
+
     // spec:endpoint-event-collection/agent-scoped-file-activity/a-busy-window-rolls-up-into-directories
     func testOverflowDropsTheSmallestRows() {
         var rollup = FileActivityRollup(budget: 2, maxPending: 1000)
@@ -195,6 +243,9 @@ final class AgentFileActivityTests: XCTestCase {
                 XCTAssertTrue(covered.contains { $0.timeNs == row.lastNs }, "the row's last time is a covered operation's")
                 if row.payload.rolledUp {
                     XCTAssertNil(row.payload.sourcePath, "a rolled-up row names no single source")
+                    XCTAssertGreaterThan(Set(covered.map(\.path)).count, 1, "a rolled-up row folds more than one path")
+                } else {
+                    XCTAssertTrue(covered.contains { $0.path == row.payload.path }, "a row that is not rolled up names a path operated on")
                 }
             }
         }
