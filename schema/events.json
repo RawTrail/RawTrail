@@ -379,11 +379,11 @@
     },
     "file_activity_dropped_payload": {
       "type": "object",
-      "required": ["pid", "pidversion", "operations", "last_timestamp_ns"],
-      "description": "File operations of an AI agent's subtree that the extension could not send in one second: more rows than its per-second budget remained after folding them into the processes that started them and into their directories. Sent so a session reads as incomplete rather than quietly missing activity. The envelope timestamp_ns is the earliest dropped operation.",
+      "required": ["operations", "last_timestamp_ns"],
+      "description": "File operations of an AI agent's subtree that the extension could not send in one second: more rows than its per-second budget remained after folding them into the processes that started them and into their directories. Sent so a session reads as incomplete rather than quietly missing activity. At most as many subtrees are reported a second as rows are sent; the operations of any further ones are counted in one event that names no process. The envelope timestamp_ns is the earliest dropped operation.",
       "properties": {
-        "pid": { "type": "integer" },
-        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Kernel PID generation of the topmost observed process of the session the dropped operations belong to." },
+        "pid": { "type": "integer", "description": "Optional. The topmost observed process of the session the dropped operations belong to; absent on the event that counts the subtrees past those reported." },
+        "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Optional. Kernel PID generation of that process, present with pid." },
         "operations": { "type": "integer", "minimum": 1, "description": "How many file operations were dropped." },
         "last_timestamp_ns": { "type": "integer", "description": "Timestamp (ns since Unix epoch) of the latest dropped operation." }
       }

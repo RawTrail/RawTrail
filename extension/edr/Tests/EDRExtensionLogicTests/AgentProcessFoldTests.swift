@@ -151,6 +151,27 @@ final class AgentProcessFoldTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(FileActivityDroppedPayload.self, from: JSONEncoder().encode(payload)), payload)
     }
 
+    // Loss reports are bounded like rows: past `budget` subtrees, the drops of the rest are counted together and named for no process.
+    // spec:endpoint-event-collection/dropped-file-activity-is-reported/loss-reports-are-bounded-like-rows
+    func testLossReportsAreBounded() throws {
+        var rollup = FileActivityRollup(budget: 2, maxPending: 4096)
+        for root in 1...5 {
+            let key = ProcessKey(pid: pid_t(100 * root), pidVersion: 1)
+            for _ in 0..<root {
+                rollup.add(record(.modify, "/tmp/r\(root).log", at: UInt64(root), by: key))
+            }
+        }
+        _ = rollup.flush()
+        XCTAssertEqual(rollup.dropped, 6, "the two rows of the most operations are kept: 1 + 2 + 3 dropped")
+        XCTAssertEqual(rollup.losses.count, 2, "at most budget subtrees are reported by name")
+        XCTAssertEqual(rollup.losses.values.reduce(0) { $0 + $1.operations } + rollup.unattributed.operations, 6)
+        XCTAssertGreaterThan(rollup.unattributed.operations, 0)
+
+        let unnamed = FileActivityDroppedPayload(operations: 3, lastTimestampNs: 9)
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(unnamed)) as? [String: Any]
+        XCTAssertEqual(Set(json?.keys.map { $0 } ?? []), ["operations", "last_timestamp_ns"], "the shared report names no process")
+    }
+
     /// Fanout is an agent session's pipeline as edr-dev ran it: Claude Code starts a shell, which starts `xargs`, which forks a child
     /// per job; each job closes the output file it inherited, on stdout and on stderr.
     private struct Fanout {
@@ -272,7 +293,9 @@ final class AgentProcessFoldTests: XCTestCase {
             XCTAssertLessThanOrEqual(rows.count, budget)
             let sent = rows.reduce(0) { $0 + $1.count }
             XCTAssertEqual(sent + rollup.dropped, records.count, "every operation is sent or counted as dropped")
-            XCTAssertEqual(rollup.losses.values.reduce(0) { $0 + $1.operations }, rollup.dropped, "every drop is charged to a subtree")
+            let charged = rollup.losses.values.reduce(0) { $0 + $1.operations } + rollup.unattributed.operations
+            XCTAssertEqual(charged, rollup.dropped, "every drop is charged to a subtree or counted unattributed")
+            XCTAssertLessThanOrEqual(rollup.losses.count, budget)
             for row in rows {
                 let named = ProcessKey(pid: row.payload.pid, pidVersion: row.payload.pidVersion)
                 let covered = records.filter { covered in

@@ -110,10 +110,11 @@ struct FileActivityLoss: Equatable {
 
 /// FileActivityDroppedPayload is the wire shape of a `file_activity_dropped` event: file operations of an agent subtree that a
 /// window could not send within its budget, so an analyst reading the session knows its file activity is incomplete. `pid` and
-/// `pidversion` name the subtree's topmost observed process of its session.
+/// `pidversion` name the subtree's topmost observed process of its session; they are absent on the one event that counts the
+/// subtrees past the most a window reports.
 struct FileActivityDroppedPayload: Codable, Sendable, Equatable {
-    let pid: pid_t
-    let pidVersion: UInt32
+    var pid: pid_t?
+    var pidVersion: UInt32?
     let operations: Int
     let lastTimestampNs: UInt64
 
@@ -166,8 +167,10 @@ struct FileActivityRollup {
     private var rows: [RowKey: FileActivityRow] = [:]
     private(set) var dropped = 0
     /// losses is what the drops cost each agent subtree, keyed by the topmost process of its session a dropped row knew, so the server
-    /// can say which session's activity is incomplete rather than only that some was.
+    /// can say which session's activity is incomplete rather than only that some was. It holds at most `budget` subtrees, so the loss
+    /// reports a flush sends stay within the same bound as its rows; the drops of any further subtrees are counted in `unattributed`.
     private(set) var losses: [ProcessKey: FileActivityLoss] = [:]
+    private(set) var unattributed = FileActivityLoss()
 
     private struct RowKey: Hashable {
         let process: ProcessKey
@@ -253,7 +256,12 @@ struct FileActivityRollup {
         let ranked = rows.sorted { ($0.value.count, $1.value.firstNs) > ($1.value.count, $0.value.firstNs) }
         for (key, row) in ranked.dropFirst(limit) {
             dropped += row.count
-            losses[row.lineage.last ?? key.process, default: FileActivityLoss()].add(row)
+            let top = row.lineage.last ?? key.process
+            if losses[top] != nil || losses.count < budget {
+                losses[top, default: FileActivityLoss()].add(row)
+            } else {
+                unattributed.add(row)
+            }
         }
         rows = Dictionary(uniqueKeysWithValues: ranked.prefix(limit).map { ($0.key, $0.value) })
     }
