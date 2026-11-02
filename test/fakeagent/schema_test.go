@@ -51,14 +51,15 @@ func envelopeJSON(t *testing.T, eventType, payload string) []byte {
 // payloadFixtures carries one minimally-valid payload per event_type. TestEventSchema_EveryEventTypeValidates asserts the key set
 // equals the schema's event_type enum, so a new event type without a fixture fails rather than going unexercised.
 var payloadFixtures = map[string]string{
-	"exec":          `{"pid":100,"ppid":1,"path":"/bin/zsh","args":["zsh","-c","id"],"cwd":"/","uid":501,"gid":20}`,
-	"fork":          `{"child_pid":101,"parent_pid":100}`,
-	"exit":          `{"pid":101,"exit_code":0}`,
-	"open":          `{"pid":101,"path":"/etc/sudoers","flags":1}`,
-	"file_rename":   `{"pid":101,"source_path":"/tmp/staged","path":"/etc/sudoers"}`,
-	"file_truncate": `{"pid":101,"path":"/etc/sudoers"}`,
-	"file_delete":   `{"pid":101,"path":"/etc/sudoers.d/admins"}`,
-	"file_activity": `{"pid":101,"pidversion":5445,"operation":"modify","path":"/Users/dev/repo/main.go"}`,
+	"exec":                  `{"pid":100,"ppid":1,"path":"/bin/zsh","args":["zsh","-c","id"],"cwd":"/","uid":501,"gid":20}`,
+	"fork":                  `{"child_pid":101,"parent_pid":100}`,
+	"exit":                  `{"pid":101,"exit_code":0}`,
+	"open":                  `{"pid":101,"path":"/etc/sudoers","flags":1}`,
+	"file_rename":           `{"pid":101,"source_path":"/tmp/staged","path":"/etc/sudoers"}`,
+	"file_truncate":         `{"pid":101,"path":"/etc/sudoers"}`,
+	"file_delete":           `{"pid":101,"path":"/etc/sudoers.d/admins"}`,
+	"file_activity":         `{"pid":101,"pidversion":5445,"operation":"modify","path":"/Users/dev/repo/main.go"}`,
+	"file_activity_dropped": `{"pid":101,"pidversion":5445,"operations":309,"last_timestamp_ns":1793626739568225801}`,
 	"agent_credential_would_block": `{"pid":101,"pidversion":5445,"path":"/Users/dev/.ssh/id_ed25519","credential":"ssh_private_key",` +
 		`"flags":0}`,
 	"agent_credential_block": `{"pid":101,"pidversion":5445,"path":"/Users/dev/.aws/credentials","credential":"aws_credentials",` +

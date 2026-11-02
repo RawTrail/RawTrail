@@ -59,10 +59,16 @@ export function SessionSummary({ hostId, alerts, totals, agent, project, firstNs
   const svg = useMemo(() => (card ? shareSvg(card) : null), [card]);
   if (!totals?.digest) return <EmptyState>The session&apos;s summary could not be read.</EmptyState>;
   const partial = totals.scope && scopeNote(totals.scope);
-  const agentFiles = totals.digest.files.agent_files;
+  const { agent_files: agentFiles, unrecorded } = totals.digest.files;
   return (
     <div className="session-summary">
       {partial && <p className="session-summary__note" role="status">{partial}</p>}
+      {unrecorded > 0 && (
+        <p className="session-summary__note" role="status">
+          {`Incomplete: ${plural(unrecorded, "file operation", "file operations")} came faster than the sensor sends and were not `}
+          recorded, so the file counts here leave them out.
+        </p>
+      )}
       {host?.state !== "failed" && (
         <figure className="session-summary__card">
           {svg && card

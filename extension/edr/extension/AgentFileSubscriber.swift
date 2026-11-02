@@ -170,6 +170,20 @@ final class AgentFileSubscriber: Sendable {
                 onEvent?(data)
             }
         }
+        // Rows past the budget are not sent, but their loss is, so the session they belong to reads as incomplete. Subtrees past the
+        // most a flush reports share one report that names no process.
+        var reports = window.losses.map { (process: Optional($0.key), loss: $0.value) }
+        if window.unattributed.operations > 0 {
+            reports.append((process: nil, loss: window.unattributed))
+        }
+        for (process, loss) in reports {
+            let payload = FileActivityDroppedPayload(
+                pid: process?.pid, pidVersion: process?.pidVersion, operations: loss.operations, lastTimestampNs: loss.lastNs
+            )
+            if let data = serializer.serialize(eventType: "file_activity_dropped", payload: payload, kernelTimeNs: loss.firstNs) {
+                onEvent?(data)
+            }
+        }
         if window.dropped > 0 || refused > reportedRefusals {
             let summary = "agent-file client over budget: \(window.dropped) operations dropped, " +
                 "\(refused - reportedRefusals) processes unobserved (\(observed) observed)"

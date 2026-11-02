@@ -1269,12 +1269,13 @@ paths:
                           Distinct paths the session changed. Files Claude Code keeps for itself (its settings, transcripts, caches and
                           command output) are counted only in `agent_files`, and files created and then deleted or renamed away only in
                           `temporary`. A read or a socket connect changes nothing.
-                        required: [changed, outside_project, temporary, agent_files]
+                        required: [changed, outside_project, temporary, agent_files, unrecorded]
                         properties:
                           changed: {type: integer, format: int64, description: "Files created, modified, renamed, truncated or deleted."}
                           outside_project: {type: integer, format: int64, description: "Changed files outside the session's project; 0 when its project is unknown."}
                           temporary: {type: integer, format: int64, description: "Files created and then, last of all, deleted or renamed away in the session; a file deleted and created again changed."}
                           agent_files: {type: integer, format: int64, description: "Claude Code's own files the session wrote."}
+                          unrecorded: {type: integer, format: int64, description: "File operations the extension could not send within its per-second budget, so the other counts miss them; 0 when it sent every one."}
                       domains:
                         type: array
                         description: >-
@@ -3677,6 +3678,7 @@ components:
             - file_truncate
             - file_delete
             - file_activity
+            - file_activity_dropped
             - agent_credential_would_block
             - agent_credential_block
             - agent_tool_call

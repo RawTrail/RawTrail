@@ -131,6 +131,7 @@ func TestEventArchive_ActivityDigest(t *testing.T) {
 // count the files changed outside its project. Opens and socket connects change nothing.
 //
 // spec:server-rest-api/agent-session-digest/the-digest-counts-the-files-the-session-changed
+// spec:server-rest-api/a-session-digest-counts-its-unrecorded-file-operations/the-digest-counts-unrecorded-file-operations
 func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 	t.Parallel()
 	arch := openTestArchive(t)
@@ -173,6 +174,10 @@ func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 		file(`"operation":"connect","path":"/private/tmp/cc-socks/501.sock"`),
 		file(`"operation":"open","path":"/Users/dev/.claude/settings.json"`),
 		activityEvent("o1", "h1", "open", base+100, `{"pid":300,"pidversion":3,"path":"/etc/hosts","flags":1}`),
+		// Operations the extension dropped past its budget name no path: they are counted as unrecorded, and only the scope's.
+		activityEvent("x1", "h1", "file_activity_dropped", base+110, `{"pid":300,"pidversion":3,"operations":309,"last_timestamp_ns":1}`),
+		activityEvent("x2", "h1", "file_activity_dropped", base+120, `{"pid":300,"pidversion":3,"operations":40,"last_timestamp_ns":1}`),
+		activityEvent("x3", "h1", "file_activity_dropped", base+130, `{"pid":301,"pidversion":3,"operations":7,"last_timestamp_ns":1}`),
 	}))
 	filter := visibilityapi.DigestFilter{
 		ActivityFilter: visibilityapi.ActivityFilter{HostID: "h1", Generations: []visibilityapi.ProcessGeneration{{PID: 300, PIDVersion: 3}}},
@@ -182,7 +187,7 @@ func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		got, err := arch.ActivityDigest(ctx, filter)
 		require.NoError(c, err)
-		assert.Equal(c, visibilityapi.FileDigest{Changed: 9, OutsideProject: 5, Temporary: 2, AgentFiles: 5}, got.Files)
+		assert.Equal(c, visibilityapi.FileDigest{Changed: 9, OutsideProject: 5, Temporary: 2, AgentFiles: 5, Unrecorded: 349}, got.Files)
 	}, 5*time.Second, 100*time.Millisecond)
 
 	t.Run("without a project nothing is outside it", func(t *testing.T) {
@@ -191,7 +196,7 @@ func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 		unknown.Project = ""
 		got, err := arch.ActivityDigest(ctx, unknown)
 		require.NoError(t, err)
-		assert.Equal(t, visibilityapi.FileDigest{Changed: 9, Temporary: 2, AgentFiles: 5}, got.Files)
+		assert.Equal(t, visibilityapi.FileDigest{Changed: 9, Temporary: 2, AgentFiles: 5, Unrecorded: 349}, got.Files)
 	})
 }
 

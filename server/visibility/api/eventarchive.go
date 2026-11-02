@@ -382,12 +382,14 @@ type ActivityDigest struct {
 // for itself, its settings, transcripts, caches and command output, which any session writes and none is about; they are counted here
 // and in no other field. Temporary files were created and then deleted or renamed away in the scope. Changed counts the rest: the
 // paths created, modified, renamed, truncated or deleted, not opened or connected to. OutsideProject counts the changed paths outside
-// the project, 0 when it is unknown.
+// the project, 0 when it is unknown. Unrecorded counts the file operations the extension dropped past its per-second budget, which
+// none of the other fields can include.
 type FileDigest struct {
 	Changed        int64 `json:"changed"`
 	OutsideProject int64 `json:"outside_project"`
 	Temporary      int64 `json:"temporary"`
 	AgentFiles     int64 `json:"agent_files"`
+	Unrecorded     int64 `json:"unrecorded"`
 }
 
 // DirectoryActivity is the file events under one directory, keyed by operation as FileTotals.ByOperation is, and the distinct paths

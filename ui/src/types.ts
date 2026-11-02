@@ -403,7 +403,7 @@ export interface AgentSessionDigest {
   directories: { directory: string; paths: number; by_operation: Record<string, number> }[];
   directories_truncated: boolean;
   // files counts the distinct paths the session changed; Claude Code's own files and temporary files are counted apart.
-  files: { changed: number; outside_project: number; temporary: number; agent_files: number };
+  files: { changed: number; outside_project: number; temporary: number; agent_files: number; unrecorded: number };
   domains: DomainActivity[];
   domains_truncated: boolean;
   timeline: number[];

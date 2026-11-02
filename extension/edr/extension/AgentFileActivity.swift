@@ -1,7 +1,7 @@
 import Darwin
 
-/// Agent-scoped file telemetry (issue #1287): the pure half of AgentFileSubscriber. Which execs start an agent, the set of processes
-/// the subscriber observes, and the one-second rollup that bounds what reaches the wire.
+/// Agent-scoped file telemetry (issue #1287): the pure half of AgentFileSubscriber. Which execs start an agent, and the one-second
+/// rollup that bounds what reaches the wire; the set of processes the subscriber observes is AgentProcessSet.
 
 /// The Claude Code binary's signing identifier, read on edr-dev from Claude Code 2.1.296. Its own Read, Edit and Write tools run inside
 /// this process, so it is observed itself, not only through the shells it starts. The team is not checked: ES reports none for it on a
@@ -24,93 +24,6 @@ func isAgentFilePath(_ path: String) -> Bool {
 struct ProcessKey: Hashable, Sendable {
     let pid: pid_t
     let pidVersion: UInt32
-}
-
-/// AgentProcessSet is the set of process generations the subscriber observes, kept from the fork, exec and exit events of the same
-/// client that delivers the file events, so a child is in the set before its first file event arrives.
-///
-/// It holds at most `capacity` generations. A subtree that forks past it, a runaway build, leaves the excess unobserved rather than
-/// growing without bound, and each refusal is counted in `refused`.
-///
-/// Each generation keeps the observed process it was forked from and the agent session it belongs to, so the rollup can fold the rows
-/// of a fan-out into the process they all descend from without crossing into another session. A generation an exec created keeps its
-/// predecessor's parent, since to the tree it is the same process, and takes the session its exec names, or else its predecessor's.
-struct AgentProcessSet {
-    /// Node is what the set knows of a generation: its observed parent, nil for the root of a subtree, and its session id, nil until an
-    /// exec in its line carries one.
-    struct Node: Equatable {
-        var parent: ProcessKey?
-        var session: String?
-    }
-
-    private(set) var tracked: [ProcessKey: Node] = [:]
-    private(set) var refused = 0
-    let capacity: Int
-    /// maxLineage is the most ancestors a lineage names: a fan-out folds at most that many levels up.
-    static let maxLineage = 64
-
-    init(capacity: Int) {
-        self.capacity = capacity
-    }
-
-    var count: Int { tracked.count }
-
-    func contains(_ key: ProcessKey) -> Bool {
-        tracked[key] != nil
-    }
-
-    /// lineage is the live generations of its own session a process descends from, its parent first. It ends at the first ancestor
-    /// that has exited, whose own parent is no longer known and which a row folded later must not name, or that belongs to another
-    /// session: Claude Code itself carries no session id, and after `/clear` its next shell starts another session.
-    ///
-    /// It holds at most `maxLineage` generations, which bounds the walk on the ES callback path however deep a chain of forks goes.
-    func lineage(of key: ProcessKey) -> [ProcessKey] {
-        guard let node = tracked[key] else {
-            return []
-        }
-        var out: [ProcessKey] = []
-        var next = node.parent
-        while out.count < Self.maxLineage, let parent = next, let ancestor = tracked[parent], ancestor.session == node.session {
-            out.append(parent)
-            next = ancestor.parent
-        }
-        return out
-    }
-
-    /// fork observes the child of an observed parent, in the parent's session. A fork by a root starts observing the parent too: a
-    /// Claude Code process that exec'd before the subscriber started was never seen as a root, and its helpers (`rg`, `git`) carry no
-    /// session id of their own.
-    mutating func fork(parent: ProcessKey, child: ProcessKey, root: Bool) {
-        if root, !contains(parent) {
-            insert(parent, Node())
-        }
-        if let node = tracked[parent] {
-            insert(child, Node(parent: parent, session: node.session))
-        }
-    }
-
-    /// exec moves an observed process to the generation its exec created, or starts observing a root. session is the session id the
-    /// exec carries, if any.
-    mutating func exec(from old: ProcessKey, to new: ProcessKey, root: Bool, session: String? = nil) {
-        if let node = tracked.removeValue(forKey: old) {
-            insert(new, Node(parent: node.parent, session: session ?? node.session))
-        } else if root {
-            insert(new, Node(session: session))
-        }
-    }
-
-    /// exit stops observing a process.
-    mutating func exit(_ key: ProcessKey) {
-        tracked.removeValue(forKey: key)
-    }
-
-    private mutating func insert(_ key: ProcessKey, _ node: Node) {
-        guard tracked.count < capacity else {
-            refused += 1
-            return
-        }
-        tracked[key] = node
-    }
 }
 
 /// FileOperation is what an agent process did to a path. A connect is to a Unix-domain socket, whose path names the daemon the
@@ -182,6 +95,36 @@ extension FileActivityPayload {
     }
 }
 
+/// FileActivityLoss is how many operations of one agent subtree a window dropped, and when the first and last of them happened.
+struct FileActivityLoss: Equatable {
+    var operations = 0
+    var firstNs = UInt64.max
+    var lastNs: UInt64 = 0
+
+    mutating func add(_ row: FileActivityRow) {
+        operations += row.count
+        firstNs = min(firstNs, row.firstNs)
+        lastNs = max(lastNs, row.lastNs)
+    }
+}
+
+/// FileActivityDroppedPayload is the wire shape of a `file_activity_dropped` event: file operations of an agent subtree that a
+/// window could not send within its budget, so an analyst reading the session knows its file activity is incomplete. `pid` and
+/// `pidversion` name the subtree's topmost observed process of its session; they are absent on the one event that counts the
+/// subtrees past the most a window reports.
+struct FileActivityDroppedPayload: Codable, Sendable, Equatable {
+    var pid: pid_t?
+    var pidVersion: UInt32?
+    let operations: Int
+    let lastTimestampNs: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case pid, operations
+        case pidVersion = "pidversion"
+        case lastTimestampNs = "last_timestamp_ns"
+    }
+}
+
 /// FileActivityRecord is one file operation as the subscriber observed it.
 struct FileActivityRecord: Sendable {
     let process: ProcessKey
@@ -223,6 +166,11 @@ struct FileActivityRollup {
     let maxPending: Int
     private var rows: [RowKey: FileActivityRow] = [:]
     private(set) var dropped = 0
+    /// losses is what the drops cost each agent subtree, keyed by the topmost process of its session a dropped row knew, so the server
+    /// can say which session's activity is incomplete rather than only that some was. It holds at most `budget` subtrees, so the loss
+    /// reports a flush sends stay within the same bound as its rows; the drops of any further subtrees are counted in `unattributed`.
+    private(set) var losses: [ProcessKey: FileActivityLoss] = [:]
+    private(set) var unattributed = FileActivityLoss()
 
     private struct RowKey: Hashable {
         let process: ProcessKey
@@ -305,9 +253,17 @@ struct FileActivityRollup {
         guard rows.count > limit else {
             return
         }
-        let kept = rows.sorted { ($0.value.count, $1.value.firstNs) > ($1.value.count, $0.value.firstNs) }.prefix(limit)
-        dropped += rows.values.reduce(0) { $0 + $1.count } - kept.reduce(0) { $0 + $1.value.count }
-        rows = Dictionary(uniqueKeysWithValues: kept.map { ($0.key, $0.value) })
+        let ranked = rows.sorted { ($0.value.count, $1.value.firstNs) > ($1.value.count, $0.value.firstNs) }
+        for (key, row) in ranked.dropFirst(limit) {
+            dropped += row.count
+            let top = row.lineage.last ?? key.process
+            if losses[top] != nil || losses.count < budget {
+                losses[top, default: FileActivityLoss()].add(row)
+            } else {
+                unattributed.add(row)
+            }
+        }
+        rows = Dictionary(uniqueKeysWithValues: ranked.prefix(limit).map { ($0.key, $0.value) })
     }
 
     /// climbPaths folds the deepest rows into their parent directories until at most limit remain or every row is at the top level.

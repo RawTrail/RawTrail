@@ -119,9 +119,10 @@ let package = Package(
                 "extension/FileEventPayloads.swift",
                 "extension/ProcessLineage.swift",
                 "extension/AgentSessionEnv.swift",
-                // AgentFileActivity.swift is the agent-file client's pure half (#1287): which execs start an agent, the observed
-                // process set, and the rollup that bounds what reaches the wire. AgentFileSubscriber applies it.
+                // AgentFileActivity.swift and AgentProcessSet.swift are the agent-file client's pure half (#1287): which execs start
+                // an agent, the observed process set, and the rollup that bounds what reaches the wire. AgentFileSubscriber applies it.
                 "extension/AgentFileActivity.swift",
+                "extension/AgentProcessSet.swift",
                 // CredentialGuard.swift is the credential guard's pure half (#1431): the protected files, their owner tools and the
                 // decision for an agent's process opening one. CredentialGuardSubscriber applies it.
                 "extension/CredentialGuard.swift",
