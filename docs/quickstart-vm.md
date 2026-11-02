@@ -4,7 +4,7 @@ This is the recommended way to stand up a RawTrail server for a pilot. You run o
 
 ## What you get
 
-`docker-compose.quickstart.yml` runs three containers on one host: MySQL, the EDR server (listening plaintext on the private Docker network only), and Caddy (the only container exposed to the internet, on ports 80 and 443). The server self-applies its schema migrations on first boot.
+`docker-compose.quickstart.yml` runs four containers on one host: MySQL (hosts, alerts, configuration and the queue of events awaiting detection), ClickHouse (the event archive that search, timelines and retention read), the EDR server (listening plaintext on the private Docker network only), and Caddy (the only container exposed to the internet, on ports 80 and 443). The server self-applies its schema migrations on first boot.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ This is the recommended way to stand up a RawTrail server for a pilot. You run o
 - Ports 80 and 443 open to the internet on the VM. Caddy needs both for the ACME certificate challenge and for serving traffic.
 - A DNS `A` (and optional `AAAA`) record for your domain pointing at the VM's public IP, created before you run the script so the certificate can be issued.
 
-Event telemetry dominates storage and a busy host can add many GB per day, so size the VM disk for it and keep `EDR_EVENT_RETENTION_DAYS` sized to the disk (see retention tuning in [operations.md](operations.md#retention-tuning)). A full disk stops MySQL writes (ingest returns 5xx and the server logs the error) and, because Docker's data root sits on it, affects the rest of Docker too, so alert on disk usage.
+Event telemetry dominates storage and a busy host can add many GB per day, so size the VM disk for it and keep `EDR_EVENT_RETENTION_DAYS` sized to the disk (see retention tuning in [operations.md](operations.md#retention-tuning)). A full disk stops MySQL and ClickHouse writes (ingest returns 5xx and the server logs the error) and, because Docker's data root sits on it, affects the rest of Docker too, so alert on disk usage.
 
 ## Steps
 
@@ -134,7 +134,7 @@ The knobs, in order of impact:
 
 - **`--innodb-flush-log-at-trx-commit=2`**: fsync the redo log about once a second instead of on every commit. The biggest single win on a slow disk. Tradeoff: a host crash can lose up to ~1 second of acknowledged events. That is acceptable here because the agent keeps a local queue and re-uploads, but it is a durability change, so it is opt-in.
 - **`--innodb-io-capacity=<IOPS>` and `--innodb-io-capacity-max=<2x IOPS>`**: set these to your measured disk IOPS. The default is far too high for a network volume, which makes InnoDB hoard dirty pages and then flush them in bursts that stall commits for seconds (a large latency tail). Matching the real disk speed makes flushing steady.
-- **`--innodb-buffer-pool-size=<bytes>`**: keep the index-heavy `events` working set in RAM. Size it to roughly half to three-quarters of the VM's RAM. Raise it together with `io_capacity`, not alone: a larger pool holds more dirty pages, so without matching flush pacing it can make the latency tail worse on a slow disk.
+- **`--innodb-buffer-pool-size=<bytes>`**: keep the index-heavy `event_queue` working set in RAM. Size it to roughly half to three-quarters of the VM's RAM. Raise it together with `io_capacity`, not alone: a larger pool holds more dirty pages, so without matching flush pacing it can make the latency tail worse on a slow disk.
 - **`--innodb-max-dirty-pages-pct=10`**: on a slow disk, keep the dirty set small so InnoDB flushes continuously rather than in storms.
 
 Example for a slow ~190 IOPS network volume on an 8 GB box:

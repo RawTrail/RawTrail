@@ -28,7 +28,7 @@ RawTrail is an open-source endpoint detection and response (EDR) system for macO
 
 ## Get started
 
-Either deploy it and enroll real Macs, or try it first with the Mac-free demo.
+Deploy it and enroll real Macs, watch your own AI agent on your laptop, or try it first with the Mac-free demo.
 
 ### Deploy it
 
@@ -52,6 +52,16 @@ Two steps. Stand up a server, then push the agent to your Macs.
 - **Manually on 1 to 5 Macs** (no MDM, for evaluation): [docs/install-agent-manual.md](docs/install-agent-manual.md).
 
 Once agents enroll, open the server's `/ui/` to watch hosts, process trees, and alerts in real time.
+
+### Watch your own AI agent
+
+Run the server and the agent on your own Mac to see what your coding agent actually ran: every process, file change and connection behind each prompt, and any credential file it opened. Nothing leaves the Mac. One command with Docker running:
+
+```sh
+scripts/laptop/rawtrail-laptop install
+```
+
+What you see, what it costs and how to remove it: [docs/watch-your-agent.md](docs/watch-your-agent.md).
 
 ### Try the demo (no Mac required)
 
@@ -109,6 +119,7 @@ Operator and reference docs live in [`docs/`](docs/):
 | Self-host the server stack                               | [`install-server.md`](docs/install-server.md)                         |
 | Deploy the agent via any MDM                             | [`mdm-deployment.md`](docs/mdm-deployment.md)                         |
 | Evaluate on 1 to 5 Macs without an MDM                   | [`install-agent-manual.md`](docs/install-agent-manual.md)             |
+| Watch your own AI agent on your laptop                   | [`watch-your-agent.md`](docs/watch-your-agent.md)                     |
 | Day-2 ops: upgrades, rotations, backups, troubleshooting | [`operations.md`](docs/operations.md)                                 |
 | Detection rules: behavior, ATT&CK mapping, configuration | [`detection-rules.md`](docs/detection-rules.md)                       |
 | HTTP API reference                                       | [`api.md`](docs/api.md) + [`api/openapi.yaml`](docs/api/openapi.yaml) |

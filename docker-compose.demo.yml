@@ -36,9 +36,8 @@ services:
       retries: 20
       start_period: 10s
 
-  # ClickHouse event store (ADR-0015): the source-built server stores events here; the released `latest` image ignores the unused
-  # EDR_CLICKHOUSE_DSN and runs MySQL-only, so one compose file serves both demo legs. Anonymous volume like mysql: persists across
-  # up/down, discarded by `down -v`.
+  # ClickHouse event store (ADR-0015): the server stores events here and does not start without it. Anonymous volume like mysql:
+  # persists across up/down, discarded by `down -v`.
   clickhouse:
     image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b
     environment:
