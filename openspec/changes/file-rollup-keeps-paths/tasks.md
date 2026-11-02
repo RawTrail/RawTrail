@@ -7,4 +7,4 @@
 
 - [x] 2.1 A pipeline of 80 processes on one file keeps the file's path; a group of two files settles on their directory
 - [x] 2.2 Property: a rolled-up row folds more than one path, and any other row names a path operated on
-- [ ] 2.3 Exercise on edr-dev with a busy pipeline
+- [x] 2.3 Exercise on edr-dev with a busy pipeline
