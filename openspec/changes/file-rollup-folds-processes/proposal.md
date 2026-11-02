@@ -6,7 +6,7 @@ The extension sends at most 64 `file_activity` rows a second. Rows of different 
 
 - Past the budget, rows of one operation on one path fold into the nearest observed process their processes all descend from, keeping the path, with a new `process_count`. Processes fold before directories, since folding them keeps every path.
 - The two folds alternate until the window fits; rows are dropped only when neither can fold more, which takes more top-level directories, operations and separate agent subtrees in one second than the budget.
-- Rows of two agent subtrees never fold together.
+- Rows of two agent sessions never fold together, including two sessions of one Claude Code process after `/clear`: a process's session is the `CLAUDE_CODE_SESSION_ID` its exec carries, kept across forks and execs. A row never names an ancestor that had exited before its first operation.
 - The activity API lists a folded row apart from the named process's own operations on the path, with a `processes` count, and the Files tab and the host timeline say how many processes a row counts.
 
 ## Impact

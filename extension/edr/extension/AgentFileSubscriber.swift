@@ -197,7 +197,7 @@ extension AgentProcessSet {
     /// Change is what one FORK, EXEC or EXIT does to the set, read from the message while it is valid.
     enum Change {
         case fork(parent: ProcessKey, child: ProcessKey, root: Bool)
-        case exec(from: ProcessKey, to: ProcessKey, root: Bool)
+        case exec(from: ProcessKey, to: ProcessKey, root: Bool, session: String?)
         case exit(ProcessKey)
 
         /// init reads the change a message makes, or is nil for a message that is not a FORK, EXEC or EXIT.
@@ -210,10 +210,9 @@ extension AgentProcessSet {
             case ES_EVENT_TYPE_NOTIFY_EXEC:
                 var exec = msg.event.exec
                 let target = exec.target.pointee
-                let root = isAgentRoot(
-                    codeSigning: ESFSubscriber.extractCodeSigning(from: target), env: ESFSubscriber.sessionMarkers(of: &exec)
-                )
-                self = .exec(from: actor, to: ProcessKey(target.audit_token), root: root)
+                let env = ESFSubscriber.sessionMarkers(of: &exec)
+                let root = isAgentRoot(codeSigning: ESFSubscriber.extractCodeSigning(from: target), env: env)
+                self = .exec(from: actor, to: ProcessKey(target.audit_token), root: root, session: env?["CLAUDE_CODE_SESSION_ID"])
             case ES_EVENT_TYPE_NOTIFY_EXIT:
                 self = .exit(actor)
             default:
@@ -226,8 +225,8 @@ extension AgentProcessSet {
         switch change {
         case let .fork(parent, child, root):
             fork(parent: parent, child: child, root: root)
-        case let .exec(old, new, root):
-            exec(from: old, to: new, root: root)
+        case let .exec(old, new, root, session):
+            exec(from: old, to: new, root: root, session: session)
         case let .exit(key):
             exit(key)
         }

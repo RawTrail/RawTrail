@@ -26,8 +26,73 @@ final class AgentProcessFoldTests: XCTestCase {
         XCTAssertEqual(set.lineage(of: execd), [claude], "an exec keeps its predecessor's parent")
         XCTAssertEqual(set.lineage(of: child), [execd, claude])
         set.exit(execd)
-        XCTAssertEqual(set.lineage(of: child), [execd], "a parent that has exited ends the lineage")
+        XCTAssertEqual(set.lineage(of: child), [], "a parent that has exited is not named: a row folded later would outlive it")
         XCTAssertEqual(set.lineage(of: ProcessKey(pid: 9, pidVersion: 9)), [], "an unobserved process has none")
+    }
+
+    // spec:endpoint-event-collection/file-activity-rows-fold-by-process/two-sessions-never-share-a-row
+    func testLineageStaysInItsSession() {
+        // Claude Code carries no session id; after /clear its next shell starts another session in the same process.
+        var set = AgentProcessSet(capacity: 16)
+        set.exec(from: ProcessKey(pid: claude.pid, pidVersion: 1), to: claude, root: true)
+        var jobs: [String: ProcessKey] = [:]
+        for (index, session) in ["0b7c8e5e", "9f3a1d22"].enumerated() {
+            let forked = ProcessKey(pid: 3000 + pid_t(index), pidVersion: 1)
+            set.fork(parent: claude, child: forked, root: true)
+            let sessionShell = ProcessKey(pid: forked.pid, pidVersion: 2)
+            set.exec(from: forked, to: sessionShell, root: true, session: session)
+            let job = ProcessKey(pid: 4000 + pid_t(index), pidVersion: 1)
+            set.fork(parent: sessionShell, child: job, root: false)
+            let execd = ProcessKey(pid: job.pid, pidVersion: 2)
+            set.exec(from: job, to: execd, root: true, session: session)
+            XCTAssertEqual(set.lineage(of: execd), [sessionShell], "a job's lineage keeps to its session, and an exec keeps the parent")
+            XCTAssertEqual(set.lineage(of: sessionShell), [], "it ends before Claude Code, which belongs to no session")
+            jobs[session] = execd
+        }
+        XCTAssertEqual(set.tracked[jobs["0b7c8e5e"] ?? claude]?.session, "0b7c8e5e")
+    }
+
+    // A parent that exits between two siblings' first writes leaves their lineages disagreeing: the first read [P, R], the second only
+    // [P]. Their rows still meet at P, and the fold must keep both rather than settle on one.
+    func testDisagreeingLineagesLoseNothing() {
+        var rollup = FileActivityRollup(budget: 1, maxPending: 4096)
+        let root = ProcessKey(pid: 10, pidVersion: 1)
+        let parent = ProcessKey(pid: 20, pidVersion: 1)
+        let early = ProcessKey(pid: 30, pidVersion: 1)
+        let late = ProcessKey(pid: 31, pidVersion: 1)
+        let lineages = [early: [parent, root], late: [parent]]
+        for (process, time) in [(early, UInt64(1)), (late, 2), (late, 3)] {
+            add(record(.modify, "/tmp/out.log", at: time, by: process), to: &rollup, lineages: lineages)
+        }
+        let rows = rollup.flush()
+        XCTAssertEqual(rollup.dropped, 0)
+        XCTAssertEqual(rows.map(\.count), [3], "every operation is in the one row")
+        XCTAssertEqual(rows.first?.payload.processCount, 2)
+        XCTAssertEqual(rows.first?.payload.pid, parent.pid, "named for the parent both lineages share")
+    }
+
+    // The fold's bookkeeping is bounded on the ES callback path: a lineage names at most maxLineage ancestors, and past maxPending
+    // processes a window reads no more lineages.
+    func testLineageBookkeepingIsBounded() {
+        var set = AgentProcessSet(capacity: 256)
+        var parent = claude
+        set.exec(from: ProcessKey(pid: claude.pid, pidVersion: 1), to: claude, root: true)
+        for depth in 1...100 {
+            let child = ProcessKey(pid: pid_t(5000 + depth), pidVersion: 1)
+            set.fork(parent: parent, child: child, root: false)
+            parent = child
+        }
+        XCTAssertEqual(set.lineage(of: parent).count, AgentProcessSet.maxLineage)
+
+        var rollup = FileActivityRollup(budget: 64, maxPending: 4)
+        var reads = 0
+        for pid in 1...10 {
+            rollup.add(record(.modify, "/tmp/f\(pid)", at: 1, by: ProcessKey(pid: pid_t(pid), pidVersion: 1))) {
+                reads += 1
+                return [self.claude]
+            }
+        }
+        XCTAssertEqual(reads, 3, "three processes and their root fill the four links; later processes' lineages are not read")
     }
 
     /// Fanout is an agent session's pipeline as edr-dev ran it: Claude Code starts a shell, which starts `xargs`, which forks a child
@@ -135,7 +200,13 @@ final class AgentProcessFoldTests: XCTestCase {
                 let process = processes.randomElement(using: &generator) ?? claude
                 records.append(record(op, path, at: UInt64.random(in: 1...1000, using: &generator), by: process))
             }
-            records.forEach { add($0, to: &rollup, lineages: lineages) }
+            // An ancestor that exits before a process's first write cuts the lineage the rollup reads for it.
+            let truncated = Bool.random(using: &generator)
+            let read = lineages.mapValues { lineage in
+                truncated && Bool.random(using: &generator) ? Array(lineage.prefix(Int.random(in: 0...lineage.count, using: &generator)))
+                    : lineage
+            }
+            records.forEach { add($0, to: &rollup, lineages: read) }
             let rows = rollup.flush()
             XCTAssertLessThanOrEqual(rows.count, budget)
             XCTAssertEqual(rows.reduce(0) { $0 + $1.count } + rollup.dropped, records.count, "every operation is sent or counted as dropped")
@@ -154,6 +225,9 @@ final class AgentProcessFoldTests: XCTestCase {
                 if row.processes.count > 1 {
                     let roots = Set(row.processes.map { lineages[$0]?.last ?? $0 })
                     XCTAssertEqual(roots.count, 1, "a row never folds two subtrees together")
+                    guard !truncated else {
+                        continue
+                    }
                     let shared = row.processes.map { [$0] + (lineages[$0] ?? []) }
                     let deeper = shared[0].prefix { $0 != named }
                     XCTAssertFalse(deeper.contains { ancestor in shared.allSatisfy { $0.contains(ancestor) } },
