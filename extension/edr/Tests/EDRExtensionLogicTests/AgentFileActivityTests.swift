@@ -177,6 +177,27 @@ final class AgentFileActivityTests: XCTestCase {
         XCTAssertEqual(rollup.dropped, 17)
     }
 
+    // spec:endpoint-event-collection/file-activity-rows-keep-their-paths/a-row-that-folds-nothing-keeps-its-path
+    func testAnEarlyFoldKeysRowsByTheirPath() {
+        // Four processes on one file overflow the window, which folds early; the busiest keeps its row at the file's path.
+        var rollup = FileActivityRollup(budget: 2, maxPending: 3)
+        let output = "/private/tmp/build/output.o"
+        let busiest = ProcessKey(pid: 1, pidVersion: 1)
+        for _ in 0..<3 {
+            rollup.add(record(.modify, output, at: 1, by: busiest))
+        }
+        for pid in 2...4 {
+            rollup.add(record(.modify, output, at: UInt64(pid), by: ProcessKey(pid: pid_t(pid), pidVersion: 1)))
+        }
+        XCTAssertEqual(rollup.pendingCount, 2)
+        // A later operation on that path joins the row rather than starting another.
+        rollup.add(record(.modify, output, at: 9, by: busiest))
+        XCTAssertEqual(rollup.pendingCount, 2)
+        let row = rollup.flush().first { $0.payload.pid == 1 }?.payload
+        XCTAssertEqual(row?.path, output)
+        XCTAssertEqual(row?.coalescedCount, 4)
+    }
+
     // spec:endpoint-event-collection/agent-scoped-file-activity/a-busy-window-rolls-up-into-directories
     func testOverflowDropsTheSmallestRows() {
         var rollup = FileActivityRollup(budget: 2, maxPending: 1000)
