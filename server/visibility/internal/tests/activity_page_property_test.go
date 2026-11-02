@@ -49,9 +49,14 @@ func TestEventArchive_ActivityPagesMatchOneRead(t *testing.T) {
 			case 0:
 				op := rapid.SampledFrom([]string{"modify", "create", "delete"}).Draw(rt, "op"+is)
 				path := rapid.SampledFrom(paths).Draw(rt, "path"+is)
-				drawn[visibilityapi.ActivityFiles][path+"|"+op+"|"+strconv.FormatInt(gen.PID, 10)] = path
+				// A row the extension folded from several processes is listed apart from the named process's own.
+				folded, processes := "", ""
+				if rapid.Bool().Draw(rt, "folded"+is) {
+					folded, processes = "|folded", `,"process_count":`+strconv.Itoa(rapid.IntRange(2, 9).Draw(rt, "processes"+is))
+				}
+				drawn[visibilityapi.ActivityFiles][path+"|"+op+"|"+strconv.FormatInt(gen.PID, 10)+folded] = path
 				events = append(events, activityEvent("f"+is, host, "file_activity", at,
-					`{`+proc+`,"operation":"`+op+`","path":"`+path+`"}`))
+					`{`+proc+`,"operation":"`+op+`","path":"`+path+`"`+processes+`}`))
 			case 1:
 				address := rapid.SampledFrom(addresses).Draw(rt, "address"+is)
 				port := rapid.SampledFrom([]string{"443", "80"}).Draw(rt, "port"+is)
@@ -82,7 +87,11 @@ func TestEventArchive_ActivityPagesMatchOneRead(t *testing.T) {
 				page, err := arch.ActivityPage(ctx, paged, class, cursor)
 				require.NoError(rt, err)
 				for _, f := range page.Files {
-					rows, keys = append(rows, f), append(keys, f.Path+"|"+f.Operation+"|"+strconv.FormatInt(f.PID, 10))
+					key := f.Path + "|" + f.Operation + "|" + strconv.FormatInt(f.PID, 10)
+					if f.Processes > 0 {
+						key += "|folded"
+					}
+					rows, keys = append(rows, f), append(keys, key)
 				}
 				for _, c := range page.Network {
 					rows = append(rows, c)

@@ -360,7 +360,7 @@
     "file_activity_payload": {
       "type": "object",
       "required": ["pid", "pidversion", "operation", "path"],
-      "description": "File operations by one process in an AI agent's subtree, folded over a one-second window by the extension. Only processes an agent started are observed, so the event never describes the rest of the host. A type of its own rather than another open or file_rename, because those feed detection rules that read path as a file, and a rolled-up row names a directory.",
+      "description": "File operations by one process in an AI agent's subtree, or by several it started when process_count is set, folded over a one-second window by the extension. Only processes an agent started are observed, so the event never describes the rest of the host. A type of its own rather than another open or file_rename, because those feed detection rules that read path as a file, and a rolled-up row names a directory.",
       "properties": {
         "pid": { "type": "integer" },
         "pidversion": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Kernel PID generation of the acting process, so the event joins the exact process row under pid reuse." },
@@ -369,7 +369,8 @@
         "source_path": { "type": "string", "description": "Optional. Where the renamed file came from, shared by every rename the event folds. Absent for other operations, for an event folding renames from different sources, and for a rolled-up rename." },
         "coalesced_count": { "type": "integer", "minimum": 1, "description": "Optional. How many operations the event stands for. Absent or 1 means one. The envelope timestamp_ns is the earliest." },
         "last_timestamp_ns": { "type": "integer", "description": "Optional. Timestamp (ns since Unix epoch) of the latest operation the event stands for. Present only when coalesced_count is greater than 1." },
-        "rolled_up": { "type": "boolean", "description": "Optional. True when the window held more rows than the extension sends a second, and path is a directory folding the operations on the paths under it." }
+        "rolled_up": { "type": "boolean", "description": "Optional. True when the window held more rows than the extension sends a second, and path is a directory folding the operations on the paths under it." },
+        "process_count": { "type": "integer", "minimum": 2, "description": "Optional. Set when the window held more rows than the extension sends a second and the event folds the operations of several processes: how many. pid and pidversion then name the nearest process they all descend from, which may be one of them. Absent means the named process did every operation." }
       }
     },
     "agent_tool_call_payload": {

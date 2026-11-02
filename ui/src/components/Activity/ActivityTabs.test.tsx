@@ -129,19 +129,22 @@ describe("ActivityTabs", () => {
   });
 
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
+  // spec:web-ui/folded-agent-file-rows-name-their-process-count/a-fan-out-s-row-names-how-many-processes-it-counts
   it("lists an agent's file operations, and a rolled-up row as the directory it counts", async () => {
     const files = {
-      events: 1860, distinct: 2, truncated: false,
+      events: 2020, distinct: 3, truncated: false,
       rows: [
         { pid: 4911, pidversion: 9, count: 4, first_ns: S, last_ns: 3 * S, operation: "modify" as const, path: "/r/main.go" },
         { pid: 5054, pidversion: 7, count: 1856, first_ns: 5 * S, last_ns: 6 * S, operation: "create" as const,
           path: "/r/node_modules", rolled_up: true },
+        { pid: 2900, pidversion: 3, count: 160, first_ns: 7 * S, last_ns: 7 * S, operation: "modify" as const,
+          path: "/tmp/b1.output", processes: 80 },
       ],
     };
     vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Files 2" }));
-    expect(screen.getByText("1,860 file events on 2 paths")).toBeVisible();
+    fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
+    expect(screen.getByText("2,020 file events on 3 paths")).toBeVisible();
     const edit = screen.getByText("/r/main.go").closest("tr");
     expect(edit).not.toBeNull();
     expect(within(edit as HTMLElement).getByText("modify")).toBeVisible();
@@ -152,6 +155,12 @@ describe("ActivityTabs", () => {
     expect(within(install as HTMLElement).getByText("/r/node_modules", { exact: false })).toBeVisible();
     expect(within(install as HTMLElement).getByText("create")).toBeVisible();
     expect(within(install as HTMLElement).getByText("1,856")).toBeVisible();
+    expect(within(install as HTMLElement).queryByText(/processes under/)).toBeNull();
+    // A row folded from a fan-out names how many processes it counts, under the one they descend from.
+    const fanout = screen.getByText("/tmp/b1.output").closest("tr");
+    expect(fanout).not.toBeNull();
+    expect(within(fanout as HTMLElement).getByText(/^up to 80 processes under/)).toBeVisible();
+    expect(within(fanout as HTMLElement).getByText("160")).toBeVisible();
   });
 
   // A connect to a well-known daemon's socket names the daemon beside the path (issue #1355); an unknown socket and a file

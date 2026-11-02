@@ -153,7 +153,7 @@ final class AgentFileActivityTests: XCTestCase {
     // spec:endpoint-event-collection/file-activity-rows-keep-their-paths/a-row-that-folds-nothing-keeps-its-path
     // spec:endpoint-event-collection/file-activity-rows-keep-their-paths/a-folded-row-names-the-directory-its-paths-share
     func testRowsOfManyProcessesKeepTheirPath() {
-        // A pipeline's every process closes the output file it inherited: one row each, which no directory can fold.
+        // Processes with no observed parent each close one file: one row each, which no directory or process can fold.
         var rollup = FileActivityRollup(budget: 64, maxPending: 4096)
         let output = "/private/tmp/claude-501/-Users-dev-app/0b7c8e5e/tasks/b1.output"
         for pid in 1...80 {
@@ -274,7 +274,7 @@ final class AgentFileActivityTests: XCTestCase {
     func testPayloadWireShape() throws {
         let rolled = FileActivityPayload(
             pid: 2801, pidVersion: 5400, operation: .create, path: "/repo/node_modules/a", coalescedCount: 20,
-            lastTimestampNs: 900, rolledUp: true
+            lastTimestampNs: 900, rolledUp: true, processCount: 3
         )
         let rolledJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(rolled)) as? [String: Any]
         XCTAssertEqual(rolledJSON?["pidversion"] as? Int, 5400)
@@ -282,12 +282,13 @@ final class AgentFileActivityTests: XCTestCase {
         XCTAssertEqual(rolledJSON?["coalesced_count"] as? Int, 20)
         XCTAssertEqual(rolledJSON?["last_timestamp_ns"] as? Int, 900)
         XCTAssertEqual(rolledJSON?["rolled_up"] as? Bool, true)
+        XCTAssertEqual(rolledJSON?["process_count"] as? Int, 3)
         XCTAssertNil(rolledJSON?["source_path"])
 
         let single = FileActivityPayload(pid: 1, pidVersion: 2, operation: .rename, path: "/b", sourcePath: "/a")
         let singleJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(single)) as? [String: Any]
         XCTAssertEqual(Set(singleJSON?.keys.map { $0 } ?? []), ["pid", "pidversion", "operation", "path", "source_path"],
-                       "a single operation carries no count, span or rollup flag")
+                       "a single operation carries no count, span, rollup flag or process count")
         XCTAssertEqual(try JSONDecoder().decode(FileActivityPayload.self, from: JSONEncoder().encode(rolled)), rolled)
     }
 

@@ -152,6 +152,53 @@ func TestEventArchive_ActivityAgentFiles(t *testing.T) {
 	}, got.Files.Rows)
 }
 
+// A row the extension folded from a fan-out's processes (rows past its per-second budget) is listed apart from the named process's own
+// operations on the path, weighing every operation it stands for and counting the processes each second's fold named.
+//
+// spec:server-rest-api/agent-file-rows-folded-from-several-processes/a-row-folded-from-several-processes-is-listed-with-their-count
+func TestEventArchive_ActivityFoldedProcesses(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	at := func(s int64) int64 { return base + s*int64(time.Second) }
+	ns := func(s int64) string { return strconv.FormatInt(at(s), 10) }
+	const xargs = `"pid":400,"pidversion":4,"operation":"modify","path":"/t/b1.output"`
+
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
+		activityEvent("x1", "h1", "file_activity", at(10), `{`+xargs+`}`),
+		activityEvent("x2", "h1", "file_activity", at(11), `{`+xargs+`,"coalesced_count":160,"last_timestamp_ns":`+ns(11)+
+			`,"process_count":80}`),
+		activityEvent("x3", "h1", "file_activity", at(12), `{`+xargs+`,"coalesced_count":80,"last_timestamp_ns":`+ns(12)+
+			`,"process_count":40}`),
+	}))
+
+	filter := visibilityapi.ActivityFilter{HostID: "h1", Generations: []visibilityapi.ProcessGeneration{{PID: 400, PIDVersion: 4}}}
+	var got visibilityapi.ActivityRollup
+	require.Eventually(t, func() bool {
+		var err error
+		got, err = arch.ActivityForGenerations(ctx, filter)
+		return err == nil && len(got.Files.Rows) == 2
+	}, 5*time.Second, 100*time.Millisecond)
+
+	assert.Equal(t, int64(241), got.Files.Events, "1 + 160 + 80 operations")
+	own := visibilityapi.ActivityRow{PID: 400, PIDVersion: 4, Count: 1, FirstNs: at(10), LastNs: at(10)}
+	fanout := visibilityapi.ActivityRow{PID: 400, PIDVersion: 4, Count: 240, FirstNs: at(11), LastNs: at(12)}
+	assert.Equal(t, []visibilityapi.FileActivityRow{
+		{ActivityRow: own, Operation: "modify", Path: "/t/b1.output"},
+		{ActivityRow: fanout, Operation: "modify", Path: "/t/b1.output", Processes: 120},
+	}, got.Files.Rows)
+
+	// A page of one row continues past the named process's own row to the folded one.
+	paged := filter
+	paged.Limit = 1
+	first, err := arch.ActivityPage(ctx, paged, visibilityapi.ActivityFiles, "")
+	require.NoError(t, err)
+	second, err := arch.ActivityPage(ctx, paged, visibilityapi.ActivityFiles, first.NextCursor)
+	require.NoError(t, err)
+	assert.Equal(t, append(first.Files, second.Files...), got.Files.Rows)
+}
+
 // A session's tool calls are read from the archive (issue #1288): one per tool_use_id at its first recording, though the agent reports
 // a call again after a restart, oldest first, and only the session's and the host's.
 //

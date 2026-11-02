@@ -3787,6 +3787,9 @@ components:
                           rolled_up:
                             type: boolean
                             description: Path is a directory standing for the agent file activity under it, folded by the extension to stay within its per-second budget.
+                          processes:
+                            type: integer
+                            description: Set when the extension folded the operations of several processes into the one named, which they all descend from, to stay within its per-second budget. How many processes, counted in each second's fold. Such a row is listed apart from the named process's own operations.
         network:
           allOf:
             - $ref: "#/components/schemas/ActivityTotals"
