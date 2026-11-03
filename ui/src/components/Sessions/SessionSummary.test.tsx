@@ -145,7 +145,6 @@ describe("SessionSummary", () => {
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:share"), revokeObjectURL: vi.fn() }));
     renderSummary(busy());
     const image = await card();
-    expect(screen.getByText("Made in your browser and never uploaded.")).toBeVisible();
 
     await press("Copy image", "Image copied.");
     const item = (clipboard.write.mock.calls[0][0] as { items: Record<string, Promise<Blob>> }[])[0];

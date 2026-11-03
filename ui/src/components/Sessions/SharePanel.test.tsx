@@ -91,18 +91,6 @@ describe("SharePanel", () => {
     expect(write).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps what the image leaves out behind its info button, which describes it and opens it on a press", () => {
-    stubClipboard(undefined, false);
-    render(<SharePanel card={CARD} svg="<svg/>" hostUnread={false} />);
-    expect(screen.getByText("Made in your browser and never uploaded.")).toBeVisible();
-    const info = screen.getByRole("button", { name: "What the image leaves out" });
-    expect(info).toHaveAccessibleDescription(/^Usernames, hostnames and IP addresses are removed, home folders show as ~/);
-    expect(info).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(info);
-    expect(info).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("tooltip")).toHaveClass("share-panel__tooltip--open");
-  });
-
   // spec:web-ui/a-session-can-be-shared-as-an-image-made-in-the-browser/the-system-share-sheet-takes-the-image-where-the-browser-has-one
   describe("the system share sheet", () => {
     it("shares the PNG and the caption through it when the browser can share the file", async () => {

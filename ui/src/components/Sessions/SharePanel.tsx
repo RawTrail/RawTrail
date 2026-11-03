@@ -1,13 +1,9 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../ui/Button";
 import { caption, type ShareCard } from "./shareCard";
 import { sharePng } from "./shareImage";
 
 const FILE_NAME = "rawtrail-session.png";
-
-// PRIVACY_DETAIL is what the card leaves out, behind the info button so the panel leads with what the person can do.
-const PRIVACY_DETAIL = "Usernames, hostnames and IP addresses are removed, home folders show as ~, and commands show as program names "
-  + "without their arguments. There are no share links.";
 
 // SITES are the composers the panel opens. Neither takes an image in a link, so opening one also copies the image to paste in. The
 // marks are the sites' own logos (Simple Icons, CC0), drawn in their brand colors as their guidelines ask of a share button.
@@ -44,11 +40,9 @@ interface SharePanelProps {
 // there are no share links.
 export function SharePanel({ card, svg, hostUnread }: SharePanelProps) {
   const [status, setStatus] = useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
   // sheet is the PNG made ahead for the system share sheet, which must be called while the click still counts as the person's. It is
   // kept with the SVG it was made from, so a card redrawn since is never shared as the old one.
   const [sheet, setSheet] = useState<{ svg: string; file: File } | null>(null);
-  const detailId = useId();
   const words = card ? caption(card) : "";
   const ready = card !== null && svg !== null && !hostUnread;
 
@@ -120,25 +114,6 @@ export function SharePanel({ card, svg, hostUnread }: SharePanelProps) {
   return (
     <section className="share-panel" aria-label="Share as an image">
       <h2 className="share-panel__title">Share as an image</h2>
-      <p className="share-panel__note">
-        Made in your browser and never uploaded.
-        <button
-          type="button"
-          className="share-panel__info"
-          aria-label="What the image leaves out"
-          aria-describedby={detailId}
-          aria-expanded={detailOpen}
-          onClick={() => { setDetailOpen(!detailOpen); }}
-        >
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-            <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M8 7v4.5M8 4.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
-        <span id={detailId} role="tooltip" className={`share-panel__tooltip${detailOpen ? " share-panel__tooltip--open" : ""}`}>
-          {PRIVACY_DETAIL}
-        </span>
-      </p>
       {hostUnread && (
         <p className="share-panel__error" role="alert">
           This host&apos;s name could not be read, so the card cannot be checked for it and is not shown. Try again later.
