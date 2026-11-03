@@ -130,35 +130,20 @@ func appendArgs(chunk []api.Event) ([]string, []any, error) {
 // Applying the floor inside each arm restores the semantics and costs 71ms, worse than doing nothing, because the join stops the
 // limit being pushed into the index read. The cheap bound and the correct answer are exclusive here, and correctness is not the
 // half to trade away for 25ms.
+//
+// The never-claimed arm groups by (processed, host_id) although processed is fixed by its WHERE, and that is not redundant: only
+// with the constant prefix named in the GROUP BY does MySQL 8.4 read idx_event_queue_claim as a loose index scan, one dive per
+// host. Grouped by host_id alone it reads every never-claimed row, so the hint cost grew with the backlog: 8 to 10 seconds per
+// call on a host holding 4.9M queued events, four workers calling it every tick, and a processor that drained slower than the
+// agent sent (issue #1515). The claimed arms keep their plain GROUP BY: claimed_at_ns is not in that index, and in-flight rows
+// are bounded by the batches the workers hold.
 func (s *Store) PendingHosts(ctx context.Context, limit int) ([]string, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
 	cutoff := time.Now().UnixNano() - claimLeaseNs
 	var hosts []string
-	err := s.db.SelectContext(ctx, &hosts, `
-		SELECT c.host_id
-		FROM (
-			SELECT host_id, MIN(timestamp_ns) AS oldest_ns
-			FROM event_queue
-			WHERE processed = 0
-			GROUP BY host_id
-			UNION ALL
-			SELECT host_id, MIN(timestamp_ns) AS oldest_ns
-			FROM event_queue
-			WHERE processed = 2 AND claimed_at_ns < ?
-			GROUP BY host_id
-		) c
-		LEFT JOIN (
-			SELECT host_id, MIN(timestamp_ns) AS floor_ns
-			FROM event_queue
-			WHERE processed = 2 AND claimed_at_ns >= ?
-			GROUP BY host_id
-		) f ON f.host_id = c.host_id
-		WHERE f.floor_ns IS NULL OR c.oldest_ns < f.floor_ns
-		GROUP BY c.host_id
-		ORDER BY MIN(c.oldest_ns)
-		LIMIT ?`, cutoff, cutoff, limit)
+	err := s.db.SelectContext(ctx, &hosts, PendingHostsSQL, cutoff, cutoff, limit)
 	if err != nil {
 		return nil, fmt.Errorf("pending hosts: %w", err)
 	}
@@ -198,6 +183,66 @@ func (s *Store) ClaimForHost(ctx context.Context, hostID string, limit int) ([]a
 		return nil, 0, err
 	}
 	return events, stamp, nil
+}
+
+// PendingHostsSQL is PendingHosts' query, exported so the plan test can pin the never-claimed arm's loose index scan.
+const PendingHostsSQL = `
+		SELECT c.host_id
+		FROM (
+			SELECT host_id, MIN(timestamp_ns) AS oldest_ns
+			FROM event_queue
+			WHERE processed = 0
+			GROUP BY processed, host_id
+			UNION ALL
+			SELECT host_id, MIN(timestamp_ns) AS oldest_ns
+			FROM event_queue
+			WHERE processed = 2 AND claimed_at_ns < ?
+			GROUP BY host_id
+		) c
+		LEFT JOIN (
+			SELECT host_id, MIN(timestamp_ns) AS floor_ns
+			FROM event_queue
+			WHERE processed = 2 AND claimed_at_ns >= ?
+			GROUP BY host_id
+		) f ON f.host_id = c.host_id
+		WHERE f.floor_ns IS NULL OR c.oldest_ns < f.floor_ns
+		GROUP BY c.host_id
+		ORDER BY MIN(c.oldest_ns)
+		LIMIT ?`
+
+// ClaimNeverClaimedSQL and ClaimExpiredSQL are the claim's two reads, one per claim state, exported so the plan test can pin that
+// each walks idx_event_queue_claim in timestamp order rather than sorting the host's backlog.
+const (
+	ClaimNeverClaimedSQL = `
+		SELECT event_id, host_id, timestamp_ns, ingested_at_ns, event_type, platform, payload
+		FROM event_queue
+		WHERE host_id = ? AND processed = 0 AND (? = 0 OR timestamp_ns < ?)
+		ORDER BY timestamp_ns
+		LIMIT ?
+		FOR UPDATE SKIP LOCKED`
+	ClaimExpiredSQL = `
+		SELECT event_id, host_id, timestamp_ns, ingested_at_ns, event_type, platform, payload
+		FROM event_queue
+		WHERE host_id = ? AND processed = 2 AND claimed_at_ns < ? AND (? = 0 OR timestamp_ns < ?)
+		ORDER BY timestamp_ns
+		LIMIT ?
+		FOR UPDATE SKIP LOCKED`
+)
+
+// oldestFirst merges two lists each sorted by timestamp_ns into the first limit events of both, oldest first.
+func oldestFirst(a, b []api.Event, limit int) []api.Event {
+	merged := make([]api.Event, 0, min(len(a)+len(b), limit))
+	i, j := 0, 0
+	for len(merged) < limit && (i < len(a) || j < len(b)) {
+		if j == len(b) || (i < len(a) && a[i].TimestampNs <= b[j].TimestampNs) {
+			merged = append(merged, a[i])
+			i++
+		} else {
+			merged = append(merged, b[j])
+			j++
+		}
+	}
+	return merged
 }
 
 // claimOnce runs one claim transaction for one host. Extracted so ClaimForHost can wrap it in a deadlock retry. READ COMMITTED is
@@ -253,17 +298,20 @@ func (s *Store) claimOnce(ctx context.Context, hostID string, limit int) ([]api.
 		inFlightFloor = inFlight.Int64
 	}
 
-	var events []api.Event
-	err = tx.SelectContext(ctx, &events, `
-		SELECT event_id, host_id, timestamp_ns, ingested_at_ns, event_type, platform, payload
-		FROM event_queue
-		WHERE host_id = ? AND (processed = 0 OR (processed = 2 AND claimed_at_ns < ?)) AND (? = 0 OR timestamp_ns < ?)
-		ORDER BY timestamp_ns
-		LIMIT ?
-		FOR UPDATE SKIP LOCKED`, hostID, cutoff, hasFloor, inFlightFloor, limit)
-	if err != nil {
+	// One statement per claim state, merged here, for the reason PendingHosts splits its arms: written as one OR across the two
+	// states, the predicate let MySQL read every pending row of every host and filesort them to return the first limit, 3 to 4
+	// seconds per claim with 114K rows queued (issue #1515). Each state alone walks idx_event_queue_claim in (host_id, timestamp_ns)
+	// order and stops at the limit. Taking the first limit of each and merging them is exactly the first limit of the union. The
+	// rows of the longer list that do not make the cut stay locked only until this transaction commits, and nothing else claims
+	// this host meanwhile (the caller holds its advisory lock).
+	neverClaimed, expired := []api.Event{}, []api.Event{}
+	if err := tx.SelectContext(ctx, &neverClaimed, ClaimNeverClaimedSQL, hostID, hasFloor, inFlightFloor, limit); err != nil {
 		return nil, 0, fmt.Errorf("claim select: %w", err)
 	}
+	if err := tx.SelectContext(ctx, &expired, ClaimExpiredSQL, hostID, cutoff, hasFloor, inFlightFloor, limit); err != nil {
+		return nil, 0, fmt.Errorf("claim select expired: %w", err)
+	}
+	events := oldestFirst(neverClaimed, expired, limit)
 	if len(events) == 0 {
 		return events, 0, tx.Commit()
 	}
