@@ -4,6 +4,7 @@ package tests
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,7 +30,7 @@ func seedBacklog(t *testing.T, db *sqlx.DB, host string, n int) {
 	require.NoError(t, err)
 }
 
-// explainRows returns each EXPLAIN row of query as "key type extra" for the rows that read event_queue.
+// explainRows returns each EXPLAIN row of query as "key | type | key_len | extra" for the rows that read event_queue.
 func explainRows(t *testing.T, db *sqlx.DB, query string, args ...any) []string {
 	t.Helper()
 	rows, err := db.QueryxContext(t.Context(), "EXPLAIN "+query, args...)
@@ -40,12 +41,18 @@ func explainRows(t *testing.T, db *sqlx.DB, query string, args ...any) []string 
 		row := map[string]any{}
 		require.NoError(t, rows.MapScan(row))
 		if planCell(row["table"]) == "event_queue" {
-			plans = append(plans, strings.Join([]string{planCell(row["key"]), planCell(row["type"]), planCell(row["Extra"])}, " | "))
+			plans = append(plans, strings.Join([]string{planCell(row["key"]), planCell(row["type"]), planCell(row["key_len"]),
+				planCell(row["Extra"])}, " | "))
 		}
 	}
 	require.NoError(t, rows.Err())
 	return plans
 }
+
+// claimKeyLen is the length of idx_event_queue_claim's (processed, host_id) prefix: a TINYINT, and a VARCHAR(255) in utf8mb4 with
+// its two length bytes. A claim plan whose key_len reaches it looks the host up by both columns, rather than reading every host's
+// queue by processed alone.
+const claimKeyLen = 1 + 255*4 + 2
 
 // spec:server-availability/queue-reads-cost-the-same-at-any-backlog-depth/a-deep-backlog-does-not-slow-the-next-host-or-the-next-claim
 //
@@ -60,25 +67,43 @@ func TestEventLog_QueueReadsDoNotScanTheBacklog(t *testing.T) {
 	for i := range 20 {
 		seedBacklog(t, db, fmt.Sprintf("plan-host-%02d", i), 50)
 	}
+	// Every claim state is populated, so the plans are the ones a recovering processor gets: the big host's oldest events sit in an
+	// expired claim and the next in a live one, and another host's queue is mostly claimed.
+	const liveClaim = 1 << 62
+	_, err := db.ExecContext(t.Context(), `UPDATE event_queue SET processed = 2,
+		claimed_at_ns = IF(timestamp_ns <= 500, 1, ?) WHERE host_id IN ('plan-big-host', 'plan-host-00') AND timestamp_ns <= 1000`,
+		int64(liveClaim))
+	require.NoError(t, err)
 	// Refresh the statistics after the bulk seed, which the optimizer otherwise reads as an empty table.
-	_, err := db.ExecContext(t.Context(), "ANALYZE TABLE event_queue")
+	_, err = db.ExecContext(t.Context(), "ANALYZE TABLE event_queue")
 	require.NoError(t, err)
 
 	t.Run("host hint reads one entry per host for the never-claimed arm", func(t *testing.T) {
-		plans := explainRows(t, db, eventlog.PendingHostsSQL, int64(1), int64(1), 16)
-		assert.Contains(t, plans, "idx_event_queue_claim | range | Using where; Using index for group-by",
+		plans := explainRows(t, db, eventlog.PendingHostsSQL, int64(1000), int64(1000), 16)
+		assert.Contains(t, plans, "idx_event_queue_claim | range | 1023 | Using where; Using index for group-by",
 			"the never-claimed arm must be a loose index scan, plans: %v", plans)
 	})
 	t.Run("claim walks the host's events in order and stops at the limit", func(t *testing.T) {
-		for name, query := range map[string]string{"never claimed": eventlog.ClaimNeverClaimedSQL, "expired": eventlog.ClaimExpiredSQL} {
-			args := []any{"plan-big-host", 0, int64(0), 500}
-			if name == "expired" {
-				args = []any{"plan-big-host", int64(1), 0, int64(0), 500}
-			}
-			plans := explainRows(t, db, query, args...)
-			require.Len(t, plans, 1, name)
-			assert.True(t, strings.HasPrefix(plans[0], "idx_event_queue_claim | "), "%s reads idx_event_queue_claim, plan: %s", name, plans[0])
-			assert.NotContains(t, plans[0], "filesort", "%s must not sort the host's backlog, plan: %s", name, plans[0])
+		const cutoff = int64(1000)
+		for _, tc := range []struct {
+			name  string
+			query string
+			args  []any
+		}{
+			{"never claimed, no floor", eventlog.ClaimNeverClaimedSQL, []any{"plan-big-host", 0, int64(0), 500}},
+			{"never claimed, behind a floor", eventlog.ClaimNeverClaimedSQL, []any{"plan-big-host", 1, int64(15000), 500}},
+			{"expired, no floor", eventlog.ClaimExpiredSQL, []any{"plan-big-host", cutoff, 0, int64(0), 500}},
+			{"expired, behind a floor", eventlog.ClaimExpiredSQL, []any{"plan-big-host", cutoff, 1, int64(501), 500}},
+		} {
+			plans := explainRows(t, db, tc.query, tc.args...)
+			require.Len(t, plans, 1, tc.name)
+			cells := strings.Split(plans[0], " | ")
+			assert.Equal(t, "idx_event_queue_claim", cells[0], "%s reads idx_event_queue_claim, plan: %s", tc.name, plans[0])
+			assert.Contains(t, []string{"ref", "range"}, cells[1], "%s looks the host up, plan: %s", tc.name, plans[0])
+			keyLen, err := strconv.Atoi(cells[2])
+			require.NoError(t, err, tc.name)
+			assert.GreaterOrEqual(t, keyLen, claimKeyLen, "%s uses both processed and host_id, plan: %s", tc.name, plans[0])
+			assert.NotContains(t, cells[3], "filesort", "%s must not sort the host's backlog, plan: %s", tc.name, plans[0])
 		}
 	})
 }

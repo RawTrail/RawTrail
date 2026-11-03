@@ -232,11 +232,14 @@ const (
 // oldestFirst merges two lists each sorted by timestamp_ns into the first limit events of both, oldest first.
 func oldestFirst(a, b []api.Event, limit int) []api.Event {
 	merged := make([]api.Event, 0, min(len(a)+len(b), limit))
-	for len(merged) < limit && (len(a) > 0 || len(b) > 0) {
-		if len(b) == 0 || (len(a) > 0 && a[0].TimestampNs <= b[0].TimestampNs) {
-			merged, a = append(merged, a[0]), a[1:]
+	i, j := 0, 0
+	for len(merged) < limit && (i < len(a) || j < len(b)) {
+		if j == len(b) || (i < len(a) && a[i].TimestampNs <= b[j].TimestampNs) {
+			merged = append(merged, a[i])
+			i++
 		} else {
-			merged, b = append(merged, b[0]), b[1:]
+			merged = append(merged, b[j])
+			j++
 		}
 	}
 	return merged
@@ -301,7 +304,7 @@ func (s *Store) claimOnce(ctx context.Context, hostID string, limit int) ([]api.
 	// order and stops at the limit. Taking the first limit of each and merging them is exactly the first limit of the union. The
 	// rows of the longer list that do not make the cut stay locked only until this transaction commits, and nothing else claims
 	// this host meanwhile (the caller holds its advisory lock).
-	var neverClaimed, expired []api.Event
+	neverClaimed, expired := []api.Event{}, []api.Event{}
 	if err := tx.SelectContext(ctx, &neverClaimed, ClaimNeverClaimedSQL, hostID, hasFloor, inFlightFloor, limit); err != nil {
 		return nil, 0, fmt.Errorf("claim select: %w", err)
 	}
