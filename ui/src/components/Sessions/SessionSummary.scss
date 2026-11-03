@@ -69,8 +69,75 @@
   }
 
   &__note {
+    align-items: center;
     color: $ui-black-75;
+    display: flex;
+    gap: $pad-xsmall;
     margin: 0;
+    position: relative;
+  }
+
+  // The info button is the tooltip's anchor: hovering or focusing it shows the detail, and pressing it keeps it open on touch.
+  &__info {
+    background: none;
+    border: 0;
+    border-radius: 50%;
+    color: $ui-black-50;
+    cursor: pointer;
+    display: inline-flex;
+    padding: 2px;
+
+    &:hover,
+    &:focus-visible {
+      color: $core-black;
+    }
+  }
+
+  &__tooltip {
+    background: $core-black;
+    border-radius: 6px;
+    color: $core-white;
+    display: none;
+    font-size: 0.8125rem;
+    left: 0;
+    line-height: 1.4;
+    max-width: 22rem;
+    padding: $pad-small $pad-smedium;
+    position: absolute;
+    top: calc(100% + #{$pad-xsmall});
+    z-index: 2;
+  }
+
+  &__info:hover + &__tooltip,
+  &__info:focus-visible + &__tooltip,
+  &__tooltip--open {
+    display: block;
+  }
+
+  &__sites {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $pad-small;
+  }
+
+  &__site {
+    align-items: center;
+    background: $core-white;
+    border: 1px solid $ui-black-25;
+    border-radius: 8px;
+    color: $core-black;
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    font-weight: 600;
+    gap: $pad-small;
+    min-height: 44px;
+    padding: 0 $pad-smedium;
+    text-decoration: none;
+
+    &:hover {
+      background: $ui-black-5;
+    }
   }
 
   &__error {
@@ -78,20 +145,11 @@
     margin: 0;
   }
 
-  &__buttons,
-  &__links {
+  &__buttons {
     display: flex;
     flex-wrap: wrap;
     gap: $pad-small;
     margin: 0;
-  }
-
-  &__links a {
-    align-items: center;
-    display: inline-flex;
-    font-weight: 600;
-    min-height: 44px;
-    padding: 0 $pad-smedium;
   }
 
   &__field {

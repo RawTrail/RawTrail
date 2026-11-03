@@ -24,7 +24,7 @@ A session shared as an image SHALL be drawn only from a card of counts, program 
 
 ### Requirement: A session can be shared as an image made in the browser
 
-The Summary SHALL show the session's card as the 1080 x 1350 image it shares, and offer to share it as a PNG drawn at twice that size, made in the browser from the redacted card with no request. It SHALL copy the image or download it, copy a suggested caption, and open the LinkedIn or X composer, and SHALL neither draw the card nor offer any of them while the host's name is unread or empty.
+The Summary SHALL show the session's card as the 1080 x 1350 image it shares, and offer to share it as a PNG drawn at twice that size, made in the browser from the redacted card with no request. It SHALL copy the image or download it, copy a suggested caption, share on LinkedIn or X, and use the system share sheet where the browser has one, and SHALL neither draw the card nor offer any of them while the host's name is unread or empty.
 
 #### Scenario: The Summary shows the image it shares
 
@@ -43,6 +43,18 @@ The Summary SHALL show the session's card as the 1080 x 1350 image it shares, an
 - **GIVEN** a session's Summary with its card drawn
 - **WHEN** the person copies the image, downloads it, or copies the caption
 - **THEN** the clipboard receives an `image/png` item, a PNG file is saved, or the clipboard receives the caption, and the Summary says which
+
+#### Scenario: A site's composer opens with the image copied to paste
+
+- **GIVEN** a session's Summary with its card drawn
+- **WHEN** the person presses Share on LinkedIn or Share on X
+- **THEN** the site's composer opens in a new tab with the caption filled in, and the image is copied for the person to paste, since neither site takes an image in a link
+
+#### Scenario: The system share sheet takes the image where the browser has one
+
+- **GIVEN** a browser whose share sheet can share a PNG file
+- **WHEN** the person shares through it
+- **THEN** the sheet receives the PNG and the caption, closing it is not reported as a failure, and a browser that cannot share the file is not offered the sheet
 
 #### Scenario: A host whose name cannot be read is not shared
 

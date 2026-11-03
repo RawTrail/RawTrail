@@ -145,7 +145,7 @@ describe("SessionSummary", () => {
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:share"), revokeObjectURL: vi.fn() }));
     renderSummary(busy());
     const image = await card();
-    expect(screen.getByText(/^The image is the card shown here, made in your browser\. Nothing is uploaded/)).toBeVisible();
+    expect(screen.getByText("Made in your browser and never uploaded.")).toBeVisible();
 
     await press("Copy image", "Image copied.");
     const item = (clipboard.write.mock.calls[0][0] as { items: Record<string, Promise<Blob>> }[])[0];
@@ -160,8 +160,8 @@ describe("SessionSummary", () => {
     await press("Copy caption", "Caption copied.");
     expect(clipboard.writeText).toHaveBeenCalledWith("My AI agent's log shows 12 tool calls. The kernel saw 140 processes run. "
       + "Recorded with RawTrail.");
-    expect(screen.getByRole("link", { name: "Open X" }).getAttribute("href")).toMatch(/^https:\/\/x\.com\/intent\/post\?text=My%20AI/);
-    expect(screen.getByRole("link", { name: "Open LinkedIn" }).getAttribute("href")).toMatch(/^https:\/\/www\.linkedin\.com\/feed/);
+    expect(screen.getByRole("link", { name: "Share on X" }).getAttribute("href")).toMatch(/^https:\/\/x\.com\/intent\/post\?text=My%20AI/);
+    expect(screen.getByRole("link", { name: "Share on LinkedIn" }).getAttribute("href")).toMatch(/^https:\/\/www\.linkedin\.com\/feed/);
   });
 
   it("says so when the browser cannot copy an image", async () => {
@@ -184,7 +184,7 @@ describe("SessionSummary", () => {
     // Nor is a card left loading that will never be drawn.
     expect(document.querySelector("[aria-busy='true']")).toBeNull();
     for (const name of ["Copy image", "Download PNG", "Copy caption"]) expect(screen.getByRole("button", { name })).toBeDisabled();
-    expect(screen.queryByRole("link", { name: "Open LinkedIn" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Share on LinkedIn" })).toBeNull();
   });
 
   it("draws no card for another host until that host's name is read, never redacting against the last one", async () => {

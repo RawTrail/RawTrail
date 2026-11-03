@@ -147,9 +147,13 @@ test.describe("a session's Summary", () => {
     await page.goto(`/ui/agent-sessions/${seeded.hostId}/${seeded.sessionId}`);
     await expect(page.getByRole("img", { name: /^A summary card of a claude-code/ })).toBeVisible({ timeout: 20_000 });
     const panel = page.getByRole("region", { name: "Share as an image" });
-    await expect(panel.getByText("Nothing is uploaded, and there are no share links.", { exact: false })).toBeVisible();
+    await expect(panel.getByText("Made in your browser and never uploaded.")).toBeVisible();
     await expect(panel).toMatchAriaSnapshot(`
       - heading "Share as an image" [level=2]
+      - paragraph:
+        - button "What the image leaves out"
+      - link "Share on LinkedIn"
+      - link "Share on X"
       - button "Copy image"
       - button "Download PNG"
       - button "Copy caption"
