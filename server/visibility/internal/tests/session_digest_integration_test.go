@@ -200,6 +200,52 @@ func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 	})
 }
 
+// spec:server-rest-api/a-session-digest-counts-its-unrecorded-file-operations/dropped-operations-across-a-clear-count-toward-both-sessions
+//
+// A Claude Code process serves the session after a /clear with no session id of its own, so the server splits its events between the
+// sessions by time, and one drop event can begin before the /clear and end after it. Read by its start alone, the later session
+// counted none of it and read as complete (issue #1518).
+func TestEventArchive_ActivityDigestCountsDropsAcrossAClear(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().Add(-time.Hour).UnixNano()
+	at := func(s int64) int64 { return base + s*int64(time.Second) }
+	dropped := func(id string, first, last int64, operations int) visibilityapi.Event {
+		return activityEvent(id, "h1", "file_activity_dropped", at(first),
+			`{"pid":5709,"pidversion":9,"operations":`+strconv.Itoa(operations)+`,"last_timestamp_ns":`+strconv.FormatInt(at(last), 10)+`}`)
+	}
+	require.NoError(t, arch.Insert(ctx, []visibilityapi.Event{
+		dropped("before", 40, 45, 10),
+		dropped("across", 48, 50, 5),
+		dropped("after", 60, 60, 3),
+	}))
+	agent := visibilityapi.ProcessGeneration{PID: 5709, PIDVersion: 9}
+	clear := at(49)
+	for _, tc := range []struct {
+		name string
+		span visibilityapi.GenerationSpan
+		want int64
+	}{
+		{"the session before the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, ToNs: clear}, 15},
+		{"the session after the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, FromNs: clear}, 8},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			filter := visibilityapi.DigestFilter{
+				ActivityFilter: visibilityapi.ActivityFilter{HostID: "h1", Spans: []visibilityapi.GenerationSpan{tc.span}},
+				StartNs:        at(0), EndNs: at(100), Buckets: 2,
+			}
+			// The archive shows inserted rows a part at a time, so the count is read until it settles.
+			assert.EventuallyWithT(t, func(c *assert.CollectT) {
+				got, err := arch.ActivityDigest(ctx, filter)
+				require.NoError(c, err)
+				assert.Equal(c, tc.want, got.Files.Unrecorded)
+			}, 5*time.Second, 100*time.Millisecond)
+		})
+	}
+}
+
 // The busiest directories and domains are named, and the digest says when there were more.
 func TestEventArchive_ActivityDigestCutsItsLists(t *testing.T) {
 	t.Parallel()

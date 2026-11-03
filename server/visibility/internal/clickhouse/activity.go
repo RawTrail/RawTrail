@@ -92,7 +92,20 @@ func withActivityQuerySize(ctx context.Context) context.Context {
 // activityScope is the WHERE clause, after the event types, that keeps the filter's events, and its arguments. Clipped, so each list
 // read's append of its limit copies the arguments instead of writing into an array the others share.
 func activityScope(filter api.ActivityFilter) (string, []any) {
-	genClause, genArgs := activityScopeSQL(filter)
+	return scopeWithSpanStart(filter, "timestamp_ns")
+}
+
+// overlapScope is activityScope for events that stand for a stretch of time, keeping one in a span when the stretch overlaps it rather
+// than only when it begins inside. A file_activity_dropped event begins at its first lost operation and ends at its last, and a Claude
+// Code process serves the session after a /clear without a session id of its own, so one event can straddle that boundary; read by
+// its start alone, the later session would count nothing and read as complete (issue #1518). Each session it overlaps counts it.
+func overlapScope(filter api.ActivityFilter) (string, []any) {
+	return scopeWithSpanStart(filter, activityLastTimestamp)
+}
+
+// scopeWithSpanStart builds activityScope with spanStart as the expression a span's lower bound is compared against.
+func scopeWithSpanStart(filter api.ActivityFilter, spanStart string) (string, []any) {
+	genClause, genArgs := activityScopeSQL(filter, spanStart)
 	scope := hostPredicate + " AND " + genClause
 	args := append([]any{filter.HostID}, genArgs...)
 	if filter.FromNs > 0 {
@@ -389,8 +402,8 @@ func (s *Store) AgentSessionLineage(ctx context.Context, hostID, sessionID strin
 }
 
 // activityScopeSQL matches the filter's generations: those in Generations wholly, those in Spans only inside their span (issue
-// #1319).
-func activityScopeSQL(filter api.ActivityFilter) (string, []any) {
+// #1319), judged by spanStart against the span's start and by timestamp_ns against its end.
+func activityScopeSQL(filter api.ActivityFilter, spanStart string) (string, []any) {
 	var arms []string
 	var args []any
 	if len(filter.Generations) > 0 {
@@ -400,7 +413,7 @@ func activityScopeSQL(filter api.ActivityFilter) (string, []any) {
 	}
 	for _, span := range filter.Spans {
 		clause, genArgs := generationIdentitySQL([]api.ProcessGeneration{span.ProcessGeneration})
-		clause += " AND timestamp_ns >= ?"
+		clause += " AND " + spanStart + " >= ?"
 		genArgs = append(genArgs, span.FromNs)
 		if span.ToNs > 0 {
 			clause += " AND timestamp_ns < ?"
