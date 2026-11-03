@@ -6,10 +6,12 @@
 ## 2. Server and UI
 
 - [x] 2.1 Count the scope's dropped operations as the digest's `unrecorded`
+- [x] 2.3 Count an event that straddles a session boundary inside one process toward each session it overlaps
 - [x] 2.2 Say on the session Summary, and note on its share card, how many file operations were not recorded
 
 ## 3. Tests
 
 - [x] 3.1 A dropped row is charged to the root of its session; every drop is charged to a subtree (property)
 - [x] 3.2 The digest counts only the scope's dropped operations
+- [x] 3.4 Drops across a `/clear` count toward both sessions
 - [x] 3.3 Exercise on edr-dev with a window that still overflows

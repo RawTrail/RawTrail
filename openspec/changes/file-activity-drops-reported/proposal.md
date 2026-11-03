@@ -5,7 +5,7 @@ When a second of an AI agent session has more file activity than the extension c
 ## What changes
 
 - The extension sends a `file_activity_dropped` event for each agent subtree that lost operations in a second: the topmost observed process of its session, how many operations, and when the first and last happened.
-- The session digest counts those operations as `unrecorded`.
+- The session digest counts those operations as `unrecorded`. An event whose operations fall on both sides of a `/clear` in one Claude Code process counts toward both sessions, so neither reads as complete.
 - The session Summary says how many file operations were not recorded, and the card it is shared as notes them under its files changed, so neither states a file count as complete when it is not.
 
 ## Impact

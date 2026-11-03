@@ -1275,7 +1275,7 @@ paths:
                           outside_project: {type: integer, format: int64, description: "Changed files outside the session's project; 0 when its project is unknown."}
                           temporary: {type: integer, format: int64, description: "Files created and then, last of all, deleted or renamed away in the session; a file deleted and created again changed."}
                           agent_files: {type: integer, format: int64, description: "Claude Code's own files the session wrote."}
-                          unrecorded: {type: integer, format: int64, description: "File operations the extension could not send within its per-second budget, so the other counts miss them; 0 when it sent every one."}
+                          unrecorded: {type: integer, format: int64, description: "File operations the extension could not send within its per-second budget, so the other counts miss them; 0 when it sent every one. A second of drops that spans a `/clear` counts toward both sessions, so for those two it can be an upper bound."}
                       domains:
                         type: array
                         description: >-

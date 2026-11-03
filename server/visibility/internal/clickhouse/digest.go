@@ -42,6 +42,7 @@ func (s *Store) ActivityDigest(ctx context.Context, filter api.DigestFilter) (ap
 		return out, nil
 	}
 	scope, args := activityScope(filter.ActivityFilter)
+	dropScope, dropArgs := overlapScope(filter.ActivityFilter)
 	ctx = withActivityQuerySize(ctx)
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() (err error) {
@@ -49,7 +50,7 @@ func (s *Store) ActivityDigest(ctx context.Context, filter api.DigestFilter) (ap
 		return err
 	})
 	g.Go(func() (err error) {
-		out.Files, err = s.digestFiles(gctx, scope, args, filter.Project)
+		out.Files, err = s.digestFiles(gctx, scope, args, dropScope, dropArgs, filter.Project)
 		return err
 	})
 	g.Go(func() (err error) {
@@ -119,7 +120,12 @@ const digestFileOperations = "['create', 'modify', 'rename', 'delete', 'file_ren
 // a file deleted and created again is a change. A rolled-up row stands for many files under a directory, so it is never temporary.
 // The rest are the files changed, and those outside the project are counted again; with no project, none are outside it. A path only
 // read or connected to is counted nowhere.
-func (s *Store) digestFiles(ctx context.Context, scope string, args []any, project string) (api.FileDigest, error) {
+//
+// The operations the extension dropped are read over dropScope, the overlap form of the scope (overlapScope), so an event that
+// straddles a session boundary inside one process counts toward each session it overlaps. That makes the count an upper bound for
+// such a session, which is the side to err on: a session that lost operations must never read as complete.
+func (s *Store) digestFiles(ctx context.Context, scope string, args []any, dropScope string, dropArgs []any, project string) (
+	api.FileDigest, error) {
 	root := strings.TrimSuffix(project, "/")
 	var out api.FileDigest
 	query := `
@@ -156,7 +162,7 @@ func (s *Store) digestFiles(ctx context.Context, scope string, args []any, proje
 	err = s.db.QueryRowContext(ctx, `
 		SELECT toInt64(sum(JSONExtractInt(payload, 'operations')))
 		FROM events FINAL
-		WHERE event_type = 'file_activity_dropped' AND `+scope, args...).Scan(&out.Unrecorded)
+		WHERE event_type = 'file_activity_dropped' AND `+dropScope, dropArgs...).Scan(&out.Unrecorded)
 	if err != nil {
 		return api.FileDigest{}, fmt.Errorf("clickhouse digest unrecorded files: %w", err)
 	}
