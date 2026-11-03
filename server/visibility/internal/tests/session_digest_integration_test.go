@@ -221,14 +221,14 @@ func TestEventArchive_ActivityDigestCountsDropsAcrossAClear(t *testing.T) {
 		dropped("after", 60, 60, 3),
 	}))
 	agent := visibilityapi.ProcessGeneration{PID: 5709, PIDVersion: 9}
-	clear := at(49)
+	clearedAt := at(49)
 	for _, tc := range []struct {
 		name string
 		span visibilityapi.GenerationSpan
 		want int64
 	}{
-		{"the session before the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, ToNs: clear}, 15},
-		{"the session after the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, FromNs: clear}, 8},
+		{"the session before the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, ToNs: clearedAt}, 15},
+		{"the session after the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, FromNs: clearedAt}, 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
