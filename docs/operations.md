@@ -295,7 +295,7 @@ To change it, open **Detection tuning** and edit **AI agent credential guard** (
 
 ## Sharing an AI agent session as an image
 
-A session's Summary is shown as the card it is shared as, and beside it are **Copy image**, **Download PNG** and **Copy caption**. The image is made in the browser: nothing is uploaded, and there are no share links. The card shows counts, the programs the agent ran by name, the public domains it talked to, and which credentials the credential guard stopped it reading.
+A session's Summary is shown as the card it is shared as. Beside it, **Share on LinkedIn** and **Share on X** open the site's composer with a suggested caption and copy the image to paste into the post, since neither site takes an image in a link. **More** opens the system share sheet with the image where the browser offers one, and **Copy image**, **Download PNG** and **Copy caption** are always there. The image is made in the browser: nothing is uploaded, and there are no share links. The card shows counts, the programs the agent ran by name, the public domains it talked to, and which credentials the credential guard stopped it reading.
 
 - Usernames, hostnames and IP addresses are always removed, home folders show as `~`, and commands show as program names, never their arguments.
 - A prompt is never the card's title, the project's name is not on it, and internal domains are never shown or counted. Internal domains are names under `.local`, `.lan`, `.internal`, `.corp` and similar, and the domain the host itself is named under.
