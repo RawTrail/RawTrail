@@ -357,10 +357,25 @@ func (s *Store) claimOnce(ctx context.Context, hostID string, limit int) ([]api.
 // claimable rather than acknowledged. The in-flight floor does not cover it: the floor counts only claims that are still live,
 // and this window is reached precisely when the claim has outlived its lease. The processor closes it by holding the host's
 // claim lock across this call, which is where the per-host ordering guarantee already lives.
+//
+// A deadlock is retried, as the claim, append and prune paths retry theirs (issue #1522). The ack's UPDATE meets PruneProcessed's
+// DELETE on the gap locks of the processed index, and one unretried deadlock left the batch in flight for the whole claim lease,
+// which the in-flight floor turns into a 5-minute pause of the host and then a second processing of the batch. MySQL rolls back the
+// whole transaction on a deadlock, so running it again is safe.
 func (s *Store) Ack(ctx context.Context, eventIDs []string, claimStampNs int64) (held bool, err error) {
 	if len(eventIDs) == 0 {
 		return true, nil
 	}
+	err = sqlhelpers.WithDeadlockRetry(ctx, deadlockMaxAttempts, deadlockBackoffStep, func() error {
+		var ackErr error
+		held, ackErr = s.ackOnce(ctx, eventIDs, claimStampNs)
+		return ackErr
+	})
+	return held, err
+}
+
+// ackOnce runs one acknowledgement transaction. Extracted so Ack can wrap it in a deadlock retry.
+func (s *Store) ackOnce(ctx context.Context, eventIDs []string, claimStampNs int64) (bool, error) {
 	// The tally columns are cleared here for the same reason the withdrawal clears them: an acknowledged row is terminal, nothing
 	// reads a carried tally again (the read is scoped to a nack's owned rows, and Nack's reset requires processed = 2), and a batch
 	// that was nacked WITH a tally before it succeeded would otherwise leave up to MaxNackTallyBytes on the row.
@@ -434,24 +449,6 @@ const (
 	setAsideWindow   = 15 * time.Minute
 )
 
-// Nack returns claimed events to the not-yet-processed state for an immediate later ClaimForHost, clearing the claim timestamp, and
-// counts the attempt. It reports how many events it SET ASIDE instead of returning, which is zero on all but the failing case.
-//
-// Scoped to processed = 2 so it only reverts in-flight rows and never resurrects an already-acknowledged event.
-//
-// The count and the set-aside are what keep a deterministically failing batch from stalling its host forever. The claim selects a
-// host's work in timestamp order, so a nacked batch is that host's oldest pending work and the next claim takes it again; without a
-// bound, nothing newer for that host is ever claimed and the host stops contributing to the graph and raising detections entirely
-// (issue #836). Setting the events aside is not data loss: the archive is written before the queue and retained on its own window,
-// so what is given up is the rest of those events' PROCESSING. How much of it depends on how far the batch got, which this layer
-// cannot see: Nack is called from both the graph-building stage and detection, and the caller reports the difference (issue #845).
-//
-// A claim is identified by the stamp it was issued, not by a row's state, which is what closed issue #840. Until then a worker
-// whose fold outran the 5-minute claim lease nacked rows a replacement had since re-claimed, and what that cost was worse than the
-// "inflated attempt count" it was first written down as. It cleared the replacement's claim stamp, and Ack is conditional on that
-// stamp since issue #817, so the replacement's acknowledgement was REJECTED and its work redone by whoever claimed the rows next.
-// It also counted a failure the replacement had not had against a bound that lives on the ROW and ends in the row being withdrawn,
-// so it needed no repetition: ordinary failures can leave a row one attempt short, and a stale nack supplied the last one.
 // batchDigest identifies the exact set of events a tally was resolved over, so a stored tally is only ever handed to a withdrawal
 // of that same set.
 //
@@ -481,6 +478,26 @@ func batchDigest(eventIDs []string) []byte {
 	return h.Sum(nil)
 }
 
+// Nack returns claimed events to the not-yet-processed state for an immediate later ClaimForHost, clearing the claim timestamp, and
+// counts the attempt. It reports how many events it SET ASIDE instead of returning, which is zero on all but the failing case.
+//
+// Scoped to processed = 2 so it only reverts in-flight rows and never resurrects an already-acknowledged event.
+//
+// The count and the set-aside are what keep a deterministically failing batch from stalling its host forever. The claim selects a
+// host's work in timestamp order, so a nacked batch is that host's oldest pending work and the next claim takes it again; without a
+// bound, nothing newer for that host is ever claimed and the host stops contributing to the graph and raising detections entirely
+// (issue #836). Setting the events aside is not data loss: the archive is written before the queue and retained on its own window,
+// so what is given up is the rest of those events' PROCESSING. How much of it depends on how far the batch got, which this layer
+// cannot see: Nack is called from both the graph-building stage and detection, and the caller reports the difference (issue #845).
+//
+// A claim is identified by the stamp it was issued, not by a row's state, which is what closed issue #840. Until then a worker
+// whose fold outran the 5-minute claim lease nacked rows a replacement had since re-claimed, and what that cost was worse than the
+// "inflated attempt count" it was first written down as. It cleared the replacement's claim stamp, and Ack is conditional on that
+// stamp since issue #817, so the replacement's acknowledgement was REJECTED and its work redone by whoever claimed the rows next.
+// It also counted a failure the replacement had not had against a bound that lives on the ROW and ends in the row being withdrawn,
+// so it needed no repetition: ordinary failures can leave a row one attempt short, and a stale nack supplied the last one.
+//
+// A deadlock is retried, as Ack's is and for the same reason (issue #1522).
 func (s *Store) Nack(
 	ctx context.Context, eventIDs []string, claimStampNs int64, tally []byte,
 ) (result api.NackResult, err error) {
@@ -488,6 +505,16 @@ func (s *Store) Nack(
 		// Vacuously held, matching Ack: there was nothing to hold and nothing to lose.
 		return api.NackResult{Held: true}, nil
 	}
+	err = sqlhelpers.WithDeadlockRetry(ctx, deadlockMaxAttempts, deadlockBackoffStep, func() error {
+		var nackErr error
+		result, nackErr = s.nackOnce(ctx, eventIDs, claimStampNs, tally)
+		return nackErr
+	})
+	return result, err
+}
+
+// nackOnce runs one Nack transaction. Extracted so Nack can wrap it in a deadlock retry.
+func (s *Store) nackOnce(ctx context.Context, eventIDs []string, claimStampNs int64, tally []byte) (api.NackResult, error) {
 	// "No tally" has two spellings in Go and only one of them reaches SQL as NULL: an empty but non-nil []byte binds as an empty
 	// BLOB, which is not NULL, so the statement below would take its overwrite branch and clear what an earlier attempt supplied.
 	// That is the defect this whole column exists to prevent, reached by a caller spelling "nothing" the other way. The type cannot
