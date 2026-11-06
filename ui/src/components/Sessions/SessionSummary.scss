@@ -14,6 +14,60 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  &__note {
+    color: $ui-black-75;
+    font-size: 0.85rem;
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+
+  &__aside &__note {
+    grid-column: auto;
+  }
+
+  &__card {
+    margin: 0;
+  }
+
+  &__image {
+    aspect-ratio: 1080 / 1350;
+    background: $ui-black-5;
+    border-radius: 12px;
+    box-shadow: 0 0 0 1px $ui-black-10;
+    display: block;
+    width: 100%;
+  }
+
+  &__aside {
+    display: grid;
+    gap: $pad-large;
+  }
+
+  &__section {
+    border-top: 1px solid $ui-black-10;
+    padding-top: $pad-medium;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  &__title {
+    font-size: 1rem;
+    margin: 0 0 $pad-small;
+  }
+}
+
+// Sharing the Summary's card (issue #1430): what is removed, the ways out, and the caption to post with it.
+.share-panel {
+  display: grid;
+  gap: $pad-medium;
+
+  &__title {
+    font-size: 1rem;
+    margin: 0;
+  }
+
   &__sites {
     display: flex;
     flex-wrap: wrap;
