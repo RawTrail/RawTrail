@@ -1005,3 +1005,380 @@ The activity rollup SHALL read only events at or after the scope's start, the ea
 - **GIVEN** a scope holding a snapshot process with no recorded start, or a process with no time
 - **WHEN** its activity is read
 - **THEN** the read is not bounded by time
+
+### Requirement: Agent session commands
+
+`GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands` SHALL list an AI agent session's commands in the order they started, each with its label, its processes, what launchd started for it, and the Bash call it pairs with, paged by an opaque cursor with the matched total. `q` SHALL keep the commands whose label, process path or command line holds it. It SHALL say when a read was cut, require process read, reject a malformed cursor and answer 404 for an unknown session.
+
+#### Scenario: Commands are labelled and paired with their tool calls
+
+- **GIVEN** a Claude Code session whose Bash calls ran a pipeline, a backgrounded subshell, `nohup`, `env -i` and a nested `sh -c`, each in the agent's wrapper shell, with the calls the agent recorded
+- **WHEN** its commands are read
+- **THEN** there is one command per call, in the order they ran, labelled with the command the agent ran however it was quoted
+- **AND** each holds every process it started, a daemon it backgrounded included
+- **AND** each is paired with the nearest earlier call that ran it, its owner's only, and identical calls of one turn are marked ambiguous rather than guessed
+
+#### Scenario: Commands page in the order they started
+
+- **GIVEN** a session with more commands than one page
+- **WHEN** its pages are read in turn by their cursors
+- **THEN** every command is listed once, in the order they started, each page with the matched total
+- **AND** the last page names no next cursor, and a malformed cursor is rejected with `invalid_cursor`
+
+#### Scenario: A query keeps the commands it finds
+
+- **GIVEN** a session's commands
+- **WHEN** they are read with `q`
+- **THEN** only the commands whose label, or whose processes' path or command line, holds it are listed, regardless of case
+- **AND** the wrapper shell's script is not searched apart from the command it ran
+
+#### Scenario: What launchd started is listed under the command that asked for it
+
+- **GIVEN** a command that ran `open -a TextEdit`, after which launchd started TextEdit and TextEdit's service
+- **WHEN** its commands are read
+- **THEN** TextEdit is listed under `open` and named an inferred launch, and the service under TextEdit and named a service
+
+### Requirement: Agent session summary command total
+
+The agent session summary SHALL count the session's commands as `GET /api/hosts/{host_id}/agent-sessions/{session_id}/commands` lists them, over the same process read.
+
+#### Scenario: The summary counts what the commands list lists
+
+- **GIVEN** a session whose processes are two commands
+- **WHEN** its summary and its commands are read
+- **THEN** the summary counts two commands, the commands list's total
+
+### Requirement: Agent session conversation
+
+`GET /api/hosts/{host_id}/agent-sessions/{session_id}/conversation` SHALL list the session's turns oldest first, each with its prompt, the commands it ran (through the call each pairs with) and the calls that ran no command, with what belongs to no turn in a last turn without a prompt. It SHALL page by `cursor`, search by `q`, require process read, and include prompt text only with `agent_prompt.read`.
+
+#### Scenario: Each prompt lists what the agent did for it
+
+- **GIVEN** a session whose prompts each led to commands and file tool calls
+- **WHEN** a client reads its conversation
+- **THEN** each turn lists its prompt, the commands whose calls were made in it, and its other calls, each once
+
+#### Scenario: What belongs to no prompt is kept, not dropped
+
+- **GIVEN** a command no call pairs with, and a call read before any turn
+- **WHEN** a client reads the conversation
+- **THEN** both are listed in the last turn, which has no prompt
+
+#### Scenario: Another owner's turn is a turn of its own
+
+- **GIVEN** a prompt and a call another user's transcript wrote, naming the same turn as this session's
+- **WHEN** a client reads the conversation
+- **THEN** they form a turn of their own, apart from the session owner's, and take none of its commands
+
+#### Scenario: Turns page in order
+
+- **WHEN** a client follows `next_cursor` to the end
+- **THEN** it reads every turn once, in order, the turn without a prompt last
+
+#### Scenario: A search keeps the turns it finds
+
+- **WHEN** a client asks with `q`
+- **THEN** only the turns whose prompt text, a command, or a call's command or path holds it are listed
+
+#### Scenario: Without prompt read the turns show without their text
+
+- **GIVEN** a caller with process read but not `agent_prompt.read`
+- **WHEN** they read the conversation, with or without a search
+- **THEN** each turn is listed without its prompt's text, `prompts_hidden` is set, and a search does not match the text
+
+### Requirement: Agent session digest
+
+The agent session summary SHALL carry `digest`, over the scope its activity totals read: the session's prompt count, the programs its commands ran most, its busiest directories, the files it changed with those outside its project (Claude Code's own files and temporary files counted apart), its busiest domains each marked when new to the host, and its events and commands in equal buckets of its span.
+
+#### Scenario: The digest describes what the session touched
+
+- **GIVEN** a session that was sent prompts, wrote files in and outside its project, and looked up and connected to domains, one of which the host had looked up before
+- **WHEN** a client reads its summary
+- **THEN** `digest` counts its prompts, groups its file events by directory, and groups its lookups and named connections by registrable domain under the public suffix list, marking every domain but the one seen before as new
+
+#### Scenario: The digest counts the files the session changed
+
+- **GIVEN** a session that changed files in and outside its project, made and removed a scratch file, deleted a file and made it again, wrote a file by renaming a temporary one over it, read a file, reached a socket, and wrote Claude Code's own transcript and settings
+- **WHEN** a client reads its summary
+- **THEN** `digest.files.changed` counts the files it changed, the renamed-over target and the file made again among them, and `digest.files.outside_project` those outside its project
+- **AND** the scratch file and the renamed temporary file are counted in `digest.files.temporary`, Claude Code's own files in `digest.files.agent_files`, and the read and the socket nowhere
+
+#### Scenario: The digest names the programs the commands ran
+
+- **GIVEN** a session whose commands ran programs, some through the agent's wrapper shell
+- **WHEN** a client reads its summary
+- **THEN** `digest.programs` counts the processes by program, most run first, the wrapper shell left out
+
+#### Scenario: The digest carries a timeline of the session
+
+- **GIVEN** a session whose first command forked before its first sighting, and whose events continued after its last
+- **WHEN** a client reads its summary
+- **THEN** `digest.timeline` and `digest.command_timeline` count every event and command in equal buckets of a span widened to hold them all, from `timeline_start_ns`, `timeline_bucket_ns` wide
+
+### Requirement: Agent session reads past one page
+
+The server SHALL compute an AI agent session's commands, its summary and its activity rollup over up to 20,000 of its processes, read a chunk at a time in fork order, and SHALL report a cut read for a session with more. A client's session tree read SHALL stay bounded at its page. A scoped read's total SHALL be counted to 100,000.
+
+#### Scenario: A session past the tree page is read whole
+
+- **GIVEN** a session of more than 12,000 processes, several sharing each fork time
+- **WHEN** the server reads it for its commands, its summary or its activity
+- **THEN** every process is read once, in fork order with ties by row, across every chunk
+- **AND** the activity is matched over every one of their generations
+- **AND** a read cut shorter than the session still reports the session's total
+
+### Requirement: Agent session tree pages
+
+The process-forest endpoint's `scope=session` and `scope=story` reads SHALL page by an opaque `cursor`: a cut page SHALL name the cursor of the next, read from after its last row in fork order, each page SHALL report the scope's total, and a session's agent processes SHALL lead its first page only. A malformed cursor SHALL be rejected with `invalid_cursor`.
+
+#### Scenario: A session tree pages by cursor
+
+- **GIVEN** a session with more processes than one page
+- **WHEN** its tree is read page by page, each from the last page's cursor
+- **THEN** every process is read once across the pages, each page reports the session's total, and the last names no cursor
+- **AND** a process of the session that a launch on an earlier page names is listed on its own page only, and the launch still names it
+- **AND** the last page's total is exact even when retention removed an earlier page's rows
+- **AND** the agent processes are read with the first page only, and a malformed cursor is rejected
+
+### Requirement: Agent session activity pages
+
+The activity rollup SHALL name, for each class whose list it cut, the cursor of its next page. `GET /api/hosts/{host_id}/activity/{class}`, for `files`, `network` or `dns` and the rollup's scope, SHALL list the class's rows after a cursor in the rollup's order, bounded by `limit`, kept to those whose artifact holds `q`, with the next page's cursor. It SHALL reject a malformed cursor, one of another class, or an unknown class with `invalid_cursor`.
+
+#### Scenario: An activity list pages by cursor
+
+- **GIVEN** a scope whose files, connections and lookups outnumber one page, several first seen at the same time
+- **WHEN** each class is read from the rollup's cursor, page by page
+- **THEN** every row of the class is listed once, in the rollup's order, and the last page names no cursor
+- **AND** a cursor of another class, a malformed cursor and an unknown class are rejected with `invalid_cursor`
+- **AND** with `q`, only the rows whose path, destination or name holds it are listed, regardless of case, page by page
+
+### Requirement: Agent session process search
+
+`GET /api/hosts/{host_id}/agent-sessions/{session_id}/processes` SHALL list the session's processes whose path or command line holds `q`, regardless of case, over the whole session read, each without its children, in fork order. It SHALL page them by `cursor`, report the matches' total and whether the session read was cut, and refuse a malformed cursor with 400 `invalid_cursor`.
+
+#### Scenario: A search finds a process on any page of the session
+
+- **GIVEN** a session whose matching processes lie under different commands and depths
+- **WHEN** an operator searches it
+- **THEN** each matching process is listed once, alone, in fork order, with the matches' total
+
+#### Scenario: A search pages by cursor
+
+- **GIVEN** a search that matches more processes than a page holds
+- **WHEN** the client follows `next_cursor` to the end
+- **THEN** it reads every match once, and a malformed cursor is refused with 400 `invalid_cursor`
+
+### Requirement: Agent session summary
+
+`GET /api/hosts/{host_id}/agent-sessions/{session_id}/summary` SHALL total one AI agent session without listing it: retained processes, alerts by severity without monitor records, tool calls by tool, each once with copies of another session's left out, and file events by operation with destination and DNS name totals over the scope the session's activity rollup reads, saying how far it reached. It SHALL require process read and answer 404 for an unknown session.
+
+#### Scenario: A session is totalled
+
+- **GIVEN** a session with processes, alerts of two severities and a monitor record raised on them, and a process of another session
+- **AND** tool calls the agent recorded, one of them reported twice and one copied from the session it was forked from
+- **AND** file events of several operations, one coalesced, and connections and lookups by its processes
+- **WHEN** its summary is read
+- **THEN** it counts the session's processes, and its alerts by severity without the monitor record
+- **AND** each tool call once, by tool, without the copied call
+- **AND** the file events by operation, the coalesced one counting as the operations it stands for, with the activity totals its rollup reports
+
+#### Scenario: The summary reports the reach of its activity
+
+- **GIVEN** a session whose processes outnumber the generations the activity rollup reads
+- **WHEN** its summary is read
+- **THEN** the activity is counted over the generations the rollup reads, and the summary reports that the scope was truncated
+
+#### Scenario: An unknown session has no summary
+
+- **GIVEN** a host that holds no session with the requested id
+- **WHEN** its summary is read
+- **THEN** the request is answered 404 and nothing is counted
+
+### Requirement: Agent session token totals
+
+The agent session summary SHALL carry `usage`: the session's input, output, cache-write, cache-read and thinking tokens and messages by model, and its messages by permission mode with the first and last of each. Each message SHALL be counted once by its id and owner, and a message the session it names also holds, a fork's copy, SHALL NOT be counted.
+
+#### Scenario: A session's tokens are totalled by model and its messages by mode
+
+- **GIVEN** a session whose messages were written by two models, in two permission modes
+- **WHEN** a client reads its summary
+- **THEN** `usage` totals each model's tokens and counts each mode's messages, with the span each mode was seen over
+
+#### Scenario: A message is counted once, and a copy not at all
+
+- **GIVEN** a message the agent sent twice, and a message a fork copied from the session it names
+- **WHEN** a client reads the fork's summary
+- **THEN** the first counts once and the copy not at all
+
+### Requirement: A tree read reports its links cut
+
+A process tree read SHALL set `links_truncated` when what it added through its links, a launched program's descendants or an app's services, was cut at its bound, and SHALL also set `truncated` then. A client joining a scoped read's pages SHALL keep the read partial while any page reported it, since a later page does not read those processes again.
+
+#### Scenario: A launched program cut is told apart from paging
+
+- **GIVEN** a session whose launched program has more descendants than a read adds
+- **WHEN** the session's tree is read whole in one page
+- **THEN** the read sets `links_truncated` and `truncated`, and names no next page
+
+### Requirement: Agent sessions list bypass filter
+
+`GET /api/agent-sessions` SHALL accept `bypass=true`, listing only the sessions the graph builder recorded as bypassed, with the filtered total and paging, and SHALL mark each row with `bypass`. Any other non-empty value of `bypass` SHALL be rejected with `invalid_bypass`; an empty one is absent, as for the list's other filters.
+
+#### Scenario: The list keeps the sessions that ran bypassed
+
+- **GIVEN** a session that ran bypassed, a fork of it, and a session that never did
+- **WHEN** the list is read with and without `bypass=true`
+- **THEN** every row says whether its session ran bypassed, and the filtered list holds the two bypassed sessions across pages with a total of two
+- **AND** `bypass=false` is rejected
+
+### Requirement: A session digest counts its unrecorded file operations
+
+The session digest SHALL count, as `files.unrecorded`, the operations of the `file_activity_dropped` events in its scope. Where a process belongs to a session only within a span of time, as a Claude Code process that served a session after a `/clear` does, an event SHALL count toward the session when the stretch from its first to its last dropped operation overlaps that span, so a session that lost operations never reads as complete.
+
+#### Scenario: The digest counts unrecorded file operations
+
+- **GIVEN** two `file_activity_dropped` events for 309 and 40 operations by a session's process, and one by a process outside it
+- **WHEN** the session's digest is read
+- **THEN** `files.unrecorded` is 349
+
+#### Scenario: Dropped operations across a /clear count toward both sessions
+
+- **GIVEN** a Claude Code process that served one session and then, after a `/clear`, another, and `file_activity_dropped` events by it for 10 operations within the first session, 5 whose first and last operations fall on either side of the `/clear`, and 3 within the second
+- **WHEN** each session's digest is read
+- **THEN** `files.unrecorded` is 15 for the first session and 8 for the second
+
+### Requirement: Agent file rows folded from several processes
+
+The activity rollup SHALL list a `file_activity` event that carries `process_count` apart from the named process's own operations on the same path, as a row whose `processes` sums the events' `process_count`.
+
+#### Scenario: A row folded from several processes is listed with their count
+
+- **GIVEN** a process's own change to a file, and two events folding 80 and then 40 of its children's changes to that file
+- **WHEN** its activity is read
+- **THEN** the file is listed twice: once for the process's own change, and once weighing every folded change with `processes` 120
+- **AND** a page of one row continues from the first to the second
+
+### Requirement: A large tie is joined in linear time
+
+Pairing a session's commands with its tool calls SHALL cost, for a tie of n identical calls, O(n) over all the commands it is offered rather than O(n) for each, so the largest tie a session read takes is joined well within the server's write timeout, with the same labels.
+
+#### Scenario: The largest tie a session read takes is joined at once
+
+- **GIVEN** 20,000 identical Bash calls in one turn and 20,500 commands that ran the same text after it
+- **WHEN** the commands are paired with the calls
+- **THEN** 20,000 commands are labelled with the one shared tie, the rest are left unlabelled, and the join takes well under a second
+
+### Requirement: Agent session prompts
+
+`GET /api/hosts/{host_id}/agent-sessions/{session_id}/prompts` SHALL list the prompts a person typed in the session, oldest first, each with its text as the agent sent it (redacted, at most 16 KiB), its turn, its length as typed and its time. It SHALL page them by `cursor`, keep those whose text holds `q` regardless of case, refuse a malformed cursor with 400 `invalid_cursor`, and require both process read for the host and `agent_prompt.read`.
+
+#### Scenario: A session's prompts page in the order they were typed
+
+- **GIVEN** a session with more prompts than a page holds
+- **WHEN** a client follows `next_cursor` to the end
+- **THEN** it reads every prompt of that session once, oldest first, and none of another session's
+
+#### Scenario: A search keeps the prompts whose text holds it
+
+- **WHEN** a client asks with `q`
+- **THEN** only the session's prompts whose text holds it, regardless of case, are listed
+
+#### Scenario: Prompt read is required on top of process read
+
+- **GIVEN** an operator allowed process read for the host but not `agent_prompt.read`
+- **WHEN** they ask for the session's prompts
+- **THEN** the request is refused with 403
+
+### Requirement: Agent prompt search
+
+`GET /api/agent-prompts` SHALL find the prompts whose text holds `q` regardless of case, by a redelivered prompt's newest text, across every host's AI agent sessions or `host_id`'s, typed within the window, newest first, keyset-paged by a cursor that keeps the window, each with its host and session. It SHALL require `agent_prompt.read`, SHALL be authorized and audited as a search named by its query, and SHALL be served with `Cache-Control: no-store`.
+
+#### Scenario: A search finds prompts across sessions newest first
+
+- **GIVEN** prompts on two hosts in three sessions that hold "deploy" in any case, one before the window, a prompt that does not, and a tool call that does
+- **WHEN** the operator searches for "deploy"
+- **THEN** the three prompts in the window are found newest first, each with its host and session, a page at a time
+- **AND** with a host, only that host's are found, and `%` and `_` in the query match only themselves
+- **AND** a prompt sent again with changed text is found by its new text only, and a later page reads the first page's window
+
+#### Scenario: Each search is audited with its query
+
+- **GIVEN** an operator holding `agent_prompt.read`
+- **WHEN** they search for " Deploy "
+- **THEN** prompt read is asked for, and audited as, an `agent_prompt_search` named "Deploy"
+- **AND** without `agent_prompt.read` the search is refused and nothing is read
+
+### Requirement: A prompt search is bounded
+
+A prompt search SHALL read a window of at most 30 days, a week ending now when none is named, and SHALL reject a wider, inverted or negative window with `bad_window` and a query that is not UTF-8, shorter than 3 characters or longer than 255 bytes with `invalid_query`, reading nothing. It SHALL read only the window's prompts.
+
+#### Scenario: A search is bounded
+
+- **GIVEN** a search with no window
+- **WHEN** it is made
+- **THEN** it reads the week ending now
+- **AND** a window of 31 days, an inverted one, a negative bound, no query, a two-character query, a 256-byte one and one that is not UTF-8 are each rejected without a read, while one of exactly 30 days is read
+- **AND** beside sixty thousand other events, a search for one prompt reads fewer than half the rows
+
+### Requirement: Session commands list their processes in part
+
+A page of a session's commands SHALL list a command of more than 100 processes in part: its first 100 in its forest's order, every process an alert was raised on and every process the page's search finds, each under its creators, marked `processes_cut`, with `process_ids` naming every process. `?command=<key>` SHALL return that one command with every process listed, or `404 not_found` when the session holds no such command.
+
+#### Scenario: A large command lists its first processes and its alerted ones
+
+- **GIVEN** a command whose wrapper shell ran make, which started 150 workers, the 141st of them alerted
+- **WHEN** a page of the session's commands is read, and again with a search for the 146th worker
+- **THEN** the command lists its first 100 processes and the alerted worker, is marked cut, and names all 152 processes
+- **AND** with the search, the 146th worker is listed too
+
+#### Scenario: One command is read whole on request
+
+- **GIVEN** the same command
+- **WHEN** it is read by its key
+- **THEN** every one of its processes is listed and it is not marked cut
+- **AND** a key the session does not hold is answered with `404 not_found`
+
+### Requirement: Sessions list token total
+
+`GET /api/agent-sessions` SHALL give each row the input, cache-write, cache-read and output tokens of the session's messages, counted as the session summary's `usage` counts them, and SHALL leave the total out for a session that sent no usage. When the event archive cannot be read, or does not answer within a few seconds, the list SHALL still be served, without the totals.
+
+#### Scenario: A session's total agrees with its header
+
+- **GIVEN** sessions on two hosts whose messages include re-sent messages, copies a fork made of another session's, and lines naming a session that does not hold them
+- **WHEN** the tokens of a page of sessions are read
+- **THEN** each session's total equals the sum of its summary's usage by model, and a session with no messages has none
+
+#### Scenario: Each session is listed with its tokens
+
+- **GIVEN** a session that sent usage and one that sent none
+- **WHEN** the sessions list is read
+- **THEN** the first carries its tokens and the second none
+- **AND** when the event archive fails, or stalls, both are listed without tokens, well inside the server's write timeout
+
+### Requirement: Tied calls label no more commands than they hold
+
+The commands endpoint SHALL label commands with tool calls so that each labelled command can be given a call of its own: a matched command its call, and the commands of a tie distinct calls among the tie's. A command whose nearest calls cannot be given it so SHALL look further back, and SHALL go unlabelled when no earlier call can, or when its search reaches its bound of calls looked at.
+
+#### Scenario: Overlapping cut calls label two commands at most
+
+- **GIVEN** two calls of one turn cut to the agent's limit on a UTF-8 boundary, the shorter a prefix of the longer, and three commands: one matching both, then one matching only the shorter, then one matching both
+- **WHEN** the session's commands are read
+- **THEN** the first is ambiguous between the two calls, the second is matched to the shorter, and the third is unlabelled
+- **AND** over random sessions of whole and cut calls with overlapping texts, every labelled command can be given a distinct call
+
+#### Scenario: A search that reaches its bound leaves the command unlabelled
+
+- **GIVEN** a tie its commands have used up, an older call of the same text, and a search bound too small to settle the next command
+- **WHEN** the next command's search reaches the bound
+- **THEN** the command is unlabelled rather than given the older call
+
+### Requirement: A session's usage counts only from its owner
+
+A session's token and permission-mode totals, its tokens in the sessions list, and its bypass mark SHALL count only `agent_usage` lines whose `uid` is the session's owner, the uid of its earliest retained process. A session whose owner is no longer known SHALL report no usage and no bypass mark.
+
+#### Scenario: Another user's transcript changes nothing
+
+- **GIVEN** a session owned by uid 501, and a line in the bypass mode with thousands of tokens that names it from uid 502's transcript
+- **WHEN** the session's summary and the sessions list are read
+- **THEN** the session's tokens are its owner's alone and it is not marked or filtered as bypassed
+- **AND** a session with no retained process is neither marked nor given tokens by any line

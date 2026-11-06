@@ -135,3 +135,44 @@ When the agent cannot establish the network-extension XPC connection AND the ope
 - **AND** the agent's network-extension receiver cannot establish its XPC connection
 - **WHEN** the receiver fails to connect
 - **THEN** the agent emits the generic connect-failure warning and not the upgrade-reboot signal
+
+### Requirement: A credential guard push before the connection is replayed
+
+A credential guard policy that finds no extension connection SHALL fail its command and SHALL be held, newest by epoch then version, and sent once when a connection is published, as a watched-path set is. The two pushes SHALL be held apart, so neither displaces the other.
+
+#### Scenario: A policy pushed before connecting is replayed
+
+- **GIVEN** two policies pushed, newest first, and a watched-path set, all before the extension connects
+- **WHEN** the extension connects
+- **THEN** it is sent the newer policy and the set, once each
+- **AND** a later connection is not sent them again
+
+### Requirement: A watched-path push before the connection is replayed
+
+The agent SHALL send the newest watched-path set that found no connection to the system extension as soon as a connection is published, newest by epoch and then version as the extension orders them, not by arrival. The push's command still fails, because it did not reach the extension when it was made. The set is not otherwise sent again for hours, and a freshly installed host is pushed it before its extension is approved.
+
+#### Scenario: A push before the extension connects is replayed
+
+- **GIVEN** the agent has no connection to the system extension
+- **AND** it is asked to push the watched paths
+- **WHEN** a connection to the extension is published
+- **THEN** the agent sends the extension those watched paths
+- **AND** the push's command was reported failed when it was made
+
+#### Scenario: A later push replaces an earlier one
+
+- **GIVEN** the agent has no connection and has been asked to push two watched-path sets in turn, the second the newer
+- **WHEN** a connection is published
+- **THEN** the agent sends only the newer set
+
+#### Scenario: An older set arriving later does not replace it
+
+- **GIVEN** the agent has no connection and is asked to push a newer set and then an older one, as a poll delivers them newest first
+- **WHEN** a connection is published
+- **THEN** the agent sends only the newer set
+
+#### Scenario: A replayed push is sent once
+
+- **GIVEN** a watched-path push was replayed on a connection
+- **WHEN** the connection drops and another is published
+- **THEN** the agent does not send that push again

@@ -308,3 +308,30 @@ A component reporting healthy when no episode is open SHALL be accepted and chan
 - **GIVEN** a host with no open episode for a component
 - **WHEN** that host's status check-in reports the component healthy
 - **THEN** the check-in succeeds and no episode is created or modified
+
+### Requirement: A claimed command clears earlier expiries
+
+The system SHALL stop counting an expired command toward the not-taking-commands condition once the host has claimed a later command. Expiries after the most recent claim SHALL still count. A host back from days offline has expired commands with nothing wrong, and reporting it for the rest of the window would assert in the present tense something that is no longer true.
+
+#### Scenario: A later claim clears the condition
+
+- **GIVEN** a host with commands that aged out undelivered
+- **AND** the host has since claimed a later command, whether it then completed, failed or is still in flight
+- **WHEN** its health is read
+- **THEN** no not-taking-commands condition is reported
+
+#### Scenario: Only expiries after the latest claim count
+
+- **GIVEN** a host that claimed a command after one expiry and has had another command age out since
+- **WHEN** its health is read
+- **THEN** the condition counts only the expiry after the claim
+
+### Requirement: A check-in records when the agent changed
+
+A status check-in that reports an agent version other than the one stored SHALL record when it did, on the database clock; a check-in reporting the same version, or none, SHALL leave that time as it was.
+
+#### Scenario: An upgrade in place is recorded
+
+- **GIVEN** a host enrolled with agent 0.4.0
+- **WHEN** it checks in with 0.4.0, then with 0.5.0, then with 0.5.0 again
+- **THEN** no change is recorded for the first, the second records one, and the third leaves it as the second set it

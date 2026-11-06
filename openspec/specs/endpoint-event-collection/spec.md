@@ -488,7 +488,7 @@ Without the signature, every judgement made on it fails for any process that pre
 
 ### Requirement: Agent-scoped file activity
 
-The extension SHALL report file creates, modified closes, renames and deletes by an AI agent's processes as `file_activity` events, and SHALL NOT report them for any other process. An agent subtree SHALL start at an exec of the Claude Code binary, matched by signing identifier, or of a process carrying `CLAUDE_CODE_SESSION_ID`, and SHALL extend to every process it forks, from the fork. Each flush SHALL send at most 64 events.
+The extension SHALL report file creates, modified closes, renames and deletes by an AI agent's processes as `file_activity` events, and SHALL NOT report them for any other process. An agent subtree SHALL start at an exec of the Claude Code binary, matched by signing identifier, or of a process carrying `CLAUDE_CODE_SESSION_ID`, or at a fork by the Claude Code binary, and SHALL extend to every process it forks, from the fork. Each flush SHALL send at most 64 events.
 
 #### Scenario: An agent process is observed from its exec
 
@@ -502,6 +502,12 @@ The extension SHALL report file creates, modified closes, renames and deletes by
 - **WHEN** it forks, and the child execs at once and writes a file
 - **THEN** the child's write is reported, under the generation its exec created
 - **AND** the child is released when it exits
+
+#### Scenario: A session older than the extension is observed from its next fork
+
+- **GIVEN** a Claude Code process that exec'd before the extension started
+- **WHEN** it forks a helper that carries no session id, as `rg` for its Grep tool does
+- **THEN** both the Claude Code process and the helper are observed from the fork
 
 #### Scenario: A process outside an agent subtree is not observed
 
@@ -588,36 +594,6 @@ The extension SHALL report each connect by a process in an AI agent's subtree to
 - **GIVEN** a process an AI agent started connects to `/var/run/docker.sock` three times within one second
 - **WHEN** the extension folds the window
 - **THEN** it sends one `file_activity` row with operation `connect`, path `/var/run/docker.sock` and `coalesced_count` 3, apart from any other operation on that path
-
-### Requirement: Agent tool call capture
-
-The agent SHALL report each tool call an AI agent records in its session transcript as an `agent_tool_call` event, stamped at the transcript's time, carrying the session id, `tool_use_id`, tool name, a Bash call's command and description, and a file tool's path. It SHALL NOT send prompt text, model output or tool results. A line it cannot read, or naming a session not its transcript's, SHALL be skipped; each call SHALL carry its transcript owner's uid.
-
-#### Scenario: A Bash tool call is reported with its command
-
-- **GIVEN** a Claude Code session on the host
-- **WHEN** the agent runs a Bash command
-- **THEN** an `agent_tool_call` event carries the session id, the call's `tool_use_id`, `Bash`, and the command
-- **AND** a command longer than 8 KiB is cut on a character boundary and marked `truncated`
-
-#### Scenario: Prompts and results never leave the host
-
-- **GIVEN** a transcript holding the user's prompts, the model's text and the tools' results beside its tool calls
-- **WHEN** the agent reads it
-- **THEN** only the tool calls produce events, and none carries a prompt, model text or a tool result
-
-#### Scenario: An unreadable line is skipped, not guessed
-
-- **GIVEN** a transcript line that is not JSON, or a tool call missing its session, id, name or time
-- **WHEN** the agent reads it
-- **THEN** no event is sent for that line and the reading continues with the next
-
-#### Scenario: A forged line cannot stand in for another session's call
-
-- **GIVEN** a user writes into their own transcript a line carrying another session's id and one of its call ids
-- **WHEN** the agent reads it
-- **THEN** no event is sent for that line
-- **AND** a call is stamped with its transcript owner's uid, which its event id is derived from, so another user's line can never take its event id
 
 ### Requirement: Exec strings read by token length
 
@@ -730,3 +706,167 @@ The `fork` event SHALL carry the forking process's `parent_pidversion`. The `exe
 - **WHEN** it is serialized
 - **THEN** none of the lineage keys appear in it
 - **AND** a payload that carries them still decodes on a server that does not read them
+
+### Requirement: Prompt capture follows the fleet agent settings
+
+The agent SHALL send the prompts people type to AI agents only while both its own `EDR_CAPTURE_PROMPTS` and the fleet's `capture_prompts` setting allow it. A change to the setting SHALL take effect for the next line read, without a restart. The agent SHALL NOT capture before it has the fleet's settings, from a push or from its record of the last applied, which it SHALL keep across restarts.
+
+#### Scenario: Turning capture off takes effect without a restart
+
+- **GIVEN** an agent capturing prompts
+- **WHEN** it applies settings with `capture_prompts` false
+- **THEN** a prompt typed afterwards is not sent, while tool calls still are
+
+#### Scenario: An older push does not undo a newer one
+
+- **GIVEN** an agent that applied settings with `capture_prompts` false
+- **WHEN** an earlier `set_agent_settings` with `capture_prompts` true arrives late
+- **THEN** capture stays off
+
+#### Scenario: A new agent waits for the fleet settings
+
+- **GIVEN** an agent with no record of the fleet's settings
+- **WHEN** it starts
+- **THEN** it does not capture prompts until the server sends the settings, and then follows them
+
+#### Scenario: A restart keeps the settings last applied
+
+- **GIVEN** an agent that applied settings with `capture_prompts` false
+- **WHEN** it restarts
+- **THEN** it does not capture prompts before the server sends anything
+- **AND** an agent whose record of the settings is damaged does not capture either
+
+### Requirement: Agent tool call reporting
+
+The agent SHALL report each tool call an AI agent records in its session transcript as an `agent_tool_call` event, stamped at the transcript's time, carrying the session id, `tool_use_id`, tool name, a Bash call's command and description, a file tool's path, and its turn when one precedes it. It SHALL NOT send model output or tool results. A line it cannot read, or naming a session not its transcript's, SHALL be skipped; each call SHALL carry its transcript owner's uid.
+
+#### Scenario: A Bash tool call is reported with its command
+
+- **GIVEN** a Claude Code session on the host
+- **WHEN** the agent runs a Bash command
+- **THEN** an `agent_tool_call` event carries the session id, the call's `tool_use_id`, `Bash`, and the command
+- **AND** a command longer than 8 KiB is cut on a character boundary and marked `truncated`
+
+#### Scenario: Model output and tool results never leave the host
+
+- **GIVEN** a transcript holding the model's text and the tools' results beside its tool calls
+- **WHEN** the agent reads it
+- **THEN** no event carries the model's text or a tool's result
+
+#### Scenario: An unreadable line is skipped, not guessed
+
+- **GIVEN** a transcript line that is not JSON, or a tool call missing its session, id, name or time
+- **WHEN** the agent reads it
+- **THEN** no event is sent for that line and the reading continues with the next
+
+#### Scenario: A forged line cannot stand in for another session's call
+
+- **GIVEN** a user writes into their own transcript a line carrying another session's id and one of its call ids
+- **WHEN** the agent reads it
+- **THEN** no event is sent for that line
+- **AND** a call is stamped with its transcript owner's uid, which its event id is derived from, so another user's line can never take its event id
+
+### Requirement: Agent prompt capture
+
+Unless prompt capture is off, the agent SHALL report each prompt a person typed to an AI agent or passed it on the command line, as its transcript records it, as an `agent_prompt` event stamped at the transcript's time, carrying the session id, the turn, the text with each recognizable credential replaced and cut to 16 KiB, the length as typed and the owner's uid. A turn the agent or its tooling wrote SHALL NOT be reported. A prompt naming a session not its transcript's SHALL be skipped.
+
+#### Scenario: A typed prompt is reported with its turn
+
+- **GIVEN** a person types a prompt to Claude Code, which then runs a Bash command for it
+- **WHEN** the agent reads the transcript
+- **THEN** an `agent_prompt` event carries the session id, the prompt's text and its turn, stamped with the transcript owner's uid
+- **AND** the `agent_tool_call` of the command names the same turn
+- **AND** a slash command the person typed reads as `/name args`
+
+#### Scenario: Only what a person typed is a prompt
+
+- **GIVEN** a transcript holding a skill's instructions the agent wrote, a background task's notification, a compacted history, a subagent's instructions, a tool's result, and a turn that records neither an origin nor a prompt source
+- **WHEN** the agent reads it
+- **THEN** none of them is reported as a prompt
+
+#### Scenario: A prompt passed on the command line is reported
+
+- **GIVEN** a person runs `claude -p` with a prompt, which the transcript records with no origin and the prompt source `sdk`
+- **WHEN** the agent reads the transcript
+- **THEN** an `agent_prompt` event carries the prompt's text, with `sdk` as its source
+
+#### Scenario: A prompt is redacted and bounded before it leaves
+
+- **GIVEN** a prompt holding a cloud access key, and a prompt longer than 16 KiB
+- **WHEN** the agent reads them
+- **THEN** the key is replaced by a placeholder naming its kind, and the event counts one credential replaced
+- **AND** the long prompt is cut on a character boundary, marked cut, and carries its length as typed
+
+### Requirement: Dropped file activity is reported
+
+When a flush drops `file_activity` rows past its budget, the extension SHALL send a `file_activity_dropped` event for each agent subtree that lost operations, naming the topmost observed process of its session, with the number of operations dropped and the time of the first and last of them. It SHALL name at most as many subtrees a flush as rows it sends, and SHALL count the operations of any further subtrees in one event that names no process.
+
+#### Scenario: A session's dropped operations are reported
+
+- **GIVEN** two agent sessions' rows in one second, more than the budget after every fold
+- **WHEN** the window is flushed and one session's row is dropped
+- **THEN** a `file_activity_dropped` event names that session's root with the operations its row stood for
+- **AND** no such event names the session whose rows were all sent
+
+#### Scenario: Loss reports are bounded like rows
+
+- **GIVEN** more agent subtrees lose operations in one second than the budget
+- **WHEN** the window is flushed
+- **THEN** events name at most the budget's number of subtrees
+- **AND** one more event, naming no process, counts the operations of the rest
+
+### Requirement: File activity rows fold by process
+
+When a flush's rows exceed its budget, the extension SHALL fold rows of one operation on one path into the nearest observed process their processes all descend from, keeping the path and carrying `process_count`, before it folds any into a directory, and SHALL alternate the two folds until the window fits. It SHALL NOT fold rows of two agent sessions together, nor name a process that had exited before a row's first operation, and SHALL drop rows only when neither fold reduces the window.
+
+#### Scenario: A fan-out folds into the process that started it
+
+- **GIVEN** an agent session's `xargs` starts 80 jobs that each close the output file they inherited within a second
+- **WHEN** the window is flushed
+- **THEN** one event names that file and the `xargs` process, with `process_count` 80 and every operation counted
+- **AND** no operation is dropped, and the session's other rows keep their own process and path
+
+#### Scenario: Two sessions never share a row
+
+- **GIVEN** two agent sessions, in two Claude Code processes or one after `/clear`, whose jobs change the same file within a second, past the budget
+- **WHEN** the window is flushed
+- **THEN** each session's jobs fold into a row of their own, named for a process in that session
+
+### Requirement: File activity rows keep their paths
+
+When a flush folds `file_activity` rows into directories to fit its budget, a row that merged with no other SHALL leave the flush as it entered it, keeping its path and its `rolled_up` flag, and a row that merged several SHALL name the deepest directory their paths share.
+
+#### Scenario: A row that folds nothing keeps its path
+
+- **GIVEN** more processes than the budget, none started by another observed process, each close the same file within a second
+- **WHEN** the window is flushed
+- **THEN** every event sent names that file, none of them `rolled_up`
+- **AND** the operations past the budget are logged as dropped
+
+#### Scenario: A folded row names the directory its paths share
+
+- **GIVEN** a busy window in which one process writes several files in one directory
+- **WHEN** the window is flushed and its rows are folded
+- **THEN** that process's files arrive as one `rolled_up` event naming that directory, not a directory above it
+
+### Requirement: Agent token usage reporting
+
+The agent SHALL report the tokens each assistant message of an AI agent session used as one `agent_usage` event per message, whatever the prompt-capture setting: its model, input, output, cache-write, cache-read and thinking tokens, its turn, and the permission mode last put in force. It SHALL NOT count a message Claude Code wrote itself, and SHALL send a line naming another session with that session named, for the server to tell a fork's copy from a message of a session /clear started.
+
+#### Scenario: A streamed message is counted once with its turn and mode
+
+- **GIVEN** a message written as several transcript entries, after a prompt and a permission mode change
+- **WHEN** the agent reads the transcript
+- **THEN** it sends one `agent_usage` event for the message, naming the prompt's turn and the mode in force
+
+#### Scenario: A message Claude Code wrote itself is not counted
+
+- **GIVEN** a `<synthetic>` message
+- **WHEN** the agent reads the transcript
+- **THEN** it sends no `agent_usage` event for it
+
+#### Scenario: A line naming another session is sent naming it
+
+- **GIVEN** an assistant entry whose own `session_id` names another session, as a fork's copy or a message after `/clear` does
+- **WHEN** the agent reads the transcript
+- **THEN** it sends the usage with `origin_session_id` naming that session

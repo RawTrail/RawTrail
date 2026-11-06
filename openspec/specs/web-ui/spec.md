@@ -541,17 +541,17 @@ The change from the prior requirement is the list of recorded sensor faults in t
 
 ### Requirement: Alert list is the home view
 
-The UI SHALL render the alert list as the home view of the authenticated application: navigating to the application root SHALL route to the alert list. When the operator's permission set does not confer the read action that gates the alert list, the root SHALL instead route to the first navigation entry the permission set does confer, in the navigation's display order, so the operator lands on a usable surface rather than a no-access state. The landing fallback SHALL be derived from the same permission-gated navigation model used to render the navigation entries, not from a separate role-to-route mapping.
+The application root SHALL route to the alert list, except on a `laptop` profile, where it SHALL route to Agent sessions for an operator who can read them. An operator who cannot read the home surface but can open another navigation entry SHALL land on the first one their permissions confer, in display order, derived from the same permission-gated navigation model that renders the entries, rather than a no-access state.
 
 #### Scenario: Root routes to the alert list
 
-- **GIVEN** an authenticated operator whose permission set contains `alert.read`
+- **GIVEN** an authenticated operator whose permission set contains `alert.read`, on a `server` profile
 - **WHEN** the operator navigates to the application root
 - **THEN** the UI renders the alert list
 
 #### Scenario: Operator without alert read lands on their first permitted surface
 
-- **GIVEN** an authenticated operator whose permission set does not contain `alert.read`
+- **GIVEN** an authenticated operator whose permission set does not contain `alert.read` but confers another navigation entry
 - **WHEN** the operator navigates to the application root
 - **THEN** the UI routes to the first navigation entry in display order that the operator's permission set confers
 - **AND** no no-access state is rendered for the landing itself
@@ -867,27 +867,6 @@ The page SHALL render an activity histogram of process starts over the active wi
 - **GIVEN** the operator pivots from an alert
 - **WHEN** the host page opens
 - **THEN** the active window is the wide default ending at the alert's time, as before
-
-### Requirement: Abbreviated table figures are reachable without a pointer
-
-Where a table cell abbreviates a figure and keeps the precise value elsewhere, the precise value SHALL be reachable by keyboard and by touch, not by pointer hover alone. The cell SHALL keep its abbreviated form, because a table read a thousand rows at a time has to stay scannable.
-
-The precise value SHALL remain available to assistive technology whether or not it has been revealed, and SHALL be associated with the control that reveals it. A disclosure that renders the value only while expanded would remove what a hover tooltip's accessible label already provided, which would trade one population's access for another's.
-
-Where several columns in the same table abbreviate, they SHALL use one mechanism, so adjacent columns do not answer the same gesture differently.
-
-#### Scenario: The precise figure opens without a pointer
-
-- **GIVEN** a table cell showing an abbreviated figure
-- **WHEN** an operator reaches the cell's control by keyboard and activates it
-- **THEN** the precise figure becomes visible
-- **AND** the same activation by tap has the same effect
-
-#### Scenario: Assistive technology has the figure before it is revealed
-
-- **GIVEN** a table cell showing an abbreviated figure that has not been expanded
-- **WHEN** assistive technology reads the cell's control
-- **THEN** the precise figure is available as the control's description
 
 ### Requirement: Application control screen lists policies and their rules
 
@@ -1662,29 +1641,6 @@ The session view SHALL fold identical processes under one creator that started n
 - **THEN** its detail opens beside the session, with a link to it in its host's graph
 - **AND** its "Show in timeline" link opens the host's timeline on a window that includes its last observed activity
 
-### Requirement: AI agent sessions page
-
-The UI SHALL offer an Agent sessions page listing AI agent sessions most recently active first, showing per session the agent and its version, the project directory, the host, first and last seen, and its process and alert counts. Its host, agent and activity-window filters SHALL live in the URL and be applied by the server, which SHALL also page the list. A session SHALL open its session view.
-
-#### Scenario: Sessions are listed with their project and activity
-
-- **GIVEN** the server reports a Claude Code session on a host, working in `/private/tmp`, with 16 processes and 1 alert
-- **WHEN** the operator opens the Agent sessions page
-- **THEN** the row shows the agent and version, `/private/tmp`, the host's name, the first and last seen times, 16 and 1
-
-#### Scenario: Filters and paging are applied by the server
-
-- **GIVEN** the Agent sessions page with host, agent and "active in the last 7 days" filters in the URL
-- **WHEN** the page loads, and then the operator asks for more
-- **THEN** the server receives the host, the agent and a window start 7 days before now
-- **AND** the next page is requested with the server's cursor and appended to the rows already shown
-
-#### Scenario: A session opens its activity
-
-- **GIVEN** a listed session
-- **WHEN** the operator activates it
-- **THEN** that session's view opens
-
 ### Requirement: Tool calls beside their processes
 
 The session view SHALL pair each group an agent's wrapper shell started with the Bash call that ran its command, taking the nearest unclaimed call of the group's user made before the group started, and SHALL show that call's description and `tool_use_id`. Groups whose candidate calls share one time SHALL be marked as one of several identical calls, naming them, and not paired.
@@ -1782,16 +1738,6 @@ The session view and the host graph's logical tree SHALL list a process the read
 - **WHEN** the session view lists the processes
 - **THEN** the service is listed under TextEdit, badged as a service, with a tooltip saying macOS records the app as responsible for it
 
-### Requirement: Stable session view switcher
-
-The agent session view SHALL lay out its header the same in the Commands, Processes and Activity views, so the view switcher keeps its place: a header control one view does not use SHALL be hidden there while keeping its space, not removed.
-
-#### Scenario: The plumbing toggle is hidden, not removed, outside Commands
-
-- **GIVEN** a session view showing Commands, with the "Show shell plumbing" toggle
-- **WHEN** the operator switches to Processes
-- **THEN** the toggle is hidden but keeps its place in the header, and cannot be focused
-
 ### Requirement: Session processes view
 
 The session view SHALL offer a Processes lens listing every process the session ran as one tree under the agent process that ran it, with nothing hidden or folded, and the number of processes it lists. A process launchd adopted after its creator exited SHALL stay under its creator and be marked as reparented. When the agent was not seen, the commands SHALL be listed as roots.
@@ -1883,3 +1829,513 @@ The session view SHALL read a tool call's command from its wrapper shell as the 
 - **GIVEN** a wrapper whose eval argument is `'open -b com.apple.TextEdit && sleep 5 && osascript -e '"'"'quit app "TextEdit"'"'"''`
 - **WHEN** the session view reads its command
 - **THEN** it reads `open -b com.apple.TextEdit && sleep 5 && osascript -e 'quit app "TextEdit"'`, and the escape at the start, middle or end of a command reads the same way
+
+### Requirement: Agent prompt search
+
+The Agent sessions page SHALL offer an operator holding `agent_prompt.read` a search of the prompts typed across every agent session, over the last day, week or 30 days, listing each prompt newest first with its time, host and the text around its match marked, a page at a time in the window first searched, each linking to its session opened on its Timeline grouped by prompt. It SHALL not be offered without `agent_prompt.read`.
+
+#### Scenario: An operator finds a prompt across sessions
+
+- **GIVEN** a session one of whose prompts holds a word no other prompt does
+- **WHEN** an operator searches for that word in another case
+- **THEN** the prompt alone is listed with its host and the word marked
+- **AND** its link opens the session on its Timeline grouped by prompt, showing the prompt
+
+#### Scenario: Only an operator who may read prompts can search them
+
+- **GIVEN** an operator holding process read but not `agent_prompt.read`
+- **WHEN** they open the Agent sessions page
+- **THEN** no prompt search is offered, and one is once they hold `agent_prompt.read`
+
+### Requirement: Agent session conversation view
+
+The agent session view's Timeline, grouped by prompt, SHALL list the session's turns, each a row headed by its prompt, labelled as a prompt and as reported by the agent, that opens to the commands and tool calls made for it in the order they happened; what belongs to no prompt comes last. A turn with an alert, and every turn a search lists, SHALL open on its own. It SHALL say when a prompt was not captured or is hidden, load turns a page at a time, and send its search to the server.
+
+#### Scenario: Each prompt shows what the agent did for it
+
+- **GIVEN** a session whose prompts led to commands and file tool calls
+- **WHEN** the operator opens the Timeline grouped by prompt
+- **THEN** each prompt is listed closed, labelled "Prompt", with how many tool calls and processes it led to, and what belongs to no prompt is listed last under "Outside any prompt"
+- **AND** opening a prompt lists its commands and tool calls in the order they happened, each tool call labelled as reported by the agent
+
+#### Scenario: A prompt the operator may not read is shown as hidden
+
+- **GIVEN** an operator without `agent_prompt.read`
+- **WHEN** they open the Timeline grouped by prompt
+- **THEN** each prompt reads "Prompt hidden", and a turn whose prompt was not captured reads "Prompt not captured"
+
+### Requirement: Agent session header usage
+
+The agent session header SHALL say what the session's messages used, from its totals: the models, the tokens, and each permission mode the agent ran in with how many replies and over how long. Bypass permissions SHALL be flagged. A session that recorded no message's usage SHALL show no usage line.
+
+#### Scenario: The header says what the session's messages used
+
+- **GIVEN** a session whose messages ran on one model, partly in bypass permissions mode
+- **WHEN** the operator opens it
+- **THEN** the header names the model, its tokens, and each mode with its replies and span, bypass permissions flagged
+
+### Requirement: The session view searches its processes and activity on the server
+
+The agent session view SHALL send a search in Processes to the server and list each process it found alone, with the rest on request, rather than searching only the pages it has loaded. In Activity it SHALL read each class's rows for the search from the server, keeping the session's totals.
+
+#### Scenario: A Processes search finds a process not yet loaded
+
+- **GIVEN** a session whose matching process lies past the tree pages loaded
+- **WHEN** the operator searches in Processes
+- **THEN** the view lists that process from the server's search, with more on request
+
+#### Scenario: An Activity search reads the class from the server
+
+- **GIVEN** a session's Activity
+- **WHEN** the operator searches
+- **THEN** each class lists the rows the server's search for it returns
+
+### Requirement: Agent session summary tab
+
+The agent session view SHALL list a Summary first among its views and open on it, built only on the session summary. It SHALL show the session as the card it is shared as: the tool calls its log reports beside the processes that ran, the files it changed, the domains it contacted, the programs it ran most and where it talked to. Alerts SHALL be a count with a link, and the Summary SHALL say how many of Claude Code's own files it left out.
+
+#### Scenario: The summary is the first view
+
+- **GIVEN** an agent session
+- **WHEN** the operator opens it
+- **THEN** it opens on its Summary, listed first among its views, which shows the session from its summary
+- **AND** a session reached from another session's lineage opens on its Summary too, whichever view was open
+
+#### Scenario: The summary describes the session
+
+- **GIVEN** a session that made tool calls, ran processes, changed files in and outside its project, made temporary files, wrote Claude Code's own files, and talked to a Git host
+- **WHEN** the operator opens its Summary
+- **THEN** its card counts the tool calls beside the processes, the files changed with those outside the project and the temporary ones left out, and the domains, and groups the Git host by organization
+- **AND** the alerts are a count with a link, and the Summary says how many of Claude Code's own files were left out
+
+#### Scenario: An empty session reads as empty
+
+- **GIVEN** a session that recorded no tool calls, processes, files, network activity or usage
+- **WHEN** the operator opens its Summary
+- **THEN** its card counts zero of each and lists no programs or destinations, and the Summary says no alert was raised
+
+### Requirement: Agent session timeline view
+
+The agent session view SHALL list what the session ran in one Timeline view, with a "Group by prompt" switch: on, it lists each prompt with the commands and tool calls made for it; off, it lists the commands alone in the order they started. It SHALL open grouped when the session recorded a prompt and ungrouped when it recorded none, keep the operator's choice in the browser across sessions, and open a link naming `conversation`, `commands` or `group=prompt` as it names, whatever was chosen.
+
+#### Scenario: A session with prompts opens grouped by them
+
+- **GIVEN** a session that recorded prompts
+- **WHEN** the operator opens its Timeline
+- **THEN** "Group by prompt" is on and each prompt is listed with what the agent did for it
+- **AND** turning it off lists the session's commands alone
+
+#### Scenario: A session with no prompt opens on its commands
+
+- **GIVEN** a session that recorded no prompt
+- **WHEN** the operator opens its Timeline
+- **THEN** "Group by prompt" is off and the session's commands are listed
+
+#### Scenario: A link to a replaced view opens the Timeline
+
+- **GIVEN** a link to a session naming `view=conversation`
+- **WHEN** the operator follows it
+- **THEN** the session opens on its Timeline, grouped by prompt
+
+#### Scenario: A prompt search result opens the Timeline grouped
+
+- **GIVEN** an operator who turned "Group by prompt" off
+- **WHEN** they follow a prompt search result to its session
+- **THEN** the session opens on its Timeline grouped by prompt, searched for what found the prompt
+
+### Requirement: Stable session view header
+
+The agent session view SHALL lay out its header the same in the Timeline, Processes and Activity views, so the view switcher keeps its place: a header control one view does not use SHALL be hidden there while keeping its space, not removed.
+
+#### Scenario: The Timeline's switches are hidden, not removed, outside it
+
+- **GIVEN** a session view showing its Timeline, with the "Group by prompt" and "Show shell plumbing" switches
+- **WHEN** the operator switches to Processes
+- **THEN** both switches are hidden but keep their place in the header, and cannot be focused
+
+### Requirement: Timeline headers stay selectable
+
+A Timeline turn or command SHALL open and close from a click anywhere on its header and from its own toggle button, and SHALL keep its header's text selectable: a click that selects text, or the second click of a double-click, SHALL leave it as it was. A prompt the operator may read, and a command, SHALL offer a button copying its text.
+
+#### Scenario: Selecting a prompt does not close it
+
+- **GIVEN** an open turn in the Timeline
+- **WHEN** the operator drags across its prompt to select it, or double-clicks a word of it
+- **THEN** the text is selected and the turn stays open
+- **AND** its copy button copies the whole prompt without opening or closing it
+
+### Requirement: Agent session view pages its commands
+
+The session view's Timeline, ungrouped, SHALL list the commands the server groups for the session a page at a time, offering the next page on request with how many remain. A search there SHALL ask the server for the commands it finds once the operator stops typing. The header SHALL count the session's commands and processes from its totals. Each read's cut SHALL be told with the view it cuts.
+
+#### Scenario: The rest of the commands come on request
+
+- **GIVEN** a session with more commands than one page
+- **WHEN** its view opens
+- **THEN** it lists the first page and offers the rest, saying how many
+- **AND** asking for them lists the next page after the first, and no more is offered once none remain
+
+#### Scenario: A search asks the server
+
+- **GIVEN** a session's commands listed
+- **WHEN** the operator types a search and stops
+- **THEN** the view asks the server for the commands the search finds and lists only those
+
+#### Scenario: The header counts the whole session
+
+- **GIVEN** a session whose totals count more commands and processes than any page lists
+- **WHEN** its view opens
+- **THEN** the header counts the commands and processes its totals give
+
+### Requirement: Agent session view pages its processes and activity
+
+The session view's Processes SHALL offer the session's next processes on request, listing each under the process that created it when an earlier page read it. Each Activity class SHALL offer its next rows on request until none remain. A read that fails SHALL say so and SHALL offer the page again.
+
+#### Scenario: The rest of the processes come on request
+
+- **GIVEN** a session with more processes than its tree's first page
+- **WHEN** the operator asks for the next processes
+- **THEN** they are listed, each under its creator when an earlier page read it, and none is offered once the last page is read
+
+#### Scenario: The rest of an activity list comes on request
+
+- **GIVEN** a session whose DNS names outnumber the rollup's list
+- **WHEN** the operator asks for the next rows, page by page
+- **THEN** each page's rows are listed after the ones before, until the last, after which none is offered and the cut notice is gone
+
+### Requirement: Agent sessions list
+
+The UI SHALL offer an Agent sessions page listing AI agent sessions most recently active first, showing per session the agent and its version, the project directory, the host, how long ago it was last active, how long it ran, and its process and alert counts. Each time SHALL stay on one line, with the exact times on hover. The server SHALL page the list. A session SHALL open its session view.
+
+#### Scenario: Sessions are listed with their project and activity
+
+- **GIVEN** the server reports a Claude Code session on a host, working in `/private/tmp`, with 16 processes and 1 alert, last active 3 days ago after running for 2 hours 14 minutes
+- **WHEN** the operator opens the Agent sessions page
+- **THEN** the row shows the agent and version, `/private/tmp`, the host's name, `3d ago`, `2h 14m`, 16 and 1
+- **AND** hovering the times shows when the session was last active, and when it started and was last active
+
+#### Scenario: The server pages the list
+
+- **GIVEN** more sessions than one page holds
+- **WHEN** the operator asks for more
+- **THEN** the next page is requested with the server's cursor and appended to the rows already shown
+
+#### Scenario: A session opens its activity
+
+- **GIVEN** a listed session
+- **WHEN** the operator activates it
+- **THEN** that session's view opens
+
+### Requirement: A command that read a credential says so
+
+In the agent session view, a command whose process raised an `agent_credential_read` alert SHALL say beside it, whether open or closed, what the agent did with which credential, in the alert's words: "Tried to read your AWS credentials", or "Stopped from reading" one the guard refused, each linking to its alert and crediting its rule's author. The verdict SHALL be the one the rule wrote, whatever the opener's path says.
+
+#### Scenario: A command names the credential it read
+
+- **GIVEN** a session command with one alert for reading AWS credentials and one for a refused read of an SSH private key
+- **WHEN** an operator opens the session
+- **THEN** the command says "Tried to read your AWS credentials" and "Stopped from reading your SSH private key", each linking to its alert, and still does once the command is closed
+
+### Requirement: The credential guard is edited in detection tuning
+
+The Detection tuning page SHALL include an AI agent credential guard section showing the mode, each protected credential in plain words with its path, coverage and allowed tools, which are built in, and the last save. An operator with `detection_config.write` SHALL edit a draft of the whole policy and save it with a reason through `PUT /api/v1/detection-config/credential-guard`, naming the version the draft started from.
+
+#### Scenario: The console shows the policy in plain words
+
+- **GIVEN** a stored policy in detect mode over the built-in SSH key prefix and GitHub CLI token
+- **WHEN** an operator opens Detection tuning
+- **THEN** the section shows detect mode, each credential by name with its path in each home, what it covers and the tools allowed to read it, both marked built in, and who saved it last
+
+#### Scenario: A credential being edited is not dropped
+
+- **GIVEN** an operator editing a credential, which takes it out of the list into the form
+- **WHEN** they clear the form's fields
+- **THEN** saving the policy stays unavailable until the entry is saved back or the edit is cancelled, which puts it back where it was
+
+#### Scenario: A changed policy is saved with a reason and pushed
+
+- **GIVEN** an operator with `detection_config.write`
+- **WHEN** they switch to protect, add AWS credentials allowed to one team, edit the GitHub CLI token's tools, and save with a reason
+- **THEN** the whole policy is sent with the reason and the version the draft started from, and the section reports the saved version and the push
+
+### Requirement: Data collection settings show and change prompt capture
+
+Admin settings SHALL include a Data collection section, under `detection_config.read`, that says plainly whether agents capture the prompts people type to AI coding agents and what that means, and who last changed it. An operator with `detection_config.write` SHALL be able to switch capture on or off; the change SHALL require a reason, SHALL name the version it started from, and SHALL report how far its push reached.
+
+#### Scenario: The page says plainly that prompts are captured
+
+- **GIVEN** agent settings with prompt capture on
+- **WHEN** an operator opens Data collection settings
+- **THEN** the switch is on and the page says agents send the prompts people type to AI coding agents
+- **AND** it says that `EDR_CAPTURE_PROMPTS=0` on a Mac keeps them there whatever the setting
+
+#### Scenario: Turning capture off asks for a reason and reports the push
+
+- **GIVEN** an operator permitted `detection_config.write`
+- **WHEN** they switch capture off and give a reason
+- **THEN** the change is sent with the reason and the version the page loaded
+- **AND** the page shows the new state and how many enrolled hosts the change was queued for
+- **AND** when someone else changed the settings first, the page says so and offers to load the latest
+
+### Requirement: An agent session says when its file activity is incomplete
+
+A session's Summary and the card it is shared as SHALL say how many file operations were not recorded when its digest counts any, and SHALL say nothing of it otherwise.
+
+#### Scenario: The Summary says how many file operations were not recorded
+
+- **GIVEN** a session whose digest counts 309 unrecorded file operations
+- **WHEN** its Summary is shown
+- **THEN** it says 309 file operations were not recorded, so its file counts leave them out
+- **AND** the card notes "309 operations not recorded" under its files changed
+
+### Requirement: Folded agent file rows name their process count
+
+The Files tab and the host timeline SHALL say how many processes an agent file row folds, when it folds several.
+
+#### Scenario: A fan-out's row names how many processes it counts
+
+- **GIVEN** a file row folded from 80 processes under `xargs`
+- **WHEN** the Files tab or the host timeline shows it
+- **THEN** the Files tab names "up to 80 processes under" the process, since its count sums each second's fold, and the timeline spells the operation "by 80 processes"
+
+### Requirement: A laptop install has personal defaults
+
+On a server whose profile is `laptop`, the console SHALL open on Agent sessions for an operator who can read them, and Admin settings SHALL offer single sign-on, containment and service accounts only once the person turns on **Show advanced settings**, a choice the browser keeps. Every page SHALL stay reachable by its address. A `server` profile SHALL keep the alert queue first and offer every section with no switch.
+
+#### Scenario: A laptop opens on Agent sessions
+
+- **GIVEN** an operator who can read alerts and agent sessions
+- **WHEN** they open the console's root on a laptop, and on a server
+- **THEN** the laptop shows Agent sessions and the server the alert list
+
+#### Scenario: Fleet settings are behind a switch
+
+- **GIVEN** an operator who can open every Admin settings section, on a laptop
+- **WHEN** they open Admin settings, then turn on **Show advanced settings**
+- **THEN** single sign-on, containment and service accounts are offered only after the switch is on, and the browser keeps the choice
+
+### Requirement: The first-run checklist walks the approvals from live health
+
+The console SHALL offer a first-run checklist that lists, in order, the approvals a Mac needs to capture: the security extension, the network extension, network filtering, Full Disk Access for the security extension and for the agent, the first event, and the first agent session. Each step SHALL show whether it is done, needs the person, or is waiting, and where to make it, read from the Mac's live agent health. A refused Full Disk Access grant SHALL show as a step that needs the person.
+
+#### Scenario: Each approval shows where it stands
+
+- **GIVEN** a Mac whose agent reports some approvals made and others not
+- **WHEN** the person opens the checklist
+- **THEN** the steps are listed in order, the made ones done, and each open one says where to make it
+
+#### Scenario: A refused Full Disk Access grant is a red step
+
+- **GIVEN** a Mac whose security extension or agent reports `full_disk_access_missing`
+- **WHEN** the person opens the checklist
+- **THEN** that component's Full Disk Access step is shown red as needing the person, with where to grant it
+
+#### Scenario: The checklist follows the Mac as it is set up
+
+- **GIVEN** an open checklist with a step left
+- **WHEN** the agent next reports the approval made
+- **THEN** the step turns done without a reload, and once every step is done the checklist stops rereading and points to Agent sessions
+
+### Requirement: The service accounts page shows when each credential expires
+
+The service accounts page SHALL show each account's expiry as a date with the time remaining, and SHALL flag an active account expiring within 14 days. The one-time secret card SHALL state the expiry of the credential just issued. The page SHALL offer Rotate only on an active account.
+
+#### Scenario: The list shows expiry and flags a near one
+
+- **GIVEN** an active service account expiring in 5 days
+- **WHEN** an operator opens the service accounts page
+- **THEN** the account's row shows its expiry date and the time remaining
+- **AND** the row is flagged as expiring soon
+
+#### Scenario: The secret card states the expiry
+
+- **GIVEN** an operator who creates or rotates a service account
+- **WHEN** the one-time secret card appears
+- **THEN** it states when the credential expires
+
+#### Scenario: A dead account offers no rotate
+
+- **GIVEN** a revoked or an expired service account
+- **WHEN** an operator views its row
+- **THEN** the row offers no Rotate action
+
+### Requirement: Session view reads a large command whole
+
+When a command's processes are listed in part, the session view SHALL say so and offer "Show all N processes", which reads the command whole and lists it in place; a failed read SHALL say so and leave the offer to retry.
+
+#### Scenario: A command listed in part is read whole on request
+
+- **GIVEN** a command of 26 processes of which the page lists 6
+- **WHEN** the operator chooses "Show all 26 processes"
+- **THEN** the command is read whole and its processes are listed, the first 20 and the rest on request
+
+#### Scenario: A failed read of a whole command says so
+
+- **GIVEN** a command listed in part whose whole read fails
+- **WHEN** the operator chooses "Show all N processes"
+- **THEN** the view says the processes could not be loaded, keeps what it listed, and offers the read again
+
+### Requirement: A shared session image carries no identifying detail
+
+A session shared as an image SHALL be drawn only from a card of counts, program names without arguments and domains, every string on which has usernames, hostnames, IP addresses and user@host pairs removed and home folders shown as `~`. An address SHALL never appear as a domain, and the card SHALL never carry a title, the project's name or an internal domain.
+
+#### Scenario: What names a person or a machine is removed
+
+- **GIVEN** text holding a home folder, a user@host pair, IPv4 and IPv6 addresses, an internal hostname, and the session's own username and hostname
+- **WHEN** it is redacted
+- **THEN** the home folder reads `~` and each of the others is removed, while a longer word containing the username is left alone
+
+#### Scenario: The card shows no title, project or internal domain
+
+- **GIVEN** a session in a project, with programs run by full path, public, internal and address domains, and a read the credential guard stopped
+- **WHEN** its card is built
+- **THEN** it shows no title and no project, programs by name only, public domains only and counts only them, and the stopped read in the sharer's words
+
+#### Scenario: No username, hostname or address survives
+
+- **GIVEN** any session whose agent name, project, programs and domains carry its username, hostname and IP addresses
+- **WHEN** its card, caption and alt text are built
+- **THEN** none of them contains the username, the hostname, its first label or any of the addresses
+
+### Requirement: A session can be shared as an image made in the browser
+
+The Summary SHALL show the session's card as the 1080 x 1350 image it shares, and offer to share it as a PNG drawn at twice that size, made in the browser from the redacted card with no request. It SHALL copy the image or download it, copy a suggested caption, share on LinkedIn or X, and use the system share sheet where the browser has one, and SHALL neither draw the card nor offer any of them while the host's name is unread or empty.
+
+#### Scenario: The Summary shows the image it shares
+
+- **GIVEN** a session's Summary
+- **WHEN** the person copies its image
+- **THEN** the PNG is drawn from the SVG the Summary shows, so what is shared is what was seen
+
+#### Scenario: The image is drawn in the browser without a request
+
+- **GIVEN** a card
+- **WHEN** it is exported
+- **THEN** its SVG is drawn from a data URL onto a canvas twice the card's size and saved as a PNG, and no network request is made
+
+#### Scenario: The image is copied or downloaded, and the caption copied
+
+- **GIVEN** a session's Summary with its card drawn
+- **WHEN** the person copies the image, downloads it, or copies the caption
+- **THEN** the clipboard receives an `image/png` item, a PNG file is saved, or the clipboard receives the caption, and the Summary says which
+
+#### Scenario: A site's composer opens with the image copied to paste
+
+- **GIVEN** a session's Summary with its card drawn
+- **WHEN** the person presses Share on LinkedIn or Share on X
+- **THEN** the site's composer opens in a new tab with the caption filled in, and the image is copied for the person to paste, since neither site takes an image in a link
+
+#### Scenario: The system share sheet takes the image where the browser has one
+
+- **GIVEN** a browser whose share sheet can share a PNG file
+- **WHEN** the person shares through it
+- **THEN** the sheet receives the PNG and the caption, closing it is not reported as a failure, and a browser that cannot share the file is not offered the sheet
+
+#### Scenario: A host whose name cannot be read is not shared
+
+- **GIVEN** a host whose name the Summary cannot read
+- **WHEN** the person opens a session's Summary
+- **THEN** it says the card cannot be checked for the name, shows no card, and offers nothing to copy, download or post
+
+### Requirement: Sessions list bypass badge
+
+The Agent sessions page SHALL badge the row of each session that ran with permissions bypassed "Bypass permissions", the badge's title saying a fork of a bypassed session carries it too.
+
+#### Scenario: A bypassed session's row is badged
+
+- **GIVEN** two sessions on a host, one whose messages were written with permissions bypassed
+- **WHEN** the operator opens the Agent sessions page
+- **THEN** only the bypassed session's row is badged
+
+### Requirement: Sessions list tokens
+
+The Agent sessions page SHALL list each session's tokens compactly, with the exact count in the cell's title, and leave the cell empty when the server gives none.
+
+#### Scenario: A session lists its tokens
+
+- **GIVEN** a session that used 1,234,567 tokens
+- **WHEN** the operator opens the Agent sessions page
+- **THEN** its Tokens cell reads 1.2M, and its title gives the exact count
+
+### Requirement: Data collection settings show the store size
+
+The Data collection page SHALL show how much disk the event archive and the database take, their total, and how long events are kept, and SHALL warn, naming what to change, when the server flags the total as past its threshold. A failed read SHALL be reported in that section alone.
+
+#### Scenario: The page shows the store size and retention
+
+- **GIVEN** stores taking 80 GB of events and 30 GB of other data, with events kept 7 days
+- **WHEN** an operator opens Data collection
+- **THEN** the page says the stores take 110.0 GB, split as 80.0 GB in the event archive and 30.0 GB in the database, and that events are kept for 7 days
+
+#### Scenario: The page warns past the threshold
+
+- **GIVEN** a report the server flags as past its 100 GB threshold
+- **WHEN** an operator opens Data collection
+- **THEN** the page warns that the stores are past 100.0 GB and names `EDR_EVENT_RETENTION_DAYS`
+
+### Requirement: Tuning table figures are static and a rule names its page
+
+The detection tuning table SHALL show each Observed and Cost figure as plain text that does nothing when clicked, focused or hovered, and the Cost cell SHALL include the worst single evaluation beside the total and the mean. The Rule cell SHALL link to that rule's detail page.
+
+#### Scenario: No figure moves the table
+
+- **GIVEN** the detection tuning table with Observed and Cost figures
+- **WHEN** an operator clicks, taps or focuses a figure
+- **THEN** nothing is revealed and no column changes width
+
+#### Scenario: The Cost cell carries the worst case
+
+- **GIVEN** a rule with evaluation statistics
+- **WHEN** an operator opens the detection tuning view
+- **THEN** the rule's Cost cell shows the total, the mean and the worst single evaluation
+
+#### Scenario: The rule opens its detail page
+
+- **GIVEN** a rule in the detection tuning table
+- **WHEN** an operator selects the rule's name
+- **THEN** the rule's detail page opens
+
+### Requirement: Unsaved work survives a reauthentication
+
+When a save needs a fresh sign-in through the identity provider, which leaves the page, the console SHALL keep the page's unsaved work, say so, and put it back on return with a notice. It SHALL NOT save or re-run the action for the operator, who reviews the restored work and saves again. Work that cannot be kept SHALL be said to be lost before the page is left.
+
+#### Scenario: Unsaved work is kept across the sign-in
+
+- **GIVEN** a page with unsaved work and a save that needs a fresh sign-in through the identity provider
+- **WHEN** the operator continues to the identity provider
+- **THEN** the work is saved in the browser before the page is left
+- **AND** the dialog said that the work would be kept and that signing in saves nothing
+
+#### Scenario: Unsaved work is restored and not saved for the operator
+
+- **GIVEN** unsaved work kept across a sign-in
+- **WHEN** the operator returns to the page
+- **THEN** the work is put back and a notice says it was kept
+- **AND** nothing has been saved, and the save is not run again
+- **AND** a restored edit of a shared setting is saved against the version it was edited against, so a change made meanwhile by someone else is refused rather than overwritten
+
+#### Scenario: Saved work is not restored when it is stale or from another page
+
+- **GIVEN** saved work older than 15 minutes, saved for another page or another rule, written by a different operator, or not of the page's own shape
+- **WHEN** a page is opened
+- **THEN** that work is not restored into it
+
+#### Scenario: Work that cannot be kept is said to be lost
+
+- **GIVEN** a page with unsaved work and a browser that refuses to store it
+- **WHEN** the operator continues to the identity provider
+- **THEN** the dialog says the work will be lost and does not leave until the operator continues again
+
+#### Scenario: A dialog with saved work is reopened by its page
+
+- **GIVEN** unsaved work in a dialog, such as adding or editing an application control rule, kept across a sign-in
+- **WHEN** the operator returns to the page
+- **THEN** the page reopens that dialog, and only that dialog
+- **AND** the work is put back as it opens, with a notice, and a later close and reopen starts empty as it always did
+
+#### Scenario: A restored edit keeps what someone else changed meanwhile
+
+- **GIVEN** an edit of an existing item kept across a sign-in, in which the operator changed some fields and left others alone
+- **WHEN** someone else changes a field the operator left alone before the operator returns
+- **THEN** the restored edit contains the operator's changes and the item's current value for the field they left alone
+- **AND** saving it does not write the old value back
