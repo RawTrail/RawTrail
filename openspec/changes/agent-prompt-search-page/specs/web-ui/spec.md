@@ -2,7 +2,7 @@
 
 ### Requirement: Agent prompt search
 
-The Agent sessions page SHALL offer an operator holding `agent_prompt.read` a search of the prompts typed across every agent session, over the last day, week or 30 days, listing each prompt newest first with its time, host and the text around its match marked, a page at a time in the window first searched, each linking to its session opened on its Timeline grouped by prompt. It SHALL say that every search is audited with its text, and SHALL not be offered without `agent_prompt.read`.
+The Agent sessions page SHALL offer an operator holding `agent_prompt.read` a search of the prompts typed across every agent session, over the last day, week or 30 days, listing each prompt newest first with its time, host and the text around its match marked, a page at a time in the window first searched, each linking to its session opened on its Timeline grouped by prompt. It SHALL not be offered without `agent_prompt.read`.
 
 #### Scenario: An operator finds a prompt across sessions
 

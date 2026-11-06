@@ -155,6 +155,14 @@ test.describe("a session's Summary", () => {
       - button "Download PNG"
       - button "Copy caption"
     `);
+    // The card sits beside the panel at its own width rather than spreading over it: a stylesheet that lost the Summary's layout
+    // still has every control in the tree, so only the boxes show it.
+    await page.setViewportSize({ width: 1400, height: 900 });
+    const cardBox = await page.getByRole("img", { name: /^A summary card of a claude-code/ }).boundingBox();
+    const panelBox = await panel.boundingBox();
+    if (!cardBox || !panelBox) throw new Error("the card and the panel must both be laid out");
+    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(panelBox.x);
+    expect(cardBox.width).toBeLessThanOrEqual(34 * 16);
 
     // Exporting makes no request: the PNG is drawn in the page.
     const requests: string[] = [];
