@@ -52,6 +52,12 @@
     white-space: nowrap;
   }
 
+  // A time or a count is read whole: it never breaks across lines, and its digits are equal width so a column of them lines up.
+  &__nowrap {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
   &__more {
     margin-top: 0.75rem;
     text-align: center;

@@ -9,6 +9,7 @@ import { useCursorList, type CursorPage } from "../Search/useCursorList";
 import { SearchResultsFrame } from "../Search/SearchResultsFrame";
 import { formatNs } from "../Search/format";
 import { useHostNames } from "../useHostNames";
+import { formatElapsedNs, formatRelativeNs } from "../../time";
 import { sessionPath } from "./sessionPath";
 import { PromptSearch } from "./PromptSearch";
 import { PermissionAction, useCan } from "../../permissions-core";
@@ -67,8 +68,8 @@ export function SessionList() {
               <th>Agent</th>
               <th>Project</th>
               <th>Host</th>
-              <th>First seen</th>
-              <th>Last seen</th>
+              <th>Last active</th>
+              <th>Duration</th>
               <th>Processes</th>
               <th>Alerts</th>
               <th>Tokens</th>
@@ -90,14 +91,16 @@ export function SessionList() {
                 </td>
                 <td className="search-page__mono">{s.cwd ?? ""}</td>
                 <td>{hostNames.get(s.host_id) ?? s.host_id}</td>
-                <td>{formatNs(s.first_seen_ns)}</td>
-                <td>{formatNs(s.last_seen_ns)}</td>
+                <td className="search-page__nowrap" title={formatNs(s.last_seen_ns)}>{formatRelativeNs(s.last_seen_ns)}</td>
+                <td className="search-page__nowrap" title={`${formatNs(s.first_seen_ns)} to ${formatNs(s.last_seen_ns)}`}>
+                  {formatElapsedNs(s.last_seen_ns - s.first_seen_ns)}
+                </td>
                 <td>{s.process_count.toLocaleString()}</td>
                 <td>{s.alert_count.toLocaleString()}</td>
                 <td title={s.tokens === undefined ? undefined : `${s.tokens.toLocaleString()} tokens`}>
                   {s.tokens === undefined ? "" : formatTokens(s.tokens)}
                 </td>
-                <td className="search-page__mono" title={s.agent_session_id}>{s.agent_session_id.slice(0, SESSION_ID_PREFIX)}</td>
+                <td className="search-page__mono search-page__nowrap" title={s.agent_session_id}>{s.agent_session_id.slice(0, SESSION_ID_PREFIX)}</td>
               </tr>
             ))}
           </tbody>

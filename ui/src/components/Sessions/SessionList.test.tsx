@@ -37,7 +37,7 @@ function renderList(initial = "/agent-sessions") {
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("SessionList", () => {
-  // spec:web-ui/ai-agent-sessions-page/sessions-are-listed-with-their-project-and-activity
+  // spec:web-ui/agent-sessions-list/sessions-are-listed-with-their-project-and-activity
   it("lists a session with its agent, project, host name and counts", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([{ host_id: "H1", hostname: "mac-a.local" } as never]);
     vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session()], total_matched: 1 });
@@ -53,7 +53,7 @@ describe("SessionList", () => {
     expect(screen.getByText("Showing 1 of 1 matches")).toBeVisible();
   });
 
-  // spec:web-ui/ai-agent-sessions-page/a-session-opens-its-activity
+  // spec:web-ui/agent-sessions-list/a-session-opens-its-activity
   it("opens the session's own view", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session({ host_id: "H 1" })], total_matched: 1 });
@@ -63,7 +63,7 @@ describe("SessionList", () => {
     expect(screen.getByText("H 1")).toBeVisible();
   });
 
-  // spec:web-ui/ai-agent-sessions-page/filters-and-paging-are-applied-by-the-server
+  // spec:web-ui/agent-sessions-list/the-server-pages-the-list
   it("loads the next page with the server's cursor and appends it", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const spy = vi.spyOn(api, "listAgentSessions")
@@ -77,7 +77,7 @@ describe("SessionList", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
 
-  // spec:web-ui/sessions-list-bypass-filter/the-list-narrows-to-sessions-that-ran-bypassed
+  // spec:web-ui/sessions-list-bypass-badge/a-bypassed-session-s-row-is-badged
   it("badges the sessions that ran bypassed", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const spy = vi.spyOn(api, "listAgentSessions").mockResolvedValue({
@@ -91,6 +91,26 @@ describe("SessionList", () => {
     expect(bypassed).toContainElement(badge);
     expect(badge.parentElement).toHaveAttribute("title", "Ran in bypass mode, or was forked from a session that did");
     expect(screen.getAllByText("Bypass permissions")).toHaveLength(1);
+  });
+
+  // spec:web-ui/agent-sessions-list/sessions-are-listed-with-their-project-and-activity
+  it("says how long ago a session was last active and how long it ran, with the exact times on hover", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const hour = 3_600_000;
+    vi.spyOn(Date, "now").mockReturnValue(100 * hour);
+    const first = (100 * hour - 3 * 24 * hour - 2 * hour - 14 * 60_000) * 1_000_000;
+    const last = (100 * hour - 3 * 24 * hour) * 1_000_000;
+    vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session({ first_seen_ns: first, last_seen_ns: last })], total_matched: 1 });
+    renderList();
+    const row = (await screen.findByRole("link", { name: "claude-code" })).closest("tr");
+    const [active, duration] = [row?.querySelectorAll("td")[3], row?.querySelectorAll("td")[4]];
+    expect(active).toHaveTextContent(/^3d ago$/);
+    expect(active).toHaveAttribute("title", new Date(last / 1_000_000).toLocaleString());
+    expect(duration).toHaveTextContent(/^2h 14m$/);
+    expect(duration).toHaveAttribute("title",
+      `${new Date(first / 1_000_000).toLocaleString()} to ${new Date(last / 1_000_000).toLocaleString()}`);
+    // A time never breaks across lines.
+    for (const cell of [active, duration]) expect(cell).toHaveClass("search-page__nowrap");
   });
 
   // spec:web-ui/sessions-list-tokens/a-session-lists-its-tokens

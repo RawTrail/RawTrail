@@ -1,9 +1,9 @@
 // The AI agent sessions page (issue #1283) and session view (issue #1284), driven from a real ingest: the fake agent posts a Claude
 // Code session's four Bash tool calls with the session markers the production agent forwards, the server records the session, and the
-// operator finds it on the Agent sessions page, narrows the list to it, and opens it to see what each command ran.
+// operator finds it on the Agent sessions page and opens it to see what each command ran.
 //
-// The host id is fresh per run and the list is filtered to it, so rows other specs or an operator left on the dev database cannot
-// stand in for this session.
+// The host id is fresh per run and the row is found by its link to that host, so rows other specs or an operator left on the dev
+// database cannot stand in for this session. The fake agent stamps the run's events from now, so its session is among the newest.
 
 import * as crypto from "node:crypto";
 import { test, expect } from "../../fixtures/agent";
@@ -16,8 +16,8 @@ test.describe("agent sessions", () => {
   // Above the default 30s: enrol, post, ingest and build the graph before the page has anything to show.
   test.setTimeout(90_000);
 
-  // spec:web-ui/ai-agent-sessions-page/sessions-are-listed-with-their-project-and-activity
-  // spec:web-ui/ai-agent-sessions-page/a-session-opens-its-activity
+  // spec:web-ui/agent-sessions-list/sessions-are-listed-with-their-project-and-activity
+  // spec:web-ui/agent-sessions-list/a-session-opens-its-activity
   // spec:web-ui/ai-agent-session-view/tool-calls-are-labelled-with-the-command-the-agent-ran
   // spec:web-ui/ai-agent-session-view/a-daemon-the-agent-started-stays-in-its-tool-call
   // spec:web-ui/ai-agent-session-view-badges/a-privilege-change-is-badged
@@ -39,13 +39,7 @@ test.describe("agent sessions", () => {
     await page.getByRole("link", { name: "Agent sessions", exact: true }).click();
     await expect(page).toHaveURL(/\/ui\/agent-sessions$/);
 
-    // Narrow to this run's host through the page's own filter, which the server applies.
-    await page.getByLabel("Add filter field").selectOption("host_id");
-    await page.getByLabel("Host value").fill(hostId);
-    await page.getByRole("button", { name: "Add" }).click();
-    await expect(page).toHaveURL(new RegExp(`host_id=${hostId}`));
-
-    const rows = page.locator("tbody tr");
+    const rows = page.locator(`tbody tr:has(a[href*="/agent-sessions/${hostId}/"])`);
     await expect(rows).toHaveCount(1, { timeout: 10_000 });
     const cells = rows.first().locator("td");
     await expect(cells.nth(0)).toHaveText("claude-code 2.1.296");
