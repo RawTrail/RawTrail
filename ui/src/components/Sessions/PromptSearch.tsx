@@ -106,7 +106,6 @@ export function PromptSearch() {
         <Button type="submit" disabled={problem !== null || pending}>Search</Button>
       </form>
       {problem !== null && problem !== "short" && <p className="prompt-search__note" role="alert">{problem}</p>}
-      <p className="prompt-search__note">Every search is recorded in the audit log with its text.</p>
       {submitted && (
         <SearchResultsFrame
           loading={found.loading}
