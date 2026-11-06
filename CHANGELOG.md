@@ -2,7 +2,9 @@
 
 Notable changes to RawTrail (formerly Fleet EDR), newest first. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0).
 
-## [Unreleased]
+## [0.9.0] (2026-11-06)
+
+See what your AI coding agent is actually doing. Each Claude Code session gets a Summary, a Timeline grouped by prompt, its tokens and permission modes, and an alert when it reads your credentials, which protect mode can refuse. A one-command install runs it all on your own Mac.
 
 ### Upgrade notes (action required)
 
@@ -19,13 +21,16 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 - **An AI agent session has a Summary.** A session opens on a card of what it did: the tool calls the agent's own log reports beside the processes that actually ran, the files it changed (with those outside its project), the domains it contacted, the programs it ran most and where it talked to by organization. Files Claude Code keeps for itself, and temporary files the session made and removed, are not counted. Alerts are a count with a link.
 - **An AI agent session's header shows its models, tokens and permission modes.** Each mode the agent ran in is listed with how many replies and for how long, and bypass permissions is flagged. The Agent sessions page lists each session's tokens.
 - **See which AI agent sessions ran with permissions bypassed.** The Agent sessions page badges each one. A session forked from a bypassed one carries its parent's lines and is badged too. Sessions are marked from the upgrade on: one that ran bypassed only before it is not.
-- **The Agent sessions page is simpler.** Its host, agent and activity filters are removed, and each session shows how long ago it was last active and how long it ran, with the exact times on hover. `GET /api/agent-sessions` still filters.
 - **The agent reports an AI agent session's token usage and permission mode.** Each reply's model and tokens are sent, with the permission mode in force, whatever the prompt-capture setting; no prompt or reply text is included.
 - **Read the prompts typed to an AI agent, behind their own permission.** The prompts of a session are served by the server to operators who hold the new `agent_prompt.read` permission: admins and senior analysts. Analysts and auditors do not have it, and every read is audited. The Agent sessions page searches them across every session over up to 30 days, and each search is audited with its text.
 - **Event retention is a setting.** `EDR_EVENT_RETENTION_DAYS` (default 30) sets how long raw events are kept; the server applies it at startup. Shortening it deletes older events. Use the same value on every server and ingest replica. **Admin settings > Data collection** shows how much disk the stores take, and warns past `EDR_STORE_SIZE_WARN_GB` (default 100 GB).
 - **Long agent sessions open quickly.** A session's commands, processes and each Activity list load a page at a time with the rest on request, a search in any of them runs on the server over the session's first 20,000 processes (the view says when a session has more), and the header counts the whole session's commands and processes. A command that started hundreds of processes lists its first hundred and its alerted ones, with the rest one click away.
 - **An alertable count of service accounts about to expire.** The `edr.service_accounts.expiring` metric reports the active service accounts whose credential expires within 14 days, the same accounts the console flags. Alert when it is above zero and rotate the credential before the date.
 - **The console shows the RawTrail logo.** It sits in front of the name in the top bar and is the browser tab icon on the console and the API documentation page.
+
+### Changed
+
+- **The Agent sessions page is simpler.** Its host, agent and activity filters are removed, and each session shows how long ago it was last active and how long it ran, with the exact times on hover. `GET /api/agent-sessions` still filters.
 
 ### Fixed
 
@@ -37,6 +42,9 @@ Notable changes to RawTrail (formerly Fleet EDR), newest first. This project fol
 - **A busy second of an AI agent session no longer loses its file activity.** When more files changed in a second than the extension sends, rows were folded up to a top-level directory such as `/private`, and a pipeline whose jobs all wrote one file lost most of its operations. Each row now keeps its own path or names the directory its files share, and a fan-out's jobs fold into one row on the process that started them, which the Files tab shows as "up to 80 processes under xargs". Anything still dropped is reported, and the session's Summary says how many file operations were not recorded.
 - **A host that starts taking commands again no longer keeps showing "it is not taking commands".**
 - **Rotating a service account sets a fresh expiry and refuses revoked or expired accounts.** A rotated secret used to keep the old deadline, and a revoked or expired account was rotated into a secret that could never sign in; that now returns `409`. The service accounts page shows each account's expiry, flags accounts expiring within 14 days, and states the expiry when a secret is issued.
+- **The server keeps up with a large event backlog.** A Mac that uploads millions of queued events, after being offline or asleep, is now processed at tens of thousands of events a minute instead of slowing to about 1,500. A database deadlock while finishing a batch is retried instead of pausing that Mac's processing for 5 minutes.
+- **An agent upgraded in place gets the fleet's settings and policies on its next check-in,** instead of up to six hours later. This covers the watched paths, agent settings and credential guard policy.
+- **A missing Full Disk Access grant is reported as such.** Host health names it for the extension and for the agent, instead of a generic failure.
 
 ## [0.8.0] (2026-10-21)
 
