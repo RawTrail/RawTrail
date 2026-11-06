@@ -565,7 +565,20 @@ xcrun notarytool submit "$PKG_OUT" \
     --wait
 
 echo "==> stapling ticket"
-xcrun stapler staple "$PKG_OUT"
+# stapler fetches the ticket from Apple's CloudKit ticket service, and that fetch fails intermittently with exit 68 (EX_NOHOST,
+# "The network connection was lost") right after the notary accepted the pkg: v0.9.0-rc.1 failed twice that way. The pkg is already
+# notarized, so the fetch is retried with a growing wait, verbose so a lasting failure shows its cause, before giving up.
+staple_attempts=5
+attempt=1
+until xcrun stapler staple -v "$PKG_OUT"; do
+    if [ "$attempt" -ge "$staple_attempts" ]; then
+        echo "stapling failed after $staple_attempts attempts" >&2
+        exit 1
+    fi
+    echo "stapling failed (attempt $attempt of $staple_attempts); retrying in $((attempt * 30))s" >&2
+    sleep $((attempt * 30))
+    attempt=$((attempt + 1))
+done
 xcrun stapler validate "$PKG_OUT"
 
 echo "==> final gate: spctl"

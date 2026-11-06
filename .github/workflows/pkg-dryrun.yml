@@ -133,7 +133,12 @@ jobs:
             packaging/pkg/uninstall.sh \
             packaging/pkg/scripts/preinstall \
             packaging/pkg/scripts/postinstall \
-            packaging/profiles/render.sh
+            packaging/profiles/render.sh \
+            packaging/pkg/build.test.sh
+
+      # The release build's staple retry, run without Apple's tools: the dry run never notarizes, so nothing else reaches it.
+      - name: Test the staple retry
+        run: sh packaging/pkg/build.test.sh
 
       - name: Summarize dry-run output
         # pkgutil --expand explodes each component pkg into a DIRECTORY (Bom +
