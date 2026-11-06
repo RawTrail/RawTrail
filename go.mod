@@ -47,7 +47,7 @@ require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/ClickHouse/ch-go v0.74.0 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
-	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
@@ -69,7 +69,7 @@ require (
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.4.0 // indirect
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
