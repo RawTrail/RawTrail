@@ -425,3 +425,103 @@ The server SHALL accept in the watched-path set an entry whose path starts with 
 - **WHEN** the operator saves it
 - **THEN** the server accepts it
 - **AND** it refuses a set holding `~/` or `~/Library/` as a prefix, or a `~/` entry with an empty or `..` segment
+
+### Requirement: Agent settings are configured over the API
+
+The server SHALL hold one versioned agent-settings document whose `capture_prompts` is true until changed. `GET /api/v1/detection-config/agent-settings` SHALL return it under `detection_config.read`. `PUT` SHALL replace it under `detection_config.write` only with an explicit `capture_prompts`, a non-blank reason and, when given, the current `expected_version`; it SHALL store the next version, audit it in the same transaction, and queue `set_agent_settings` for every enrolled host.
+
+#### Scenario: Prompt capture is on until an administrator turns it off
+
+- **GIVEN** settings no operator has changed
+- **WHEN** a caller permitted `detection_config.read` reads them
+- **THEN** the response carries version 0 and `capture_prompts` true
+
+#### Scenario: Turning prompt capture off is stored, pushed and audited
+
+- **GIVEN** a caller permitted `detection_config.write` and three enrolled hosts
+- **WHEN** they set `capture_prompts` to false with a reason
+- **THEN** the settings are stored as the next version with `capture_prompts` false
+- **AND** a `set_agent_settings` command carrying `{version, epoch, capture_prompts}` is queued for each of the three hosts, the epoch being the settings' update time in Unix microseconds
+- **AND** the change is audited as `detection_config.agent_settings_update` with the reason, the previous and new values, and the host counts
+
+#### Scenario: A change without a value or a reason is refused
+
+- **WHEN** a caller sends a change without `capture_prompts`, or with a blank reason
+- **THEN** it is refused with 400 and nothing is stored or queued
+
+#### Scenario: A change to settings that moved on is refused
+
+- **GIVEN** settings changed since the caller read version 1
+- **WHEN** the caller sends a change with `expected_version` 1
+- **THEN** it is refused with 409 and nothing is stored or queued
+
+### Requirement: Hosts that miss the agent-settings push get them
+
+The server SHALL periodically queue the current agent settings for each enrolled host whose latest `set_agent_settings` command does not carry them, by the same rules as the watched-path catch-up. Settings no operator has changed SHALL be sent too, as version 0 with epoch 0, since an agent captures no prompts until it has the fleet's settings.
+
+#### Scenario: A host enrolled after a change is sent the settings
+
+- **GIVEN** settings changed before a host enrolled
+- **WHEN** the catch-up runs
+- **THEN** a `set_agent_settings` command carrying the current settings is queued for that host, and for no host that already has them
+
+#### Scenario: A host is sent the settings before any change
+
+- **GIVEN** settings no operator has changed and a host never sent them
+- **WHEN** the catch-up runs
+- **THEN** a `set_agent_settings` command carrying version 0, epoch 0 and `capture_prompts` true is queued for that host
+
+### Requirement: The credential guard is configured over the API
+
+`GET /api/v1/detection-config/credential-guard` SHALL return the guard's mode (detect, protect or off) and protected credentials, each a known kind, a path below every home matched as a file or a name prefix, and owner tools by signing identity; version 0 is detect mode over the built-in credentials. `PUT` SHALL validate it, require credentials and a reason, refuse a stale `expected_version`, audit the previous and new policy, and queue `set_credential_guard` for every enrolled host.
+
+#### Scenario: The guard detects over its built-in credentials until changed
+
+- **GIVEN** a fleet whose credential guard no operator has changed
+- **WHEN** its policy is read
+- **THEN** it is version 0 in detect mode over the six built-in credentials, each marked default
+
+#### Scenario: A change is stored, pushed and audited
+
+- **GIVEN** three enrolled hosts
+- **WHEN** an operator switches the guard to protect with a second SSH key prefix and another signed owner of the GitHub CLI token, giving a reason
+- **THEN** the policy is stored as version 1, queued for the three hosts as set_credential_guard with its epoch, and audited with the reason, the previous mode and credentials and the host counts
+- **AND** switching it off with no credentials is stored as version 2
+
+#### Scenario: An invalid change is refused
+
+- **GIVEN** the default policy
+- **WHEN** a change omits credentials or the reason, names an unknown mode or kind, a path that is absolute, leaves the home or holds a control character, an owner with no identity or a malformed team, or one path twice, or its credentials encode to more than 8 KiB
+- **THEN** it is refused with 400, and nothing is stored or queued
+
+#### Scenario: A change to a policy that moved on is refused
+
+- **GIVEN** a policy another operator changed after it was read
+- **WHEN** a change names the version it was read at
+- **THEN** it is refused with 409 and nothing is queued
+
+#### Scenario: Reading and changing it need detection config permissions
+
+- **GIVEN** an operator without detection_config.read or detection_config.write
+- **WHEN** they read or change the policy
+- **THEN** both are refused with 403 and nothing is changed
+
+### Requirement: Hosts that miss the credential guard push get it
+
+A periodic catch-up SHALL queue the current credential guard policy, the unchanged default included, for every enrolled host whose latest set_credential_guard does not carry its version and epoch, and SHALL leave a host whose copy is pending alone.
+
+#### Scenario: A host is sent the policy it missed
+
+- **GIVEN** a host enrolled before any change and one enrolled after a change it missed
+- **WHEN** the catch-up runs before and after the change
+- **THEN** both are sent the default first, and after the change only the late host is sent the policy, epoch included, as the push sent it
+
+### Requirement: Pushed documents are resent after an agent upgrade
+
+The catch-up of each pushed document (watched paths, agent settings, credential guard policy) SHALL treat a command queued before the host's agent was last replaced in place as not on the host, as it treats one queued before the host's latest enrollment, so an upgraded agent receives the document within one catch-up interval.
+
+#### Scenario: An upgraded agent is sent the settings
+
+- **GIVEN** a host whose older agent failed the agent settings as an unknown command ten minutes ago
+- **WHEN** the catch-up runs before the agent is upgraded, and again after a check-in reports the new version
+- **THEN** the first run sends nothing, since a failure waits six hours, and the second sends the settings

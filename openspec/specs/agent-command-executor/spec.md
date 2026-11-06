@@ -394,3 +394,56 @@ The payload SHALL carry `{version, paths}` and MAY carry `epoch`, where each `pa
 - **GIVEN** a valid `set_watched_paths` payload
 - **WHEN** the agent has no extension bridge, or the transport to the extension returns an error
 - **THEN** the executor reports failed with a reason that says which of the two happened
+
+### Requirement: Set-agent-settings command
+
+The system SHALL execute a `set_agent_settings` command carrying `{version, epoch, capture_prompts}` by putting the settings in force when the agent has none yet or they are later than those in force, ordered by `epoch` and then `version`, and SHALL report completed with the `version`, whether it was `applied`, and the `capture_prompts` in force afterwards. A payload with a negative `version`, or that cannot be recorded, SHALL be reported failed.
+
+#### Scenario: The agent reports the settings in force
+
+- **GIVEN** settings in force at epoch 9
+- **WHEN** a `set_agent_settings` command arrives with a later epoch, and then one with an earlier epoch
+- **THEN** the first is reported completed with `applied` true and the settings it carried
+- **AND** the second is reported completed with `applied` false and the settings still in force
+
+### Requirement: Set-credential-guard command
+
+The agent SHALL forward a `set_credential_guard` command's payload to the security extension as `credential_guard.update`, byte for byte, after checking only its envelope: a version present and not negative, a mode, and a credentials array. Which modes and credentials apply is the extension's to decide. The command SHALL complete with the version, mode and credential count, and SHALL fail with the reason when the envelope is invalid or the send fails.
+
+#### Scenario: A credential guard policy is forwarded
+
+- **GIVEN** a `set_credential_guard` command at version 0 or later, with a mode the agent may not know
+- **WHEN** the agent executes it
+- **THEN** the extension is sent the payload unchanged
+- **AND** the command completes with its version, mode and credential count
+
+#### Scenario: A credential guard payload is invalid
+
+- **GIVEN** a `set_credential_guard` command that is not JSON, has no version or a negative one, no mode, or credentials that are not an array
+- **WHEN** the agent executes it
+- **THEN** the command fails with the reason and nothing reaches the extension
+
+### Requirement: Containment sent before the extension connects is replayed
+
+The agent SHALL send the newest containment command that found no connection to the network extension as soon as one is published, newest by epoch, then version, then the reachable set's version, and SHALL rebuild the document at that moment. The command still fails, because it did not reach the extension when it was made. A kept command the extension already holds or has been overtaken by SHALL NOT be sent.
+
+#### Scenario: A command before the extension is replayed
+
+- **GIVEN** the agent has no connection to the network extension
+- **AND** a containment command is executed
+- **WHEN** a connection to the extension is published
+- **THEN** the agent sends the extension that state, with the lifeline looked up at that moment
+- **AND** the command was reported failed when it was made
+
+#### Scenario: The newest command is the one replayed
+
+- **GIVEN** the agent has no connection and executes a containment and a release, in either order
+- **WHEN** a connection is published
+- **THEN** the agent sends only the command that is newest by the extension's order
+
+#### Scenario: An overtaken command is not replayed
+
+- **GIVEN** a containment command kept for lack of a connection
+- **AND** the extension has since confirmed a later state
+- **WHEN** a connection is published
+- **THEN** the agent sends nothing

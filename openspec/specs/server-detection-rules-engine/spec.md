@@ -2964,3 +2964,32 @@ An imported Sigma rule in a file category (`file_event`, `file_rename`, `file_de
 - **GIVEN** a file rule with a search outside every watched path, with no `TargetFilename`, with a regular expression, or with only `endswith`
 - **WHEN** the corpus loads
 - **THEN** the rule is refused, and the reason names the paths every host watches
+
+### Requirement: An AI agent reading credentials is reported
+
+The detection engine SHALL raise a high-severity `agent_credential_read` alert for each `agent_credential_would_block` report, naming the opener (the process generation the report names) and the credential in plain words, one alert per AI agent session and kind of credential; a process with no session SHALL be alerted on its own. An unnamed kind SHALL read as a credential file. The opener SHALL be excludable by path, team, signing identifier and cdhash.
+
+#### Scenario: A session reading a credential is alerted once per kind
+
+- **GIVEN** a Claude Code session whose cat read two SSH private keys and whose gh read the GitHub CLI token, and the agent's own process, with no session, reading a key
+- **WHEN** the reports are evaluated
+- **THEN** the two key reads share one alert's subject, the token read has its own, and the agent's process keeps its own
+- **AND** the alert says "An AI agent's /bin/cat tried to read your SSH private key", and a kind from a newer agent reads "a credential file"
+
+#### Scenario: A report is the generation it names
+
+- **GIVEN** a report of pid 6991's generation running cat, and pid 6991's earlier generation, the shell that execed cat, in another session
+- **WHEN** the report is evaluated
+- **THEN** the alert is cat's, in cat's session
+- **AND** a report naming a generation not yet recorded is retried rather than resolved to another, and a session id at the marker's 256-byte limit still yields a subject the alert column holds
+
+### Requirement: A refused credential read is alerted as stopped
+
+The `agent_credential_read` rule SHALL alert an `agent_credential_block` event as it does an `agent_credential_would_block` one, under the same subject, saying the agent was stopped from reading the credential.
+
+#### Scenario: A refused read is alerted as stopped
+
+- **GIVEN** an agent session's `cat` refused an SSH key in protect mode, and another of its processes allowed to read one in detect mode
+- **WHEN** the rule evaluates both reports
+- **THEN** the first alert says the agent was stopped from reading the key and the second that it tried to read one
+- **AND** both carry the session's subject for SSH keys

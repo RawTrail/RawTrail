@@ -60,3 +60,69 @@ The server SHALL serve the agent control-channel gRPC gateway on the same listen
 - **WHEN** an agent holds the long-lived control-channel stream open past those timeouts
 - **THEN** the server SHALL NOT tear the stream down when a REST timeout elapses, because the read and write deadlines are cleared for the control stream
 - **AND** the stream stays up to deliver a later command, while the REST and UI surface keeps its timeouts unchanged
+
+### Requirement: Event retention follows a setting
+
+The server SHALL keep raw events in the event archive for `EDR_EVENT_RETENTION_DAYS` days, default 30, accepting 1 to 36500 and refusing to start on any other value. At startup the server SHALL set the archive's TTL to the setting when it holds another value, and SHALL leave the table unaltered when it already matches.
+
+#### Scenario: The setting governs which events expire
+
+- **GIVEN** `EDR_EVENT_RETENTION_DAYS=7`
+- **WHEN** the server starts and the archive applies its TTL
+- **THEN** an event ingested 10 days ago is expired and one ingested 3 days ago is kept
+
+#### Scenario: An unchanged setting does not alter the table
+
+- **GIVEN** the archive's TTL already matches `EDR_EVENT_RETENTION_DAYS`
+- **WHEN** the server starts
+- **THEN** it issues no ALTER on the events table
+
+#### Scenario: An out-of-range setting stops startup
+
+- **GIVEN** `EDR_EVENT_RETENTION_DAYS` is 0, negative, or above 36500
+- **WHEN** the server loads its configuration
+- **THEN** loading fails naming the setting
+
+### Requirement: The deployment profile is a setting
+
+The server SHALL take its deployment profile from `EDR_PROFILE`, `server` by default or `laptop` in any case, SHALL refuse to start on any other value, and SHALL report the profile in the session probe. The laptop compose profile SHALL set it to `laptop`.
+
+#### Scenario: The profile defaults to server and accepts laptop
+
+- **GIVEN** a server configured without `EDR_PROFILE`, with `Laptop`, or with `desktop`
+- **WHEN** it starts
+- **THEN** its profile is `server`, `laptop`, or it refuses to start naming the two values, respectively
+
+#### Scenario: The session probe reports the profile
+
+- **GIVEN** a signed-in operator on a server whose profile is unset, or `laptop`
+- **WHEN** the console reads `GET /api/session`
+- **THEN** the response's `profile` is `server`, or `laptop`
+
+#### Scenario: The laptop stack runs the laptop profile
+
+- **GIVEN** the laptop compose profile
+- **WHEN** the server's environment is read
+- **THEN** `EDR_PROFILE` is `laptop`
+
+### Requirement: The store size is reported
+
+The server SHALL report, at `GET /api/v1/admin/storage` with `detection_config.read`, the space the event archive's tables and the database's tables take, their total, the event retention in days, and the threshold set by `EDR_STORE_SIZE_WARN_GB` (default 100 GB, 0 never warns), and SHALL flag a total past a non-zero threshold.
+
+#### Scenario: The warning threshold is a setting
+
+- **GIVEN** a server configured without `EDR_STORE_SIZE_WARN_GB`, or with 0, or with a negative value
+- **WHEN** it starts
+- **THEN** the threshold is 100 GB, never warns, or the server refuses to start, respectively
+
+#### Scenario: The store size and retention are reported
+
+- **GIVEN** an event archive and a database holding data
+- **WHEN** the storage report is read
+- **THEN** it gives each store's size read from the store itself, their total, and the event retention
+
+#### Scenario: A store past the threshold is flagged
+
+- **GIVEN** stores taking 110 GB together
+- **WHEN** the report is read with a threshold of 100 GB, of 200 GB, or of 0
+- **THEN** it is flagged only at 100 GB
