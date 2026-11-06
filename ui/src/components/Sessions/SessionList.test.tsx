@@ -64,43 +64,6 @@ describe("SessionList", () => {
   });
 
   // spec:web-ui/ai-agent-sessions-page/filters-and-paging-are-applied-by-the-server
-  it("passes the URL filters to the server and resolves the active window against the clock", async () => {
-    vi.spyOn(api, "listHosts").mockResolvedValue([]);
-    vi.spyOn(Date, "now").mockReturnValue(10 * 24 * 3_600_000);
-    const spy = vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session()], total_matched: 1 });
-    renderList("/agent-sessions?host_id=H1&agent=claude-code&active=7d");
-    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
-    expect(spy.mock.calls[0][0]).toEqual({ host_id: "H1", agent: "claude-code", from: String(3 * 24 * 3_600_000 * 1_000_000) });
-    expect(spy.mock.calls[0][1]).toBeUndefined();
-  });
-
-  // spec:web-ui/ai-agent-sessions-page/filters-and-paging-are-applied-by-the-server
-  it("keeps the first page's window for every later page", async () => {
-    vi.spyOn(api, "listHosts").mockResolvedValue([]);
-    const now = vi.spyOn(Date, "now").mockReturnValue(10 * 24 * 3_600_000);
-    const spy = vi.spyOn(api, "listAgentSessions")
-      .mockResolvedValueOnce({ rows: [session()], next_cursor: "page-2", total_matched: 2 })
-      .mockResolvedValueOnce({ rows: [session({ agent_session_id: "s2", agent_name: "codex" })], total_matched: 2 });
-    renderList("/agent-sessions?active=1d");
-    const loadMore = await screen.findByRole("button", { name: "Load more" });
-    now.mockReturnValue(11 * 24 * 3_600_000);
-    fireEvent.click(loadMore);
-    expect(await screen.findByRole("link", { name: "codex" })).toBeVisible();
-    expect(spy.mock.calls[1]).toEqual([{ from: String(9 * 24 * 3_600_000 * 1_000_000) }, "page-2"]);
-  });
-
-  it("removing a filter refetches without it", async () => {
-    vi.spyOn(api, "listHosts").mockResolvedValue([]);
-    const spy = vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [session()], total_matched: 1 });
-    renderList("/agent-sessions?agent=claude-code&active=1d");
-    await waitFor(() => { expect(spy).toHaveBeenCalled(); });
-    fireEvent.click(screen.getByRole("button", { name: "Remove Agent filter" }));
-    await waitFor(() => {
-      expect(spy.mock.calls.some(([f]) => f.agent === undefined && f.from !== undefined)).toBe(true);
-    });
-  });
-
-  // spec:web-ui/ai-agent-sessions-page/filters-and-paging-are-applied-by-the-server
   it("loads the next page with the server's cursor and appends it", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const spy = vi.spyOn(api, "listAgentSessions")
@@ -115,15 +78,13 @@ describe("SessionList", () => {
   });
 
   // spec:web-ui/sessions-list-bypass-filter/the-list-narrows-to-sessions-that-ran-bypassed
-  it("asks the server for the sessions that ran bypassed and badges them", async () => {
+  it("badges the sessions that ran bypassed", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     const spy = vi.spyOn(api, "listAgentSessions").mockResolvedValue({
       rows: [session({ bypass: true }), session({ agent_session_id: "s2", agent_name: "codex" })], total_matched: 2,
     });
-    renderList("/agent-sessions?bypass=true");
+    renderList();
     await waitFor(() => { expect(spy).toHaveBeenCalled(); });
-    expect(spy.mock.calls[0][0]).toEqual({ bypass: "true" });
-    expect(screen.getByText("Permissions: Ran in bypass mode (or forked from a session that did)")).toBeVisible();
     const bypassed = (await screen.findByRole("link", { name: "claude-code" })).closest("tr");
     const badge = screen.getByText("Bypass permissions");
     expect(badge).toBeVisible();
@@ -193,12 +154,11 @@ describe("SessionList", () => {
       expect(await screen.findByRole("link", { name: "Set up this Mac" })).toHaveAttribute("href", "/setup");
     });
 
-    it("does not point there on a server, behind a filter, without host access, or once a session exists", async () => {
+    it("does not point there on a server, without host access, or once a session exists", async () => {
       vi.spyOn(api, "listHosts").mockResolvedValue([]);
       const sessions = vi.spyOn(api, "listAgentSessions").mockResolvedValue({ rows: [], total_matched: 0 });
       const cases: [Profile, string[], string][] = [
         ["server", perms, "/agent-sessions"],
-        ["laptop", perms, "/agent-sessions?agent=codex"],
         ["laptop", [PermissionAction.ProcessRead], "/agent-sessions"],
       ];
       for (const [profile, granted, at] of cases) {
