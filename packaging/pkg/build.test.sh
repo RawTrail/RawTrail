@@ -14,7 +14,8 @@ set -eu
 block=$(sed -n '/^echo "==> stapling ticket"/,/^xcrun stapler validate/p' "$(dirname "$0")/build.sh")
 [ -n "$block" ] || { echo "FAIL: the staple block was not found in build.sh"; exit 1; }
 
-# run_staple runs the block with the first $1 staple calls failing and prints how many were made, then the block's exit status.
+# run_staple runs the block with the first $1 staple calls failing and prints how many were made, whether the package was validated,
+# and the block's exit status. An exit trap prints them, so a block that gives up with exit is reported with its real status.
 run_staple() {
     (
         fails=$1
@@ -30,9 +31,8 @@ run_staple() {
         sleep() { :; }
         PKG_OUT=test.pkg
         export PKG_OUT
-        status=0
-        eval "$block" >/dev/null 2>&1 || status=$?
-        echo "$calls $validated $status"
+        trap 'echo "$calls $validated $?"' EXIT
+        eval "$block" >/dev/null 2>&1
     ) || true
 }
 
@@ -44,7 +44,6 @@ check() {
 
 check 0 "1 yes 0" "a ticket fetched at once is stapled and validated"
 check 4 "5 yes 0" "four failed fetches are retried, and the fifth staples"
-# The block exits on the fifth failure, so the subshell ends there: no validate, and the counter line is never printed.
-check 5 "" "five failed fetches give up without validating"
+check 5 "5 no 1" "five failed fetches fail the build without validating"
 
 [ "$failures" -eq 0 ] || exit 1
