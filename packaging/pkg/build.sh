@@ -565,21 +565,28 @@ xcrun notarytool submit "$PKG_OUT" \
     --wait
 
 echo "==> stapling ticket"
-# stapler fetches the ticket from Apple's CloudKit ticket service, and that fetch fails intermittently with exit 68 (EX_NOHOST,
-# "The network connection was lost") right after the notary accepted the pkg: v0.9.0-rc.1 failed twice that way. The pkg is already
-# notarized, so the fetch is retried with a growing wait, verbose so a lasting failure shows its cause, before giving up.
-staple_attempts=5
-attempt=1
-until xcrun stapler staple -v "$PKG_OUT"; do
-    if [ "$attempt" -ge "$staple_attempts" ]; then
-        echo "stapling failed after $staple_attempts attempts" >&2
-        exit 1
-    fi
-    echo "stapling failed (attempt $attempt of $staple_attempts); retrying in $((attempt * 30))s" >&2
-    sleep $((attempt * 30))
-    attempt=$((attempt + 1))
-done
-xcrun stapler validate "$PKG_OUT"
+# Stapling and validating each ask Apple's CloudKit ticket service for the ticket, and either request can fail with exit 68
+# (EX_NOHOST, "The network connection was lost") although the notary accepted the pkg. v0.9.0-rc.1 and rc.2 failed that way four
+# times: on stapling, and once on validating seconds after a staple that worked. The failures are per request, so each step is
+# retried on its own with a growing wait, verbose so a lasting failure shows its cause, before the build gives up.
+apple_attempts=5
+# retry_apple runs a ticket-service command until it succeeds, giving up after apple_attempts tries. $1 names the step for the log.
+retry_apple() {
+    step=$1
+    shift
+    attempt=1
+    until "$@"; do
+        if [ "$attempt" -ge "$apple_attempts" ]; then
+            echo "$step failed after $apple_attempts attempts" >&2
+            exit 1
+        fi
+        echo "$step failed (attempt $attempt of $apple_attempts); retrying in $((attempt * 30))s" >&2
+        sleep $((attempt * 30))
+        attempt=$((attempt + 1))
+    done
+}
+retry_apple stapling xcrun stapler staple -v "$PKG_OUT"
+retry_apple "validating the staple" xcrun stapler validate -v "$PKG_OUT"
 
 echo "==> final gate: spctl"
 spctl -a -v --type install "$PKG_OUT"
