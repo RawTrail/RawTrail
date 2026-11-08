@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -13,6 +14,7 @@ import (
 	"github.com/rawtrail/rawtrail/internal/secretseal"
 	"github.com/rawtrail/rawtrail/server/coordination/leader"
 	"github.com/rawtrail/rawtrail/server/detection/api"
+	"github.com/rawtrail/rawtrail/server/detection/internal/containedsilence"
 	"github.com/rawtrail/rawtrail/server/detection/internal/engine"
 	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 	"github.com/rawtrail/rawtrail/server/detection/internal/intake"
@@ -132,6 +134,8 @@ type Detection struct {
 	mode      Mode
 	logger    *slog.Logger
 	metrics   api.MetricsRecorder
+	// containedSilence alerts when a contained host stops reporting (issue #1228). Nil until SetContainedHosts wires it.
+	containedSilence *containedsilence.Check
 }
 
 // New wires the detection context. Does NOT apply the schema (call
@@ -303,6 +307,25 @@ func (d *Detection) SetUndeliverableCommands(fn func(ctx context.Context, hostID
 		return
 	}
 	d.store.SetUndeliverable(mysql.UndeliverableByHost(fn))
+}
+
+// SetContainedHosts wires the alert raised when a network-contained host stops reporting (issue #1228). The hosts that are contained
+// are the response context's to know, so cmd/main hands their lister in, the same way it hands in SetUndeliverableCommands. Leaving it
+// unset disables the alert, which is correct for a deployment with no response context.
+func (d *Detection) SetContainedHosts(fn func(ctx context.Context) ([]api.ContainedHost, error)) {
+	if d.store == nil || fn == nil {
+		return
+	}
+	insert := func(ctx context.Context, a api.Alert) (bool, error) {
+		_, created, err := d.store.InsertAlert(ctx, a, nil)
+		// Counted here because the alert does not come through the engine, which counts the alerts it raises. d.metrics is read
+		// when the alert is raised, not now, since SetMetrics may wire it after this.
+		if created && err == nil && d.metrics != nil {
+			d.metrics.AlertCreated(ctx, a.RuleID, a.Severity)
+		}
+		return created, err
+	}
+	d.containedSilence = containedsilence.New(fn, d.store, insert, 0, nil, d.logger)
 }
 
 // ApplySchema runs the CREATE TABLE statements detection owns. Idempotent.
@@ -606,7 +629,18 @@ func (d *Detection) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	}
-	return d.pipe.Run(ctx)
+	// The silent-contained-host check runs beside the pipeline and stops with it, whether the pipeline returns because ctx was
+	// cancelled or because it failed.
+	loopCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var wg sync.WaitGroup
+	if d.containedSilence != nil {
+		wg.Go(func() { d.containedSilence.Loop(loopCtx, 0) })
+	}
+	err := d.pipe.Run(ctx)
+	cancel()
+	wg.Wait()
+	return err
 }
 
 // RegisterIngestRoutes wires POST /api/events on the given mux.

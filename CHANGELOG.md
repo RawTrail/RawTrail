@@ -27,6 +27,7 @@ See what your AI coding agent is actually doing. Each Claude Code session gets a
 - **Long agent sessions open quickly.** A session's commands, processes and each Activity list load a page at a time with the rest on request, a search in any of them runs on the server over the session's first 20,000 processes (the view says when a session has more), and the header counts the whole session's commands and processes. A command that started hundreds of processes lists its first hundred and its alerted ones, with the rest one click away.
 - **An alertable count of service accounts about to expire.** The `edr.service_accounts.expiring` metric reports the active service accounts whose credential expires within 14 days, the same accounts the console flags. Alert when it is above zero and rotate the credential before the date.
 - **The console shows the RawTrail logo.** It sits in front of the name in the top bar and is the browser tab icon on the console and the API documentation page.
+- **An alert when a contained host stops reporting.** A host that is contained and has not checked in for more than 10 minutes raises a high-severity **Contained host stopped reporting** alert, once per containment, so a host whose agent was stopped does not just show as offline.
 
 ### Changed
 

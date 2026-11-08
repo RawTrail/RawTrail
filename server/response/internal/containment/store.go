@@ -164,6 +164,20 @@ func (s *Store) QueueCurrent(ctx context.Context, want api.ContainmentState, que
 	return commandID, true, nil
 }
 
+// Contained returns the hosts that are contained now, in host_id order (issue #1228). Filtered in SQL because released hosts keep their
+// rows, so All grows with the fleet's history while this stays the size of what is contained.
+func (s *Store) Contained(ctx context.Context) ([]api.ContainmentState, error) {
+	var rows []stateRow
+	if err := sqlx.SelectContext(ctx, s.db, &rows, selectState+` WHERE contained = 1 ORDER BY host_id`); err != nil {
+		return nil, fmt.Errorf("list contained hosts: %w", err)
+	}
+	out := make([]api.ContainmentState, len(rows))
+	for i, r := range rows {
+		out[i] = r.state()
+	}
+	return out, nil
+}
+
 // All returns every host's state, in host_id order. The catch-up reads it; a row exists only for a host whose containment was changed.
 func (s *Store) All(ctx context.Context) ([]api.ContainmentState, error) {
 	var rows []stateRow

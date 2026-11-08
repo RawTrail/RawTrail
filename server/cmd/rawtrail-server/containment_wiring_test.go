@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	detectionapi "github.com/rawtrail/rawtrail/server/detection/api"
 	endpointapi "github.com/rawtrail/rawtrail/server/endpoint/api"
 	responseapi "github.com/rawtrail/rawtrail/server/response/api"
 )
@@ -75,4 +76,26 @@ func TestContainmentEnrollmentsFromEndpoint_CarriesHostAndEnrollmentTime(t *test
 	}})(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, []responseapi.HostEnrollment{{HostID: "host-a", EnrolledAt: enrolledAt}}, got)
+}
+
+// TestContainedHostsFromResponse_CarriesTheContainmentAndWhenItBegan pins the adapter the silent-contained-host alert reads through
+// (issue #1228): the epoch that names the containment, and when the host was contained, which silence is counted from.
+func TestContainedHostsFromResponse_CarriesTheContainmentAndWhenItBegan(t *testing.T) {
+	t.Parallel()
+	containedAt := time.Date(2026, 11, 8, 18, 0, 0, 0, time.UTC)
+	got, err := containedHostsFromResponse(func(context.Context) ([]responseapi.ContainmentState, error) {
+		return []responseapi.ContainmentState{
+			{HostID: "host-a", Contained: true, Epoch: 42, UpdatedAt: &containedAt},
+			{HostID: "host-b", Contained: true, Epoch: 7},
+		}, nil
+	})(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []detectionapi.ContainedHost{
+		{HostID: "host-a", Epoch: 42, ContainedAtNs: containedAt.UnixNano()},
+		{HostID: "host-b", Epoch: 7},
+	}, got)
+
+	boom := errors.New("boom")
+	_, err = containedHostsFromResponse(func(context.Context) ([]responseapi.ContainmentState, error) { return nil, boom })(t.Context())
+	require.ErrorIs(t, err, boom)
 }
