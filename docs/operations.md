@@ -476,7 +476,7 @@ The badge on the host's page and in the host list says where the change stands:
 
 A host that is not contained, including one that was released, shows no badge. Through the API, `POST /api/hosts/{host_id}/containment` with `contained` and `reason` asks for a state, `GET` on the same path returns it with its delivery, and `GET /api/containment` lists every host that has one.
 
-A local administrator on a contained Mac can switch its network filter off, which lifts containment while the filter is off. The agent switches it back on within about 40 seconds and keeps doing so for as long as the host is contained, however often it is switched off, and each time raises a `sensor_tamper` alert. If the filter cannot be restored, host health reports that automatic recovery failed.
+A local administrator on a contained Mac can switch its network filter off, which lifts containment while the filter is off. The agent switches it back on, typically within about 40 seconds. If the filter will not stay on, the agent keeps retrying for as long as the host is contained, waiting up to a minute between attempts, and host health reports that automatic recovery failed. Each time the filter stops, the host records a `sensor_tamper` alert; switching it off again before it has come back counts as the same stop.
 
 ### Keeping chosen addresses reachable
 

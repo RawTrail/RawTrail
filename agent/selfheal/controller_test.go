@@ -867,5 +867,33 @@ func TestReleasedHostStopsRepairingAtTheBudget(t *testing.T) {
 		assert.Empty(t, c.Observe(ctx, stoppedFilter), "a released host waits for an operator once the budget is spent")
 	}
 	assert.Equal(t, 4, rem.callCount())
-	assert.Equal(t, 1, rec.count())
+	// The escalation callback runs after the attempt's bookkeeping, so wait for it rather than reading the count at once.
+	require.Eventually(t, func() bool { return rec.count() == 1 }, 2*time.Second, 10*time.Millisecond)
+}
+
+// spec:agent-status-reporting/a-contained-host-s-repair-does-not-give-up/a-contained-host-s-dns-proxy-keeps-the-bounded-budget
+//
+// TestContainedHostsDNSProxyStopsAtTheBudget keeps the exemption to the provider that isolates the host. The DNS proxy does not
+// enforce containment, so a fault in it on a contained host must not rewrite its preferences forever.
+func TestContainedHostsDNSProxyStopsAtTheBudget(t *testing.T) {
+	t.Parallel()
+	rem := newFakeRemediator(errors.New("save failed"))
+	rec := &escalationRecorder{}
+	var contained atomic.Bool
+	contained.Store(true)
+	c, clock := containedController(t, rem, &fakeHealth{}, rec, &contained)
+	ctx := context.Background()
+	stoppedProxy := map[string]string{"dns_proxy": "stopped"}
+	c.Observe(ctx, stoppedProxy)
+	for attempt := 1; attempt <= 3; attempt++ {
+		clock.advance(5 * time.Minute)
+		require.Equal(t, []string{"dns_proxy"}, c.Observe(ctx, stoppedProxy), "attempt %d should launch", attempt)
+		rem.waitForCall(t, c)
+	}
+	require.Eventually(t, func() bool { return rec.count() == 1 }, 2*time.Second, 10*time.Millisecond)
+	for range 3 {
+		clock.advance(10 * time.Minute)
+		assert.Empty(t, c.Observe(ctx, stoppedProxy), "a contained host's DNS proxy stops at the budget like any other host's")
+	}
+	assert.Equal(t, 3, rem.callCount())
 }

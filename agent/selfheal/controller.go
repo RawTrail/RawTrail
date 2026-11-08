@@ -25,6 +25,9 @@ const (
 	// repair. Each attempt still rewrites NetworkExtension preferences, so the waits keep growing to this cap rather than
 	// staying at the backoff's first step.
 	containedBackoffCap = 60 * time.Second
+	// isolatingProvider is the one provider whose repair goes on past the budget while the host is contained: the content filter is
+	// what enforces containment. The DNS proxy does not isolate the host, so a fault in it keeps the bounded budget either way.
+	isolatingProvider = "content_filter"
 )
 
 // Remediator re-enables one capture provider. Injected so the controller's policy is testable without the host app; the
@@ -74,9 +77,10 @@ type Options struct {
 	Grace       time.Duration
 	MaxAttempts int
 	Backoff     time.Duration
-	// Contained reports whether the host is network contained. While it does, a spent budget still escalates, but repair goes on:
-	// a contained host's filter is what isolates it, so giving up would leave it reachable (issue #1228). Optional; nil means never
-	// contained. Called under the controller's lock, so it must not call back into the controller.
+	// Contained reports whether the host is network contained. While it does, a spent budget for the content filter still
+	// escalates, but its repair goes on: the filter is what isolates a contained host, so giving up would leave it reachable (issue
+	// #1228). Other providers keep the bounded budget. Optional; nil means never contained. Called under the controller's lock, so it
+	// must not call back into the controller.
 	Contained func() bool
 	// Now is the clock, injected so tests drive the grace window and backoff without sleeping. It is called from the
 	// remediation goroutine as well as from Observe, so an injected clock MUST be safe for concurrent use.
@@ -292,7 +296,7 @@ func (c *Controller) plan(ctx context.Context, providers map[string]string) (
 			// component's reason with provider_stopped moments ago. A contained host keeps trying after that, since its filter
 			// is what isolates it; any other host waits for an operator.
 			reassert[name] = st.escalation
-			if !c.contained() {
+			if !c.persists(name) {
 				continue
 			}
 		}
@@ -349,7 +353,7 @@ func (c *Controller) remediate(ctx context.Context, cancel context.CancelFunc, p
 	// The budget is spent once per episode: a contained host that keeps trying past it escalates on the attempt that spent it, not
 	// on every later one, because the escalation event is an append (issue #691).
 	firstExhausted := exhausted && st.escalation == ""
-	contained := c.contained()
+	contained := c.persists(provider)
 	var detail, outcome string
 	if exhausted && !firstExhausted {
 		detail = st.escalation
@@ -400,6 +404,11 @@ func (c *Controller) remediate(ctx context.Context, cancel context.CancelFunc, p
 			c.onEscalation(Escalation{Provider: provider, Component: c.component, Attempts: attempt, Outcome: outcome})
 		}
 	}
+}
+
+// persists reports whether provider's repair goes on past the budget: only the content filter, and only while the host is contained.
+func (c *Controller) persists(provider string) bool {
+	return provider == isolatingProvider && c.contained()
 }
 
 // escalate publishes the operator-facing "automation gave up" state. Separate from the log lines because the two failure
