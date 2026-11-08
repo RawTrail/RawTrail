@@ -588,6 +588,23 @@ func openResponse(
 			}
 			return out, nil
 		})
+	// The same inversion for the alert raised when a contained host stops reporting (issue #1228): which hosts are contained is
+	// response's, and the alert and the hosts' last check-in are detection's.
+	detectionCtx.SetContainedHosts(func(ctx context.Context) ([]detectionapi.ContainedHost, error) {
+		states, err := responseCtx.ContainedHosts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]detectionapi.ContainedHost, 0, len(states))
+		for _, st := range states {
+			h := detectionapi.ContainedHost{HostID: st.HostID, Epoch: st.Epoch}
+			if st.UpdatedAt != nil {
+				h.ContainedAtNs = st.UpdatedAt.UnixNano()
+			}
+			out = append(out, h)
+		}
+		return out, nil
+	})
 	return responseCtx, nil
 }
 

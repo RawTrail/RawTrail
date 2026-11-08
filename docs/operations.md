@@ -476,6 +476,8 @@ The badge on the host's page and in the host list says where the change stands:
 
 A host that is not contained, including one that was released, shows no badge. Through the API, `POST /api/hosts/{host_id}/containment` with `contained` and `reason` asks for a state, `GET` on the same path returns it with its delivery, and `GET /api/containment` lists every host that has one.
 
+If a contained host stops checking in for more than 10 minutes, the server raises a high-severity alert, **Contained host stopped reporting** (`contained_host_silent`), once for that containment. Stopping the agent is the one way to switch the host's network filter off for good without the agent reporting it, so treat the alert as possible tampering until the host is accounted for: it may also just be asleep or powered off.
+
 ### Keeping chosen addresses reachable
 
 A contained host keeps only its connection to the EDR server, loopback, DHCP, and resolution of the server name. Responders usually need a few more systems to stay reachable, such as an MDM or remediation server, a forensic collection share, or a VPN concentrator, so a deployment-wide set of destinations can be allowed on top of that lifeline. It applies to every contained host, present and future.

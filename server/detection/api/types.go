@@ -331,6 +331,16 @@ type HostHealthEpisode struct {
 	ResolvedAtNs *int64 `db:"resolved_at_ns" json:"resolved_at_ns,omitempty"`
 }
 
+// ContainedHost is a host that is network contained now, as the silent-contained-host alert needs it (issue #1228). It is detection's
+// own type for the same reason Undeliverable is: containment belongs to the response context, and cmd/main adapts between the two.
+type ContainedHost struct {
+	HostID string
+	// Epoch identifies this containment: a host released and contained again gets a new one, so it can alert again.
+	Epoch int64
+	// ContainedAtNs is when the host was contained. Silence is counted from it for a host that was already quiet then.
+	ContainedAtNs int64
+}
+
 // Undeliverable is what the host-health derivation needs to know about one host's undelivered commands (issue #732).
 //
 // It is detection's own type rather than the response context's, because commands belong to that context and detection importing

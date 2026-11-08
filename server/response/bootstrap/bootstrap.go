@@ -75,6 +75,7 @@ type Response struct {
 	// containmentH and containmentConverger are nil until EnableContainment wires host network containment.
 	containmentH         *operator.ContainmentHandler
 	containmentConverger *containment.Converger
+	containmentStore     *containment.Store
 	// reachableH is nil until EnableContainment wires it. The addresses a contained host may still reach are containment's
 	// configuration, so they are mounted with it rather than separately: without containment there is nothing for them to widen.
 	reachableH *operator.ReachableHandler
@@ -135,6 +136,7 @@ func New(deps Deps) (*Response, error) {
 // Until it is called the routes are not mounted and the catch-up does nothing.
 func (r *Response) EnableContainment(enrolled api.HostEnrolledChecker, enrollments api.ActiveEnrollmentLister) {
 	store := containment.NewStore(r.db)
+	r.containmentStore = store
 	// One reachable service behind both the routes that edit the set and the containment path that delivers it, so an operator's
 	// edit and the command a host receives cannot be built from different readers (issue #1059).
 	reachableSvc := reachable.NewService(reachable.NewStore(r.db, r.auditOutbox), r.auditDrain)
@@ -147,6 +149,25 @@ func (r *Response) EnableContainment(enrolled api.HostEnrolledChecker, enrollmen
 	if r.principalLabel != nil {
 		r.reachableH.SetPrincipalLabelResolver(r.principalLabel)
 	}
+}
+
+// ContainedHosts lists the hosts that are contained now (issue #1228). cmd/main hands it to the detection context, which alerts when a
+// contained host stops reporting. Empty until EnableContainment is called, since no host can be contained before then.
+func (r *Response) ContainedHosts(ctx context.Context) ([]api.ContainmentState, error) {
+	if r.containmentStore == nil {
+		return nil, nil
+	}
+	all, err := r.containmentStore.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	contained := make([]api.ContainmentState, 0, len(all))
+	for _, st := range all {
+		if st.Contained {
+			contained = append(contained, st)
+		}
+	}
+	return contained, nil
 }
 
 // RunAuditSweep delivers audit entries an operator action committed but whose request could not write out, until ctx is cancelled.

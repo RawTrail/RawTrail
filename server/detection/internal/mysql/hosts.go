@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+
 	"github.com/rawtrail/rawtrail/server/detection/api"
 	"github.com/rawtrail/rawtrail/server/detection/internal/telemetryhealth"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
@@ -399,4 +401,27 @@ func (s *Store) UpsertHosts(ctx context.Context, events []api.Event) error {
 		return fmt.Errorf("upsert hosts (n=%d): %w", len(byHost), err)
 	}
 	return nil
+}
+
+// HostsLastSeen returns when each of the given hosts last checked in, in ns since the epoch. A host with no row is left out.
+func (s *Store) HostsLastSeen(ctx context.Context, hostIDs []string) (map[string]int64, error) {
+	out := make(map[string]int64, len(hostIDs))
+	if len(hostIDs) == 0 {
+		return out, nil
+	}
+	query, args, err := sqlx.In(`SELECT host_id, last_seen_ns FROM hosts WHERE host_id IN (?)`, hostIDs)
+	if err != nil {
+		return nil, fmt.Errorf("build hosts last seen query: %w", err)
+	}
+	var rows []struct {
+		HostID     string `db:"host_id"`
+		LastSeenNs int64  `db:"last_seen_ns"`
+	}
+	if err := s.db.SelectContext(ctx, &rows, s.db.Rebind(query), args...); err != nil {
+		return nil, fmt.Errorf("query hosts last seen: %w", err)
+	}
+	for _, r := range rows {
+		out[r.HostID] = r.LastSeenNs
+	}
+	return out, nil
 }
