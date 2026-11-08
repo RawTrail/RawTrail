@@ -2,13 +2,7 @@
 
 ### Requirement: Remediation attempts are bounded and escalate on exhaustion
 
-Repeated failure to restore a provider means the fault is not one that re-enabling fixes, so the agent SHALL bound how many times it retries and SHALL space successive attempts. The one exception is a contained host's content filter, whose repair goes on past the budget (see "A contained host's repair does not give up"). An unbounded repair loop would rewrite system configuration indefinitely and would hide the underlying fault behind apparently ongoing recovery.
-
-When the attempt budget is exhausted the component SHALL report a reason distinct from the one it reports while remediation is still being attempted, so that an operator can tell "recovery is in progress" from "recovery failed and a human is required".
-
-A successful remediation SHALL reset the budget, so a host that fails intermittently over a long period is retried each time rather than being permanently written off.
-
-An enable that finishes after the stop it was started for has ended SHALL have its outcome discarded. A provider can be reported running, or disabled, while an enable is still running, and can stop again before that enable returns; attributing the finished attempt to the stop that now stands would spend a budget that stop never used, and on the last attempt of a budget would tell the operator recovery had been given up on a fault nothing had yet been tried for.
+The agent SHALL bound how many times it retries restoring a stopped provider and SHALL space successive attempts, except for a contained host's content filter (see "A contained host's repair does not give up"). A spent budget SHALL be reported with a reason distinct from the one reported while remediation is in progress. A successful remediation SHALL reset the budget, and an enable that finishes after its stop has ended SHALL have its outcome discarded.
 
 #### Scenario: Repeated failures stop retrying and escalate
 
