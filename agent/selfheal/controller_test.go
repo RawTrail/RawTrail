@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -787,4 +788,84 @@ func TestAFinalAttemptThatOutlivesItsEpisodeDoesNotEscalateTheNextOne(t *testing
 	_, _, escalation, ok := episodeSnapshot(c, "content_filter")
 	require.True(t, ok, "the new episode must still be there")
 	assert.Empty(t, escalation, "the new episode must not inherit the old one's verdict")
+}
+
+// containedController is testControllerWithEscalation with a containment the test switches, and the default 30s backoff so the
+// cap on a contained host's waits is reachable.
+func containedController(t *testing.T, rem Remediator, hs HealthSink, rec *escalationRecorder,
+	contained *atomic.Bool) (*Controller, *testClock) {
+	t.Helper()
+	clock := &testClock{t: time.Unix(1_700_000_000, 0)}
+	c := New(Options{
+		Remediator:   rem,
+		Health:       hs,
+		Component:    "network_extension",
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Grace:        30 * time.Second,
+		MaxAttempts:  3,
+		Backoff:      30 * time.Second,
+		Now:          clock.now,
+		OnEscalation: rec.record,
+		Contained:    contained.Load,
+	})
+	return c, clock
+}
+
+// spec:agent-status-reporting/a-contained-host-s-repair-does-not-give-up/repair-goes-on-past-the-budget-while-contained
+//
+// TestContainedHostKeepsRepairingPastTheBudget is the gap issue #1228 found: a contained host's content filter is what isolates
+// it, so an admin who keeps switching it off must not outlast the repair. The budget still escalates, once, and repair goes on.
+func TestContainedHostKeepsRepairingPastTheBudget(t *testing.T) {
+	t.Parallel()
+	rem := newFakeRemediator(errors.New("save failed"))
+	hs := &fakeHealth{}
+	rec := &escalationRecorder{}
+	var contained atomic.Bool
+	contained.Store(true)
+	c, clock := containedController(t, rem, hs, rec, &contained)
+	exhaustBudget(t, c, clock, rem)
+	require.Eventually(t, func() bool { return rec.count() == 1 }, 2*time.Second, 10*time.Millisecond,
+		"spending the budget must still escalate while contained")
+
+	ctx := context.Background()
+	for attempt := 4; attempt <= 7; attempt++ {
+		_, eligibleAt, _, ok := episodeSnapshot(c, "content_filter")
+		require.True(t, ok)
+		// Past the budget the attempts still wait, and the wait stops growing at its cap: 30s x 4 would be 2 minutes, the cap
+		// holds it at one.
+		wait := eligibleAt.Sub(clock.now())
+		assert.Positive(t, wait, "attempt %d must wait for the backoff, not run on the next report", attempt)
+		assert.LessOrEqual(t, wait, containedBackoffCap, "attempt %d waits longer than the cap", attempt)
+		assert.Empty(t, c.Observe(ctx, stoppedFilter), "attempt %d must not launch before its wait", attempt)
+		clock.advance(containedBackoffCap)
+		require.Equal(t, []string{"content_filter"}, c.Observe(ctx, stoppedFilter), "attempt %d should launch while contained",
+			attempt)
+		rem.waitForCall(t, c)
+	}
+	assert.Equal(t, 7, rem.callCount())
+	assert.Equal(t, 1, rec.count(), "the escalation is recorded once per stop, however long the repair goes on")
+	assert.Positive(t, hs.count(), "health still says automation could not restore the provider")
+}
+
+// spec:agent-status-reporting/a-contained-host-s-repair-does-not-give-up/a-released-host-s-repair-stops-at-the-budget
+func TestReleasedHostStopsRepairingAtTheBudget(t *testing.T) {
+	t.Parallel()
+	rem := newFakeRemediator(errors.New("save failed"))
+	rec := &escalationRecorder{}
+	var contained atomic.Bool
+	contained.Store(true)
+	c, clock := containedController(t, rem, &fakeHealth{}, rec, &contained)
+	exhaustBudget(t, c, clock, rem)
+	ctx := context.Background()
+	clock.advance(containedBackoffCap)
+	require.Equal(t, []string{"content_filter"}, c.Observe(ctx, stoppedFilter), "still contained, so the repair goes on")
+	rem.waitForCall(t, c)
+
+	contained.Store(false)
+	for range 3 {
+		clock.advance(10 * time.Minute)
+		assert.Empty(t, c.Observe(ctx, stoppedFilter), "a released host waits for an operator once the budget is spent")
+	}
+	assert.Equal(t, 4, rem.callCount())
+	assert.Equal(t, 1, rec.count())
 }

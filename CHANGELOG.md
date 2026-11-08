@@ -45,6 +45,7 @@ See what your AI coding agent is actually doing. Each Claude Code session gets a
 - **The server keeps up with a large event backlog.** A Mac that uploads millions of queued events, after being offline or asleep, is now processed at tens of thousands of events a minute instead of slowing to about 1,500. A database deadlock while finishing a batch is retried instead of pausing that Mac's processing for 5 minutes.
 - **An agent upgraded in place gets the fleet's settings and policies on its next check-in,** instead of up to six hours later. This covers the watched paths, agent settings and credential guard policy.
 - **A missing Full Disk Access grant is reported as such.** Host health names it for the extension and for the agent, instead of a generic failure.
+- **A contained Mac keeps restoring its network filter, however often a local administrator switches it off.** Before, the agent stopped trying after three failed repairs in a row, which could leave a contained host reachable.
 
 ## [0.8.0] (2026-10-21)
 

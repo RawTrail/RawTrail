@@ -21,6 +21,10 @@ const (
 	// because each attempt writes NetworkExtension preferences, which briefly disrupts the very flows the provider is
 	// meant to capture.
 	defaultBackoff = 30 * time.Second
+	// containedBackoffCap is the longest wait between attempts while the host is contained, when the budget no longer ends the
+	// repair. Each attempt still rewrites NetworkExtension preferences, so the waits keep growing to this cap rather than
+	// staying at the backoff's first step.
+	containedBackoffCap = 60 * time.Second
 )
 
 // Remediator re-enables one capture provider. Injected so the controller's policy is testable without the host app; the
@@ -70,6 +74,10 @@ type Options struct {
 	Grace       time.Duration
 	MaxAttempts int
 	Backoff     time.Duration
+	// Contained reports whether the host is network contained. While it does, a spent budget still escalates, but repair goes on:
+	// a contained host's filter is what isolates it, so giving up would leave it reachable (issue #1228). Optional; nil means never
+	// contained. Called under the controller's lock, so it must not call back into the controller.
+	Contained func() bool
 	// Now is the clock, injected so tests drive the grace window and backoff without sleeping. It is called from the
 	// remediation goroutine as well as from Observe, so an injected clock MUST be safe for concurrent use.
 	Now func() time.Time
@@ -97,6 +105,7 @@ type Controller struct {
 	grace        time.Duration
 	maxAttempts  int
 	backoff      time.Duration
+	contained    func() bool
 	now          func() time.Time
 	onEscalation func(Escalation)
 
@@ -138,6 +147,7 @@ func New(opts Options) *Controller {
 		grace:        opts.Grace,
 		maxAttempts:  opts.MaxAttempts,
 		backoff:      opts.Backoff,
+		contained:    opts.Contained,
 		now:          opts.Now,
 		onEscalation: opts.OnEscalation,
 		state:        map[string]*providerState{},
@@ -156,6 +166,9 @@ func New(opts Options) *Controller {
 	}
 	if c.now == nil {
 		c.now = time.Now
+	}
+	if c.contained == nil {
+		c.contained = func() bool { return false }
 	}
 	return c
 }
@@ -276,9 +289,12 @@ func (c *Controller) plan(ctx context.Context, providers map[string]string) (
 		}
 		if st.escalation != "" {
 			// Budget spent. Re-assert the escalation the caller will publish, because MarkProviders already overwrote the
-			// component's reason with provider_stopped moments ago.
+			// component's reason with provider_stopped moments ago. A contained host keeps trying after that, since its filter
+			// is what isolates it; any other host waits for an operator.
 			reassert[name] = st.escalation
-			continue
+			if !c.contained() {
+				continue
+			}
 		}
 		if st.remediating || now.Before(st.eligibleAt) {
 			continue
@@ -330,8 +346,14 @@ func (c *Controller) remediate(ctx context.Context, cancel context.CancelFunc, p
 	// the unbounded repair loop this design exists to avoid, and it is reachable whenever the enable is accepted but
 	// ineffective. Only a report showing the provider no longer stopped clears the state and restores the budget.
 	exhausted := attempt >= c.maxAttempts
+	// The budget is spent once per episode: a contained host that keeps trying past it escalates on the attempt that spent it, not
+	// on every later one, because the escalation event is an append (issue #691).
+	firstExhausted := exhausted && st.escalation == ""
+	contained := c.contained()
 	var detail, outcome string
-	if exhausted {
+	if exhausted && !firstExhausted {
+		detail = st.escalation
+	} else if exhausted {
 		// The two shapes need different diagnoses. "Every enable failed" points at the host app or the configuration
 		// daemon; "every enable succeeded and it is still stopped" says re-enabling is simply not what this fault needs.
 		if err == nil {
@@ -342,28 +364,35 @@ func (c *Controller) remediate(ctx context.Context, cancel context.CancelFunc, p
 			outcome = OutcomeEnableFailed
 		}
 		st.escalation = detail
-	} else {
+	}
+	if !exhausted || contained {
 		// Space the next attempt by the backoff alone. The grace window is a property of the stop, not of each retry, so it
-		// is deliberately NOT re-applied here.
-		st.eligibleAt = c.now().Add(c.backoff * time.Duration(attempt))
+		// is deliberately NOT re-applied here. Past the budget on a contained host the wait stops growing at its cap.
+		wait := c.backoff * time.Duration(attempt)
+		if exhausted && wait > containedBackoffCap {
+			wait = containedBackoffCap
+		}
+		st.eligibleAt = c.now().Add(wait)
 	}
 	c.mu.Unlock()
 
+	// Past the budget on a contained host the repair goes on, so it logs as a retry rather than as giving up.
+	retrying := !exhausted || contained
 	switch {
-	case err == nil && !exhausted:
+	case err == nil && retrying:
 		c.logger.InfoContext(ctx, "capture provider re-enabled; awaiting the extension's next report to confirm",
-			"provider", provider, "attempt", attempt)
+			"provider", provider, "attempt", attempt, "contained", contained)
 	case err == nil:
 		c.logger.ErrorContext(ctx, "capture provider still stopped after every enable succeeded; operator action required",
 			"provider", provider, "attempts", attempt)
-	case !exhausted:
+	case retrying:
 		c.logger.WarnContext(ctx, "could not re-enable capture provider; will retry",
-			"provider", provider, "attempt", attempt, "max", c.maxAttempts, "err", err)
+			"provider", provider, "attempt", attempt, "max", c.maxAttempts, "contained", contained, "err", err)
 	default:
 		c.logger.ErrorContext(ctx, "giving up on re-enabling capture provider; operator action required",
 			"provider", provider, "attempts", attempt, "err", err)
 	}
-	if exhausted {
+	if firstExhausted {
 		c.escalate(provider, detail)
 		// The EDGE, and the only place this fires. escalate() above runs again on every later report to re-assert health,
 		// which is safe for level state and would be an event storm for anything append-only (issue #691).

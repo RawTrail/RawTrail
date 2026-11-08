@@ -250,6 +250,13 @@ func New(opts Options) *Manager {
 // Target returns the endpoint the lifeline keeps reachable: the server, or the proxy the agent reaches it through.
 func (m *Manager) Target() Target { return m.opts.Target }
 
+// Contained reports whether the host is contained, as the extension last confirmed or as seeded from its persisted state.
+func (m *Manager) Contained() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.state != nil && m.state.Contained
+}
+
 // Seed adopts the containment the network extension persisted, pinning the lifeline addresses it holds.
 //
 // Why this exists (issue #1065). The manager otherwise learns containment only from the extension's status, which arrives on the

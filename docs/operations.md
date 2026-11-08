@@ -476,6 +476,8 @@ The badge on the host's page and in the host list says where the change stands:
 
 A host that is not contained, including one that was released, shows no badge. Through the API, `POST /api/hosts/{host_id}/containment` with `contained` and `reason` asks for a state, `GET` on the same path returns it with its delivery, and `GET /api/containment` lists every host that has one.
 
+A local administrator on a contained Mac can switch its network filter off, which lifts containment while the filter is off. The agent switches it back on within about 40 seconds and keeps doing so for as long as the host is contained, however often it is switched off, and each time raises a `sensor_tamper` alert. If the filter cannot be restored, host health reports that automatic recovery failed.
+
 ### Keeping chosen addresses reachable
 
 A contained host keeps only its connection to the EDR server, loopback, DHCP, and resolution of the server name. Responders usually need a few more systems to stay reachable, such as an MDM or remediation server, a forensic collection share, or a VPN concentrator, so a deployment-wide set of destinations can be allowed on top of that lifeline. It applies to every contained host, present and future.
