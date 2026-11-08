@@ -203,3 +203,28 @@ func TestLoopChecksAtOnceAndStopsWithItsContext(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// TestOneFailingHostDoesNotBlockTheOthers keeps a host that fails every minute from silencing the hosts checked after it.
+func TestOneFailingHostDoesNotBlockTheOthers(t *testing.T) {
+	t.Parallel()
+	boom := errors.New("boom")
+	rec := &recorder{}
+	insert := func(ctx context.Context, a api.Alert) (bool, error) {
+		if a.HostID == "A-fails" {
+			return false, boom
+		}
+		return rec.insert(ctx, a)
+	}
+	c := New(func(context.Context) ([]api.ContainedHost, error) {
+		return []api.ContainedHost{
+			{HostID: "A-fails", Epoch: 1, ContainedAtNs: minutesAgo(60)},
+			{HostID: "B-silent", Epoch: 2, ContainedAtNs: minutesAgo(60)},
+		}, nil
+	}, &fakeStore{checkIn: map[string]int64{"A-fails": minutesAgo(30), "B-silent": minutesAgo(30)}}, insert, 0,
+		func() time.Time { return now }, nil)
+	created, err := c.Run(t.Context())
+	require.ErrorIs(t, err, boom, "the failure is still reported")
+	assert.Equal(t, 1, created)
+	require.Len(t, rec.alerts, 1)
+	assert.Equal(t, "B-silent", rec.alerts[0].HostID, "the host after the failing one is still alerted on")
+}

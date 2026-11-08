@@ -157,17 +157,7 @@ func (r *Response) ContainedHosts(ctx context.Context) ([]api.ContainmentState, 
 	if r.containmentStore == nil {
 		return nil, nil
 	}
-	all, err := r.containmentStore.All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	contained := make([]api.ContainmentState, 0, len(all))
-	for _, st := range all {
-		if st.Contained {
-			contained = append(contained, st)
-		}
-	}
-	return contained, nil
+	return r.containmentStore.Contained(ctx)
 }
 
 // RunAuditSweep delivers audit entries an operator action committed but whose request could not write out, until ctx is cancelled.

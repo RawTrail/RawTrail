@@ -11,6 +11,7 @@ package containedsilence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -90,6 +91,9 @@ func (c *Check) Run(ctx context.Context) (int, error) {
 	}
 	now := c.now()
 	created := 0
+	// Every host is attempted whatever happens to the others: they are independent, and a host that fails every minute must not
+	// keep the hosts after it from ever being alerted on.
+	var errs []error
 	for _, h := range hosts {
 		checkIn := checkIns[h.HostID]
 		if checkIn.SilentAlertedEpoch == h.Epoch {
@@ -102,11 +106,12 @@ func (c *Check) Run(ctx context.Context) (int, error) {
 		}
 		isNew, err := c.insert(ctx, alertFor(h, silent))
 		if err != nil {
-			return created, fmt.Errorf("alert on silent contained host %s: %w", h.HostID, err)
+			errs = append(errs, fmt.Errorf("alert on silent contained host %s: %w", h.HostID, err))
+			continue
 		}
 		// Recorded after the alert, so a failure between the two re-runs the insert, which the alert's dedup key turns into a match.
 		if err := c.store.MarkSilentAlerted(ctx, h.HostID, h.Epoch); err != nil {
-			return created, err
+			errs = append(errs, err)
 		}
 		if isNew {
 			created++
@@ -114,7 +119,7 @@ func (c *Check) Run(ctx context.Context) (int, error) {
 				"silent_for", silent.Round(time.Second), "containment_epoch", h.Epoch)
 		}
 	}
-	return created, nil
+	return created, errors.Join(errs...)
 }
 
 // Loop runs the check at once and then every interval until ctx is cancelled; a zero interval means DefaultInterval. The first run
