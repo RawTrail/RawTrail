@@ -1723,3 +1723,18 @@ func TestReplay_AConnectionPublishedDuringAFailedReplayStillReplaysAgain(t *test
 		return len(sent) >= 3
 	}, 5*time.Second, 5*time.Millisecond, "the failed replay was sent again without waiting for the refresh interval")
 }
+
+// TestContainedFollowsTheExtensionsConfirmedState pins what the self-heal reads (issue #1228): the state the extension confirmed,
+// not a command still waiting on it.
+func TestContainedFollowsTheExtensionsConfirmedState(t *testing.T) {
+	t.Parallel()
+	m, _, _ := newTestManager(t, serverTarget, applies)
+	ctx := t.Context()
+	assert.False(t, m.Contained(), "a host starts uncontained")
+	m.Observe(ctx, Status{Contained: true, Version: 1, Epoch: 1, Applied: true})
+	assert.True(t, m.Contained())
+	m.Observe(ctx, Status{Contained: true, Version: 2, Epoch: 1, Applied: false, Error: "content filter is not running"})
+	assert.True(t, m.Contained(), "a status the extension did not apply leaves the confirmed state alone")
+	m.Observe(ctx, Status{Contained: false, Version: 3, Epoch: 1, Applied: true})
+	assert.False(t, m.Contained())
+}

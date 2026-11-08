@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rawtrail/rawtrail/agent/agenttranscript"
+	"github.com/rawtrail/rawtrail/agent/containment"
 	"github.com/rawtrail/rawtrail/agent/health"
 	"github.com/rawtrail/rawtrail/agent/receiver"
 	"github.com/rawtrail/rawtrail/agent/selfheal"
@@ -70,6 +71,8 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 				Health:     d.health,
 				Component:  health.ComponentNetworkExtension,
 				Logger:     d.logger,
+				// A contained host's filter is what isolates it, so the repair does not give up while it is contained (#1228).
+				Contained: containedFunc(d.containment),
 				// The repair giving up is recorded durably as well as in health (issues #691, #778). Health says what
 				// is true now, so once an operator fixes the host by hand it reads healthy again and nothing records
 				// that the host went uncaptured for however long it took them to notice. The durable account is a host
@@ -87,4 +90,13 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 			}),
 		})
 	}
+}
+
+// containedFunc reports a host's containment to the self-heal. There is no manager when the server URL yields no lifeline target, and
+// such a host cannot be contained, so it reports none.
+func containedFunc(mgr *containment.Manager) func() bool {
+	if mgr == nil {
+		return nil
+	}
+	return mgr.Contained
 }
