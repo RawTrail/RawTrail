@@ -326,8 +326,9 @@ func (s *Store) CountOfflineHosts(ctx context.Context, threshold time.Duration) 
 	return n, nil
 }
 
-// UpdateHostLastSeen bumps `hosts.last_seen_ns` to `now.UnixNano()`
-// for hostID. Used by detection.Service.RecordHostSeen, which
+// UpdateHostLastSeen bumps `hosts.last_seen_ns` and `hosts.last_checkin_ns` to `now.UnixNano()`
+// for hostID. last_checkin_ns is written only here, from the server's clock, so it says when the server last heard
+// from the host whatever the agent stamps on its events (issue #1228). Used by detection.Service.RecordHostSeen, which
 // response calls from GET /api/commands so the 5-second commander
 // poll doubles as a liveness heartbeat. The GREATEST guard stops a
 // clock-skewed request from regressing an already-observed fresher
@@ -339,11 +340,12 @@ func (s *Store) CountOfflineHosts(ctx context.Context, threshold time.Duration) 
 func (s *Store) UpdateHostLastSeen(ctx context.Context, hostID string, now time.Time) error {
 	ts := now.UnixNano()
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO hosts (host_id, event_count, last_seen_ns)
-		VALUES (?, 0, ?)
+		INSERT INTO hosts (host_id, event_count, last_seen_ns, last_checkin_ns)
+		VALUES (?, 0, ?, ?)
 		ON DUPLICATE KEY UPDATE
-			last_seen_ns = GREATEST(last_seen_ns, VALUES(last_seen_ns))
-	`, hostID, ts)
+			last_seen_ns = GREATEST(last_seen_ns, VALUES(last_seen_ns)),
+			last_checkin_ns = GREATEST(last_checkin_ns, VALUES(last_checkin_ns))
+	`, hostID, ts, ts)
 	if err != nil {
 		return fmt.Errorf("update host last_seen %s: %w", hostID, err)
 	}
@@ -403,25 +405,36 @@ func (s *Store) UpsertHosts(ctx context.Context, events []api.Event) error {
 	return nil
 }
 
-// HostsLastSeen returns when each of the given hosts last checked in, in ns since the epoch. A host with no row is left out.
-func (s *Store) HostsLastSeen(ctx context.Context, hostIDs []string) (map[string]int64, error) {
-	out := make(map[string]int64, len(hostIDs))
+// HostsCheckIn returns, for each of the given hosts, when the server last heard from it on its own clock and the containment it last
+// raised the silent-contained-host alert for (issue #1228). A host with no row is left out.
+func (s *Store) HostsCheckIn(ctx context.Context, hostIDs []string) (map[string]api.HostCheckIn, error) {
+	out := make(map[string]api.HostCheckIn, len(hostIDs))
 	if len(hostIDs) == 0 {
 		return out, nil
 	}
-	query, args, err := sqlx.In(`SELECT host_id, last_seen_ns FROM hosts WHERE host_id IN (?)`, hostIDs)
+	query, args, err := sqlx.In(`SELECT host_id, last_checkin_ns, silent_alerted_epoch FROM hosts WHERE host_id IN (?)`, hostIDs)
 	if err != nil {
-		return nil, fmt.Errorf("build hosts last seen query: %w", err)
+		return nil, fmt.Errorf("build hosts check-in query: %w", err)
 	}
 	var rows []struct {
-		HostID     string `db:"host_id"`
-		LastSeenNs int64  `db:"last_seen_ns"`
+		HostID        string `db:"host_id"`
+		LastCheckInNs int64  `db:"last_checkin_ns"`
+		AlertedEpoch  int64  `db:"silent_alerted_epoch"`
 	}
 	if err := s.db.SelectContext(ctx, &rows, s.db.Rebind(query), args...); err != nil {
-		return nil, fmt.Errorf("query hosts last seen: %w", err)
+		return nil, fmt.Errorf("query hosts check-in: %w", err)
 	}
 	for _, r := range rows {
-		out[r.HostID] = r.LastSeenNs
+		out[r.HostID] = api.HostCheckIn{LastCheckInNs: r.LastCheckInNs, SilentAlertedEpoch: r.AlertedEpoch}
 	}
 	return out, nil
+}
+
+// MarkSilentAlerted records that hostID raised the silent-contained-host alert for the containment with this epoch, so the alert is
+// not raised again for it after alert retention deletes the first one (issue #1228).
+func (s *Store) MarkSilentAlerted(ctx context.Context, hostID string, epoch int64) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE hosts SET silent_alerted_epoch = ? WHERE host_id = ?`, epoch, hostID); err != nil {
+		return fmt.Errorf("mark %s alerted for containment %d: %w", hostID, epoch, err)
+	}
+	return nil
 }

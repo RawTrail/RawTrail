@@ -318,9 +318,14 @@ func (d *Detection) SetContainedHosts(fn func(ctx context.Context) ([]api.Contai
 	}
 	insert := func(ctx context.Context, a api.Alert) (bool, error) {
 		_, created, err := d.store.InsertAlert(ctx, a, nil)
+		// Counted here because the alert does not come through the engine, which counts the alerts it raises. d.metrics is read
+		// when the alert is raised, not now, since SetMetrics may wire it after this.
+		if created && err == nil && d.metrics != nil {
+			d.metrics.AlertCreated(ctx, a.RuleID, a.Severity)
+		}
 		return created, err
 	}
-	d.containedSilence = containedsilence.New(fn, d.store.HostsLastSeen, insert, 0, nil, d.logger)
+	d.containedSilence = containedsilence.New(fn, d.store, insert, 0, nil, d.logger)
 }
 
 // ApplySchema runs the CREATE TABLE statements detection owns. Idempotent.

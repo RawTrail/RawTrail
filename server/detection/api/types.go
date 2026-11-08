@@ -341,6 +341,13 @@ type ContainedHost struct {
 	ContainedAtNs int64
 }
 
+// HostCheckIn is what the silent-contained-host alert reads about a host (issue #1228): when the server last heard from it on the
+// server's own clock, and the containment it last raised the alert for.
+type HostCheckIn struct {
+	LastCheckInNs      int64
+	SilentAlertedEpoch int64
+}
+
 // Undeliverable is what the host-health derivation needs to know about one host's undelivered commands (issue #732).
 //
 // It is detection's own type rather than the response context's, because commands belong to that context and detection importing

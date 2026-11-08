@@ -32,10 +32,17 @@ const (
 // Inserter persists an alert, reporting whether it was newly created rather than matched to an existing one.
 type Inserter func(ctx context.Context, a api.Alert) (bool, error)
 
+// Store is what the check reads and writes about hosts: when the server last heard from each, and which containment each last
+// alerted for.
+type Store interface {
+	HostsCheckIn(ctx context.Context, hostIDs []string) (map[string]api.HostCheckIn, error)
+	MarkSilentAlerted(ctx context.Context, hostID string, epoch int64) error
+}
+
 // Check finds contained hosts that have stopped reporting and alerts on each, once per containment.
 type Check struct {
 	contained func(ctx context.Context) ([]api.ContainedHost, error)
-	lastSeen  func(ctx context.Context, hostIDs []string) (map[string]int64, error)
+	store     Store
 	insert    Inserter
 	after     time.Duration
 	now       func() time.Time
@@ -43,8 +50,7 @@ type Check struct {
 }
 
 // New builds a Check. A zero after means DefaultAfter, and a nil now means time.Now.
-func New(contained func(ctx context.Context) ([]api.ContainedHost, error),
-	lastSeen func(ctx context.Context, hostIDs []string) (map[string]int64, error), insert Inserter, after time.Duration,
+func New(contained func(ctx context.Context) ([]api.ContainedHost, error), store Store, insert Inserter, after time.Duration,
 	now func() time.Time, logger *slog.Logger) *Check {
 	if after <= 0 {
 		after = DefaultAfter
@@ -55,13 +61,17 @@ func New(contained func(ctx context.Context) ([]api.ContainedHost, error),
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Check{contained: contained, lastSeen: lastSeen, insert: insert, after: after, now: now, logger: logger}
+	return &Check{contained: contained, store: store, insert: insert, after: after, now: now, logger: logger}
 }
 
 // Run raises an alert for every contained host silent for longer than the check's threshold, and reports how many were new.
 //
 // Silence is counted from the later of the host's last check-in and the moment it was contained. A host contained while already
 // quiet gets the full threshold from the containment, so containing an offline laptop does not alert the moment the button is pressed.
+//
+// The check-in is the server's own observation, never a time the agent stamped on an event: a host whose clock runs ahead could
+// otherwise keep itself "seen" long after it stopped reporting. And a host that already alerted for its containment is skipped on
+// the store's record of it, not on the alert row, which alert retention can delete while the host is still silent.
 func (c *Check) Run(ctx context.Context) (int, error) {
 	hosts, err := c.contained(ctx)
 	if err != nil {
@@ -74,14 +84,18 @@ func (c *Check) Run(ctx context.Context) (int, error) {
 	for i, h := range hosts {
 		ids[i] = h.HostID
 	}
-	seen, err := c.lastSeen(ctx, ids)
+	checkIns, err := c.store.HostsCheckIn(ctx, ids)
 	if err != nil {
 		return 0, fmt.Errorf("read contained hosts' last check-in: %w", err)
 	}
 	now := c.now()
 	created := 0
 	for _, h := range hosts {
-		quietSince := max(seen[h.HostID], h.ContainedAtNs)
+		checkIn := checkIns[h.HostID]
+		if checkIn.SilentAlertedEpoch == h.Epoch {
+			continue
+		}
+		quietSince := max(checkIn.LastCheckInNs, h.ContainedAtNs)
 		silent := now.Sub(time.Unix(0, quietSince))
 		if silent <= c.after {
 			continue
@@ -89,6 +103,10 @@ func (c *Check) Run(ctx context.Context) (int, error) {
 		isNew, err := c.insert(ctx, alertFor(h, silent))
 		if err != nil {
 			return created, fmt.Errorf("alert on silent contained host %s: %w", h.HostID, err)
+		}
+		// Recorded after the alert, so a failure between the two re-runs the insert, which the alert's dedup key turns into a match.
+		if err := c.store.MarkSilentAlerted(ctx, h.HostID, h.Epoch); err != nil {
+			return created, err
 		}
 		if isNew {
 			created++
@@ -99,7 +117,8 @@ func (c *Check) Run(ctx context.Context) (int, error) {
 	return created, nil
 }
 
-// Loop runs the check every interval until ctx is cancelled; a zero interval means DefaultInterval.
+// Loop runs the check at once and then every interval until ctx is cancelled; a zero interval means DefaultInterval. The first run
+// is immediate so a server that restarts does not leave a silent contained host unreported for another interval.
 func (c *Check) Loop(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = DefaultInterval
@@ -107,13 +126,13 @@ func (c *Check) Loop(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		if _, err := c.Run(ctx); err != nil && ctx.Err() == nil {
+			c.logger.WarnContext(ctx, "silent contained host check failed; retrying next interval", "err", err)
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if _, err := c.Run(ctx); err != nil {
-				c.logger.WarnContext(ctx, "silent contained host check failed; retrying next interval", "err", err)
-			}
 		}
 	}
 }

@@ -1134,3 +1134,26 @@ func TestBootstrap_CommandIssueAndCancelCommitTheirAuditEntries(t *testing.T) {
 		assert.NotEmpty(t, e.RemoteAddr, "the address the request came from survives the outbox")
 	}
 }
+
+// TestContainedHosts_ListsOnlyTheHostsContainedNow pins what the silent-contained-host alert reads from this context (issue #1228):
+// a released host is not contained, and nothing is listed before containment is enabled.
+func TestContainedHosts_ListsOnlyTheHostsContainedNow(t *testing.T) {
+	t.Parallel()
+	r, db := newResponseAndDB(t)
+	ctx := t.Context()
+	none, err := r.ContainedHosts(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, none, "no host can be contained before containment is enabled")
+
+	r.EnableContainment(func(context.Context, string) (bool, error) { return true, nil },
+		func(context.Context) ([]api.HostEnrollment, error) { return nil, nil })
+	_, err = db.ExecContext(ctx, `INSERT INTO host_containment (host_id, contained, version, reason, updated_by, updated_at) VALUES
+		('contained-host', 1, 2, 'investigating', 'usr_1', NOW(6)), ('released-host', 0, 3, 'cleared', 'usr_1', NOW(6))`)
+	require.NoError(t, err)
+	got, err := r.ContainedHosts(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "contained-host", got[0].HostID)
+	assert.True(t, got[0].Contained)
+	assert.NotZero(t, got[0].Epoch, "the epoch names the containment, so the alert can be raised once per containment")
+}

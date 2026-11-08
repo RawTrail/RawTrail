@@ -17,17 +17,23 @@ import (
 // spec:server-host-status/a-contained-host-that-stops-reporting-raises-an-alert/a-contained-host-silent-past-the-threshold-raises-one-alert
 // spec:server-host-status/a-contained-host-that-stops-reporting-raises-an-alert/a-new-containment-alerts-again
 //
-// TestContainedSilence_OneAlertPerContainmentInTheRealStore runs the check against MySQL, so the "once per containment" promise rests
-// on the alerts table's dedup key rather than on a fake. Two replicas run the check without a lock, so this is also what keeps them from
-// raising it twice (issue #1228).
+// TestContainedSilence_OneAlertPerContainmentInTheRealStore runs the check against MySQL (issue #1228). "Once per containment" rests on
+// two things there: the host's record of the containment it alerted for, which outlives alert retention, and the alerts table's dedup
+// key, which keeps two replicas running the check without a lock from raising it twice. Silence is read from the server's own
+// check-ins, never from event timestamps the agent's clock wrote.
 func TestContainedSilence_OneAlertPerContainmentInTheRealStore(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	store, db := openProcessStore(t)
 	now := time.Now()
-	_, err := db.ExecContext(ctx, `INSERT INTO hosts (host_id, event_count, last_seen_ns) VALUES (?, 1, ?), (?, 1, ?)`,
-		"silent-host", now.Add(-30*time.Minute).UnixNano(), "busy-host", now.Add(-time.Minute).UnixNano())
+	// The silent host's events were stamped a day ahead by its own clock, which ingest's last_seen_ns takes as given. Only the
+	// server's check-ins count, so it is silent all the same. The busy host checks in through the server's heartbeat.
+	// The busy host was quiet once too: its heartbeat has to move an existing row's check-in forward, not just set a new row's.
+	_, err := db.ExecContext(ctx, `INSERT INTO hosts (host_id, event_count, last_seen_ns, last_checkin_ns) VALUES (?, 1, ?, ?), (?, 1, ?, ?)`,
+		"silent-host", now.Add(24*time.Hour).UnixNano(), now.Add(-30*time.Minute).UnixNano(),
+		"busy-host", now.Add(-30*time.Minute).UnixNano(), now.Add(-30*time.Minute).UnixNano())
 	require.NoError(t, err)
+	require.NoError(t, store.UpdateHostLastSeen(ctx, "busy-host", now.Add(-time.Minute)))
 
 	contained := []api.ContainedHost{
 		{HostID: "silent-host", Epoch: 7, ContainedAtNs: now.Add(-time.Hour).UnixNano()},
@@ -38,7 +44,7 @@ func TestContainedSilence_OneAlertPerContainmentInTheRealStore(t *testing.T) {
 		return created, err
 	}
 	check := containedsilence.New(func(context.Context) ([]api.ContainedHost, error) { return contained, nil },
-		store.HostsLastSeen, insert, 0, nil, nil)
+		store, insert, 0, nil, nil)
 
 	for range 2 {
 		_, err := check.Run(ctx)
@@ -51,10 +57,17 @@ func TestContainedSilence_OneAlertPerContainmentInTheRealStore(t *testing.T) {
 	assert.Equal(t, api.AlertStatusOpen, alerts[0].Status)
 	assert.Zero(t, alerts[0].ProcessID, "the alert is about the host, not a process")
 
+	// Alert retention deletes the alert while the host is still silent: the host's own record keeps it from alerting again.
+	_, err = db.ExecContext(ctx, `DELETE FROM alerts WHERE rule_id = ?`, containedsilence.RuleID)
+	require.NoError(t, err)
+	_, err = check.Run(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, silenceAlerts(ctx, t, store), "the same containment does not alert again after its alert is pruned")
+
 	contained[0].Epoch = 9
 	_, err = check.Run(ctx)
 	require.NoError(t, err)
-	assert.Len(t, silenceAlerts(ctx, t, store), 2, "released and contained anew, the host alerts for the new containment")
+	assert.Len(t, silenceAlerts(ctx, t, store), 1, "released and contained anew, the host alerts for the new containment")
 }
 
 // silenceAlerts lists the silent-contained-host alerts the operator's alert list shows.

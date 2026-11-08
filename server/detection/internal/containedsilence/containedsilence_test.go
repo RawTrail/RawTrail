@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,11 +33,36 @@ func (r *recorder) insert(_ context.Context, a api.Alert) (bool, error) {
 	return true, nil
 }
 
+// fakeStore holds each host's server-clock check-in and the containment it last alerted for.
+type fakeStore struct {
+	checkIn map[string]int64
+	alerted map[string]int64
+}
+
+func (f *fakeStore) HostsCheckIn(_ context.Context, ids []string) (map[string]api.HostCheckIn, error) {
+	out := map[string]api.HostCheckIn{}
+	for _, id := range ids {
+		out[id] = api.HostCheckIn{LastCheckInNs: f.checkIn[id], SilentAlertedEpoch: f.alerted[id]}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) MarkSilentAlerted(_ context.Context, hostID string, epoch int64) error {
+	if f.alerted == nil {
+		f.alerted = map[string]int64{}
+	}
+	f.alerted[hostID] = epoch
+	return nil
+}
+
 func newCheck(contained []api.ContainedHost, seen map[string]int64, rec *recorder) *Check {
+	return newCheckOn(contained, &fakeStore{checkIn: seen}, rec)
+}
+
+func newCheckOn(contained []api.ContainedHost, store *fakeStore, rec *recorder) *Check {
 	return New(
 		func(context.Context) ([]api.ContainedHost, error) { return contained, nil },
-		func(context.Context, []string) (map[string]int64, error) { return seen, nil },
-		rec.insert, 0, func() time.Time { return now }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		store, rec.insert, 0, func() time.Time { return now }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 // spec:server-host-status/a-contained-host-that-stops-reporting-raises-an-alert/a-contained-host-silent-past-the-threshold-raises-one-alert
@@ -99,11 +125,11 @@ func TestSilenceIsCountedFromTheLaterOfCheckInAndContainment(t *testing.T) {
 func TestANewContainmentAlertsAgain(t *testing.T) {
 	t.Parallel()
 	rec := &recorder{}
-	seen := map[string]int64{"H1": minutesAgo(30)}
-	first := newCheck([]api.ContainedHost{{HostID: "H1", Epoch: 1, ContainedAtNs: minutesAgo(60)}}, seen, rec)
+	store := &fakeStore{checkIn: map[string]int64{"H1": minutesAgo(30)}}
+	first := newCheckOn([]api.ContainedHost{{HostID: "H1", Epoch: 1, ContainedAtNs: minutesAgo(60)}}, store, rec)
 	_, err := first.Run(t.Context())
 	require.NoError(t, err)
-	again := newCheck([]api.ContainedHost{{HostID: "H1", Epoch: 2, ContainedAtNs: minutesAgo(20)}}, seen, rec)
+	again := newCheckOn([]api.ContainedHost{{HostID: "H1", Epoch: 2, ContainedAtNs: minutesAgo(20)}}, store, rec)
 	created, err := again.Run(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, 1, created, "released and contained anew, the host alerts for the new containment")
@@ -112,11 +138,7 @@ func TestANewContainmentAlertsAgain(t *testing.T) {
 
 func TestNoContainedHostsReadsNothingElse(t *testing.T) {
 	t.Parallel()
-	c := New(func(context.Context) ([]api.ContainedHost, error) { return nil, nil },
-		func(context.Context, []string) (map[string]int64, error) {
-			t.Fatal("no contained host means no last-seen read")
-			return nil, nil
-		},
+	c := New(func(context.Context) ([]api.ContainedHost, error) { return nil, nil }, nil,
 		func(context.Context, api.Alert) (bool, error) { t.Fatal("nothing to alert on"); return false, nil },
 		0, func() time.Time { return now }, nil)
 	created, err := c.Run(t.Context())
@@ -130,4 +152,54 @@ func TestAFailedReadIsReported(t *testing.T) {
 	c := New(func(context.Context) ([]api.ContainedHost, error) { return nil, boom }, nil, nil, 0, nil, nil)
 	_, err := c.Run(t.Context())
 	assert.ErrorIs(t, err, boom)
+}
+
+// spec:server-host-status/a-contained-host-that-stops-reporting-raises-an-alert/a-contained-host-silent-past-the-threshold-raises-one-alert
+//
+// TestAHostThatAlertedIsNotAlertedAgainAfterTheAlertIsGone pins the record that outlives the alert: retention deletes alerts by age
+// whatever their status, so the alert row cannot be what stops a second one for a host that is still silent.
+func TestAHostThatAlertedIsNotAlertedAgainAfterTheAlertIsGone(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{checkIn: map[string]int64{"H1": minutesAgo(30)}}
+	contained := []api.ContainedHost{{HostID: "H1", Epoch: 5, ContainedAtNs: minutesAgo(60)}}
+	_, err := newCheckOn(contained, store, &recorder{}).Run(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), store.alerted["H1"], "the alert is recorded against the containment")
+
+	// A fresh recorder stands in for the alerts table after retention emptied it.
+	rec := &recorder{}
+	created, err := newCheckOn(contained, store, rec).Run(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, created)
+	assert.Empty(t, rec.alerts)
+}
+
+// TestLoopChecksAtOnceAndStopsWithItsContext pins the first run being immediate: a server that restarts must not wait an interval
+// before reporting a contained host that is already silent.
+func TestLoopChecksAtOnceAndStopsWithItsContext(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	var mu sync.Mutex
+	inserted := func(ctx context.Context, a api.Alert) (bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return rec.insert(ctx, a)
+	}
+	c := New(func(context.Context) ([]api.ContainedHost, error) {
+		return []api.ContainedHost{{HostID: "H1", Epoch: 1, ContainedAtNs: minutesAgo(60)}}, nil
+	}, &fakeStore{checkIn: map[string]int64{"H1": minutesAgo(30)}}, inserted, 0, func() time.Time { return now }, nil)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.Loop(ctx, time.Hour)
+	}()
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(rec.alerts) == 1
+	}, 5*time.Second, 10*time.Millisecond, "the first check runs when the loop starts, not an interval later")
+	cancel()
+	<-done
 }

@@ -590,8 +590,16 @@ func openResponse(
 		})
 	// The same inversion for the alert raised when a contained host stops reporting (issue #1228): which hosts are contained is
 	// response's, and the alert and the hosts' last check-in are detection's.
-	detectionCtx.SetContainedHosts(func(ctx context.Context) ([]detectionapi.ContainedHost, error) {
-		states, err := responseCtx.ContainedHosts(ctx)
+	detectionCtx.SetContainedHosts(containedHostsFromResponse(responseCtx.ContainedHosts))
+	return responseCtx, nil
+}
+
+// containedHostsFromResponse adapts response's contained hosts into detection's type for the silent-contained-host alert (issue
+// #1228). A containment's epoch names it, and when it was last changed is when the host was contained.
+func containedHostsFromResponse(list func(ctx context.Context) ([]responseapi.ContainmentState, error),
+) func(ctx context.Context) ([]detectionapi.ContainedHost, error) {
+	return func(ctx context.Context) ([]detectionapi.ContainedHost, error) {
+		states, err := list(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -604,8 +612,7 @@ func openResponse(
 			out = append(out, h)
 		}
 		return out, nil
-	})
-	return responseCtx, nil
+	}
 }
 
 // openRuleContent applies the rulecontent schema and seeds the corpus from the embedded vendored copy when storage is empty.
