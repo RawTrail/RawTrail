@@ -95,7 +95,10 @@ export function SessionList() {
                 <td className="search-page__nowrap" title={`${formatNs(s.first_seen_ns)} to ${formatNs(s.last_seen_ns)}`}>
                   {formatElapsedNs(s.last_seen_ns - s.first_seen_ns)}
                 </td>
-                <td>{s.process_count.toLocaleString()}</td>
+                <td title={s.process_count_capped ? `More than ${s.process_count.toLocaleString()} processes` : undefined}>
+                  {s.process_count.toLocaleString()}
+                  {s.process_count_capped ? "+" : ""}
+                </td>
                 <td>{s.alert_count.toLocaleString()}</td>
                 <td title={s.tokens === undefined ? undefined : `${s.tokens.toLocaleString()} tokens`}>
                   {s.tokens === undefined ? "" : formatTokens(s.tokens)}

@@ -208,9 +208,11 @@ type AgentSessionSummary struct {
 	LastSeenNs  int64   `db:"last_seen_ns" json:"last_seen_ns"`
 	// ProcessCount counts the processes stamped with the session that are still retained, and AlertCount the retained alerts (not
 	// monitor records) raised on them. The session row outlives process and alert retention, so an old session's counts shrink as
-	// its rows are pruned.
-	ProcessCount int64 `db:"-" json:"process_count"`
-	AlertCount   int64 `db:"-" json:"alert_count"`
+	// its rows are pruned. The sessions list counts processes only up to a bound (issue #1547), and ProcessCountCapped says the
+	// session has more than ProcessCount.
+	ProcessCount       int64 `db:"-" json:"process_count"`
+	ProcessCountCapped bool  `db:"-" json:"process_count_capped,omitempty"`
+	AlertCount         int64 `db:"-" json:"alert_count"`
 	// Bypass says the session ran in the bypassPermissions mode, or was forked from one that did, whose copied lines carry the mode.
 	// Read by ListAgentSessions only.
 	Bypass bool `db:"bypass" json:"bypass"`

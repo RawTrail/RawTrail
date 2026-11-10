@@ -113,6 +113,26 @@ describe("SessionList", () => {
     for (const cell of [active, duration]) expect(cell).toHaveClass("search-page__nowrap");
   });
 
+  // spec:web-ui/agent-sessions-list/a-capped-process-count-says-there-are-more
+  it("marks a process count the server stopped at its bound, and leaves an exact one plain", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    vi.spyOn(api, "listAgentSessions").mockResolvedValue({
+      rows: [
+        session({ process_count: 10_000, process_count_capped: true }),
+        session({ agent_session_id: "8d9e0f1a-2b3c-4d5e-8f6a-7b8c9d0e1f2a", process_count: 9_999 }),
+      ],
+      total_matched: 2,
+    });
+    renderList();
+    const rows = (await screen.findAllByRole("link", { name: "claude-code" })).map((link) => link.closest("tr"));
+    const capped = rows[0]?.querySelectorAll("td")[5];
+    expect(capped?.textContent).toBe(`${(10_000).toLocaleString()}+`);
+    expect(capped).toHaveAttribute("title", `More than ${(10_000).toLocaleString()} processes`);
+    const exact = rows[1]?.querySelectorAll("td")[5];
+    expect(exact?.textContent).toBe((9_999).toLocaleString());
+    expect(exact).not.toHaveAttribute("title");
+  });
+
   // spec:web-ui/sessions-list-tokens/a-session-lists-its-tokens
   it("lists a session's tokens compactly, with the exact count on hover", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);

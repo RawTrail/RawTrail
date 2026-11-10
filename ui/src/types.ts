@@ -181,6 +181,8 @@ export interface AgentSessionSummary {
   first_seen_ns: number;
   last_seen_ns: number;
   process_count: number;
+  // process_count_capped says the session has more processes than process_count, where the list stopped counting (issue #1547).
+  process_count_capped?: boolean;
   alert_count: number;
   // bypass says the session ran with permissions bypassed, or was forked from one that did, whose copied lines carry the mode.
   bypass: boolean;

@@ -3729,7 +3729,10 @@ components:
         process_count:
           type: integer
           format: int64
-          description: The session's processes still retained. The session outlives process retention, so this shrinks as rows are pruned.
+          description: The session's processes still retained, counted up to 10,000. The session outlives process retention, so this shrinks as rows are pruned.
+        process_count_capped:
+          type: boolean
+          description: The session has more retained processes than `process_count`, which stopped at its bound. Absent when the count is exact.
         alert_count:
           type: integer
           format: int64
