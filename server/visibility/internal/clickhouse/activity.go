@@ -48,10 +48,7 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 		limit = defaultActivityLimit
 	}
 	scope, scopeArgs := activityScope(filter)
-	ctx, err := withActivityScope(ctx, filter)
-	if err != nil {
-		return api.ActivityRollup{}, err
-	}
+	ctx = withActivityScope(ctx, filter)
 
 	// The four reads are independent and each writes its own fields of out, so they run at once: the rollup waits for the slowest.
 	g, gctx := errgroup.WithContext(ctx)
@@ -90,21 +87,23 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 // summary runs several such reads at once (issue #1550).
 const scopeGenerationsTable = "scope_generations"
 
-// withActivityScope attaches the filter's generations to the reads made with the context, as scopeGenerationsTable.
-func withActivityScope(ctx context.Context, filter api.ActivityFilter) (context.Context, error) {
+// withActivityScope attaches the filter's generations to the reads made with the context, as scopeGenerationsTable. Building the
+// table fails only for a malformed column type or a row of the wrong arity, which its fixed two Int64 columns and two int64 values rule
+// out, so a failure is a programming error and panics.
+func withActivityScope(ctx context.Context, filter api.ActivityFilter) context.Context {
 	if len(filter.Generations) == 0 {
-		return ctx, nil
+		return ctx
 	}
 	table, err := ext.NewTable(scopeGenerationsTable, ext.Column("pid", "Int64"), ext.Column("pidversion", "Int64"))
 	if err != nil {
-		return nil, fmt.Errorf("scope generations table: %w", err)
+		panic("scope generations table: " + err.Error())
 	}
 	for _, g := range filter.Generations {
 		if err := table.Append(g.PID, g.PIDVersion); err != nil {
-			return nil, fmt.Errorf("scope generations table: %w", err)
+			panic("scope generations table: " + err.Error())
 		}
 	}
-	return clickhouse.Context(ctx, clickhouse.WithExternalTable(table)), nil
+	return clickhouse.Context(ctx, clickhouse.WithExternalTable(table))
 }
 
 // activityScope is the WHERE clause, after the event types, that keeps the filter's events, and its arguments. Clipped, so each list
@@ -142,11 +141,7 @@ func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter api.Act
 		return api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}, nil
 	}
 	scope, args := activityScope(filter)
-	ctx, err := withActivityScope(ctx, filter)
-	if err != nil {
-		return api.ActivitySummary{}, err
-	}
-	return s.activityTotals(ctx, scope, args)
+	return s.activityTotals(withActivityScope(ctx, filter), scope, args)
 }
 
 // activityTotals counts each class's events and distinct artifacts, and the file events by operation, in one pass: a file's artifact
