@@ -1,6 +1,6 @@
 ## Why
 
-MySQL's own 128 MB buffer pool is far smaller than the process graph a busy host builds, so an agent session's views read most of their pages from disk. On dogfood (v0.9.0-rc.5, an 11.4 GB processes table) the session tabs took 1 to 3 s per MySQL read, against 0.05 to 0.3 s for the same reads served from memory (issue #1550). The quickstart left the buffer pool at that default, and the laptop stack pinned it there.
+MySQL's own 128 MB buffer pool is far smaller than the process graph a busy host builds, so reads that walk it come from disk. On dogfood (v0.9.0-rc.5, an 11.4 GB processes table) MySQL had done about 247 million disk reads since it started, and a long agent session's process tree took about 2.7 s to load. With a 3 GiB pool the same tree took 1.7 s, and the session's tree, conversation, commands and summary reads together caused about 950 disk reads, with no statement over 20 ms (issue #1550). The quickstart left the buffer pool at MySQL's default, and the laptop stack pinned it there.
 
 ## What changes
 
