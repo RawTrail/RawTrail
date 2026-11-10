@@ -463,7 +463,8 @@ func (h *Handler) handleAgentSessionConversation(w http.ResponseWriter, r *http.
 // capTurns cuts the commands of a page of turns as a page of commands is cut: a long session's Timeline otherwise listed every
 // process each command started, about 20 MB a page on dogfood (issue #1550). A cut command is read whole on request.
 func (h *Handler) capTurns(ctx context.Context, turns []sessioncommands.Turn, query string) error {
-	var commands []sessioncommands.Command
+	// Non-nil, so a turn of no commands still lists [] rather than null, which the Timeline maps over.
+	commands := []sessioncommands.Command{}
 	for _, t := range turns {
 		commands = append(commands, t.Commands...)
 	}

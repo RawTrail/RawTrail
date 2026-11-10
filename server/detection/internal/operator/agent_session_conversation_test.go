@@ -178,3 +178,20 @@ func TestAgentSessionConversation_ListsALargeCommandInPart(t *testing.T) {
 	assert.Contains(t, listed, alertedWorker, "an alerted process past the first hundred is listed")
 	assert.Len(t, listed, 100+1, "the first hundred and the alerted worker")
 }
+
+// A page whose turns ran no command lists each turn's commands as [], not null: the Timeline maps over them.
+func TestAgentSessionConversation_ACommandFreePageListsNoCommands(t *testing.T) {
+	t.Parallel()
+	reader := conversationReader()
+	reader.prompts.Prompts = append(reader.prompts.Prompts, visibilityapi.AgentPrompt{PromptID: "p2", Text: "just thinking", AtNs: 5000, UID: 501})
+	srv := newPromptsServerTree(t, &promptGateAuthZ{allowPrompts: true}, reader)
+	resp := doGet(t, srv, conversationPath+"?q=thinking")
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var raw struct {
+		Turns []map[string]json.RawMessage `json:"turns"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&raw))
+	require.Len(t, raw.Turns, 1)
+	assert.JSONEq(t, `[]`, string(raw.Turns[0]["commands"]))
+}
