@@ -49,7 +49,7 @@ func (s *Store) insertMonitorRecordChunk(ctx context.Context, chunk []MonitorRec
 		eventIDs = append(eventIDs, r.EventIDs...)
 	}
 	// Read before the transaction opens, for the reason InsertAlert gives: a slow archive must not hold row locks.
-	found, err := s.archive.EventsByIDs(ctx, detectionslices.Deduplicate(eventIDs))
+	found, err := s.triggeringEvents(ctx, detectionslices.Deduplicate(eventIDs))
 	if err != nil {
 		return fmt.Errorf("read event payloads for monitor records: %w", err)
 	}
