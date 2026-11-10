@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/ext"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/rawtrail/rawtrail/server/visibility/api"
@@ -47,9 +48,13 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 		limit = defaultActivityLimit
 	}
 	scope, scopeArgs := activityScope(filter)
+	ctx, err := withActivityScope(ctx, filter)
+	if err != nil {
+		return api.ActivityRollup{}, err
+	}
 
 	// The four reads are independent and each writes its own fields of out, so they run at once: the rollup waits for the slowest.
-	g, gctx := errgroup.WithContext(withActivityQuerySize(ctx))
+	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		totals, err := s.activityTotals(gctx, scope, scopeArgs)
 		out.Files.Events, out.Files.Distinct = totals.Files.Events, totals.Files.Distinct
@@ -79,14 +84,27 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 	return out, nil
 }
 
-// activityQuerySize is the query size an activity read may send. Its filter names every generation of its scope, and a session's
-// scope runs to tens of thousands of them (issue #1424): at about 20 bytes a generation, ClickHouse's default 256 KiB stops a filter
-// at some ten thousand. 8 MiB holds the largest scope a read names with room to spare.
-const activityQuerySize = 8 << 20
+// scopeGenerationsTable is the external table an activity read's generations travel in, beside the query rather than in its text. A
+// session's scope runs to 20,000 generations (issue #1424), and written into the query as tuples they made it some 330 KB that
+// ClickHouse parsed on every read: on dogfood a summary's window read took 0.8 to 1.0 s that way and 0.25 to 0.3 s with the table, and a
+// summary runs several such reads at once (issue #1550).
+const scopeGenerationsTable = "scope_generations"
 
-// withActivityQuerySize raises the query size of the reads made with the context to activityQuerySize.
-func withActivityQuerySize(ctx context.Context) context.Context {
-	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{"max_query_size": activityQuerySize}))
+// withActivityScope attaches the filter's generations to the reads made with the context, as scopeGenerationsTable.
+func withActivityScope(ctx context.Context, filter api.ActivityFilter) (context.Context, error) {
+	if len(filter.Generations) == 0 {
+		return ctx, nil
+	}
+	table, err := ext.NewTable(scopeGenerationsTable, ext.Column("pid", "Int64"), ext.Column("pidversion", "Int64"))
+	if err != nil {
+		return nil, fmt.Errorf("scope generations table: %w", err)
+	}
+	for _, g := range filter.Generations {
+		if err := table.Append(g.PID, g.PIDVersion); err != nil {
+			return nil, fmt.Errorf("scope generations table: %w", err)
+		}
+	}
+	return clickhouse.Context(ctx, clickhouse.WithExternalTable(table)), nil
 }
 
 // activityScope is the WHERE clause, after the event types, that keeps the filter's events, and its arguments. Clipped, so each list
@@ -124,7 +142,11 @@ func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter api.Act
 		return api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}, nil
 	}
 	scope, args := activityScope(filter)
-	return s.activityTotals(withActivityQuerySize(ctx), scope, args)
+	ctx, err := withActivityScope(ctx, filter)
+	if err != nil {
+		return api.ActivitySummary{}, err
+	}
+	return s.activityTotals(ctx, scope, args)
 }
 
 // activityTotals counts each class's events and distinct artifacts, and the file events by operation, in one pass: a file's artifact
@@ -401,15 +423,16 @@ func (s *Store) AgentSessionLineage(ctx context.Context, hostID, sessionID strin
 	return lineage, nil
 }
 
-// activityScopeSQL matches the filter's generations: those in Generations wholly, those in Spans only inside their span (issue
-// #1319), judged by spanStart against the span's start and by timestamp_ns against its end.
+// activityScopeSQL matches the filter's generations: those in Generations wholly, read from scopeGenerationsTable, and those in Spans
+// only inside their span (issue #1319), judged by spanStart against the span's start and by timestamp_ns against its end. The
+// Generations arm matches as generationIdentitySQL does, and first by pid alone, a column, so a row's payload is parsed only when its
+// pid is in the scope.
 func activityScopeSQL(filter api.ActivityFilter, spanStart string) (string, []any) {
 	var arms []string
 	var args []any
 	if len(filter.Generations) > 0 {
-		clause, genArgs := generationIdentitySQL(filter.Generations)
-		arms = append(arms, clause)
-		args = append(args, genArgs...)
+		arms = append(arms, "(pid IN (SELECT pid FROM "+scopeGenerationsTable+") AND JSONHas(payload, 'pidversion') AND (pid, "+
+			activityPIDVersion+") IN (SELECT pid, pidversion FROM "+scopeGenerationsTable+"))")
 	}
 	for _, span := range filter.Spans {
 		clause, genArgs := generationIdentitySQL([]api.ProcessGeneration{span.ProcessGeneration})

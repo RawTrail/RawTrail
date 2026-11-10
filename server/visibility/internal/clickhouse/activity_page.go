@@ -140,7 +140,9 @@ func (s *Store) ActivityPage(ctx context.Context, filter api.ActivityFilter, cla
 		scope += " AND " + clause
 		args = append(slices.Clip(args), slices.Repeat([]any{filter.Search}, strings.Count(clause, "?"))...)
 	}
-	ctx = withActivityQuerySize(ctx)
+	if ctx, err = withActivityScope(ctx, filter); err != nil {
+		return api.ActivityPage{}, err
+	}
 	var cut bool
 	switch class {
 	case api.ActivityFiles:
