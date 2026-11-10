@@ -298,27 +298,36 @@ func (h *Handler) commandsPage(
 	if err != nil {
 		return sessioncommands.Page{}, err
 	}
+	if err := h.capCommands(ctx, page.Commands, req.query); err != nil {
+		return sessioncommands.Page{}, err
+	}
+	return page, nil
+}
+
+// capCommands cuts each of a page's commands, in place, to its first processes beside the alerted ones and the query's hits (issue
+// #1443), so a page's size is bounded by its limit however many processes a command started.
+func (h *Handler) capCommands(ctx context.Context, commands []sessioncommands.Command, query string) error {
 	var cut []int64
-	for _, c := range page.Commands {
+	for _, c := range commands {
 		if len(c.ProcessIDs) > sessioncommands.InlineProcesses {
 			cut = append(cut, c.ProcessIDs...)
 		}
 	}
 	alerted, err := h.agentSessions.AlertedProcesses(ctx, cut)
 	if err != nil {
-		return sessioncommands.Page{}, err
+		return err
 	}
 	isAlerted := make(map[int64]bool, len(alerted))
 	for _, id := range alerted {
 		isAlerted[id] = true
 	}
-	for i, c := range page.Commands {
-		hit := sessioncommands.Matching(c, req.query)
-		page.Commands[i] = sessioncommands.Cap(c, sessioncommands.InlineProcesses, func(p api.ProcessNode) bool {
+	for i, c := range commands {
+		hit := sessioncommands.Matching(c, query)
+		commands[i] = sessioncommands.Cap(c, sessioncommands.InlineProcesses, func(p api.ProcessNode) bool {
 			return isAlerted[p.ID] || hit(p)
 		})
 	}
-	return page, nil
+	return nil
 }
 
 // agentProcessesResponse is one page of the processes a search found in a session, in fork order, each listed alone. Truncated
@@ -434,6 +443,9 @@ func (h *Handler) handleAgentSessionConversation(w http.ResponseWriter, r *http.
 		q := r.URL.Query()
 		turns := sessioncommands.SearchConversation(resp.turns, q.Get("q"))
 		resp.ConversationPage, err = sessioncommands.ConversationPageOf(turns, q.Get("cursor"), parseSearchLimit(q))
+		if err == nil {
+			err = h.capTurns(ctx, resp.Turns, q.Get("q"))
+		}
 	}
 	if err != nil {
 		if errors.Is(err, api.ErrInvalidCursor) {
@@ -446,6 +458,23 @@ func (h *Handler) handleAgentSessionConversation(w http.ResponseWriter, r *http.
 	}
 	// The turns can hold prompt text, so no browser or proxy keeps a copy of them.
 	httpserver.NoStoreJSON(ctx, h.logger, w, http.StatusOK, resp.agentConversationResponse)
+}
+
+// capTurns cuts the commands of a page of turns as a page of commands is cut: a long session's Timeline otherwise listed every
+// process each command started, about 20 MB a page on dogfood (issue #1550). A cut command is read whole on request.
+func (h *Handler) capTurns(ctx context.Context, turns []sessioncommands.Turn, query string) error {
+	var commands []sessioncommands.Command
+	for _, t := range turns {
+		commands = append(commands, t.Commands...)
+	}
+	if err := h.capCommands(ctx, commands, query); err != nil {
+		return err
+	}
+	for i := range turns {
+		n := len(turns[i].Commands)
+		turns[i].Commands, commands = commands[:n:n], commands[n:]
+	}
+	return nil
 }
 
 // sessionConversation reads a session's commands, tool calls and prompts and groups them into its turns, with each prompt's text

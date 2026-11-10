@@ -142,6 +142,8 @@ interface SessionRows {
   // wholeState is how far the read of a large command's whole list has got, and readWhole starts it (issue #1443).
   wholeState: (commandKey: string) => "loading" | "failed" | undefined;
   readWhole: (commandKey: string) => void;
+  // wholeCommand is a large command as read whole, once its read has landed, so every view that lists the command lists all of it.
+  wholeCommand: (commandKey: string) => SessionCommand | undefined;
 }
 
 const SessionRowsContext = createContext<SessionRows | null>(null);
@@ -430,6 +432,10 @@ export function SessionView() {
         return typeof read === "string" ? read : undefined;
       },
       readWhole,
+      wholeCommand: (commandKey: string) => {
+        const read = whole?.get(commandKey);
+        return typeof read === "object" ? read : undefined;
+      },
     }),
     [hostId, alertsByProcess, hits, selectedNode, readKey, whole, readWhole],
   );
@@ -911,8 +917,9 @@ function ConversationBody({ hostId, sessionId, query, incomplete, verbose }: {
   };
   const listed = useMemo<ListedTurn[]>(() => {
     const shape = { verbose, keep: new Set(rows.alertsByProcess.keys()), incomplete: incomplete || current?.processesCut === true };
-    return turns.rows.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(c, shape)) }));
-  }, [turns.rows, rows.alertsByProcess, incomplete, current?.processesCut, verbose]);
+    // A turn's large command is listed in part, like a page of commands (issue #1550), and in full once the operator reads it whole.
+    return turns.rows.map((turn) => ({ turn, groups: turn.commands.map((c) => shapeCommand(rows.wholeCommand(c.key) ?? c, shape)) }));
+  }, [turns.rows, rows, incomplete, current?.processesCut, verbose]);
   // The search's hits are found in these groups, so a matching row is marked and listed past the cap, and its command opens.
   const scoped = useMemo<SessionRows>(
     () => ({ ...rows, hits: searchCommands(listed.flatMap((t) => t.groups), query) }),

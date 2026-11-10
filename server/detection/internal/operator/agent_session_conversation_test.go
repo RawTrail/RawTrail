@@ -124,3 +124,57 @@ func newPromptsServerTree(t *testing.T, az identityapi.AuthZ, reader *fakeToolCa
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// conversationCommands is a conversation page's commands as a client reads them, with the forest three levels deep.
+type conversationCommands struct {
+	Turns []struct {
+		Commands []struct {
+			Key          string  `json:"key"`
+			ProcessIDs   []int64 `json:"process_ids"`
+			ProcessesCut bool    `json:"processes_cut"`
+			Roots        []struct {
+				ID       int64 `json:"id"`
+				Children []struct {
+					ID       int64 `json:"id"`
+					Children []struct {
+						ID int64 `json:"id"`
+					} `json:"children"`
+				} `json:"children"`
+			} `json:"roots"`
+		} `json:"commands"`
+	} `json:"turns"`
+}
+
+// spec:server-rest-api/conversation-turns-list-a-large-command-s-processes-in-part/a-turn-s-large-command-is-listed-in-part
+//
+// TestAgentSessionConversation_ListsALargeCommandInPart pins that a turn's command is cut as a page of commands is: on dogfood a long
+// session's Timeline listed every process each command started, 20 MB for one page of 50 turns (issue #1550).
+func TestAgentSessionConversation_ListsALargeCommandInPart(t *testing.T) {
+	t.Parallel()
+	const workers = 150
+	alertedWorker := int64(10 + 140)
+	lister := summarySession()
+	lister.alerted = []int64{alertedWorker}
+	srv := newCommandsServer(t, fakeService{buildScopedTree: buildTree(workers)}, commandsCalls(), lister)
+
+	resp := doGet(t, srv, conversationPath)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var got conversationCommands
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	var builds []int
+	for i, turn := range got.Turns {
+		for j, c := range turn.Commands {
+			if len(c.ProcessIDs) > workers {
+				builds = append(builds, i, j)
+			}
+		}
+	}
+	require.Len(t, builds, 2, "one turn holds the make command")
+	build := got.Turns[builds[0]].Commands[builds[1]]
+	assert.True(t, build.ProcessesCut)
+	assert.Len(t, build.ProcessIDs, workers+3, "every process is still named")
+	listed := listedIDs(build.Roots)
+	assert.Contains(t, listed, alertedWorker, "an alerted process past the first hundred is listed")
+	assert.Len(t, listed, 100+1, "the first hundred and the alerted worker")
+}
