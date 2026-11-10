@@ -581,6 +581,32 @@ describe("SessionView conversation", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this session" }), { target: { value: "step" } });
     await waitFor(() => { expect(toggleOf(screen.getByText("Outside any prompt"))).toHaveAttribute("aria-expanded", "true"); });
   });
+
+  // spec:web-ui/session-view-reads-a-large-command-whole/a-command-listed-in-part-is-read-whole-on-request
+  it("reads a turn's large command whole when the operator asks for all its processes", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const children = Array.from({ length: 25 }, (_, i) => proc(100 + i, 100 + i, 10 + i, "/usr/bin/wc", ["wc", `f${String(i)}`]));
+    const call = proc(1, 1, 1, "/bin/zsh", ["/bin/zsh", "-c", "eval 'wc f*'"], children, { tool_call_group: 1 });
+    vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ roots: [call] }));
+    const whole = sessionCommands([call]);
+    const cutCommand = { ...whole.commands[0], roots: [{ ...call, children: children.slice(0, 5) }], processes_cut: true };
+    vi.spyOn(api, "getSessionConversation").mockResolvedValue(conversation({
+      turns: [{ prompt_id: "p1", uid: 501, at_ns: 50, prompt: { prompt_id: "p1", text: "count the files", length: 15, at_ns: 50, uid: 501 },
+        commands: [cutCommand], calls: [] }],
+      total_matched: 1,
+    }));
+    const spy = vi.spyOn(api, "getSessionCommands").mockResolvedValue(whole);
+    await openConversation();
+    fireEvent.click(toggleOf(await screen.findByText("count the files")));
+    fireEvent.click(toggleOf(await screen.findByText("wc f*")));
+    const showAll = await screen.findByRole("button", { name: "Show all 26 processes" });
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(5);
+    fireEvent.click(showAll);
+    expect(await screen.findByRole("button", { name: "Show 5 more processes" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "wc" })).toHaveLength(20);
+    expect(spy).toHaveBeenCalledWith("H1", SESSION, { command: whole.commands[0].key });
+    expect(screen.queryByRole("button", { name: "Show all 26 processes" })).not.toBeInTheDocument();
+  });
 });
 
 // The session's commands are read from the server a page at a time, searched there, and counted from its totals (issue #1425).
