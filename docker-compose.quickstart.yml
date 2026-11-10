@@ -15,11 +15,14 @@ services:
     # Single MySQL instance: no replica and no point-in-time recovery, so the
     # binary log is pure overhead. Disabling it drops a per-commit fsync and
     # roughly halves write volume, which directly relieves the disk-bound event
-    # store. Further ingest tuning (commit durability, buffer pool, flush pacing)
-    # is disk-specific, so it is not defaulted here; see "Tuning MySQL for ingest
-    # throughput" in docs/quickstart-vm.md.
+    # store. The buffer pool is MySQL's page cache: at MySQL's own 128 MB default
+    # the session views read most pages from disk, so it defaults to 1 GB here
+    # and EDR_MYSQL_BUFFER_POOL_SIZE in .env resizes it. The other ingest knobs
+    # (commit durability, flush pacing) are disk-specific, so they are not
+    # defaulted; see "Tuning MySQL" in docs/quickstart-vm.md.
     command:
       - --skip-log-bin
+      - --innodb-buffer-pool-size=${EDR_MYSQL_BUFFER_POOL_SIZE:-1G}
     environment:
       MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root
       MYSQL_DATABASE: edr

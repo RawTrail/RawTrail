@@ -33,7 +33,7 @@ macOS then asks you to allow RawTrail's system extensions in System Settings. Th
 
 ## What it costs
 
-The stack keeps 7 days of events. MySQL is capped at 640 MB of memory and ClickHouse at 1,280 MB; the server itself has no cap. An idle stack uses about 450 MB in all.
+The stack keeps 7 days of events. MySQL is capped at 1,024 MB of memory and ClickHouse at 1,280 MB; the server itself has no cap. An idle stack uses about 450 MB in all.
 
 | Measure                                   | Value            |
 | ----------------------------------------- | ---------------- |

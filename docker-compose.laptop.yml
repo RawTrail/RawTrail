@@ -3,7 +3,7 @@
 # installs the agent pointed at it.
 #
 # Sized for a laptop rather than a server: the server is published on 127.0.0.1 only and terminates TLS itself (no Caddy), ClickHouse
-# is capped near 1 GB, MySQL keeps a small buffer pool, events are kept for 7 days, and no telemetry is exported.
+# is capped near 1 GB, MySQL's buffer pool is 512 MB, events are kept for 7 days, and no telemetry is exported.
 
 name: rawtrail-laptop
 
@@ -11,13 +11,14 @@ services:
   mysql:
     image: mysql:8.4.9@sha256:c36050afdca850f23cef85703f84c7531a5ae155a11b5ee1c60acb09937c4084
     restart: unless-stopped
-    # One machine's events: no replica to feed, so no binary log. The buffer pool stays at 128 MB, and the performance schema, a few
-    # hundred MB of instrumentation nobody reads here, is off.
+    # One machine's events: no replica to feed, so no binary log. The buffer pool is 512 MB, enough to keep a long agent session's
+    # process graph in memory, with the container limit above it for MySQL's own overhead. The performance schema, a few hundred MB
+    # of instrumentation nobody reads here, is off.
     command:
       - --skip-log-bin
-      - --innodb-buffer-pool-size=128M
+      - --innodb-buffer-pool-size=512M
       - --performance-schema=OFF
-    mem_limit: 640m
+    mem_limit: 1024m
     environment:
       MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root
       MYSQL_DATABASE: edr
