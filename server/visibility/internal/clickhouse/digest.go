@@ -43,8 +43,7 @@ func (s *Store) ActivityDigest(ctx context.Context, filter api.DigestFilter) (ap
 	}
 	scope, args := activityScope(filter.ActivityFilter)
 	dropScope, dropArgs := overlapScope(filter.ActivityFilter)
-	ctx = withActivityQuerySize(ctx)
-	g, gctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(withActivityScope(ctx, filter.ActivityFilter))
 	g.Go(func() (err error) {
 		out.Directories, out.DirectoriesTruncated, err = s.digestDirectories(gctx, scope, args)
 		return err

@@ -17,10 +17,12 @@ import (
 // largeScope is how many generations the large-scope test names: the most a session's activity reads (issue #1424).
 const largeScope = 20000
 
-// A session's activity is read over every generation its process read names, up to the bound, which writes a filter far longer than
-// ClickHouse's default query size allows (issue #1424).
+// A session's activity is read over every generation its process read names, up to the bound (issue #1424). Written into the query as
+// tuples, that many generations pass ClickHouse's default query size, so the reads send them beside the query instead (issue #1550),
+// and this runs with the default.
 //
 // spec:server-rest-api/agent-session-reads-past-one-page/a-session-past-the-tree-page-is-read-whole
+// spec:server-rest-api/agent-session-activity-scope-travels-beside-the-query/a-large-scope-reads-under-the-default-query-size
 func TestEventArchive_ActivityOverALargeScope(t *testing.T) {
 	t.Parallel()
 	arch := openTestArchive(t)
