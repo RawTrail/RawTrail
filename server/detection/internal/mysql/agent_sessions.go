@@ -224,43 +224,69 @@ func (s *Store) fillSessionTokens(ctx context.Context, rows []api.AgentSessionSu
 	}
 }
 
-// countSessionActivity fills each row's process and alert counts with one grouped query apiece over the page's sessions, both served
-// by idx_processes_host_agent_session_fork.
+// sessionListProcessCountBound is how far the sessions list counts each listed session's processes. A count reads the session's whole
+// index range, so an unbounded one grew with the session: on a dogfood page holding a 762,084-process session the counts read 2.2M
+// index entries and took 9.5 s (issue #1547). Past the bound a row reports the bound and says it is capped.
+const sessionListProcessCountBound = 10000
+
+// countSessionActivity fills each row's process and alert counts over the page's sessions, both served by
+// idx_processes_host_agent_session_fork.
 func (s *Store) countSessionActivity(ctx context.Context, rows []api.AgentSessionSummary) error {
 	if len(rows) == 0 {
 		return nil
 	}
+	if err := s.countSessionProcesses(ctx, rows); err != nil {
+		return err
+	}
 	keys := make([]string, 0, len(rows))
-	args := make([]any, 0, len(rows)*2)
+	args := make([]any, 0, len(rows)*2+1)
 	index := make(map[[2]string]int, len(rows))
 	for i, r := range rows {
 		keys = append(keys, "(?, ?)")
 		args = append(args, r.HostID, r.AgentSessionID)
 		index[[2]string{r.HostID, r.AgentSessionID}] = i
 	}
-	in := "(" + strings.Join(keys, ", ") + ")"
-	type count struct {
+	var alerts []struct {
 		HostID    string `db:"host_id"`
 		SessionID string `db:"agent_session_id"`
 		N         int64  `db:"n"`
 	}
-	var processes, alerts []count
-	if err := s.db.SelectContext(ctx, &processes, `
-		SELECT host_id, agent_session_id, COUNT(*) AS n FROM processes
-		WHERE (host_id, agent_session_id) IN `+in+` GROUP BY host_id, agent_session_id`, args...); err != nil {
-		return fmt.Errorf("count session processes: %w", err)
-	}
 	if err := s.db.SelectContext(ctx, &alerts, `
 		SELECT p.host_id, p.agent_session_id, COUNT(*) AS n FROM alerts a JOIN processes p ON p.id = a.process_id
-		WHERE (p.host_id, p.agent_session_id) IN `+in+` AND a.disposition = ?
+		WHERE (p.host_id, p.agent_session_id) IN (`+strings.Join(keys, ", ")+`) AND a.disposition = ?
 		GROUP BY p.host_id, p.agent_session_id`, append(args, api.AlertDispositionAlert)...); err != nil {
 		return fmt.Errorf("count session alerts: %w", err)
 	}
-	for _, c := range processes {
-		rows[index[[2]string{c.HostID, c.SessionID}]].ProcessCount = c.N
-	}
 	for _, c := range alerts {
 		rows[index[[2]string{c.HostID, c.SessionID}]].AlertCount = c.N
+	}
+	return nil
+}
+
+// sessionProcessCountsSQL is countSessionProcesses' statement for n sessions, each bound to its position, host, session id and the
+// count's limit.
+func sessionProcessCountsSQL(n int) string {
+	const part = `SELECT ? AS i, COUNT(*) AS n FROM (SELECT 1 FROM processes WHERE host_id = ? AND agent_session_id = ? LIMIT ?) AS bounded`
+	return strings.TrimSuffix(strings.Repeat(part+" UNION ALL ", n), " UNION ALL ")
+}
+
+// countSessionProcesses fills each row's process count in one statement: a count per session, each reading at most
+// sessionListProcessCountBound+1 entries of the session's index range, so a page costs the same however large its sessions are.
+func (s *Store) countSessionProcesses(ctx context.Context, rows []api.AgentSessionSummary) error {
+	args := make([]any, 0, len(rows)*4)
+	for i, r := range rows {
+		args = append(args, i, r.HostID, r.AgentSessionID, sessionListProcessCountBound+1)
+	}
+	var counts []struct {
+		I int   `db:"i"`
+		N int64 `db:"n"`
+	}
+	if err := s.db.SelectContext(ctx, &counts, sessionProcessCountsSQL(len(rows)), args...); err != nil {
+		return fmt.Errorf("count session processes: %w", err)
+	}
+	for _, c := range counts {
+		rows[c.I].ProcessCount = min(c.N, sessionListProcessCountBound)
+		rows[c.I].ProcessCountCapped = c.N > sessionListProcessCountBound
 	}
 	return nil
 }
