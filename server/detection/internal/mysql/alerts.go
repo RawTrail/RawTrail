@@ -209,24 +209,24 @@ func (s *Store) triggeringEvents(ctx context.Context, eventIDs []string) ([]api.
 	if len(eventIDs) == 0 {
 		return nil, nil
 	}
+	// One holder per event, so an event many alerts hold is read once rather than once per alert.
 	query, args, err := sqlx.In(`
 		SELECT p.event_id, p.host_id, p.timestamp_ns, p.ingested_at_ns, p.event_type, p.payload
-		FROM alert_events ae JOIN alert_event_payloads p ON p.alert_id = ae.alert_id AND p.event_id = ae.event_id
-		WHERE ae.event_id IN (?)`, eventIDs)
+		FROM alert_event_payloads p JOIN (
+			SELECT ae.event_id, MIN(ae.alert_id) AS alert_id
+			FROM alert_events ae JOIN alert_event_payloads held ON held.alert_id = ae.alert_id AND held.event_id = ae.event_id
+			WHERE ae.event_id IN (?) GROUP BY ae.event_id
+		) holder ON p.alert_id = holder.alert_id AND p.event_id = holder.event_id`, eventIDs)
 	if err != nil {
 		return nil, fmt.Errorf("build captured evidence query: %w", err)
 	}
-	var stored []api.Event
-	if err := s.db.SelectContext(ctx, &stored, s.db.Rebind(query), args...); err != nil {
+	var out []api.Event
+	if err := s.db.SelectContext(ctx, &out, s.db.Rebind(query), args...); err != nil {
 		return nil, fmt.Errorf("read captured evidence: %w", err)
 	}
-	found := make(map[string]bool, len(stored))
-	out := make([]api.Event, 0, len(eventIDs))
-	for _, ev := range stored {
-		if !found[ev.EventID] {
-			found[ev.EventID] = true
-			out = append(out, ev)
-		}
+	found := make(map[string]bool, len(out))
+	for _, ev := range out {
+		found[ev.EventID] = true
 	}
 	missing := slices.DeleteFunc(slices.Clone(eventIDs), func(id string) bool { return found[id] })
 	if len(missing) == 0 {
