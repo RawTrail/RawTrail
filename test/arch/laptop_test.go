@@ -42,6 +42,7 @@ type laptopService struct {
 	Environment map[string]string `json:"environment"`
 	MemLimit    string            `json:"mem_limit"`
 	Volumes     []string          `json:"volumes"`
+	Command     []string          `json:"command"`
 }
 
 func readLaptopCompose(t *testing.T) laptopDoc {
@@ -109,6 +110,27 @@ func megabytes(t *testing.T, size string) int64 {
 	n, err := strconv.ParseInt(strings.TrimSuffix(size, "m"), 10, 64)
 	require.NoError(t, err)
 	return n * 1024 * 1024
+}
+
+// spec:release-packaging/mysql-s-buffer-pool-is-sized-for-the-session-views/the-laptop-buffer-pool-fits-under-its-container-limit
+func TestLaptopMySQLBufferPoolFitsUnderItsContainer(t *testing.T) {
+	t.Parallel()
+	mysql := readLaptopCompose(t).Services["mysql"]
+	pool, ok := commandFlag(mysql.Command, "--innodb-buffer-pool-size")
+	require.True(t, ok, "MySQL is started without a buffer pool size")
+	assert.Equal(t, "512M", pool)
+	assert.GreaterOrEqual(t, megabytes(t, mysql.MemLimit)-512*1024*1024, int64(256*1024*1024),
+		"the container limit must leave MySQL room for its own overhead above the buffer pool")
+}
+
+// commandFlag returns the value of a --name=value entry in a container's command.
+func commandFlag(command []string, name string) (string, bool) {
+	for _, arg := range command {
+		if value, ok := strings.CutPrefix(arg, name+"="); ok {
+			return value, true
+		}
+	}
+	return "", false
 }
 
 // spec:release-packaging/the-laptop-stack-is-sized-for-a-laptop/events-and-process-graphs-expire-together-after-a-week

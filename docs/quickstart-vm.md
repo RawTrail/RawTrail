@@ -118,9 +118,21 @@ The full list of exported metrics and what to alert on is in [install-server.md]
 
 If you run the collector as a fourth container in this stack, reach it by its Compose service name (for example `http://collector:4317`) rather than `localhost`, because each container has its own loopback.
 
-## Tuning MySQL for ingest throughput
+## Tuning MySQL
 
-If event ingest feels slow (the server logs `http request (slow)` on `POST /api/events`, or the agent's upload queue grows), the bottleneck is almost always MySQL commit latency on the disk: each event batch is one InnoDB transaction, and commit cost is dominated by disk fsync. The stack already runs `--skip-log-bin` (no binary log) by default. The remaining knobs are disk- and RAM-specific, so they are not defaulted; add them as `command:` entries on the `mysql` service in `docker-compose.quickstart.yml`, then recreate MySQL with `docker compose -f docker-compose.quickstart.yml up -d mysql`.
+### Buffer pool
+
+The buffer pool is MySQL's page cache. The quickstart sets it to 1 GB, against MySQL's own default of 128 MB, so that the pages an agent session's views read stay in memory instead of coming from disk. On a larger VM, give it more: set `EDR_MYSQL_BUFFER_POOL_SIZE` in `.env` (for example `EDR_MYSQL_BUFFER_POOL_SIZE=3G`, or a size in bytes) and recreate MySQL:
+
+```sh
+docker compose -f docker-compose.quickstart.yml up -d mysql
+```
+
+Leave room for ClickHouse and the operating system's file cache: up to about a quarter to a third of the VM's RAM is a reasonable share for MySQL on this single-VM stack.
+
+### Ingest throughput
+
+If event ingest feels slow (the server logs `http request (slow)` on `POST /api/events`, or the agent's upload queue grows), the bottleneck is almost always MySQL commit latency on the disk: each event batch is one InnoDB transaction, and commit cost is dominated by disk fsync. The stack already runs `--skip-log-bin` (no binary log) by default. The remaining knobs are disk-specific, so they are not defaulted; add them as `command:` entries on the `mysql` service in `docker-compose.quickstart.yml`, then recreate MySQL with `docker compose -f docker-compose.quickstart.yml up -d mysql`.
 
 Measure your disk's synchronous-write speed first, because the right `io_capacity` depends on it:
 
@@ -134,16 +146,16 @@ The knobs, in order of impact:
 
 - **`--innodb-flush-log-at-trx-commit=2`**: fsync the redo log about once a second instead of on every commit. The biggest single win on a slow disk. Tradeoff: a host crash can lose up to ~1 second of acknowledged events. That is acceptable here because the agent keeps a local queue and re-uploads, but it is a durability change, so it is opt-in.
 - **`--innodb-io-capacity=<IOPS>` and `--innodb-io-capacity-max=<2x IOPS>`**: set these to your measured disk IOPS. The default is far too high for a network volume, which makes InnoDB hoard dirty pages and then flush them in bursts that stall commits for seconds (a large latency tail). Matching the real disk speed makes flushing steady.
-- **`--innodb-buffer-pool-size=<bytes>`**: keep the index-heavy `event_queue` working set in RAM. Size it to roughly half to three-quarters of the VM's RAM. Raise it together with `io_capacity`, not alone: a larger pool holds more dirty pages, so without matching flush pacing it can make the latency tail worse on a slow disk.
+- **A larger buffer pool** (`EDR_MYSQL_BUFFER_POOL_SIZE`, above): on a slow disk, raise it together with `io_capacity`, not alone. A larger pool holds more dirty pages, so without matching flush pacing it can make the latency tail worse.
 - **`--innodb-max-dirty-pages-pct=10`**: on a slow disk, keep the dirty set small so InnoDB flushes continuously rather than in storms.
 
-Example for a slow ~190 IOPS network volume on an 8 GB box:
+Example for a slow ~190 IOPS network volume on an 8 GB box, with `EDR_MYSQL_BUFFER_POOL_SIZE=2G` in `.env`:
 
 ```yaml
 command:
   - --skip-log-bin
+  - --innodb-buffer-pool-size=${EDR_MYSQL_BUFFER_POOL_SIZE:-1G}
   - --innodb-flush-log-at-trx-commit=2
-  - --innodb-buffer-pool-size=2147483648
   - --innodb-io-capacity=200
   - --innodb-io-capacity-max=400
   - --innodb-max-dirty-pages-pct=10

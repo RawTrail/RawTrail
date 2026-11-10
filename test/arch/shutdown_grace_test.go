@@ -67,6 +67,8 @@ type composeService struct {
 	Image string `json:"image"`
 	// StopGracePeriod is how long the runtime waits after SIGTERM before SIGKILL. Absent means Docker's default of 10s.
 	StopGracePeriod string `json:"stop_grace_period"`
+	// Command is the container's command line, which for MySQL carries its server options.
+	Command []string `json:"command"`
 }
 
 // shutdownNeeds is the longest a graceful shutdown can take, as the sum of EVERY bounded stage, in the order they run: the drain

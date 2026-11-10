@@ -64,7 +64,7 @@ preflight() {
   engine=$(docker info --format '{{.OperatingSystem}}' 2> /dev/null || echo unknown)
   memory=$(docker info --format '{{.MemTotal}}' 2> /dev/null || echo 0)
   sub "Docker engine: $engine"
-  # The stack's containers are capped at about 2 GB together, plus the server itself.
+  # The stack's containers are capped at about 2.3 GB together, plus the server itself.
   if [ "$memory" -lt 3000000000 ]; then
     sub "Warning: the Docker engine has $((memory / 1000000)) MB of memory. The stack wants about 3 GB: give the engine more if it \
 struggles."
