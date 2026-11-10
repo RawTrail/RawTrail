@@ -2,7 +2,7 @@
 
 ### Requirement: Agent sessions list cost per page
 
-The agent sessions list SHALL read each listed session's owner, the uid of its earliest retained process, from that session's processes in index order, stopping at the first. It SHALL count each listed session's processes up to 10,000 and report a count that reached the bound as capped. Neither read SHALL grow with the number of processes a session holds.
+The agent sessions list SHALL read each listed session's owner, the uid of its earliest retained process, from that session's processes in index order, stopping at the first. It SHALL count each listed session's processes up to 10,000, and SHALL report the count as capped only when the session holds more than 10,000. Neither read SHALL grow with the number of processes a session holds.
 
 #### Scenario: A session with many processes does not slow the page
 
