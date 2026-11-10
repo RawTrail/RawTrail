@@ -5,7 +5,7 @@ On the dogfood server running v0.9.0-rc.4, the AI agent sessions page shows an A
 ## What changes
 
 - The owner lookup orders by the whole `idx_processes_host_agent_session_fork` key (`host_id, agent_session_id, fork_time_ns, id`). Its first two columns are fixed by the lookup, so the owner it finds is the same, and MySQL now reads the session's processes in index order and stops at the first. On dogfood the same page's read drops from 16.8 s to 0.034 s.
-- The sessions list's cost per page no longer grows with the number of processes its sessions hold.
+- Reading a session's owner no longer grows with the number of processes the session holds. The page's process counts still read each listed session's processes: on dogfood they take 3.6 s for the same page, which issue #1547 tracks.
 
 ## Impact
 
