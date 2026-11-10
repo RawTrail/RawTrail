@@ -4,7 +4,7 @@ The server sent every response uncompressed, and nothing in front of it compress
 
 ## What changes
 
-- The server's HTTP middleware compresses a response with zstd or gzip when the client's `Accept-Encoding` allows it and the body is large enough to gain, and marks it `Vary: Accept-Encoding`.
+- The server's HTTP middleware compresses a response with zstd or gzip when the client's `Accept-Encoding` allows it and the body is large enough to gain, and marks it `Vary: Accept-Encoding`. A compressed response drops the handler's `ETag`, which names the uncompressed bytes (RFC 7232 section 2.3.3).
 - Each compressed body is padded by a few bytes derived from its content, so its exact length cannot be used to recover a secret in it (BREACH).
 - The agent control channel's gRPC stream is dispatched before this middleware and is not affected.
 

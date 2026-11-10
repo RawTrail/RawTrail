@@ -36,6 +36,7 @@ func TestBuild_CompressesResponses(t *testing.T) {
 			mux := http.NewServeMux()
 			mux.HandleFunc("GET /api/thing", func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("ETag", `"identity-bytes"`)
 				_, _ = io.WriteString(w, tc.body)
 			})
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/thing", nil)
@@ -47,11 +48,15 @@ func TestBuild_CompressesResponses(t *testing.T) {
 
 			require.Equal(t, http.StatusOK, rr.Code)
 			assert.Equal(t, tc.wantEncoding, rr.Header().Get("Content-Encoding"))
+			wire := rr.Body.Len()
 			assert.Equal(t, tc.body, decodeBody(t, tc.wantEncoding, rr.Body), "the client reads back exactly what the handler wrote")
-			if tc.wantEncoding != "" {
-				assert.Less(t, rr.Body.Len(), len(tc.body)/10, "a repetitive JSON body compresses at least tenfold")
-				assert.Contains(t, rr.Header().Values("Vary"), "Accept-Encoding", "caches must key the response on the encoding")
+			if tc.wantEncoding == "" {
+				assert.Equal(t, `"identity-bytes"`, rr.Header().Get("ETag"), "an unencoded body keeps the handler's validator")
+				return
 			}
+			assert.Less(t, wire, len(tc.body)/10, "a repetitive JSON body compresses at least tenfold")
+			assert.Contains(t, rr.Header().Values("Vary"), "Accept-Encoding", "caches must key the response on the encoding")
+			assert.Empty(t, rr.Header().Get("ETag"), "the handler's validator names the uncompressed bytes, not these")
 		})
 	}
 }

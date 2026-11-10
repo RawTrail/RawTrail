@@ -119,10 +119,11 @@ func Build(handler http.Handler, opts Options) http.Handler {
 // compressResponses compresses a response with zstd or gzip when the client accepts either and the body is large enough to gain
 // from it, which every browser does. A long agent session's Timeline is about 20 MB of JSON and compresses to about 1.5 MB (issue
 // #1550). The jitter pads each compressed body by a few bytes chosen from its content, so its exact length cannot be used to guess
-// a secret in it byte by byte (BREACH). The control channel's gRPC stream is dispatched before this chain runs, so it is never
-// compressed here.
+// a secret in it byte by byte (BREACH). A compressed body drops its ETag: the handler computed it over the uncompressed bytes, and a
+// validator shared by different bytes would let a range request resume one encoding from the other. The control channel's gRPC
+// stream is dispatched before this chain runs, so it is never compressed here.
 func compressResponses(next http.Handler) http.Handler {
-	wrap, err := gzhttp.NewWrapper(gzhttp.EnableZstd(true), gzhttp.RandomJitter(32, 0, false))
+	wrap, err := gzhttp.NewWrapper(gzhttp.EnableZstd(true), gzhttp.RandomJitter(32, 0, false), gzhttp.DropETag())
 	if err != nil {
 		panic(fmt.Sprintf("httpserver: response compression options: %v", err))
 	}
