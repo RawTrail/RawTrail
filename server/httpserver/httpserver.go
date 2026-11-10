@@ -1,10 +1,10 @@
 // Package httpserver wires the EDR server's HTTP stack.
 //
 // Build composes otelhttp (auto-instrumentation and W3C trace context extraction), an
-// X-Request-ID echo layer, a panic-recovery layer, and an access-log layer around the
-// provided mux. Layer order (bracketed layers are optional):
+// X-Request-ID echo layer, a response-compression layer, a panic-recovery layer, and an
+// access-log layer around the provided mux. Layer order (bracketed layers are optional):
 //
-//	otelhttp( [clientIPResolver]( spanClientAddress( xRequestIDEcho( [hsts]( accessLog( recover( mux ) ) ) ) ) ) )
+//	otelhttp( [clientIPResolver]( spanClientAddress( xRequestIDEcho( [hsts]( accessLog( compress( recover( mux ) ) ) ) ) ) ) )
 //
 // The span from otelhttp covers the entire request including the access log overhead, so the
 // span duration matches what shows up in SigNoz. xRequestIDEcho copies the span's trace-id
@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/gzhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric/noop"
@@ -84,6 +85,7 @@ func Build(handler http.Handler, opts Options) http.Handler {
 
 	h := handler
 	h = recoverMiddleware(opts.Logger)(h)
+	h = compressResponses(h)
 	h = accessLog(opts.Logger, opts.SlowThreshold, opts.Metrics)(h)
 	if opts.TLSEnabled {
 		h = hstsHeader()(h)
@@ -112,6 +114,20 @@ func Build(handler http.Handler, opts Options) http.Handler {
 		}),
 	)
 	return h
+}
+
+// compressResponses compresses a response with zstd or gzip when the client accepts either and the body is large enough to gain
+// from it, which every browser does. A long agent session's Timeline is about 20 MB of JSON and compresses to about 1.5 MB (issue
+// #1550). The jitter pads each compressed body by a few bytes chosen from its content, so its exact length cannot be used to guess
+// a secret in it byte by byte (BREACH). A compressed body drops its ETag: the handler computed it over the uncompressed bytes, and a
+// validator shared by different bytes would let a range request resume one encoding from the other. The control channel's gRPC
+// stream is dispatched before this chain runs, so it is never compressed here.
+func compressResponses(next http.Handler) http.Handler {
+	wrap, err := gzhttp.NewWrapper(gzhttp.EnableZstd(true), gzhttp.RandomJitter(32, 0, false), gzhttp.DropETag())
+	if err != nil {
+		panic(fmt.Sprintf("httpserver: response compression options: %v", err))
+	}
+	return wrap(next)
 }
 
 // hstsHeader adds the Strict-Transport-Security header on every response. Two years, including
