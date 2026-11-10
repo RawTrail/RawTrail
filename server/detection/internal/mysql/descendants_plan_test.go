@@ -49,16 +49,27 @@ func TestDescendantWalk_FollowsEachEdgeByItsIndex(t *testing.T) {
 		"the creator edge reads idx_processes_host_parent and the re-exec edge reads idx_processes_previous_exec")
 }
 
-// TestSessionOwner_ReadsTheSessionIndex pins the plan of a session's owner lookup, which the sessions list runs once per row. Given its
-// ORDER BY ... LIMIT 1, MySQL preferred to walk idx_processes_fork_id across every host's processes until it met one of the session's,
-// which on a 15M-row table held the list past the request deadline, and read the whole index for a session with no process left.
+// spec:server-rest-api/agent-sessions-list-cost-per-page/a-session-with-many-processes-does-not-slow-the-page
+//
+// TestSessionOwner_ReadsTheSessionIndex pins the plan of a session's owner lookup, which the sessions list runs twice per row (the
+// owner, then the bypass mark).
+//
+// Given its ORDER BY ... LIMIT 1, MySQL first preferred to walk idx_processes_fork_id across every host's processes until it met one of
+// the session's, which on a 15M-row table held the list past the request deadline. Forcing the session index left a second trap: as a
+// correlated subquery ordered by fork_time_ns alone, MySQL 8.4 read the session's rows by the index and then sorted all of them, which
+// for a dogfood session of 762,084 processes took 16.8 s a page and showed the operator a 502 (issue #1544). Ordering by the whole
+// index key lets MySQL read the rows in index order and stop at the first.
 func TestSessionOwner_ReadsTheSessionIndex(t *testing.T) {
 	t.Parallel()
 	_, db := newStoreAndDB(t)
 	ctx := t.Context()
 	// Other hosts' processes, earlier than the session's, are what the walk by fork time read through first.
 	seedProcesses(t, ctx, db, "owner-plan-other-host", 5000, 1_000_000)
-	_, err := db.ExecContext(ctx, `INSERT INTO agent_sessions (host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd,
+	// The session's own processes, which a sort would read in full.
+	seedProcesses(t, ctx, db, "owner-plan-host", 5000, 2_000_000)
+	_, err := db.ExecContext(ctx, "UPDATE processes SET agent_session_id = 'session', uid = 501 WHERE host_id = 'owner-plan-host'")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO agent_sessions (host_id, agent_session_id, agent_name, agent_version, agent_pid, cwd,
 		first_seen_ns, first_event_id, last_seen_ns) VALUES ('owner-plan-host', 'session', 'claude-code', '2', 1, '/', 1, 'e', 2)`)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, "ANALYZE TABLE processes, agent_sessions")
@@ -73,6 +84,7 @@ func TestSessionOwner_ReadsTheSessionIndex(t *testing.T) {
 		require.NoError(t, rows.MapScan(row))
 		if planCell(row["table"]) == "p" {
 			keys = append(keys, planCell(row["key"])+" "+planCell(row["type"]))
+			assert.NotContains(t, planCell(row["Extra"]), "filesort", "the owner must be the first row read in index order")
 		}
 	}
 	require.NoError(t, rows.Err())
