@@ -34,6 +34,9 @@ type sessionReads struct {
 	// flight lets concurrent misses on one session at one last activity, a session view's tabs opening together, share one read.
 	flight singleflight.Group
 	now    func() time.Time
+	// waiting, when set, is called once a caller has joined or started a shared read and is about to wait on it. Tests use it to
+	// know every caller is waiting before the read finishes.
+	waiting func()
 }
 
 type sessionKey struct{ hostID, sessionID string }
@@ -72,13 +75,18 @@ func (c *sessionReads) get(
 		}
 		readCtx, cancel := context.WithTimeout(shared, sessionReadTimeout)
 		defer cancel()
+		// The read is as old as its start: what changed while it ran may be missing from it.
+		readAt := c.now()
 		tree, err := read(readCtx)
 		if err != nil {
 			return api.ProcessTreeResult{}, err
 		}
-		c.keep(key, sessionRead{tree: tree, lastSeenNs: lastSeenNs, readAt: c.now()})
+		c.keep(key, sessionRead{tree: tree, lastSeenNs: lastSeenNs, readAt: readAt})
 		return tree, nil
 	})
+	if c.waiting != nil {
+		c.waiting()
+	}
 	select {
 	case res := <-flight:
 		if res.Err != nil {

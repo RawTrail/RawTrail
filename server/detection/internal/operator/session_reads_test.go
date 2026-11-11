@@ -78,6 +78,28 @@ func TestSessionReads_KeepsAReadWhileTheSessionIsIdle(t *testing.T) {
 	}
 }
 
+// A read is kept for sessionReadTTL from when it began, since what changed while it ran may be missing from it.
+func TestSessionReads_AgesAReadFromItsStart(t *testing.T) {
+	t.Parallel()
+	clock := &fakeClock{at: time.Unix(1_000, 0)}
+	reads := newSessionReads()
+	reads.now = clock.now
+	session := &api.AgentSessionSummary{HostID: "h1", AgentSessionID: "s1", LastSeenNs: 100}
+	var calls atomic.Int32
+	slow := func(context.Context) (api.ProcessTreeResult, error) {
+		if calls.Add(1) == 1 {
+			clock.at = clock.at.Add(sessionReadTTL - time.Second)
+		}
+		return api.ProcessTreeResult{}, nil
+	}
+	_, err := reads.get(t.Context(), session, slow)
+	require.NoError(t, err)
+	clock.at = clock.at.Add(time.Second)
+	_, err = reads.get(t.Context(), session, slow)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), calls.Load(), "a read that took most of the window is read again once the window from its start passes")
+}
+
 func TestSessionReads_DoesNotKeepAFailedRead(t *testing.T) {
 	t.Parallel()
 	reads := newSessionReads()
@@ -105,6 +127,10 @@ func TestSessionReads_ConcurrentViewsShareOneRead(t *testing.T) {
 		return api.ProcessTreeResult{Roots: []api.ProcessNode{{Process: api.Process{ID: 7}}}}, nil
 	}
 	const views = 8
+	// Every view is waiting on the read before it finishes, so each is answered by sharing it, not from what it kept.
+	var waiting sync.WaitGroup
+	waiting.Add(views)
+	reads.waiting = waiting.Done
 	var wg sync.WaitGroup
 	results := make([]api.ProcessTreeResult, views)
 	for i := range views {
@@ -114,8 +140,7 @@ func TestSessionReads_ConcurrentViewsShareOneRead(t *testing.T) {
 			results[i] = tree
 		})
 	}
-	// Let every view reach the read before it finishes; a view that arrives after it is answered from what was kept.
-	time.Sleep(50 * time.Millisecond)
+	waiting.Wait()
 	close(release)
 	wg.Wait()
 	assert.Equal(t, int32(1), calls.Load())
