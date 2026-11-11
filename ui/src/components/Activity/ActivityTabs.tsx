@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import "./ActivityTabs.scss";
 import { getActivity, getActivityPage, type ActivityScopeQuery } from "../../api";
 import type {
@@ -7,6 +7,7 @@ import type {
 import { Button } from "../ui/Button";
 import { Table, EmptyState } from "../ui/Table";
 import { formatNs, executableName, hostPort, plural } from "../Search/format";
+import { formatRelativeNs } from "../../time";
 import { scopeNote } from "./activityScope";
 import { socketDaemon } from "./socketDaemon";
 
@@ -77,6 +78,8 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
   const listKey = `${key}\n${search}`;
   const [read, setRead] = useState<ActivityRead | null>(null);
   const [tab, setTab] = useState<TabKey>("network");
+  // dnsByName orders the DNS list by name instead of when each was first seen. It outlives a switch to another tab and back.
+  const [dnsByName, setDnsByName] = useState(false);
   const current = read?.key === key ? read : null;
   const [more, setMore] = useState<More>({ key: listKey, byClass: new Map() });
   const extra: ReadonlyMap<TabKey, ClassMore> = more.key === listKey ? more.byClass : new Map();
@@ -192,6 +195,8 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
             activity={activity}
             rows={listed(activity.dns.rows, extra.get("dns"), searching) as DNSActivityRow[]}
             processName={processName}
+            byName={dnsByName}
+            onByName={setDnsByName}
             hasMore={hasMore(activity.dns, extra.get("dns"))}
             more={<LoadMore cls="dns" first={activity.dns.next_cursor} extra={extra.get("dns")} onMore={loadMore} />}
           />
@@ -257,12 +262,15 @@ function Summary({ text, more, shown }: { readonly text: string; readonly more: 
   );
 }
 
+// Seen is a row's count and when it was first and last seen, each time as an age ("6m ago") with the exact time on hover, as the Agent
+// sessions list shows one. A row seen once has no last.
 function Seen({ row }: { readonly row: ActivityRow }) {
+  const once = row.last_ns === row.first_ns;
   return (
     <>
       <td>{row.count.toLocaleString()}</td>
-      <td>{formatNs(row.first_ns)}</td>
-      <td>{row.last_ns === row.first_ns ? "" : formatNs(row.last_ns)}</td>
+      <td title={formatNs(row.first_ns)}>{formatRelativeNs(row.first_ns)}</td>
+      <td title={once ? undefined : formatNs(row.last_ns)}>{once ? "" : formatRelativeNs(row.last_ns)}</td>
     </>
   );
 }
@@ -360,20 +368,50 @@ function NetworkPanel({ activity, rows, processName, hasMore: listsMore, more }:
   );
 }
 
-function DNSPanel({ activity, rows, processName, hasMore: listsMore, more }: PanelProps<DNSActivityRow>) {
+// DNSPanelProps adds the order of the DNS list: by name when byName is set, otherwise as listed, by when each was first seen.
+interface DNSPanelProps extends PanelProps<DNSActivityRow> {
+  readonly byName: boolean;
+  readonly onByName: (byName: boolean) => void;
+}
+
+function DNSPanel({ activity, rows, processName, byName, onByName, hasMore: listsMore, more }: DNSPanelProps) {
   const { dns } = activity;
   const text = `${plural(dns.events, "query", "queries")} for ${plural(dns.distinct, "name", "names")}`;
+  // The sort orders the rows listed. A cut list's later rows join the order as they are read.
+  const shown = useMemo(
+    () => (byName ? [...rows].sort((a, b) => a.query_name.localeCompare(b.query_name) || a.first_ns - b.first_ns) : rows),
+    [rows, byName],
+  );
   return (
     <>
       <Summary text={text} more={listsMore} shown={rows.length} />
       {rows.length > 0 && (
         <Table>
-          <thead><tr><th>Name</th><th>Answers</th><th>Process</th><th>Count</th><th>First</th><th>Last</th></tr></thead>
+          <thead>
+            <tr>
+              {/* A real button, so the sort is reachable by keyboard; the th's aria-sort states the order. */}
+              <th aria-sort={byName ? "ascending" : "none"}>
+                <button
+                  type="button"
+                  className="activity-tabs__sort"
+                  aria-pressed={byName}
+                  title={byName ? "Listed by name. Select to list by when each was first seen." : "Select to list by name."}
+                  onClick={() => { onByName(!byName); }}
+                >
+                  Name{byName ? " ▲" : ""}
+                </button>
+              </th>
+              <th>Answers</th><th>Process</th><th>Count</th><th>First</th><th>Last</th>
+            </tr>
+          </thead>
           <tbody>
-            {rows.map((r) => (
+            {shown.map((r) => (
               <tr key={`${r.query_name}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td className="activity-tabs__mono">{r.query_name}</td>
-                <td className="activity-tabs__mono">{r.addresses.join(", ")}</td>
+                {/* An answer list wraps within its cap, so a name answered by many addresses grows down rather than sideways. */}
+                <td className="activity-tabs__mono">
+                  <span className="activity-tabs__answers">{r.addresses.join(", ")}</span>
+                </td>
                 <td>{processName(r)}</td>
                 <Seen row={r} />
               </tr>
