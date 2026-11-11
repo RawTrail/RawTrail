@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import { ActivityTabs } from "./ActivityTabs";
 import * as api from "../../api";
 import type { ActivityResponse } from "../../types";
+import { formatNs } from "../Search/format";
 
 const S = 1_000_000_000;
 
@@ -75,6 +76,61 @@ describe("ActivityTabs", () => {
     fireEvent.click(screen.getByRole("button", { name: "Files 0" }));
     expect(screen.getByText("0 file events on 0 paths")).toBeVisible();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/activity-times-read-as-an-age/first-and-last-read-as-an-age-with-the-exact-time-on-hover
+  it("shows when a row was first and last seen as an age, with the exact time on hover", async () => {
+    // Six minutes after the example.com lookup's first answer.
+    vi.spyOn(Date, "now").mockReturnValue((9 * S) / 1_000_000 + 6 * 60_000);
+    vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    await screen.findByText("4 connections to 3 destinations");
+    // A connection seen once has no last.
+    const connection = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(connection[3]).toHaveTextContent("5m ago");
+    expect(connection[3]).toHaveAttribute("title", formatNs(10 * S));
+    expect(connection[4]).toHaveTextContent("");
+    expect(connection[4]).not.toHaveAttribute("title");
+
+    fireEvent.click(screen.getByRole("button", { name: "DNS 3" }));
+    const lookup = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(lookup[4]).toHaveTextContent("6m ago");
+    expect(lookup[4]).toHaveAttribute("title", formatNs(9 * S));
+    expect(lookup[5]).toHaveTextContent("5m ago");
+    expect(lookup[5]).toHaveAttribute("title", formatNs(10 * S));
+  });
+
+  // spec:web-ui/activity-table-cells-stay-on-one-line/a-long-answer-list-wraps-within-its-cap
+  it("wraps a DNS row's answers within their cap", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
+    expect(screen.getByText("104.20.23.154, 172.66.147.243")).toHaveClass("activity-tabs__answers");
+  });
+
+  // spec:web-ui/the-dns-list-sorts-by-name/the-name-header-sorts-the-dns-list
+  it("sorts the DNS list by name from its header, and back to first seen", async () => {
+    const base = session();
+    const late = { ...base.dns.rows[0], query_name: "a.example", first_ns: 20 * S, last_ns: 20 * S };
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows: [...base.dns.rows, late] } }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
+    const names = () => screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[0].textContent);
+    expect(names()).toEqual(["example.com", "fleetdm.com", "qa1285.example.org", "a.example"]);
+
+    const sort = screen.getByRole("button", { name: "Name" });
+    expect(sort).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(sort);
+    expect(names()).toEqual(["a.example", "example.com", "fleetdm.com", "qa1285.example.org"]);
+    expect(screen.getByRole("columnheader", { name: "Name ▲" })).toHaveAttribute("aria-sort", "ascending");
+
+    // The order outlives a visit to another tab.
+    fireEvent.click(screen.getByRole("button", { name: "Network 3" }));
+    fireEvent.click(screen.getByRole("button", { name: "DNS 3" }));
+    expect(names()).toEqual(["a.example", "example.com", "fleetdm.com", "qa1285.example.org"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Name ▲" }));
+    expect(names()).toEqual(["example.com", "fleetdm.com", "qa1285.example.org", "a.example"]);
   });
 
   it("shows a rename with its origin and labels each operation", async () => {

@@ -49,13 +49,36 @@
   }
 
   // A cell keeps to one line, so a long path reads whole and the table's wrapper scrolls sideways. Wrapping anywhere let a narrow
-  // panel squeeze the path column to a few characters per line.
+  // panel squeeze the path column to a few characters per line. A DNS row's answers are the exception (&__answers).
   td {
     white-space: nowrap;
   }
 
   &__mono {
     font-family: ui-monospace, sfmono-regular, Menlo, monospace;
+  }
+
+  // A DNS row's answers are the one value that wraps: a name answered by many addresses listed them on one line and pushed the table
+  // sideways. The list takes its own width up to the cap, never less, so a wide table cannot squeeze it to one address a line.
+  &__answers {
+    display: inline-block;
+    max-width: 24rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    width: max-content;
+  }
+
+  // A column header that sorts its list: a button, so it is reachable by keyboard, styled as the header text it sits in.
+  &__sort {
+    background: none;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    letter-spacing: inherit;
+    padding: 0;
+    text-align: inherit;
+    text-transform: inherit;
   }
 
   // A file row's cell: its path (or a rename's two), and the tags some rows carry, on one line capped so one long path cannot stretch the
