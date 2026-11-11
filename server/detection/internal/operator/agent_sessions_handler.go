@@ -560,10 +560,12 @@ func (h *Handler) buildSessionCommands(
 }
 
 // readSession reads a session's processes as the activity rollup reads a session scope: as a flat forest, the whole session up to
-// the scoped read's bound.
+// the scoped read's bound. The read is kept briefly and shared (sessionReads), so the caller must not change it.
 func (h *Handler) readSession(ctx context.Context, session *api.AgentSessionSummary) (api.ProcessTreeResult, error) {
-	scope := api.TreeScope{AgentSessionID: session.AgentSessionID}
-	return h.svc.BuildScopedTree(ctx, session.HostID, scope, graph.MaxScopedRead, true, 0)
+	return h.sessionReads.get(ctx, session, func(ctx context.Context) (api.ProcessTreeResult, error) {
+		scope := api.TreeScope{AgentSessionID: session.AgentSessionID}
+		return h.svc.BuildScopedTree(ctx, session.HostID, scope, graph.MaxScopedRead, true, 0)
+	})
 }
 
 // commandsOf shapes a session's process read into its commands, with what launchd started for each moved under it.

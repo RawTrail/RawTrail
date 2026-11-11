@@ -102,6 +102,7 @@ type Handler struct {
 	agentToolCalls AgentToolCallReader
 	activity       ActivityReader
 	sessionTotals  AgentSessionTotalsReader
+	sessionReads   *sessionReads
 	storage        *storageSettings
 	// processRetentionDays is how many days completed process records are kept, or 0 when retention is disabled. See
 	// SetProcessRetention.
@@ -123,7 +124,7 @@ func New(svc api.Service, authz identityapi.AuthZ, logger *slog.Logger) *Handler
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{svc: svc, authz: authz, logger: logger}
+	return &Handler{svc: svc, authz: authz, logger: logger, sessionReads: newSessionReads()}
 }
 
 // SetProcessRetention tells the tree endpoint how long completed process records are kept (EDR_RETENTION_DAYS), so a response
