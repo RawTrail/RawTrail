@@ -83,10 +83,6 @@ type EventArchive interface {
 	// later process that reused a pid, is never counted. See ActivityRollup for what each class reports.
 	ActivityForGenerations(ctx context.Context, filter ActivityFilter) (ActivityRollup, error)
 
-	// ActivityTotalsForGenerations is ActivityForGenerations' totals without its lists (issue #1422), with the file events counted by
-	// operation, for a summary that names how much a scope touched but none of what.
-	ActivityTotalsForGenerations(ctx context.Context, filter ActivityFilter) (ActivitySummary, error)
-
 	// ActivityDigest describes what a scope touched for a summary of it (issue #1429): its file events by directory, how many paths it
 	// touched outside its project, the domains it looked up or connected to, each marked when the host had not looked it up before
 	// the scope began, and its events counted in equal buckets of the filter's span.
@@ -367,7 +363,10 @@ type DigestFilter struct {
 // Domains lists the domains with the most lookups and connections, most first. Timeline counts the scope's
 // file, network and DNS events in equal buckets, from TimelineStartNs, TimelineBucketNs wide, a coalesced event counting as the
 // occurrences it stands for. The buckets split the filter's span widened to the scope's first and last event, so every event is on it.
+// Totals is ActivityForGenerations' totals without its lists (issue #1422), with the file events counted by operation, counted in the
+// timeline's pass over the scope rather than in one of their own (issue #1550).
 type ActivityDigest struct {
+	Totals               ActivitySummary     `json:"-"`
 	Directories          []DirectoryActivity `json:"directories"`
 	DirectoriesTruncated bool                `json:"directories_truncated"`
 	Files                FileDigest          `json:"files"`

@@ -95,10 +95,6 @@ func (f *fakeEventArchive) AgentSessionTokens(
 	return nil, nil
 }
 
-func (f *fakeEventArchive) ActivityTotalsForGenerations(context.Context, api.ActivityFilter) (visibilityapi.ActivitySummary, error) {
-	return visibilityapi.ActivitySummary{}, nil
-}
-
 func (f *fakeEventArchive) ActivityPage(context.Context, api.ActivityFilter, string, string) (visibilityapi.ActivityPage, error) {
 	return visibilityapi.ActivityPage{}, nil
 }

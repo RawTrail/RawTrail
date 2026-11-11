@@ -521,11 +521,6 @@ func (m *MemArchive) ActivityPage(context.Context, api.ActivityFilter, string, s
 	return api.ActivityPage{}, errActivityUnsupported
 }
 
-// ActivityTotalsForGenerations is not mirrored in memory; see errActivityUnsupported.
-func (m *MemArchive) ActivityTotalsForGenerations(context.Context, api.ActivityFilter) (api.ActivitySummary, error) {
-	return api.ActivitySummary{}, errActivityUnsupported
-}
-
 // ActivityDigest is not mirrored in memory; see errActivityUnsupported.
 func (m *MemArchive) ActivityDigest(context.Context, api.DigestFilter) (api.ActivityDigest, error) {
 	return api.ActivityDigest{}, errActivityUnsupported

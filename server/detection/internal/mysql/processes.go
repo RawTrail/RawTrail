@@ -951,11 +951,6 @@ func (s *Store) ActivityPage(
 	return s.archive.ActivityPage(ctx, filter, class, cursor)
 }
 
-// ActivityTotalsForGenerations delegates the activity totals (issue #1422) to the visibility EventArchive.
-func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivitySummary, error) {
-	return s.archive.ActivityTotalsForGenerations(ctx, filter)
-}
-
 // ActivityDigest delegates a session's activity digest (issue #1429) to the visibility EventArchive.
 func (s *Store) ActivityDigest(ctx context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
 	return s.archive.ActivityDigest(ctx, filter)

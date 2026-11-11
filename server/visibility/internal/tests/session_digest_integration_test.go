@@ -72,6 +72,16 @@ func TestEventArchive_ActivityDigest(t *testing.T) {
 		return err == nil && len(got.Domains) == 4
 	}, 5*time.Second, 100*time.Millisecond)
 
+	// The span's events lie outside the filter's span, so the timeline is bucketed again over the widened span. Bucketed in the
+	// totals' own pass over a filter that already spans every event, it comes out the same, and so do the totals.
+	spanning := filter
+	spanning.StartNs, spanning.EndNs = at(-5), at(150)
+	inOnePass, err := arch.ActivityDigest(ctx, spanning)
+	require.NoError(t, err)
+	assert.Equal(t, got, inOnePass, "a timeline counted in the totals' pass is the one the widened read counts")
+	assert.Equal(t, int64(1+3+1+10+1+1+1+1), got.Totals.Files.Events, "the totals count every file event of the scope, on the span or not")
+	got.Totals = visibilityapi.ActivitySummary{}
+
 	assert.Equal(t, visibilityapi.ActivityDigest{
 		Directories: []visibilityapi.DirectoryActivity{
 			{Directory: "/p/node_modules", Paths: 1, ByOperation: map[string]int64{"create": 10}},
@@ -101,6 +111,7 @@ func TestEventArchive_ActivityDigest(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, visibilityapi.ActivityDigest{
+			Totals:      visibilityapi.ActivitySummary{Files: visibilityapi.FileTotals{ByOperation: map[string]int64{}}},
 			Directories: []visibilityapi.DirectoryActivity{}, Domains: []visibilityapi.DomainActivity{}, Timeline: []int64{0, 0},
 			TimelineStartNs: 100, TimelineBucketNs: 50,
 		}, empty, "over the filter's own span")

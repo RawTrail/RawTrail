@@ -3,17 +3,19 @@ package operator
 import (
 	"context"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/rawtrail/rawtrail/server/detection/api"
 	"github.com/rawtrail/rawtrail/server/detection/internal/graph"
 	"github.com/rawtrail/rawtrail/server/detection/internal/sessioncommands"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
-// AgentSessionTotalsReader is the read of a session's totals (issue #1422): its processes and alerts from the process store, and what
-// it touched, the tools it called, the tokens it used (issue #1427) and its digest (issue #1429) from the event archive. mysql.Store satisfies it.
+// AgentSessionTotalsReader is the read of a session's totals (issue #1422): its processes and alerts from the process store, and the
+// tools it called, the tokens it used (issue #1427) and its digest (issue #1429), which totals what it touched, from the event archive.
+// mysql.Store satisfies it.
 type AgentSessionTotalsReader interface {
 	AgentSessionCounts(ctx context.Context, hostID, sessionID string) (api.AgentSessionCounts, error)
-	ActivityTotalsForGenerations(ctx context.Context, filter visibilityapi.ActivityFilter) (visibilityapi.ActivitySummary, error)
 	AgentToolCallCounts(ctx context.Context, filter visibilityapi.AgentToolCallFilter) ([]visibilityapi.ToolCallCount, error)
 	AgentUsageTotals(ctx context.Context, filter visibilityapi.AgentToolCallFilter, ownerUID int64) (visibilityapi.AgentUsageTotals, error)
 	ActivityDigest(ctx context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error)
@@ -52,56 +54,59 @@ type toolCallTotals struct {
 }
 
 // sessionSummary counts a session's totals. One read of the session's processes gives its commands and the scope its activity is
-// counted over, the scope the session's activity rollup reads, so the two agree.
+// counted over, the scope the session's activity rollup reads, so the two agree. The reads that need neither run beside it, so a long
+// session's Summary waits for its slowest read rather than for all of them in turn (issue #1550).
 func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionSummary) (agentSessionSummaryResponse, error) {
 	hostID, sessionID := session.HostID, session.AgentSessionID
-	counts, err := h.sessionTotals.AgentSessionCounts(ctx, hostID, sessionID)
-	if err != nil {
-		return agentSessionSummaryResponse{}, err
-	}
-	tree, err := h.readSession(ctx, session)
-	if err != nil {
-		return agentSessionSummaryResponse{}, err
-	}
-	_, commands := commandsOf(tree)
-	roots, agents, err := h.withSessionAgents(ctx, hostID, sessionID, tree)
-	if err != nil {
-		return agentSessionSummaryResponse{}, err
-	}
-	filter, scope, _, err := h.filterOf(ctx, hostID, sessionID, roots, agents, tree.Truncated, graph.MaxScopedRead)
-	if err != nil {
-		return agentSessionSummaryResponse{}, err
-	}
-	activity, err := h.sessionTotals.ActivityTotalsForGenerations(ctx, filter)
-	if err != nil {
-		return agentSessionSummaryResponse{}, err
-	}
-	tools, err := h.sessionTotals.AgentToolCallCounts(ctx, sessionToolCalls(session))
-	if err != nil {
-		return agentSessionSummaryResponse{}, err
-	}
-	// Usage counts only from the owner's transcripts (issue #1478), so a session whose owner is no longer known reports none, as its
-	// lineage does.
-	usage := visibilityapi.AgentUsageTotals{Models: []visibilityapi.ModelUsage{}, Modes: []visibilityapi.ModeUsage{}}
+	var (
+		counts  api.AgentSessionCounts
+		tools   []visibilityapi.ToolCallCount
+		prompts int64
+		scoped  scopedSummary
+		// Usage counts only from the owner's transcripts (issue #1478), so a session whose owner is no longer known reports none, as
+		// its lineage does.
+		usage = visibilityapi.AgentUsageTotals{Models: []visibilityapi.ModelUsage{}, Modes: []visibilityapi.ModeUsage{}}
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() (err error) {
+		counts, err = h.sessionTotals.AgentSessionCounts(gctx, hostID, sessionID)
+		return err
+	})
+	g.Go(func() (err error) {
+		tools, err = h.sessionTotals.AgentToolCallCounts(gctx, sessionToolCalls(session))
+		return err
+	})
 	if session.OwnerUID != nil {
-		usage, err = h.sessionTotals.AgentUsageTotals(ctx, sessionToolCalls(session), *session.OwnerUID)
-		if err != nil {
-			return agentSessionSummaryResponse{}, err
-		}
+		g.Go(func() (err error) {
+			usage, err = h.sessionTotals.AgentUsageTotals(gctx, sessionToolCalls(session), *session.OwnerUID)
+			return err
+		})
 	}
-	digest, err := h.sessionDigest(ctx, session, commands, filter)
-	if err != nil {
+	g.Go(func() (err error) {
+		prompts, err = h.sessionTotals.AgentPromptCount(gctx, hostID, sessionID)
+		return err
+	})
+	g.Go(func() (err error) {
+		scoped, err = h.scopedSummary(gctx, session)
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return agentSessionSummaryResponse{}, err
 	}
 	out := agentSessionSummaryResponse{
-		Commands:  len(commands),
+		Commands:  len(scoped.commands),
 		Processes: counts.Processes,
 		Alerts:    alertTotals{BySeverity: counts.AlertsBySeverity},
 		ToolCalls: toolCallTotals{ByTool: tools},
-		Activity:  activity,
-		Scope:     *scope,
+		Activity:  scoped.digest.Totals,
+		Scope:     scoped.scope,
 		Usage:     usage,
-		Digest:    digest,
+		Digest: sessionDigest{
+			Prompts:         prompts,
+			Programs:        topPrograms(scoped.commands),
+			ActivityDigest:  scoped.digest,
+			CommandTimeline: commandTimeline(scoped.commands, scoped.digest),
+		},
 	}
 	for _, n := range counts.AlertsBySeverity {
 		out.Alerts.Total += n
@@ -112,23 +117,32 @@ func (h *Handler) sessionSummary(ctx context.Context, session *api.AgentSessionS
 	return out, nil
 }
 
-// sessionDigest describes the session for its Summary: its prompts and digest from the event archive, and its programs and command
-// timeline from the commands the summary counted.
-func (h *Handler) sessionDigest(
-	ctx context.Context, session *api.AgentSessionSummary, commands []sessioncommands.Command, scope visibilityapi.ActivityFilter,
-) (sessionDigest, error) {
-	prompts, err := h.sessionTotals.AgentPromptCount(ctx, session.HostID, session.AgentSessionID)
+// scopedSummary is what a Summary reads through the session's processes: its commands, the scope its activity is counted over, and
+// the digest of that scope, which totals it.
+type scopedSummary struct {
+	commands []sessioncommands.Command
+	scope    timelineScope
+	digest   visibilityapi.ActivityDigest
+}
+
+// scopedSummary reads the session's processes, shapes them into its commands and its activity scope, and reads the scope's digest.
+func (h *Handler) scopedSummary(ctx context.Context, session *api.AgentSessionSummary) (scopedSummary, error) {
+	tree, err := h.readSession(ctx, session)
 	if err != nil {
-		return sessionDigest{}, err
+		return scopedSummary{}, err
 	}
-	activity, err := h.sessionTotals.ActivityDigest(ctx, digestFilter(session, scope, commands))
+	_, commands := commandsOf(tree)
+	roots, agents, err := h.withSessionAgents(ctx, session.HostID, session.AgentSessionID, tree)
 	if err != nil {
-		return sessionDigest{}, err
+		return scopedSummary{}, err
 	}
-	return sessionDigest{
-		Prompts:         prompts,
-		Programs:        topPrograms(commands),
-		ActivityDigest:  activity,
-		CommandTimeline: commandTimeline(commands, activity),
-	}, nil
+	filter, scope, _, err := h.filterOf(ctx, session.HostID, session.AgentSessionID, roots, agents, tree.Truncated, graph.MaxScopedRead)
+	if err != nil {
+		return scopedSummary{}, err
+	}
+	digest, err := h.sessionTotals.ActivityDigest(ctx, digestFilter(session, filter, commands))
+	if err != nil {
+		return scopedSummary{}, err
+	}
+	return scopedSummary{commands: commands, scope: *scope, digest: digest}, nil
 }

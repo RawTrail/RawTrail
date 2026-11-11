@@ -133,46 +133,62 @@ func scopeWithSpanStart(filter api.ActivityFilter, spanStart string) (string, []
 	return scope, slices.Clip(args)
 }
 
-// ActivityTotalsForGenerations totals what the generations touched, as ActivityForGenerations does, with the file events by operation
-// and no lists. Every figure comes from one aggregate, so a live session's events arriving mid-read cannot make the operations disagree
-// with the file total. A filter with no generation and no span totals nothing, as the rollup does.
-func (s *Store) ActivityTotalsForGenerations(ctx context.Context, filter api.ActivityFilter) (api.ActivitySummary, error) {
-	if len(filter.Generations) == 0 && len(filter.Spans) == 0 {
-		return api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}, nil
-	}
-	scope, args := activityScope(filter)
-	return s.activityTotals(withActivityScope(ctx, filter), scope, args)
+// activityTotalsColumns are the aggregates that total a scope's events: each class's events and distinct artifacts, and the file
+// events by operation, as one map. A file's artifact is its path, a connection's its destination (address, port and protocol), a
+// query's its name. scanTotals reads them, in this order.
+const activityTotalsColumns = `
+	sumMapIf(([` + activityFileOperation + `], [toInt64(` + activityWeight + `)]), event_type IN ` + activityFileTypes + `) AS operations,
+	toInt64(sumIf(` + activityWeight + `, event_type IN ` + activityFileTypes + `)) AS files,
+	toInt64(uniqExactIf(JSONExtractString(payload, 'path'), event_type IN ` + activityFileTypes + `)) AS paths,
+	toInt64(sumIf(` + activityWeight + `, event_type = 'network_connect')) AS connections,
+	toInt64(uniqExactIf((JSONExtractString(payload, 'remote_address'), JSONExtractInt(payload, 'remote_port'),
+		JSONExtractString(payload, 'protocol')), event_type = 'network_connect')) AS destinations,
+	toInt64(sumIf(` + activityWeight + `, event_type = 'dns_query')) AS queries,
+	toInt64(uniqExactIf(JSONExtractString(payload, 'query_name'), event_type = 'dns_query')) AS names`
+
+// activityTotalsSelect lists activityTotalsColumns as scanTotals reads them, the operations map as its keys and values.
+const activityTotalsSelect = "operations.1, operations.2, files, paths, connections, destinations, queries, names"
+
+// totalsScan holds what scanTotals reads until the row is scanned.
+type totalsScan struct {
+	out             api.ActivitySummary
+	operations      []string
+	operationCounts []int64
 }
 
-// activityTotals counts each class's events and distinct artifacts, and the file events by operation, in one pass: a file's artifact
-// is its path, a connection's its destination (address, port and protocol), a query's its name.
+func newTotalsScan() *totalsScan {
+	return &totalsScan{out: api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}}
+}
+
+// dest is the scan destinations of activityTotalsSelect.
+func (t *totalsScan) dest() []any {
+	return []any{&t.operations, &t.operationCounts, &t.out.Files.Events, &t.out.Files.Distinct, &t.out.Network.Events,
+		&t.out.Network.Distinct, &t.out.DNS.Events, &t.out.DNS.Distinct}
+}
+
+// summary is the totals scanned, with the operations folded into their map.
+func (t *totalsScan) summary() api.ActivitySummary {
+	for i, operation := range t.operations {
+		t.out.Files.ByOperation[operation] = t.operationCounts[i]
+	}
+	return t.out
+}
+
+// activityTotals totals the scope's events in one pass (activityTotalsColumns). Every figure comes from one aggregate, so a live
+// session's events arriving mid-read cannot make the operations disagree with the file total.
 func (s *Store) activityTotals(ctx context.Context, scope string, args []any) (api.ActivitySummary, error) {
-	out := api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}}
-	operations, counts := []string{}, []int64{}
-	// The operations are one map, read as its keys and values from the row that computes it once.
+	totals := newTotalsScan()
 	row := s.db.QueryRowContext(ctx, `
-		SELECT operations.1, operations.2, files, paths, connections, destinations, queries, names
+		SELECT `+activityTotalsSelect+`
 		FROM (
-			SELECT
-				sumMapIf(([`+activityFileOperation+`], [toInt64(`+activityWeight+`)]), event_type IN `+activityFileTypes+`) AS operations,
-				toInt64(sumIf(`+activityWeight+`, event_type IN `+activityFileTypes+`)) AS files,
-				toInt64(uniqExactIf(JSONExtractString(payload, 'path'), event_type IN `+activityFileTypes+`)) AS paths,
-				toInt64(sumIf(`+activityWeight+`, event_type = 'network_connect')) AS connections,
-				toInt64(uniqExactIf((JSONExtractString(payload, 'remote_address'), JSONExtractInt(payload, 'remote_port'),
-					JSONExtractString(payload, 'protocol')), event_type = 'network_connect')) AS destinations,
-				toInt64(sumIf(`+activityWeight+`, event_type = 'dns_query')) AS queries,
-				toInt64(uniqExactIf(JSONExtractString(payload, 'query_name'), event_type = 'dns_query')) AS names
+			SELECT `+activityTotalsColumns+`
 			FROM events FINAL
 			WHERE event_type IN `+activityAllTypes+` AND `+scope+`
 		)`, args...)
-	if err := row.Scan(&operations, &counts, &out.Files.Events, &out.Files.Distinct, &out.Network.Events, &out.Network.Distinct,
-		&out.DNS.Events, &out.DNS.Distinct); err != nil {
+	if err := row.Scan(totals.dest()...); err != nil {
 		return api.ActivitySummary{}, fmt.Errorf("clickhouse activity totals: %w", err)
 	}
-	for i, operation := range operations {
-		out.Files.ByOperation[operation] = counts[i]
-	}
-	return out, nil
+	return totals.summary(), nil
 }
 
 func (s *Store) fileActivity(ctx context.Context, scope string, args []any, after keyset, limit int) ([]api.FileActivityRow, bool, error) {
