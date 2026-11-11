@@ -1385,7 +1385,7 @@ A session's token and permission-mode totals, its tokens in the sessions list, a
 
 ### Requirement: Agent sessions list cost per page
 
-The agent sessions list SHALL read each listed session's owner, the uid of its earliest retained process, from that session's processes in index order, stopping at the first, so the owner read does not grow with the number of processes a session holds.
+The agent sessions list SHALL read each listed session's owner, the uid of its earliest retained process, from that session's processes in index order, stopping at the first. It SHALL count each listed session's processes up to 10,000, and SHALL report the count as capped only when the session holds more than 10,000. Neither read SHALL grow with the number of processes a session holds.
 
 #### Scenario: A session with many processes does not slow the page
 
@@ -1393,3 +1393,79 @@ The agent sessions list SHALL read each listed session's owner, the uid of its e
 - **WHEN** the plan of the owner lookup that the list runs per row is read
 - **THEN** it reads processes by the session index, not by fork time
 - **AND** it does not sort the session's processes
+
+#### Scenario: A session's process count stops at its bound
+
+- **GIVEN** a session with one process more than the bound, a session with exactly the bound, and a session with 3 processes
+- **WHEN** the sessions list is read
+- **THEN** the first reports the bound and says it is capped, the second reports the bound and is not capped, and the third reports 3
+- **AND** counting a session past the bound reads at most the bound and one more of its index entries
+
+### Requirement: Conversation turns list a large command's processes in part
+
+A page of a session's conversation SHALL list each turn's command of more than 100 processes as a page of the session's commands lists it: its first 100 in its forest's order, every process an alert was raised on and every process the page's search finds, each under its creators, marked `processes_cut`, with `process_ids` naming every process.
+
+#### Scenario: A turn's large command is listed in part
+
+- **GIVEN** a command whose wrapper shell ran make, which started 150 workers, the 141st of them alerted
+- **WHEN** the session's conversation is read
+- **THEN** the turn holding the command lists its first 100 processes and the alerted worker, marks it cut, and names all 153 processes
+
+### Requirement: Responses are compressed for clients that accept it
+
+The server SHALL compress an HTTP response body with zstd or gzip when the request's `Accept-Encoding` names one of them and the body is large enough to gain from it, and SHALL then mark the response `Vary: Accept-Encoding` and drop any `ETag` the handler set for the uncompressed body. A request that accepts neither SHALL receive the body unencoded.
+
+#### Scenario: A large response is compressed when the client accepts it
+
+- **GIVEN** a JSON response of several hundred kilobytes
+- **WHEN** a client requests it with `Accept-Encoding: gzip`, or with a list that includes `zstd`
+- **THEN** the response carries `Content-Encoding: gzip` or `zstd` respectively and `Vary: Accept-Encoding`, has no `ETag`, and decodes to the body the handler wrote
+
+#### Scenario: A client that accepts no encoding gets the body as is
+
+- **GIVEN** the same response, or one of a few bytes
+- **WHEN** a client requests the large one with no `Accept-Encoding`, or the small one with `Accept-Encoding: gzip`
+- **THEN** the response has no `Content-Encoding`, keeps the handler's `ETag`, and its body is exactly what the handler wrote
+
+### Requirement: A session's process read is kept briefly
+
+Each server replica SHALL serve an AI agent session's views (its conversation, commands, processes and summary) from one read of the session's processes for up to 30 seconds from the read's start, while the session's last activity is unchanged, and SHALL read the session again once that time passes or its last activity moves. Views of one session that the same replica serves at the same time SHALL share one read.
+
+#### Scenario: A second view of an idle session reuses its read
+
+- **GIVEN** a session whose last activity does not change
+- **WHEN** an operator opens its Timeline, then its Commands view, then searches its processes, within 30 seconds
+- **THEN** a replica that serves all three reads the session's processes once for them
+
+#### Scenario: A session that moved on is read again
+
+- **GIVEN** a session whose processes were read for one of its views
+- **WHEN** its last activity moves, or 30 seconds pass, before the next view
+- **THEN** the next view reads the session's processes again
+
+#### Scenario: Views opened together share one read
+
+- **GIVEN** a session whose processes are not kept
+- **WHEN** several of its views ask for them at the same time
+- **THEN** the server reads them once and answers every view from that read
+
+### Requirement: A session summary's reads run together
+
+The server SHALL make the reads of an AI agent session's summary that do not depend on the session's processes (its process and alert counts, tool calls, usage and prompt count) while it reads the session's processes and the digest of its activity, and SHALL count the session's activity totals in the same pass over its events as the digest's timeline.
+
+#### Scenario: The reads that do not need the session's processes run beside them
+
+- **GIVEN** a session whose every read takes a while to answer
+- **WHEN** an operator opens its Summary
+- **THEN** the server starts its counts, tool calls, usage, prompt count and digest reads before any of them has answered, and answers the same totals as when they run one after another
+
+### Requirement: Agent session activity scope travels beside the query
+
+An AI agent session's activity reads SHALL send the process generations of their scope to the event archive beside the query, not in its text, so a read's query stays the same size however many processes the session holds. What a read returns SHALL not change.
+
+#### Scenario: A large scope reads under the default query size
+
+- **GIVEN** an activity scope of 20,000 process generations, more than fit in ClickHouse's default query size as text
+- **WHEN** the scope's totals and rollup are read with the default query size
+- **THEN** both reads succeed
+- **AND** they count the events of the scope's last generation
