@@ -1,14 +1,17 @@
 package operator
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,15 +45,20 @@ type fakeSessionTotals struct {
 }
 
 // ActivityDigest answers the digest set, or, when none is, an empty one over the filter's span, as the archive reports a span always.
+// Either carries the activity totals set, which the archive counts in the digest's pass; activityErr fails that pass as digestErr does.
 func (f *fakeSessionTotals) ActivityDigest(_ context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
 	f.digestRead = &filter
+	f.activityRead = &filter.ActivityFilter
+	err := cmp.Or(f.digestErr, f.activityErr)
 	if f.digest.TimelineBucketNs == 0 {
 		return visibilityapi.ActivityDigest{
-			Timeline: make([]int64, filter.Buckets), TimelineStartNs: filter.StartNs,
+			Totals: f.activity, Timeline: make([]int64, filter.Buckets), TimelineStartNs: filter.StartNs,
 			TimelineBucketNs: (filter.EndNs-filter.StartNs)/int64(filter.Buckets) + 1,
-		}, f.digestErr
+		}, err
 	}
-	return f.digest, f.digestErr
+	digest := f.digest
+	digest.Totals = f.activity
+	return digest, err
 }
 
 func (f *fakeSessionTotals) AgentPromptCount(_ context.Context, hostID, sessionID string) (int64, error) {
@@ -61,13 +69,6 @@ func (f *fakeSessionTotals) AgentPromptCount(_ context.Context, hostID, sessionI
 func (f *fakeSessionTotals) AgentSessionCounts(_ context.Context, hostID, sessionID string) (api.AgentSessionCounts, error) {
 	f.counted = []string{hostID, sessionID}
 	return f.counts, f.countsErr
-}
-
-func (f *fakeSessionTotals) ActivityTotalsForGenerations(
-	_ context.Context, filter visibilityapi.ActivityFilter,
-) (visibilityapi.ActivitySummary, error) {
-	f.activityRead = &filter
-	return f.activity, f.activityErr
 }
 
 func (f *fakeSessionTotals) AgentToolCallCounts(
@@ -311,4 +312,79 @@ func TestAgentSessionSummary_Failures(t *testing.T) {
 			assert.Equal(t, tc.want, status)
 		})
 	}
+}
+
+// rendezvousTotals is a session's totals whose every read waits until all of them have started, so a Summary that made its reads
+// one after another would wait on the first for ever; each wait gives up after a while and records that it did.
+type rendezvousTotals struct {
+	*fakeSessionTotals
+	arrived  sync.WaitGroup
+	all      chan struct{}
+	gaveUp   atomic.Bool
+	waitFor  time.Duration
+	startAll sync.Once
+}
+
+func newRendezvousTotals(reads int) *rendezvousTotals {
+	r := &rendezvousTotals{fakeSessionTotals: &fakeSessionTotals{}, all: make(chan struct{}), waitFor: 5 * time.Second}
+	r.arrived.Add(reads)
+	return r
+}
+
+func (r *rendezvousTotals) arrive() {
+	r.arrived.Done()
+	r.startAll.Do(func() {
+		go func() {
+			r.arrived.Wait()
+			close(r.all)
+		}()
+	})
+	select {
+	case <-r.all:
+	case <-time.After(r.waitFor):
+		r.gaveUp.Store(true)
+	}
+}
+
+func (r *rendezvousTotals) AgentSessionCounts(ctx context.Context, hostID, sessionID string) (api.AgentSessionCounts, error) {
+	r.arrive()
+	return r.fakeSessionTotals.AgentSessionCounts(ctx, hostID, sessionID)
+}
+
+func (r *rendezvousTotals) AgentToolCallCounts(
+	ctx context.Context, filter visibilityapi.AgentToolCallFilter,
+) ([]visibilityapi.ToolCallCount, error) {
+	r.arrive()
+	return r.fakeSessionTotals.AgentToolCallCounts(ctx, filter)
+}
+
+func (r *rendezvousTotals) AgentUsageTotals(
+	ctx context.Context, filter visibilityapi.AgentToolCallFilter, ownerUID int64,
+) (visibilityapi.AgentUsageTotals, error) {
+	r.arrive()
+	return r.fakeSessionTotals.AgentUsageTotals(ctx, filter, ownerUID)
+}
+
+func (r *rendezvousTotals) AgentPromptCount(ctx context.Context, hostID, sessionID string) (int64, error) {
+	r.arrive()
+	return r.fakeSessionTotals.AgentPromptCount(ctx, hostID, sessionID)
+}
+
+func (r *rendezvousTotals) ActivityDigest(ctx context.Context, filter visibilityapi.DigestFilter) (visibilityapi.ActivityDigest, error) {
+	r.arrive()
+	return r.fakeSessionTotals.ActivityDigest(ctx, filter)
+}
+
+// spec:server-rest-api/a-session-summary-s-reads-run-together/the-reads-that-do-not-need-the-session-s-processes-run-beside-them
+//
+// TestAgentSessionSummary_ReadsRunTogether pins that a Summary waits for its slowest read, not for the sum of them: on dogfood a long
+// session's Summary made its archive reads one after another and took 11 s (issue #1550).
+func TestAgentSessionSummary_ReadsRunTogether(t *testing.T) {
+	t.Parallel()
+	// The counts, the tool calls, the usage, the prompts and the digest.
+	totals := newRendezvousTotals(5)
+	srv := newSummaryServer(t, fakeService{buildScopedTree: summaryTree(false)}, allowAllAuthZ{}, summarySession(), totals)
+	status, _ := getSummary(t, srv)
+	require.Equal(t, http.StatusOK, status)
+	assert.False(t, totals.gaveUp.Load(), "every read started before any finished")
 }

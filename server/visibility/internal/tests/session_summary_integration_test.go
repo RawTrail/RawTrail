@@ -4,6 +4,7 @@ package tests
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"testing"
 	"time"
@@ -14,11 +15,12 @@ import (
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
 
-// A session summary's activity (issue #1422) is the rollup's totals with the file events by operation: an agent's folded row weighs
-// the operations it stands for, a watched-path event's operation is its type, and an event of another generation is not counted.
+// A session summary's activity (issue #1422) is the rollup's totals with the file events by operation, counted in its digest's pass:
+// an agent's folded row weighs the operations it stands for, a watched-path event's operation is its type, and an event of another
+// generation is not counted.
 //
 // spec:server-rest-api/agent-session-summary/a-session-is-totalled
-func TestEventArchive_ActivityTotalsForGenerations(t *testing.T) {
+func TestEventArchive_ActivityDigestTotals(t *testing.T) {
 	t.Parallel()
 	arch := openTestArchive(t)
 	ctx := context.Background()
@@ -44,9 +46,8 @@ func TestEventArchive_ActivityTotalsForGenerations(t *testing.T) {
 	}}
 	var got visibilityapi.ActivitySummary
 	require.Eventually(t, func() bool {
-		var err error
-		got, err = arch.ActivityTotalsForGenerations(ctx, filter)
-		return err == nil && got.DNS.Events == 1
+		got = digestTotals(t, arch, filter)
+		return got.DNS.Events == 1
 	}, 5*time.Second, 100*time.Millisecond)
 
 	assert.Equal(t, visibilityapi.ActivitySummary{
@@ -65,8 +66,7 @@ func TestEventArchive_ActivityTotalsForGenerations(t *testing.T) {
 
 	t.Run("a scope with no generation totals nothing", func(t *testing.T) {
 		t.Parallel()
-		empty, err := arch.ActivityTotalsForGenerations(ctx, visibilityapi.ActivityFilter{HostID: "h1"})
-		require.NoError(t, err)
+		empty := digestTotals(t, arch, visibilityapi.ActivityFilter{HostID: "h1"})
 		assert.Equal(t, visibilityapi.ActivitySummary{Files: visibilityapi.FileTotals{ByOperation: map[string]int64{}}}, empty)
 	})
 }
@@ -119,4 +119,14 @@ func TestEventArchive_AgentToolCallCounts(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []visibilityapi.ToolCallCount{{ToolName: "Read", Count: 2}}, counts)
 	})
+}
+
+// digestTotals reads a scope's activity totals as a session's Summary does, from its digest over a span the scope's events fall in.
+func digestTotals(t *testing.T, arch visibilityapi.EventArchive, filter visibilityapi.ActivityFilter) visibilityapi.ActivitySummary {
+	t.Helper()
+	digest, err := arch.ActivityDigest(t.Context(), visibilityapi.DigestFilter{
+		ActivityFilter: filter, StartNs: 0, EndNs: math.MaxInt64 - 1, Buckets: 1,
+	})
+	require.NoError(t, err)
+	return digest.Totals
 }

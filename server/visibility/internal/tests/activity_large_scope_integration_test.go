@@ -43,9 +43,7 @@ func TestEventArchive_ActivityOverALargeScope(t *testing.T) {
 	filter := visibilityapi.ActivityFilter{HostID: "h1", Generations: gens}
 	var totals visibilityapi.ActivitySummary
 	require.Eventually(t, func() bool {
-		var err error
-		totals, err = arch.ActivityTotalsForGenerations(ctx, filter)
-		require.NoError(t, err)
+		totals = digestTotals(t, arch, filter)
 		return totals.DNS.Events == largeScope/1000
 	}, 10*time.Second, 200*time.Millisecond)
 	assert.Equal(t, int64(largeScope/1000), totals.DNS.Distinct, "the last generation's lookup is counted")

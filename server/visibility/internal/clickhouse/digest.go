@@ -35,6 +35,7 @@ const (
 // busiest domains and which of them are new to the host, and its events over time. The reads run in parallel over one scope.
 func (s *Store) ActivityDigest(ctx context.Context, filter api.DigestFilter) (api.ActivityDigest, error) {
 	out := api.ActivityDigest{
+		Totals:      api.ActivitySummary{Files: api.FileTotals{ByOperation: map[string]int64{}}},
 		Directories: []api.DirectoryActivity{}, Domains: []api.DomainActivity{}, Timeline: make([]int64, filter.Buckets),
 		TimelineStartNs: filter.StartNs, TimelineBucketNs: (filter.EndNs-filter.StartNs)/int64(filter.Buckets) + 1,
 	}
@@ -57,7 +58,7 @@ func (s *Store) ActivityDigest(ctx context.Context, filter api.DigestFilter) (ap
 		return err
 	})
 	g.Go(func() (err error) {
-		out.Timeline, out.TimelineStartNs, out.TimelineBucketNs, err = s.digestTimeline(gctx, scope, args, filter)
+		out.Totals, out.Timeline, out.TimelineStartNs, out.TimelineBucketNs, err = s.digestTotalsAndTimeline(gctx, scope, args, filter)
 		return err
 	})
 	if err := g.Wait(); err != nil {
@@ -273,24 +274,45 @@ func (s *Store) domainsSeenBefore(ctx context.Context, hostID string, startNs in
 	return seen, nil
 }
 
-// digestTimeline counts the scope's events in equal buckets of a span: the filter's, widened to the scope's first and last event so
-// none falls outside it. Each bucket is one nanosecond wider than the span divided by Buckets, so the span's last moment falls in the
-// last bucket. An event recorded between the two reads falls after the span and is left out. It returns the counts and the span's
-// start and bucket width.
-func (s *Store) digestTimeline(ctx context.Context, scope string, args []any, filter api.DigestFilter) ([]int64, int64, int64, error) {
-	var first, last, events int64
-	err := s.db.QueryRowContext(ctx, `
-		SELECT toInt64(min(timestamp_ns)), toInt64(max(timestamp_ns)), toInt64(count())
-		FROM events FINAL
-		WHERE event_type IN `+activityAllTypes+` AND `+scope, args...).Scan(&first, &last, &events)
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("clickhouse digest timeline span: %w", err)
-	}
+// digestTotalsAndTimeline totals the scope's events (activityTotalsColumns) and spreads them over filter.Buckets buckets in one pass.
+// The timeline spans the filter's span, widened to the scope's first and last events. The pass buckets the events over the filter's
+// own span; only when an event falls outside it are the events bucketed again, over the widened span (digestTimeline). Each bucket is
+// one nanosecond wider than its span divided by Buckets, so the span's last moment falls in the last bucket.
+func (s *Store) digestTotalsAndTimeline(ctx context.Context, scope string, args []any, filter api.DigestFilter) (
+	totals api.ActivitySummary, timeline []int64, startNs, bucketNs int64, err error) {
 	start, end := filter.StartNs, filter.EndNs
-	if events > 0 {
-		start, end = min(start, first), max(end, last)
-	}
 	width := (end-start)/int64(filter.Buckets) + 1
+	scan := newTotalsScan()
+	var first, last, events int64
+	var buckets, weights []int64
+	row := s.db.QueryRowContext(ctx, `
+		SELECT `+activityTotalsSelect+`, first, last, events, timeline.1, timeline.2
+		FROM (
+			SELECT `+activityTotalsColumns+`,
+				toInt64(min(timestamp_ns)) AS first, toInt64(max(timestamp_ns)) AS last, toInt64(count()) AS events,
+				sumMap(([toInt64(intDiv(minus(timestamp_ns, ?), ?))], [toInt64(`+activityWeight+`)])) AS timeline
+			FROM events FINAL
+			WHERE event_type IN `+activityAllTypes+` AND `+scope+`
+		)`, append([]any{start, width}, args...)...)
+	if err := row.Scan(append(scan.dest(), &first, &last, &events, &buckets, &weights)...); err != nil {
+		return api.ActivitySummary{}, nil, 0, 0, fmt.Errorf("clickhouse digest totals: %w", err)
+	}
+	totals = scan.summary()
+	if events > 0 && (first < start || last > end) {
+		timeline, startNs, bucketNs, err = s.digestTimeline(ctx, scope, args, min(start, first), max(end, last), filter.Buckets)
+		return totals, timeline, startNs, bucketNs, err
+	}
+	timeline = make([]int64, filter.Buckets)
+	for i, bucket := range buckets {
+		timeline[bucket] = weights[i]
+	}
+	return totals, timeline, start, width, nil
+}
+
+// digestTimeline spreads the scope's events between start and end over the given number of buckets. An event recorded after the
+// pass that found end falls after the span and is left out.
+func (s *Store) digestTimeline(ctx context.Context, scope string, args []any, start, end int64, buckets int) ([]int64, int64, int64, error) {
+	width := (end-start)/int64(buckets) + 1
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT toInt64(intDiv(minus(timestamp_ns, ?), ?)) AS bucket, toInt64(sum(`+activityWeight+`))
 		FROM events FINAL
@@ -300,7 +322,7 @@ func (s *Store) digestTimeline(ctx context.Context, scope string, args []any, fi
 		return nil, 0, 0, fmt.Errorf("clickhouse digest timeline: %w", err)
 	}
 	defer rows.Close()
-	timeline := make([]int64, filter.Buckets)
+	timeline := make([]int64, buckets)
 	for rows.Next() {
 		var bucket, n int64
 		if err := rows.Scan(&bucket, &n); err != nil {
