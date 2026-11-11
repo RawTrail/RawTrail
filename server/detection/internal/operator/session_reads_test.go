@@ -124,20 +124,114 @@ func TestSessionReads_ConcurrentViewsShareOneRead(t *testing.T) {
 	}
 }
 
+// A caller that gives up stops waiting, while the read it started goes on for the others and is kept; the read is bounded by its own
+// deadline instead, since no one request's cancel stops it.
 func TestSessionReads_SharedReadOutlivesACallerThatGivesUp(t *testing.T) {
 	t.Parallel()
 	reads := newSessionReads()
 	session := &api.AgentSessionSummary{HostID: "h1", AgentSessionID: "s1", LastSeenNs: 100}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	tree, err := reads.get(ctx, session, func(ctx context.Context) (api.ProcessTreeResult, error) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	read := func(ctx context.Context) (api.ProcessTreeResult, error) {
+		calls.Add(1)
+		deadline, ok := ctx.Deadline()
+		assert.True(t, ok, "the shared read has a deadline of its own")
+		assert.WithinDuration(t, time.Now().Add(sessionReadTimeout), deadline, 5*time.Second)
+		close(started)
+		<-release
 		if err := ctx.Err(); err != nil {
 			return api.ProcessTreeResult{}, err
 		}
 		return api.ProcessTreeResult{Roots: []api.ProcessNode{{Process: api.Process{ID: 1}}}}, nil
-	})
-	require.NoError(t, err, "the read others may share is not canceled with the caller that started it")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	gaveUp := make(chan error, 1)
+	go func() {
+		_, err := reads.get(ctx, session, read)
+		gaveUp <- err
+	}()
+	<-started
+	waiting := make(chan api.ProcessTreeResult, 1)
+	go func() {
+		tree, err := reads.get(t.Context(), session, read)
+		assert.NoError(t, err)
+		waiting <- tree
+	}()
+	cancel()
+	select {
+	case err := <-gaveUp:
+		require.ErrorIs(t, err, context.Canceled, "the caller that hung up stops waiting")
+	case <-time.After(5 * time.Second):
+		close(release)
+		require.Fail(t, "the caller that hung up waited for the read to finish")
+	}
+	close(release)
+	assert.Len(t, (<-waiting).Roots, 1, "the read the first caller started still answers the one waiting on it")
+	tree, err := reads.get(t.Context(), session, read)
+	require.NoError(t, err)
 	assert.Len(t, tree.Roots, 1)
+	assert.Equal(t, int32(1), calls.Load(), "and is kept")
+}
+
+// A view that sees the session at a later last activity does not wait on a read of it begun earlier, which could miss what moved it.
+func TestSessionReads_AMovedSessionDoesNotJoinAnEarlierRead(t *testing.T) {
+	t.Parallel()
+	reads := newSessionReads()
+	release := make(chan struct{})
+	started := make(chan struct{})
+	earlier := func(context.Context) (api.ProcessTreeResult, error) {
+		close(started)
+		<-release
+		return api.ProcessTreeResult{Roots: []api.ProcessNode{{Process: api.Process{ID: 100}}}}, nil
+	}
+	later := func(context.Context) (api.ProcessTreeResult, error) {
+		return api.ProcessTreeResult{Roots: []api.ProcessNode{{Process: api.Process{ID: 200}}}}, nil
+	}
+	done := make(chan api.ProcessTreeResult, 1)
+	go func() {
+		tree, err := reads.get(t.Context(), &api.AgentSessionSummary{HostID: "h1", AgentSessionID: "s1", LastSeenNs: 100}, earlier)
+		assert.NoError(t, err)
+		done <- tree
+	}()
+	<-started
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	tree, err := reads.get(ctx, &api.AgentSessionSummary{HostID: "h1", AgentSessionID: "s1", LastSeenNs: 200}, later)
+	require.NoError(t, err, "a view of the moved session does not wait for the earlier read")
+	assert.Equal(t, int64(200), tree.Roots[0].ID, "read afresh, not handed the read begun before the session moved")
+	close(release)
+	assert.Equal(t, int64(100), (<-done).Roots[0].ID)
+
+	// The earlier read finished last, but the session has moved past it, so the later read stays kept.
+	kept, ok := reads.kept(sessionKey{hostID: "h1", sessionID: "s1"}, 200)
+	require.True(t, ok)
+	assert.Equal(t, int64(200), kept.Roots[0].ID)
+}
+
+// A view that missed the kept read just before another's read was kept finds it when its turn to read comes, rather than reading
+// the session again: the cache is looked at again inside the shared read.
+func TestSessionReads_LooksAgainBeforeReading(t *testing.T) {
+	t.Parallel()
+	reads := newSessionReads()
+	session := &api.AgentSessionSummary{HostID: "h1", AgentSessionID: "s1", LastSeenNs: 100}
+	readAt := time.Unix(1_000, 0)
+	reads.entries[sessionKey{hostID: "h1", sessionID: "s1"}] = sessionRead{
+		tree: api.ProcessTreeResult{Roots: []api.ProcessNode{{Process: api.Process{ID: 7}}}}, lastSeenNs: 100, readAt: readAt,
+	}
+	// The first look finds the read expired, as one about to be replaced is; by the second, inside the shared read, it is fresh again.
+	looks := 0
+	reads.now = func() time.Time {
+		looks++
+		if looks == 1 {
+			return readAt.Add(sessionReadTTL)
+		}
+		return readAt
+	}
+	read := &countingRead{}
+	tree, err := reads.get(t.Context(), session, read.read)
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), read.calls.Load())
+	assert.Equal(t, int64(7), tree.Roots[0].ID)
 }
 
 func TestSessionReads_KeepsAtMostAFewReads(t *testing.T) {

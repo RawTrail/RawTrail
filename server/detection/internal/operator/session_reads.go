@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 // tab (issue #1550). sessionReads keeps a session's read for sessionReadTTL, while its last activity stays the same.
 const (
 	sessionReadTTL = 30 * time.Second
+	// sessionReadTimeout bounds a shared read, which no one request's cancel stops. A response is written within 30 seconds
+	// (httpserver's write timeout), so a read that takes longer serves no one.
+	sessionReadTimeout = 30 * time.Second
 	// maxSessionReads bounds the reads kept. A read holds at most graph.MaxScopedRead processes, so a few are tens of megabytes.
 	maxSessionReads = 4
 )
@@ -27,7 +31,7 @@ const (
 type sessionReads struct {
 	mu      sync.Mutex
 	entries map[sessionKey]sessionRead
-	// flight lets concurrent misses on one session, a session view's tabs opening together, share one read.
+	// flight lets concurrent misses on one session at one last activity, a session view's tabs opening together, share one read.
 	flight singleflight.Group
 	now    func() time.Time
 }
@@ -48,27 +52,42 @@ func newSessionReads() *sessionReads {
 // get returns the session's kept read when it is younger than sessionReadTTL and the session has done nothing since, and otherwise
 // reads it with read and keeps it. A session that is still running moves its last activity as its processes arrive, so its views
 // read it afresh.
+//
+// Views that miss on the same session at the same last activity share one read. The read is not canceled with the caller that
+// started it, so the others waiting on it are not failed by that caller hanging up; it is bounded by sessionReadTimeout instead. A
+// caller whose own request ends stops waiting.
 func (c *sessionReads) get(
 	ctx context.Context, session *api.AgentSessionSummary, read func(context.Context) (api.ProcessTreeResult, error),
 ) (api.ProcessTreeResult, error) {
 	key := sessionKey{hostID: session.HostID, sessionID: session.AgentSessionID}
-	if tree, ok := c.kept(key, session.LastSeenNs); ok {
+	lastSeenNs := session.LastSeenNs
+	if tree, ok := c.kept(key, lastSeenNs); ok {
 		return tree, nil
 	}
-	// The shared read outlives a caller that gives up, so the others waiting on it are not failed by that caller's cancel.
 	shared := context.WithoutCancel(ctx)
-	v, err, _ := c.flight.Do(key.hostID+"\x00"+key.sessionID, func() (any, error) {
-		tree, err := read(shared)
+	flight := c.flight.DoChan(key.hostID+"\x00"+key.sessionID+"\x00"+strconv.FormatInt(lastSeenNs, 10), func() (any, error) {
+		// A view that missed just as another's read was kept finds it here rather than reading again.
+		if tree, ok := c.kept(key, lastSeenNs); ok {
+			return tree, nil
+		}
+		readCtx, cancel := context.WithTimeout(shared, sessionReadTimeout)
+		defer cancel()
+		tree, err := read(readCtx)
 		if err != nil {
 			return api.ProcessTreeResult{}, err
 		}
-		c.keep(key, sessionRead{tree: tree, lastSeenNs: session.LastSeenNs, readAt: c.now()})
+		c.keep(key, sessionRead{tree: tree, lastSeenNs: lastSeenNs, readAt: c.now()})
 		return tree, nil
 	})
-	if err != nil {
-		return api.ProcessTreeResult{}, err
+	select {
+	case res := <-flight:
+		if res.Err != nil {
+			return api.ProcessTreeResult{}, res.Err
+		}
+		return res.Val.(api.ProcessTreeResult), nil
+	case <-ctx.Done():
+		return api.ProcessTreeResult{}, ctx.Err()
 	}
-	return v.(api.ProcessTreeResult), nil
 }
 
 func (c *sessionReads) kept(key sessionKey, lastSeenNs int64) (api.ProcessTreeResult, bool) {
@@ -81,10 +100,14 @@ func (c *sessionReads) kept(key sessionKey, lastSeenNs int64) (api.ProcessTreeRe
 	return e.tree, true
 }
 
-// keep stores a read, dropping the expired ones and then, while the cache is full, the oldest.
+// keep stores a read, dropping the expired ones and then, while the cache is full, the oldest. A read of the session at an earlier
+// last activity than the one kept, which finished after it, is not kept over it.
 func (c *sessionReads) keep(key sessionKey, e sessionRead) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if kept, ok := c.entries[key]; ok && kept.lastSeenNs > e.lastSeenNs {
+		return
+	}
 	now := c.now()
 	delete(c.entries, key)
 	for k, kept := range c.entries {
