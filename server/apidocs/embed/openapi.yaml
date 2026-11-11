@@ -540,6 +540,12 @@ paths:
           in: query
           description: The process id of the story's root, for `scope=story`.
           schema: {type: integer, format: int64, minimum: 1}
+        - name: rows
+          in: query
+          description: >-
+            `false` reads the totals and the scope alone, leaving every list empty, for a client that reads each class's list from
+            `GET /api/hosts/{host_id}/activity/{class}` beside it.
+          schema: {type: boolean, default: true}
       responses:
         "200":
           description: The scope's activity
@@ -559,8 +565,8 @@ paths:
       tags: [Hosts]
       summary: The next page of one class of a scope's activity
       description: >-
-        One page of the files, network destinations or DNS names a scope touched, after the cursor the activity rollup or the previous
-        page handed out, in the rollup's order. The scope is named as for `GET /api/hosts/{host_id}/activity`. Each row has the shape
+        One page of the files, network destinations or DNS names a scope touched, in the rollup's order: the first with no cursor, and
+        each after it from the cursor the rollup or the previous page handed out. The scope is named as for `GET /api/hosts/{host_id}/activity`. Each row has the shape
         of its class's rows there.
       security:
         - SessionCookie: []
@@ -605,13 +611,17 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [rows]
+                required: [rows, processes]
                 properties:
                   rows:
                     type: array
                     description: The class's rows, shaped as in the activity rollup.
                     items: {type: object}
                   next_cursor: {type: string, description: Absent on the last page.}
+                  processes:
+                    type: array
+                    description: The scope's processes the page's rows were matched by, shaped as in the activity rollup.
+                    items: {type: object}
         "400":
           description: "`invalid_scope`, or `invalid_cursor` for a malformed cursor, one of another class, or an unknown class."
           content:
@@ -3831,18 +3841,37 @@ components:
                     allOf:
                       - $ref: "#/components/schemas/ActivityRow"
                       - type: object
-                        required: [query_name, addresses]
+                        description: >-
+                          One name, over every process of the scope that resolved it. `count`, `first_ns` and `last_ns` are the
+                          name's; `pid` and `pidversion` are the first process to resolve it.
+                        required: [query_name, addresses, resolvers, process_count]
                         properties:
                           query_name: {type: string}
                           addresses:
                             type: array
                             description: Up to 16 of the addresses the answers carried, sorted.
                             items: {type: string}
+                          resolvers:
+                            type: array
+                            description: The first 16 processes to resolve the name, each with when it first did, earliest first.
+                            items:
+                              type: object
+                              required: [pid, pidversion, first_ns]
+                              properties:
+                                pid: {type: integer, format: int64}
+                                pidversion: {type: integer, format: int64}
+                                first_ns: {type: integer, format: int64}
+                          process_count:
+                            type: integer
+                            format: int64
+                            description: How many processes resolved the name.
         scope:
           $ref: "#/components/schemas/ActivityScope"
         processes:
           type: array
-          description: The scope's processes that carry a generation, mapping a row's `pid` and `pidversion` to the process.
+          description: >-
+            The scope's processes its rows were matched by, mapping a row's `pid` and `pidversion` (or a DNS row's resolvers) to the
+            process.
           items:
             type: object
             required: [id, pid, pidversion, path]

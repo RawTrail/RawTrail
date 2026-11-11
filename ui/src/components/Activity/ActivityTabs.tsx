@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } f
 import "./ActivityTabs.scss";
 import { getActivityPage, getActivityTotals, type ActivityScopeQuery } from "../../api";
 import type {
-  ActivityPage, ActivityProcess, ActivityRow, ActivityTotals, DNSActivityRow, FileActivityRow, NetworkActivityRow,
+  ActivityPage, ActivityProcess, ActivityRow, ActivityTotals, DNSActivityRow, DNSResolver, FileActivityRow, NetworkActivityRow,
 } from "../../types";
 import { Button } from "../ui/Button";
 import { Table, EmptyState } from "../ui/Table";
@@ -128,7 +128,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
         byClass.set(cls, change(byClass.get(cls) ?? EMPTY_LIST));
         if (!page) return { ...base, byClass };
         const processes = new Map(base.processes);
-        for (const p of page.processes) processes.set(generationKey(p.pid, p.pidversion), p);
+        for (const p of page.processes ?? []) processes.set(generationKey(p.pid, p.pidversion), p);
         const arrived = base.arrived.includes(cls) ? base.arrived : [...base.arrived, cls];
         return { key, byClass, processes, arrived };
       });
@@ -211,6 +211,12 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
       </div>
     </div>
   );
+}
+
+// resolversOf is the processes a DNS row names. A row from an older replica during a rolling upgrade has no resolvers: it is one
+// process's, so it names that one.
+function resolversOf(r: DNSActivityRow): DNSResolver[] {
+  return r.resolvers ?? [{ pid: r.pid, pidversion: r.pidversion, first_ns: r.first_ns }];
 }
 
 // ProcessRef names the process behind a row, or one of a DNS row's resolvers: its generation, and when it first did what the row
@@ -405,8 +411,11 @@ function DNSPanel({ totals, rows, processName, byName, onByName, hasMore: listsM
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
-              <tr key={r.query_name}>
+            {shown.map((r) => {
+              const resolvers = resolversOf(r);
+              const count = r.process_count ?? resolvers.length;
+              return (
+              <tr key={`${r.query_name}:${String(resolvers[0].pid)}:${String(resolvers[0].pidversion)}`}>
                 <td className="activity-tabs__mono">{r.query_name}</td>
                 {/* An answer list wraps within its cap, so a name answered by many addresses grows down rather than sideways. */}
                 <td className="activity-tabs__mono">
@@ -415,18 +424,19 @@ function DNSPanel({ totals, rows, processName, byName, onByName, hasMore: listsM
                 {/* Every process that resolved the name, wrapped within the cap as the answers are. */}
                 <td>
                   <span className="activity-tabs__resolvers">
-                    {r.resolvers.map((p, i) => (
+                    {resolvers.map((p, i) => (
                       <Fragment key={`${String(p.pid)}:${String(p.pidversion)}`}>
                         {i > 0 && ", "}
                         {processName(p)}
                       </Fragment>
                     ))}
-                    {r.process_count > r.resolvers.length && `, and ${plural(r.process_count - r.resolvers.length, "other", "others")}`}
+                    {count > resolvers.length && `, and ${plural(count - resolvers.length, "other", "others")}`}
                   </span>
                 </td>
                 <Seen row={r} />
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </Table>
       )}

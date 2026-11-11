@@ -249,12 +249,13 @@ export interface NetworkActivityRow extends ActivityRow {
 }
 
 // DNSActivityRow is one name over every process that resolved it (issue #1561). Its pid and pidversion are the first process's;
-// resolvers are the first 16 by when each first resolved it, and process_count is how many did.
+// resolvers are the first 16 by when each first resolved it, and process_count is how many did. Both are optional so a row from an
+// older replica during a rolling upgrade parses: that row is one process's, named by its pid and pidversion.
 export interface DNSActivityRow extends ActivityRow {
   query_name: string;
   addresses: string[];
-  resolvers: DNSResolver[];
-  process_count: number;
+  resolvers?: DNSResolver[];
+  process_count?: number;
 }
 
 // DNSResolver is one process generation that resolved a name, and when it first did.
@@ -265,11 +266,12 @@ export interface DNSResolver {
 }
 
 // ActivityPage is one page of one class's rows (issue #1424), with the cursor of the next page and the processes its rows name
-// (issue #1550).
+// (issue #1550). processes is optional so a page from an older replica during a rolling upgrade parses: its rows name each process
+// by pid.
 export interface ActivityPage<Row> {
   rows: Row[];
   next_cursor?: string;
-  processes: ActivityProcess[];
+  processes?: ActivityProcess[];
 }
 
 // ActivityProcess is a process of an activity scope, which maps a row's pid and pidversion to the process's row and image.
