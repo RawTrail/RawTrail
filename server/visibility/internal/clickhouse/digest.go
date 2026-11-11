@@ -285,7 +285,7 @@ func (s *Store) digestTotalsAndTimeline(ctx context.Context, scope string, args 
 	width := (end-start)/int64(filter.Buckets) + 1
 	scan := newTotalsScan()
 	var first, last, events int64
-	var buckets, weights []int64
+	buckets, weights := []int64{}, []int64{}
 	row := s.db.QueryRowContext(ctx, `
 		SELECT `+activityTotalsSelect+`, first, last, events, timeline.1, timeline.2
 		FROM (
