@@ -249,12 +249,13 @@ export interface NetworkActivityRow extends ActivityRow {
 }
 
 // DNSActivityRow is one name over every process that resolved it (issue #1561). Its pid and pidversion are the first process's;
-// resolvers are the first 16 by when each first resolved it, and process_count is how many did.
+// resolvers are the first 16 by when each first resolved it, and process_count is how many did. Both are optional so a row from an
+// older replica during a rolling upgrade parses: that row is one process's, named by its pid and pidversion.
 export interface DNSActivityRow extends ActivityRow {
   query_name: string;
   addresses: string[];
-  resolvers: DNSResolver[];
-  process_count: number;
+  resolvers?: DNSResolver[];
+  process_count?: number;
 }
 
 // DNSResolver is one process generation that resolved a name, and when it first did.

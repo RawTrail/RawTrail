@@ -270,6 +270,23 @@ describe("ActivityTabs", () => {
     expect(onProcess).toHaveBeenCalledWith(expect.objectContaining({ id: 10, pid: 43027 }), 5 * S);
   });
 
+  it("names each process of an older replica's DNS rows, which list a name once per process", async () => {
+    const onProcess = vi.fn();
+    const base = session();
+    // An older replica sends no resolvers or process_count: each row is one process's, named by its pid and pidversion.
+    const older = (pid: number, pidversion: number, first: number) =>
+      ({ pid, pidversion, count: 1, first_ns: first * S, last_ns: first * S, query_name: "api.github.com", addresses: ["140.82.112.6"] });
+    const rows = [older(43019, 3552877, 3), older(43027, 3552899, 5)];
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows } }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
+    const [, curl, dig] = screen.getAllByRole("row");
+    expect(within(curl).getAllByRole("cell")[2]).toHaveTextContent(/^curl \(43019\)$/);
+    expect(within(dig).getAllByRole("cell")[2]).toHaveTextContent(/^dig \(43027\)$/);
+    fireEvent.click(within(dig).getByRole("button", { name: "dig (43027)" }));
+    expect(onProcess).toHaveBeenCalledWith(expect.objectContaining({ id: 10, pid: 43027 }), 5 * S);
+  });
+
   it("names a process by pid when the scope did not list it, and selects one when asked", async () => {
     const onProcess = vi.fn();
     const activity = session({ processes: session().processes.slice(1) });
