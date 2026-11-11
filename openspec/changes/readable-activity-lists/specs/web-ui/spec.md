@@ -2,7 +2,7 @@
 
 ### Requirement: Activity table cells stay on one line
 
-Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line, except a DNS row's answers and the processes that resolved its name, which SHALL each wrap within a capped width. A file row's cell SHALL be capped in width: its path, or a rename's two, SHALL be cut at its start, so its file name stays in view, with the whole path as its tooltip, and a tag beside it, such as a socket's daemon, SHALL keep its width. When the table is still wider than its frame, the frame SHALL scroll sideways rather than wrap the value.
+Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line, except a DNS row's answers and the processes that resolved its name, which SHALL each wrap within a capped width. A file row's cell SHALL be capped in width, each path cut at its start to keep the file name in view with the whole path as its tooltip, and a tag beside it SHALL keep its width. A table wider than its frame SHALL scroll sideways rather than wrap.
 
 #### Scenario: A file path in the process detail panel reads whole
 
