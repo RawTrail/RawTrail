@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -236,26 +237,58 @@ func (s *Store) networkActivity(
 	})
 }
 
-// dnsActivity lists the names resolved, each with up to 16 of the addresses its answers carried, sorted. The bound is inside the
-// aggregate, so a name whose answers rotate through many addresses does not collect all of them only to keep 16.
+// dnsResolverLimit is how many of a name's processes its row lists, the earliest first.
+const dnsResolverLimit = 16
+
+// dnsActivity lists the names resolved, one row a name over every process that resolved it (issue #1561): its count, first and last,
+// up to 16 of the addresses its answers carried, sorted, and its first dnsResolverLimit processes with when each first resolved it.
+// The bounds are inside the aggregates, so a name whose answers rotate through many addresses, or that many processes resolved, does
+// not collect them all only to keep a few.
 func (s *Store) dnsActivity(ctx context.Context, scope string, args []any, after keyset, limit int) ([]api.DNSActivityRow, bool, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT JSONExtractString(payload, 'query_name') AS name,
-			arraySort(groupUniqArrayArray(16)(JSONExtract(payload, 'response_addresses', 'Array(String)'))),
-			pid, `+activityPIDVersion+` AS pv, toInt64(sum(`+activityWeight+`)), min(timestamp_ns) AS first,
-			max(`+activityLastTimestamp+`)
-		FROM events FINAL
-		WHERE event_type = 'dns_query' AND `+scope+`
-		GROUP BY name, pid, pv
+		WITH groupArraySorted(`+strconv.Itoa(dnsResolverLimit)+`)((p_first, pid, pv)) AS resolvers
+		SELECT name, arraySort(groupUniqArrayArray(16)(answers)),
+			arrayMap(r -> r.2, resolvers), arrayMap(r -> r.3, resolvers), arrayMap(r -> r.1, resolvers),
+			toInt64(count()), toInt64(sum(n)), min(p_first) AS first, max(p_last)
+		FROM (
+			SELECT JSONExtractString(payload, 'query_name') AS name,
+				groupUniqArrayArray(16)(JSONExtract(payload, 'response_addresses', 'Array(String)')) AS answers,
+				pid, `+activityPIDVersion+` AS pv, sum(`+activityWeight+`) AS n, min(timestamp_ns) AS p_first,
+				max(`+activityLastTimestamp+`) AS p_last
+			FROM events FINAL
+			WHERE event_type = 'dns_query' AND `+scope+`
+			GROUP BY name, pid, pv
+		)
+		GROUP BY name
 		`+after.having(dnsOrder)+`
 		ORDER BY `+dnsOrder+`
 		LIMIT ?`, after.args(args, limit+1)...)
 	if err != nil {
 		return nil, false, fmt.Errorf("clickhouse dns activity: %w", err)
 	}
-	return scanActivity(rows, limit, func(r *api.DNSActivityRow) []any {
-		return []any{&r.QueryName, &r.Addresses, &r.PID, &r.PIDVersion, &r.Count, &r.FirstNs, &r.LastNs}
+	type dnsScan struct {
+		row               api.DNSActivityRow
+		pids, pvs, firsts []int64
+	}
+	scanned, cut, err := scanActivity(rows, limit, func(r *dnsScan) []any {
+		return []any{&r.row.QueryName, &r.row.Addresses, &r.pids, &r.pvs, &r.firsts, &r.row.ProcessCount, &r.row.Count,
+			&r.row.FirstNs, &r.row.LastNs}
 	})
+	if err != nil {
+		return nil, false, err
+	}
+	out := make([]api.DNSActivityRow, 0, len(scanned))
+	for _, sc := range scanned {
+		r := sc.row
+		r.Resolvers = make([]api.DNSResolver, len(sc.pids))
+		for i := range sc.pids {
+			r.Resolvers[i] = api.DNSResolver{PID: sc.pids[i], PIDVersion: sc.pvs[i], FirstNs: sc.firsts[i]}
+		}
+		// Every name was resolved by at least one process, so the first is there; it names the row as a single process did.
+		r.PID, r.PIDVersion = r.Resolvers[0].PID, r.Resolvers[0].PIDVersion
+		out = append(out, r)
+	}
+	return out, cut, nil
 }
 
 // scanActivity reads up to limit rows, each through the destinations fields names, and reports whether a row past the limit was

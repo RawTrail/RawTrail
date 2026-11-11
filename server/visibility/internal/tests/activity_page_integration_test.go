@@ -124,8 +124,9 @@ func TestEventArchive_ActivityPages(t *testing.T) {
 		searched.Search = "N0.EXAMPLE"
 		dns, err := arch.ActivityPage(ctx, searched, visibilityapi.ActivityDNS, "")
 		require.NoError(t, err)
-		require.Len(t, dns.DNS, 2)
+		require.Len(t, dns.DNS, 1, "one row for the name, over both processes that resolved it")
 		assert.Equal(t, "n0.example", dns.DNS[0].QueryName)
+		assert.Equal(t, int64(2), dns.DNS[0].ProcessCount)
 	})
 	t.Run("no cursor reads the first page", func(t *testing.T) {
 		t.Parallel()
