@@ -718,7 +718,10 @@ describe("SessionView commands from the server", () => {
       files: { events: 0, distinct: 0, truncated: false, rows: [] },
       network: { events: 0, distinct: 0, truncated: false, rows: [] },
       dns: { events: 1, distinct: 1, truncated: false, rows: [
-        { pid: 77_777, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: "late.example", addresses: [] },
+        {
+          pid: 77_777, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: "late.example", addresses: [],
+          resolvers: [{ pid: 77_777, pidversion: 9, first_ns: 5_000 }], process_count: 1,
+        },
       ] },
     } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
     const late = proc(7_777_777, 77_777, 4_999, "/usr/bin/dig", ["dig", "late.example"]);
@@ -749,7 +752,10 @@ describe("SessionView commands from the server", () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
     const dns = (pid: number, name: string) =>
-      ({ pid, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: name, addresses: [] });
+      ({
+        pid, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: name, addresses: [],
+        resolvers: [{ pid, pidversion: 9, first_ns: 5_000 }], process_count: 1,
+      });
     vi.spyOn(api, "getActivity").mockResolvedValue({
       scope: { processes: 2, applied: 2, unmatched: 0, truncated: false },
       processes: [{ id: 7_000_001, pid: 70_001, pidversion: 9, path: "/usr/bin/dig" },

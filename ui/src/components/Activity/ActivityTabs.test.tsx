@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import { ActivityTabs } from "./ActivityTabs";
 import * as api from "../../api";
 import type { ActivityResponse } from "../../types";
+import { formatNs } from "../Search/format";
 
 const S = 1_000_000_000;
 
@@ -12,6 +13,9 @@ const S = 1_000_000_000;
 function session(over: Partial<ActivityResponse> = {}): ActivityResponse {
   const row = (pid: number, pidversion: number, count: number, first: number, last = first) =>
     ({ pid, pidversion, count, first_ns: first * S, last_ns: last * S });
+  // lookup is a name one process resolved: a DNS row lists that process as its one resolver.
+  const lookup = (pid: number, pidversion: number, count: number, first: number, last = first) =>
+    ({ ...row(pid, pidversion, count, first, last), resolvers: [{ pid, pidversion, first_ns: first * S }], process_count: 1 });
   return {
     files: { events: 0, distinct: 0, truncated: false, rows: [] },
     network: {
@@ -30,9 +34,9 @@ function session(over: Partial<ActivityResponse> = {}): ActivityResponse {
       distinct: 3,
       truncated: false,
       rows: [
-        { ...row(43017, 3552872, 2, 9, 10), query_name: "example.com", addresses: ["104.20.23.154", "172.66.147.243"] },
-        { ...row(43023, 3552887, 2, 11), query_name: "fleetdm.com", addresses: ["104.21.82.73"] },
-        { ...row(43027, 3552899, 1, 12), query_name: "qa1285.example.org", addresses: [] },
+        { ...lookup(43017, 3552872, 2, 9, 10), query_name: "example.com", addresses: ["104.20.23.154", "172.66.147.243"] },
+        { ...lookup(43023, 3552887, 2, 11), query_name: "fleetdm.com", addresses: ["104.21.82.73"] },
+        { ...lookup(43027, 3552899, 1, 12), query_name: "qa1285.example.org", addresses: [] },
       ],
     },
     scope: { applied: true, processes: 12, unmatched: 0, truncated: false },
@@ -75,6 +79,61 @@ describe("ActivityTabs", () => {
     fireEvent.click(screen.getByRole("button", { name: "Files 0" }));
     expect(screen.getByText("0 file events on 0 paths")).toBeVisible();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  // spec:web-ui/activity-times-read-as-an-age/first-and-last-read-as-an-age-with-the-exact-time-on-hover
+  it("shows when a row was first and last seen as an age, with the exact time on hover", async () => {
+    // Six minutes after the example.com lookup's first answer.
+    vi.spyOn(Date, "now").mockReturnValue((9 * S) / 1_000_000 + 6 * 60_000);
+    vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    await screen.findByText("4 connections to 3 destinations");
+    // A connection seen once has no last.
+    const connection = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(connection[3]).toHaveTextContent("5m ago");
+    expect(connection[3]).toHaveAttribute("title", formatNs(10 * S));
+    expect(connection[4]).toHaveTextContent("");
+    expect(connection[4]).not.toHaveAttribute("title");
+
+    fireEvent.click(screen.getByRole("button", { name: "DNS 3" }));
+    const lookup = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(lookup[4]).toHaveTextContent("6m ago");
+    expect(lookup[4]).toHaveAttribute("title", formatNs(9 * S));
+    expect(lookup[5]).toHaveTextContent("5m ago");
+    expect(lookup[5]).toHaveAttribute("title", formatNs(10 * S));
+  });
+
+  // spec:web-ui/activity-table-cells-stay-on-one-line/a-long-answer-list-wraps-within-its-cap
+  it("wraps a DNS row's answers within their cap", async () => {
+    vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
+    expect(screen.getByText("104.20.23.154, 172.66.147.243")).toHaveClass("activity-tabs__answers");
+  });
+
+  // spec:web-ui/the-dns-list-sorts-by-name/the-name-header-sorts-the-dns-list
+  it("sorts the DNS list by name from its header, and back to first seen", async () => {
+    const base = session();
+    const late = { ...base.dns.rows[0], query_name: "a.example", first_ns: 20 * S, last_ns: 20 * S };
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows: [...base.dns.rows, late] } }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
+    const names = () => screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[0].textContent);
+    expect(names()).toEqual(["example.com", "fleetdm.com", "qa1285.example.org", "a.example"]);
+
+    const sort = screen.getByRole("button", { name: "Name" });
+    expect(sort).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(sort);
+    expect(names()).toEqual(["a.example", "example.com", "fleetdm.com", "qa1285.example.org"]);
+    expect(screen.getByRole("columnheader", { name: "Name ▲" })).toHaveAttribute("aria-sort", "ascending");
+
+    // The order outlives a visit to another tab.
+    fireEvent.click(screen.getByRole("button", { name: "Network 3" }));
+    fireEvent.click(screen.getByRole("button", { name: "DNS 3" }));
+    expect(names()).toEqual(["a.example", "example.com", "fleetdm.com", "qa1285.example.org"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Name ▲" }));
+    expect(names()).toEqual(["example.com", "fleetdm.com", "qa1285.example.org", "a.example"]);
   });
 
   it("shows a rename with its origin and labels each operation", async () => {
@@ -189,6 +248,28 @@ describe("ActivityTabs", () => {
     expect(within(removed as HTMLElement).queryByText("Docker")).toBeNull();
   });
 
+  // spec:web-ui/a-dns-row-lists-every-process-that-resolved-its-name/a-name-several-processes-resolved-lists-each-of-them
+  it("lists every process that resolved a name in its one row, and selects each at its own first lookup", async () => {
+    const onProcess = vi.fn();
+    const base = session();
+    const shared = {
+      ...base.dns.rows[0], query_name: "api.github.com", addresses: ["140.82.112.6"], count: 20, process_count: 18,
+      resolvers: [
+        { pid: 43019, pidversion: 3552877, first_ns: 3 * S },
+        { pid: 43027, pidversion: 3552899, first_ns: 5 * S },
+      ],
+    };
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows: [shared] } }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    const cell = within(screen.getAllByRole("row")[1]).getAllByRole("cell")[2];
+    expect(cell).toHaveTextContent("curl (43019), dig (43027), and 16 others");
+    expect(cell.firstElementChild).toHaveClass("activity-tabs__resolvers");
+    fireEvent.click(within(cell).getByRole("button", { name: "dig (43027)" }));
+    expect(onProcess).toHaveBeenCalledWith(expect.objectContaining({ id: 10, pid: 43027 }), 5 * S);
+  });
+
   it("names a process by pid when the scope did not list it, and selects one when asked", async () => {
     const onProcess = vi.fn();
     const activity = session({ processes: session().processes.slice(1) });
@@ -277,7 +358,10 @@ describe("ActivityTabs", () => {
 describe("ActivityTabs paging", () => {
   const S = 1_000_000_000;
   const dnsRow = (name: string, first: number) =>
-    ({ pid: 43027, pidversion: 3552899, count: 1, first_ns: first * S, last_ns: first * S, query_name: name, addresses: [] });
+    ({
+      pid: 43027, pidversion: 3552899, count: 1, first_ns: first * S, last_ns: first * S, query_name: name, addresses: [],
+      resolvers: [{ pid: 43027, pidversion: 3552899, first_ns: first * S }], process_count: 1,
+    });
 
   // spec:web-ui/agent-session-view-pages-its-processes-and-activity/the-rest-of-an-activity-list-comes-on-request
   it("reads a cut list's rows page by page until the last", async () => {

@@ -478,11 +478,23 @@ type DNSActivity struct {
 	NextCursor string           `json:"next_cursor,omitempty"`
 }
 
-// DNSActivityRow is one name one process resolved, with the addresses its answers carried.
+// DNSActivityRow is one name the scope resolved, over every process that resolved it (issue #1561), with the addresses its answers
+// carried. Its pid and pidversion are the first process's. Count, first and last are the name's, summed over its processes.
 type DNSActivityRow struct {
 	ActivityRow
 	QueryName string   `json:"query_name"`
 	Addresses []string `json:"addresses"`
+	// Resolvers are the processes that resolved the name, the first 16 of them by when each first did, and
+	// ProcessCount is how many did.
+	Resolvers    []DNSResolver `json:"resolvers"`
+	ProcessCount int64         `json:"process_count"`
+}
+
+// DNSResolver is one process generation that resolved a name, and when it first did.
+type DNSResolver struct {
+	PID        int64 `json:"pid"`
+	PIDVersion int64 `json:"pidversion"`
+	FirstNs    int64 `json:"first_ns"`
 }
 
 // AgentSessionRef names one AI agent session on one host, and its owner: the uid whose transcripts speak for it (issue #1478).
