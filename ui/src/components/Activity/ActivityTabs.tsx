@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import "./ActivityTabs.scss";
 import { getActivity, getActivityPage, type ActivityScopeQuery } from "../../api";
 import type {
@@ -133,7 +133,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
   const activity = current?.activity;
   if (!activity) return <EmptyState>Loading activity...</EmptyState>;
 
-  const processName = (row: ActivityRow): ReactNode => {
+  const processName = (row: ProcessRef): ReactNode => {
     const process = activity.processes.find((p) => p.pid === row.pid && p.pidversion === row.pidversion);
     if (!process) return `pid ${String(row.pid)}`;
     const label = `${executableName(process.path)} (${String(row.pid)})`;
@@ -206,11 +206,15 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
   );
 }
 
+// ProcessRef names the process behind a row, or one of a DNS row's resolvers: its generation, and when it first did what the row
+// records, which together name the process to read when it is not loaded.
+type ProcessRef = Pick<ActivityRow, "pid" | "pidversion" | "first_ns">;
+
 interface PanelProps<Row> {
   readonly activity: ActivityResponse;
   // rows are the class's rows the rollup listed and those read past it.
   readonly rows: Row[];
-  readonly processName: (row: ActivityRow) => ReactNode;
+  readonly processName: (row: ProcessRef) => ReactNode;
   // hasMore is set while the class has rows not yet listed; more offers the next page.
   readonly hasMore: boolean;
   readonly more: ReactNode;
@@ -406,13 +410,24 @@ function DNSPanel({ activity, rows, processName, byName, onByName, hasMore: list
           </thead>
           <tbody>
             {shown.map((r) => (
-              <tr key={`${r.query_name}|${String(r.pid)}:${String(r.pidversion)}`}>
+              <tr key={r.query_name}>
                 <td className="activity-tabs__mono">{r.query_name}</td>
                 {/* An answer list wraps within its cap, so a name answered by many addresses grows down rather than sideways. */}
                 <td className="activity-tabs__mono">
                   <span className="activity-tabs__answers">{r.addresses.join(", ")}</span>
                 </td>
-                <td>{processName(r)}</td>
+                {/* Every process that resolved the name, wrapped within the cap as the answers are. */}
+                <td>
+                  <span className="activity-tabs__resolvers">
+                    {r.resolvers.map((p, i) => (
+                      <Fragment key={`${String(p.pid)}:${String(p.pidversion)}`}>
+                        {i > 0 && ", "}
+                        {processName(p)}
+                      </Fragment>
+                    ))}
+                    {r.process_count > r.resolvers.length && `, and ${plural(r.process_count - r.resolvers.length, "other", "others")}`}
+                  </span>
+                </td>
                 <Seen row={r} />
               </tr>
             ))}

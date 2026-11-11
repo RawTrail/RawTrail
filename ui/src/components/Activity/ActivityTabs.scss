@@ -58,9 +58,11 @@
     font-family: ui-monospace, sfmono-regular, Menlo, monospace;
   }
 
-  // A DNS row's answers are the one value that wraps: a name answered by many addresses listed them on one line and pushed the table
-  // sideways. The list takes its own width up to the cap, never less, so a wide table cannot squeeze it to one address a line.
-  &__answers {
+  // A DNS row's answers and the processes that resolved its name are the values that wrap: a name answered by many addresses, or
+  // looked up by many processes, listed them on one line and pushed the table sideways. Each list takes its own width up to the cap,
+  // never less, so a wide table cannot squeeze it to one entry a line.
+  &__answers,
+  &__resolvers {
     display: inline-block;
     max-width: 24rem;
     overflow-wrap: anywhere;
