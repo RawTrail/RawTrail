@@ -5,6 +5,7 @@ import { MemoryRouter, Routes, Route, Link } from "react-router";
 import { SessionView } from "./SessionView";
 import * as api from "../../api";
 import { proc, realSession, SESSION, sessionCommands } from "../../test/agentSession";
+import { mockActivity, type ActivityFixture } from "../Activity/activityTestKit";
 import type {
   AgentSessionSummary, AgentSessionTotals, AgentToolCall, Alert, ProcessNode, SessionCommandsResponse, SessionConversationResponse, TreeResponse,
 } from "../../types";
@@ -143,13 +144,13 @@ describe("SessionView lineage", () => {
 });
 
 // lsActivity is a session activity read naming the capture's ls (row 2298323) as the one process that connected anywhere.
-const lsActivity = {
-  files: { events: 0, distinct: 0, truncated: false, rows: [] },
+const lsActivity: ActivityFixture = {
+  files: { events: 0, distinct: 0, rows: [] },
   network: {
-    events: 1, distinct: 1, truncated: false,
+    events: 1, distinct: 1,
     rows: [{ pid: 80728, pidversion: 7, count: 1, first_ns: 1, last_ns: 1, remote_address: "1.1.1.1", remote_port: 443, protocol: "tcp" }],
   },
-  dns: { events: 0, distinct: 0, truncated: false, rows: [] },
+  dns: { events: 0, distinct: 0, rows: [] },
   scope: { applied: true, processes: 16, unmatched: 0, truncated: false },
   processes: [{ id: 2298323, pid: 80728, pidversion: 7, path: "/bin/ls" }],
 };
@@ -712,18 +713,18 @@ describe("SessionView commands from the server", () => {
   it("reads and opens a process an Activity row names that the loaded tree does not hold", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
-    vi.spyOn(api, "getActivity").mockResolvedValue({
+    mockActivity({
       scope: { processes: 1, applied: 1, unmatched: 0, truncated: false },
       processes: [{ id: 7_777_777, pid: 77_777, pidversion: 9, path: "/usr/bin/dig" }],
-      files: { events: 0, distinct: 0, truncated: false, rows: [] },
-      network: { events: 0, distinct: 0, truncated: false, rows: [] },
-      dns: { events: 1, distinct: 1, truncated: false, rows: [
+      files: { events: 0, distinct: 0, rows: [] },
+      network: { events: 0, distinct: 0, rows: [] },
+      dns: { events: 1, distinct: 1, rows: [
         {
           pid: 77_777, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: "late.example", addresses: [],
           resolvers: [{ pid: 77_777, pidversion: 9, first_ns: 5_000 }], process_count: 1,
         },
       ] },
-    } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
+    } as unknown as ActivityFixture);
     const late = proc(7_777_777, 77_777, 4_999, "/usr/bin/dig", ["dig", "late.example"]);
     const detail = vi.spyOn(api, "getProcessDetail").mockResolvedValue({ process: late, network_connections: [], dns_queries: [] });
     renderView();
@@ -756,14 +757,14 @@ describe("SessionView commands from the server", () => {
         pid, pidversion: 9, count: 1, first_ns: 5_000, last_ns: 5_000, query_name: name, addresses: [],
         resolvers: [{ pid, pidversion: 9, first_ns: 5_000 }], process_count: 1,
       });
-    vi.spyOn(api, "getActivity").mockResolvedValue({
+    mockActivity({
       scope: { processes: 2, applied: 2, unmatched: 0, truncated: false },
       processes: [{ id: 7_000_001, pid: 70_001, pidversion: 9, path: "/usr/bin/dig" },
         { id: 7_000_002, pid: 70_002, pidversion: 9, path: "/usr/bin/host" }],
-      files: { events: 0, distinct: 0, truncated: false, rows: [] },
-      network: { events: 0, distinct: 0, truncated: false, rows: [] },
-      dns: { events: 2, distinct: 2, truncated: false, rows: [dns(70_001, "slow.example"), dns(70_002, "fast.example")] },
-    } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
+      files: { events: 0, distinct: 0, rows: [] },
+      network: { events: 0, distinct: 0, rows: [] },
+      dns: { events: 2, distinct: 2, rows: [dns(70_001, "slow.example"), dns(70_002, "fast.example")] },
+    } as unknown as ActivityFixture);
     const slow = proc(7_000_001, 70_001, 4_999, "/usr/bin/dig", ["dig"]);
     const fast = proc(7_000_002, 70_002, 4_999, "/usr/bin/host", ["host"]);
     let landSlow: (d: Awaited<ReturnType<typeof api.getProcessDetail>>) => void = () => undefined;
@@ -793,13 +794,13 @@ describe("SessionView commands from the server", () => {
   it("sends the session view's search to Activity", async () => {
     vi.spyOn(api, "listHosts").mockResolvedValue([]);
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
-    vi.spyOn(api, "getActivity").mockResolvedValue({
+    const { page } = mockActivity({
       scope: { processes: 1, applied: 1, unmatched: 0, truncated: false }, processes: [],
-      files: { events: 0, distinct: 0, truncated: false, rows: [] },
-      network: { events: 0, distinct: 0, truncated: false, rows: [] },
-      dns: { events: 0, distinct: 0, truncated: false, rows: [] },
-    } as unknown as Awaited<ReturnType<typeof api.getActivity>>);
-    const page = vi.spyOn(api, "getActivityPage").mockResolvedValue({ rows: [] });
+      files: { events: 0, distinct: 0, rows: [] },
+      network: { events: 0, distinct: 0, rows: [] },
+      dns: { events: 0, distinct: 0, rows: [] },
+    } as unknown as ActivityFixture);
+    page.mockResolvedValue({ rows: [], processes: [] });
     renderView();
     fireEvent.click(await screen.findByRole("button", { name: "Activity" }));
     const box = screen.getByRole("searchbox", { name: "Search this session" });
@@ -1508,7 +1509,7 @@ describe("SessionView", () => {
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree());
     vi.spyOn(api, "getProcessDetail").mockImplementation(() => new Promise(() => undefined));
     vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
-    const activity = vi.spyOn(api, "getActivity").mockResolvedValue(lsActivity);
+    const { totals: activity } = mockActivity(lsActivity);
     renderView();
     await screen.findByText("ls /private/tmp | head -3");
     expect(activity).not.toHaveBeenCalledWith("H1", { kind: "session", session: SESSION });
@@ -1677,11 +1678,11 @@ describe("SessionView", () => {
     vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
     const agent = proc(9, 5000, 0, "/Users/victor/.local/share/claude/versions/2.1.296", ["claude"], [], { agent_session_id: undefined });
     vi.spyOn(api, "getSessionTree").mockResolvedValue(tree({ agents: [agent] }));
-    vi.spyOn(api, "getActivity").mockResolvedValue({
+    mockActivity({
       ...lsActivity,
-      network: { events: 0, distinct: 0, truncated: false, rows: [] },
+      network: { events: 0, distinct: 0, rows: [] },
       files: {
-        events: 1, distinct: 1, truncated: false,
+        events: 1, distinct: 1,
         rows: [{ pid: 5000, pidversion: 1, count: 1, first_ns: 1, last_ns: 1, operation: "modify", path: "/Users/dev/project/main.go" }],
       },
       processes: [{ id: 9, pid: 5000, pidversion: 1, path: "/Users/victor/.local/share/claude/versions/2.1.296" }],

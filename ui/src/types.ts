@@ -264,21 +264,35 @@ export interface DNSResolver {
   first_ns: number;
 }
 
-// ActivityClass is one class's totals and capped list: events counts its events (a coalesced one as the occurrences it stands for),
-// distinct its distinct artifacts, and truncated says the list holds fewer rows than the class has.
-export interface ActivityClass<Row> {
-  events: number;
-  distinct: number;
-  truncated: boolean;
-  rows: Row[];
-  // next_cursor reads the rows past a cut list (issue #1424).
-  next_cursor?: string;
-}
-
-// ActivityPage is one page of one class's rows past a cut list, with the cursor of the next page (issue #1424).
+// ActivityPage is one page of one class's rows (issue #1424), with the cursor of the next page and the processes its rows name
+// (issue #1550).
 export interface ActivityPage<Row> {
   rows: Row[];
   next_cursor?: string;
+  processes: ActivityProcess[];
+}
+
+// ActivityProcess is a process of an activity scope, which maps a row's pid and pidversion to the process's row and image.
+export interface ActivityProcess {
+  id: number;
+  pid: number;
+  pidversion: number;
+  path: string;
+}
+
+// ActivityClassTotals is one class's totals: its events (a coalesced one as the occurrences it stands for) and distinct artifacts.
+export interface ActivityClassTotals {
+  events: number;
+  distinct: number;
+}
+
+// ActivityTotals is a scope's activity totals alone, with how far its scope reached (issue #1550). Each class's list is read as
+// its own pages.
+export interface ActivityTotals {
+  files: ActivityClassTotals;
+  network: ActivityClassTotals;
+  dns: ActivityClassTotals;
+  scope: ActivityScope;
 }
 
 // ActivityScope says how far an activity read's scope reached. When applied is false the activity is empty, never the host's.
@@ -453,16 +467,6 @@ export interface AgentUsageTotals {
 export interface AgentSessionLineage {
   forked_from_session_id?: string;
   forked_session_ids: string[];
-}
-
-// ActivityResponse is GET /api/hosts/{id}/activity: what a process, its subtree or a session touched, with the scope's processes
-// so a row's (pid, pidversion) can be named.
-export interface ActivityResponse {
-  files: ActivityClass<FileActivityRow>;
-  network: ActivityClass<NetworkActivityRow>;
-  dns: ActivityClass<DNSActivityRow>;
-  scope: ActivityScope;
-  processes: { id: number; pid: number; pidversion: number; path: string }[];
 }
 
 // EventSearchResult is the response from the fleet-wide connection and DNS search endpoints (GET /api/search/connections and

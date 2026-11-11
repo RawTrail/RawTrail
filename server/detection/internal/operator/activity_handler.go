@@ -141,8 +141,11 @@ func rowGenerations(
 	for _, r := range network {
 		add(r.ActivityRow)
 	}
+	// A DNS row stands for every process that resolved its name, and names each (issue #1561).
 	for _, r := range dns {
-		add(r.ActivityRow)
+		for _, p := range r.Resolvers {
+			named[visibilityapi.ProcessGeneration{PID: p.PID, PIDVersion: p.PIDVersion}] = true
+		}
 	}
 	return named
 }

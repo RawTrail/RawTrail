@@ -1,8 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import "./ActivityTabs.scss";
-import { getActivity, getActivityPage, type ActivityScopeQuery } from "../../api";
+import { getActivityPage, getActivityTotals, type ActivityScopeQuery } from "../../api";
 import type {
-  ActivityResponse, ActivityRow, DNSActivityRow, FileActivityRow, NetworkActivityRow,
+  ActivityPage, ActivityProcess, ActivityRow, ActivityTotals, DNSActivityRow, FileActivityRow, NetworkActivityRow,
 } from "../../types";
 import { Button } from "../ui/Button";
 import { Table, EmptyState } from "../ui/Table";
@@ -35,25 +35,52 @@ const FOLDED_TITLE =
   "Too many processes did this at once to list each: this row counts their operations under the process that started them. " +
   "Each second counts its processes, so one active across several seconds counts more than once.";
 
-interface ActivityRead {
+// TotalsRead is the scope's totals as read, kept with the scope they were read for so another scope's are never shown.
+interface TotalsRead {
   key: string;
-  activity?: ActivityResponse;
+  totals?: ActivityTotals;
   error?: string;
 }
 
-// ClassMore is the rows of one class read past the rollup's cut list (issue #1424), the cursor of the page after them, and whether
-// that read is under way or failed.
-interface ClassMore {
+// ClassList is one class's list as read so far, a page at a time (issue #1424): its rows, the cursor of the page after them, whether
+// a read is under way or failed, and whether its first page is in.
+interface ClassList {
   rows: unknown[];
   cursor?: string;
   loading: boolean;
   failed: boolean;
+  loaded: boolean;
 }
 
-// More is each class's rows read past its list, kept with the scope they were read for so another scope's are never shown.
-interface More {
+// Lists is each class's list and the processes their rows name, kept with the scope and search they were read for, and the classes
+// in the order their first pages arrived.
+interface Lists {
   key: string;
-  byClass: ReadonlyMap<TabKey, ClassMore>;
+  byClass: ReadonlyMap<TabKey, ClassList>;
+  processes: ReadonlyMap<string, ActivityProcess>;
+  arrived: readonly TabKey[];
+}
+
+// READ_ORDER is the order the classes' first pages are asked for. They are read at once, so it only decides which is shown first when
+// several answer together.
+const READ_ORDER: readonly TabKey[] = ["network", "dns", "files"];
+
+const EMPTY_LIST: ClassList = { rows: [], loading: false, failed: false, loaded: false };
+
+function emptyLists(key: string): Lists {
+  return { key, byClass: new Map(), processes: new Map(), arrived: [] };
+}
+
+// firstShown is the class shown until the operator picks one: the first whose list arrived with rows, or while none has, the first to
+// arrive, so a quick empty list does not hide the one that has something to show.
+function firstShown(lists: Lists): TabKey {
+  const withRows = lists.arrived.find((cls) => (lists.byClass.get(cls)?.rows.length ?? 0) > 0);
+  return withRows ?? (lists.arrived.length > 0 ? lists.arrived[0] : "network");
+}
+
+// generationKey names a process generation, which is how a row names the process behind it.
+function generationKey(pid: number, pidversion: number): string {
+  return `${String(pid)}:${String(pidversion)}`;
 }
 
 interface Props {
@@ -63,78 +90,77 @@ interface Props {
   readonly scope: ActivityScopeQuery;
   // onProcess, when set, makes each row's process a button that selects it (the session view); otherwise it is plain text. It is
   // handed the process and the moment of the row's first event, which together name the process to read when it is not loaded.
-  readonly onProcess?: (process: ActivityResponse["processes"][number], atNs: number) => void;
-  // search, when set, lists each class's rows the server finds for it (issue #1452) in place of the rollup's list; the totals stay
-  // the scope's.
+  readonly onProcess?: (process: ActivityProcess, atNs: number) => void;
+  // search, when set, lists each class's rows the server finds for it (issue #1452); the totals stay the scope's.
   readonly search?: string;
 }
 
 // ActivityTabs shows what a process, its subtree or an agent session touched (issue #1285): its files, network destinations and DNS
 // names as totals and lists, each row naming the process behind it. The server matches events to processes by exact generation and
 // says how far the scope reached; this says so too.
+//
+// The totals and each class's list are read at once, and each is shown as it arrives (issue #1550): on a long session the totals are
+// the slowest read, and one list was kept waiting on the others.
 export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: Props) {
   const key = `${hostId}/${JSON.stringify(scope)}`;
-  // The rows read past the rollup belong to the scope and the search they were read for.
+  // A class's list belongs to the scope and the search it was read for.
   const listKey = `${key}\n${search}`;
-  const [read, setRead] = useState<ActivityRead | null>(null);
-  const [tab, setTab] = useState<TabKey>("network");
+  const [read, setRead] = useState<TotalsRead | null>(null);
+  // chosen is the class the operator picked. Until they pick one, firstShown picks.
+  const [chosen, setChosen] = useState<TabKey | null>(null);
   // dnsByName orders the DNS list by name instead of when each was first seen. It outlives a switch to another tab and back.
   const [dnsByName, setDnsByName] = useState(false);
   const current = read?.key === key ? read : null;
-  const [more, setMore] = useState<More>({ key: listKey, byClass: new Map() });
-  const extra: ReadonlyMap<TabKey, ClassMore> = more.key === listKey ? more.byClass : new Map();
+  const [lists, setLists] = useState<Lists>(() => emptyLists(listKey));
+  const shown = lists.key === listKey ? lists : emptyLists(listKey);
 
-  // loadMore reads a class's next page after its cursor and appends it, for the scope and search it was asked for only. An empty
-  // cursor reads a search's first page.
-  const loadMore = useCallback((cls: TabKey, cursor: string) => {
+  // loadPage reads a class's page after its cursor, the first page from the empty cursor, and appends it, for the scope and search it
+  // was asked for only.
+  const loadPage = useCallback((cls: TabKey, cursor: string) => {
     const key = listKey;
-    const update = (change: (prior: ClassMore) => ClassMore) => {
-      setMore((m) => {
-        const byClass = new Map(m.key === key ? m.byClass : []);
-        byClass.set(cls, change(byClass.get(cls) ?? { rows: [], loading: false, failed: false }));
-        return { key, byClass };
-      });
-    };
     // A page lands only on the scope it was read for: one read before the operator moved to another scope is dropped, rather than
     // replacing what was loaded for the scope now shown.
-    const settle = (change: (prior: ClassMore) => ClassMore) => {
-      setMore((m) => {
-        if (m.key !== key) return m;
-        const byClass = new Map(m.byClass);
-        byClass.set(cls, change(byClass.get(cls) ?? { rows: [], loading: false, failed: false }));
-        return { key, byClass };
+    const update = (change: (prior: ClassList) => ClassList, settle: boolean, page?: ActivityPage<unknown>) => {
+      setLists((l) => {
+        if (settle && l.key !== key) return l;
+        const base = l.key === key ? l : emptyLists(key);
+        const byClass = new Map(base.byClass);
+        byClass.set(cls, change(byClass.get(cls) ?? EMPTY_LIST));
+        if (!page) return { ...base, byClass };
+        const processes = new Map(base.processes);
+        for (const p of page.processes) processes.set(generationKey(p.pid, p.pidversion), p);
+        const arrived = base.arrived.includes(cls) ? base.arrived : [...base.arrived, cls];
+        return { key, byClass, processes, arrived };
       });
     };
     // The cursor being read stays the class's until a page replaces it, so a failed read is offered again.
-    update((prior) => ({ ...prior, cursor, loading: true, failed: false }));
+    update((prior) => ({ ...prior, cursor, loading: true, failed: false }), false);
     getActivityPage<unknown>(hostId, scope, cls, cursor, search)
       .then((page) => {
-        settle((prior) => ({ rows: [...prior.rows, ...page.rows], cursor: page.next_cursor, loading: false, failed: false }));
+        update((prior) => ({
+          rows: [...prior.rows, ...page.rows], cursor: page.next_cursor, loading: false, failed: false, loaded: true,
+        }), true, page);
       })
-      .catch(() => { settle((prior) => ({ ...prior, loading: false, failed: true })); });
+      .catch(() => { update((prior) => ({ ...prior, loading: false, failed: true }), true); });
   }, [hostId, scope, listKey, search]);
 
-  // A search reads the open class's first page from the server once the rollup is in; another class's waits until it is opened.
-  const searching = search !== "";
-  const pending = searching && current?.activity !== undefined && !extra.has(tab);
   useEffect(() => {
-    if (pending) loadMore(tab, "");
-  }, [pending, tab, loadMore]);
+    for (const cls of READ_ORDER) loadPage(cls, "");
+  }, [listKey]); // eslint-disable-line react-hooks/exhaustive-deps -- loadPage reads the scope and search listKey names
 
   useEffect(() => {
     let cancelled = false;
-    getActivity(hostId, scope)
-      .then((activity) => { if (!cancelled) setRead({ key, activity }); })
+    getActivityTotals(hostId, scope)
+      .then((totals) => { if (!cancelled) setRead({ key, totals }); })
       .catch((err: unknown) => { if (!cancelled) setRead({ key, error: err instanceof Error ? err.message : "Unknown error" }); });
     return () => { cancelled = true; };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps -- scope is captured; key is its stable identity
 
-  if (current?.error) return <EmptyState>Error: {current.error}</EmptyState>;
-  const activity = current?.activity;
-  if (!activity) return <EmptyState>Loading activity...</EmptyState>;
-
+  const totals = current?.totals;
+  const tab = chosen ?? firstShown(shown);
+  const searching = search !== "";
   const processName = (row: ProcessRef): ReactNode => {
-    const process = activity.processes.find((p) => p.pid === row.pid && p.pidversion === row.pidversion);
+    const process = shown.processes.get(generationKey(row.pid, row.pidversion));
     if (!process) return `pid ${String(row.pid)}`;
     const label = `${executableName(process.path)} (${String(row.pid)})`;
     if (!onProcess) return label;
@@ -144,16 +170,21 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
       </button>
     );
   };
-  const note = scopeNote(activity.scope);
-  const tabs: { key: TabKey; label: string; distinct: number }[] = [
-    { key: "files", label: "Files", distinct: activity.files.distinct },
-    { key: "network", label: "Network", distinct: activity.network.distinct },
-    { key: "dns", label: "DNS", distinct: activity.dns.distinct },
+  const note = totals ? scopeNote(totals.scope) : null;
+  // A count is left out until the totals are in.
+  const tabs: { key: TabKey; label: string; distinct?: number }[] = [
+    { key: "files", label: "Files", distinct: totals?.files.distinct },
+    { key: "network", label: "Network", distinct: totals?.network.distinct },
+    { key: "dns", label: "DNS", distinct: totals?.dns.distinct },
   ];
+  const list = shown.byClass.get(tab) ?? EMPTY_LIST;
+  const panel = { totals, processName, hasMore: list.cursor !== undefined && list.cursor !== "" };
+  const more = <LoadMore cls={tab} list={list} onMore={loadPage} />;
 
   return (
     <div className="activity-tabs">
       {note && <p className="activity-tabs__note" role="status">{note}</p>}
+      {current?.error && <p className="activity-tabs__note" role="status">The totals could not be loaded: {current.error}</p>}
       {/* Toggle buttons rather than an ARIA tablist, which would promise arrow-key navigation this does not implement (see SubNav). */}
       <div role="group" aria-label={label} className="activity-tabs__list">
         {tabs.map((t) => (
@@ -162,44 +193,20 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
             type="button"
             aria-pressed={tab === t.key}
             className="activity-tabs__tab"
-            onClick={() => { setTab(t.key); }}
+            onClick={() => { setChosen(t.key); }}
           >
-            {t.label} <span className="activity-tabs__count">{t.distinct.toLocaleString()}</span>
+            {t.label}
+            {t.distinct !== undefined && <> <span className="activity-tabs__count">{t.distinct.toLocaleString()}</span></>}
           </button>
         ))}
       </div>
       <div className="activity-tabs__panel">
-        {searching && extra.get(tab)?.rows.length === 0 && extra.get(tab)?.loading === true && (
-          <p className="activity-tabs__note" role="status">Searching...</p>
-        )}
-        {tab === "files" && (
-          <FilesPanel
-            activity={activity}
-            rows={listed(activity.files.rows, extra.get("files"), searching) as FileActivityRow[]}
-            processName={processName}
-            hasMore={hasMore(activity.files, extra.get("files"))}
-            more={<LoadMore cls="files" first={activity.files.next_cursor} extra={extra.get("files")} onMore={loadMore} />}
-          />
-        )}
-        {tab === "network" && (
-          <NetworkPanel
-            activity={activity}
-            rows={listed(activity.network.rows, extra.get("network"), searching) as NetworkActivityRow[]}
-            processName={processName}
-            hasMore={hasMore(activity.network, extra.get("network"))}
-            more={<LoadMore cls="network" first={activity.network.next_cursor} extra={extra.get("network")} onMore={loadMore} />}
-          />
-        )}
-        {tab === "dns" && (
-          <DNSPanel
-            activity={activity}
-            rows={listed(activity.dns.rows, extra.get("dns"), searching) as DNSActivityRow[]}
-            processName={processName}
-            byName={dnsByName}
-            onByName={setDnsByName}
-            hasMore={hasMore(activity.dns, extra.get("dns"))}
-            more={<LoadMore cls="dns" first={activity.dns.next_cursor} extra={extra.get("dns")} onMore={loadMore} />}
-          />
+        {!list.loaded && !list.failed && <EmptyState>{searching ? "Searching..." : "Loading activity..."}</EmptyState>}
+        {!list.loaded && list.failed && more}
+        {list.loaded && tab === "files" && <FilesPanel {...panel} rows={list.rows as FileActivityRow[]} more={more} />}
+        {list.loaded && tab === "network" && <NetworkPanel {...panel} rows={list.rows as NetworkActivityRow[]} more={more} />}
+        {list.loaded && tab === "dns" && (
+          <DNSPanel {...panel} rows={list.rows as DNSActivityRow[]} more={more} byName={dnsByName} onByName={setDnsByName} />
         )}
       </div>
     </div>
@@ -211,40 +218,28 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
 type ProcessRef = Pick<ActivityRow, "pid" | "pidversion" | "first_ns">;
 
 interface PanelProps<Row> {
-  readonly activity: ActivityResponse;
-  // rows are the class's rows the rollup listed and those read past it.
+  // totals are the scope's, once they are in.
+  readonly totals: ActivityTotals | undefined;
+  // rows are the class's rows read so far.
   readonly rows: Row[];
   readonly processName: (row: ProcessRef) => ReactNode;
-  // hasMore is set while the class has rows not yet listed; more offers the next page.
+  // hasMore is set while the class has rows not yet read; more offers the next page.
   readonly hasMore: boolean;
   readonly more: ReactNode;
 }
 
-// listed is a class's rows as shown: the rollup's list and the rows read past it, or under a search only what the server found.
-function listed(rollup: readonly unknown[], extra: ClassMore | undefined, searching: boolean): unknown[] {
-  return searching ? (extra?.rows ?? []) : [...rollup, ...(extra?.rows ?? [])];
-}
-
-// hasMore reports a class with rows not yet listed: one whose last page read names a next page, or whose cut list does.
-function hasMore(listed: { truncated: boolean }, extra: ClassMore | undefined): boolean {
-  return extra ? extra.cursor !== undefined : listed.truncated;
-}
-
-// LoadMore offers a class's next page while it has one: after the rollup's cut list, from the cursor it named, and after a page
-// read since, from that page's.
-function LoadMore({ cls, first, extra, onMore }: {
+// LoadMore offers a class's next page while it has one, and a first page that failed again from the empty cursor it is read from.
+function LoadMore({ cls, list, onMore }: {
   readonly cls: TabKey;
-  readonly first: string | undefined;
-  readonly extra: ClassMore | undefined;
+  readonly list: ClassList;
   readonly onMore: (cls: TabKey, cursor: string) => void;
 }) {
-  const cursor = extra ? extra.cursor : first;
+  const { cursor } = list;
   return (
     <>
-      {extra?.failed && <p className="activity-tabs__note" role="status">The next rows could not be loaded.</p>}
-      {/* A search's first page is read from the empty cursor, so a failed first read is offered again from it. */}
-      {cursor !== undefined && (cursor !== "" || extra?.failed === true) && (
-        <Button variant="text-link" disabled={extra?.loading === true} onClick={() => { onMore(cls, cursor); }}>
+      {list.failed && <p className="activity-tabs__note" role="status">The next rows could not be loaded.</p>}
+      {cursor !== undefined && (cursor !== "" || list.failed) && (
+        <Button variant="text-link" disabled={list.loading} onClick={() => { onMore(cls, cursor); }}>
           Load more rows
         </Button>
       )}
@@ -252,11 +247,11 @@ function LoadMore({ cls, first, extra, onMore }: {
   );
 }
 
-// Summary is a class's totals line, and its cut-list notice while the rows listed are fewer than the class has.
-function Summary({ text, more, shown }: { readonly text: string; readonly more: boolean; readonly shown: number }) {
+// Summary is a class's totals line, once the totals are in, and its cut-list notice while the rows listed are fewer than the class has.
+function Summary({ text, more, shown }: { readonly text: string | undefined; readonly more: boolean; readonly shown: number }) {
   return (
     <>
-      <p className="activity-tabs__summary">{text}</p>
+      <p className="activity-tabs__summary">{text ?? "Counting..."}</p>
       {more && (
         <p className="activity-tabs__note" role="status">
           Showing the first {plural(shown, "row", "rows")}; there are more than the list holds.
@@ -297,9 +292,9 @@ function TruncatedPath({ path }: { readonly path: string }) {
   );
 }
 
-function FilesPanel({ activity, rows, processName, hasMore: listsMore, more }: PanelProps<FileActivityRow>) {
-  const { files } = activity;
-  const text = `${plural(files.events, "file event", "file events")} on ${plural(files.distinct, "path", "paths")}`;
+function FilesPanel({ totals, rows, processName, hasMore: listsMore, more }: PanelProps<FileActivityRow>) {
+  const files = totals?.files;
+  const text = files && `${plural(files.events, "file event", "file events")} on ${plural(files.distinct, "path", "paths")}`;
   return (
     <>
       <Summary text={text} more={listsMore} shown={rows.length} />
@@ -344,9 +339,10 @@ function FilesPanel({ activity, rows, processName, hasMore: listsMore, more }: P
   );
 }
 
-function NetworkPanel({ activity, rows, processName, hasMore: listsMore, more }: PanelProps<NetworkActivityRow>) {
-  const { network } = activity;
-  const text = `${plural(network.events, "connection", "connections")} to ${plural(network.distinct, "destination", "destinations")}`;
+function NetworkPanel({ totals, rows, processName, hasMore: listsMore, more }: PanelProps<NetworkActivityRow>) {
+  const network = totals?.network;
+  const text = network &&
+    `${plural(network.events, "connection", "connections")} to ${plural(network.distinct, "destination", "destinations")}`;
   return (
     <>
       <Summary text={text} more={listsMore} shown={rows.length} />
@@ -378,9 +374,9 @@ interface DNSPanelProps extends PanelProps<DNSActivityRow> {
   readonly onByName: (byName: boolean) => void;
 }
 
-function DNSPanel({ activity, rows, processName, byName, onByName, hasMore: listsMore, more }: DNSPanelProps) {
-  const { dns } = activity;
-  const text = `${plural(dns.events, "query", "queries")} for ${plural(dns.distinct, "name", "names")}`;
+function DNSPanel({ totals, rows, processName, byName, onByName, hasMore: listsMore, more }: DNSPanelProps) {
+  const dns = totals?.dns;
+  const text = dns && `${plural(dns.events, "query", "queries")} for ${plural(dns.distinct, "name", "names")}`;
   // The sort orders the rows listed. A cut list's later rows join the order as they are read.
   const shown = useMemo(
     () => (byName ? [...rows].sort((a, b) => a.query_name.localeCompare(b.query_name) || a.first_ns - b.first_ns) : rows),

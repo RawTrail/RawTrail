@@ -516,11 +516,28 @@ func TestActivityHandler_NamesTheProcessesOfItsRows(t *testing.T) {
 		assert.Equal(t, []activityProcess{{ID: 3, PID: 30, PIDVersion: 300, Path: "/bin/pd"}}, out.Processes)
 		assert.False(t, reader.filter.TotalsOnly)
 	})
+	t.Run("a DNS row names each process that resolved its name", func(t *testing.T) {
+		t.Parallel()
+		var rollup visibilityapi.ActivityRollup
+		rollup.DNS.Rows = []visibilityapi.DNSActivityRow{{
+			ActivityRow: visibilityapi.ActivityRow{PID: 20, PIDVersion: 200}, QueryName: "api.github.com", ProcessCount: 2,
+			Resolvers: []visibilityapi.DNSResolver{{PID: 20, PIDVersion: 200}, {PID: 30, PIDVersion: 300}},
+		}}
+		reader := &fakeActivityReader{result: rollup}
+		status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), "scope=subtree&process=2")
+		require.Equal(t, http.StatusOK, status)
+		var ids []int64
+		for _, p := range out.Processes {
+			ids = append(ids, p.ID)
+		}
+		assert.Equal(t, []int64{2, 3}, ids)
+	})
 	t.Run("a page", func(t *testing.T) {
 		t.Parallel()
 		// The page's scope is process 2 (pid 20, pidversion 200), which getActivityPage stores.
 		reader := &fakeActivityReader{page: visibilityapi.ActivityPage{DNS: []visibilityapi.DNSActivityRow{{
 			ActivityRow: visibilityapi.ActivityRow{PID: 20, PIDVersion: 200}, QueryName: "example.com",
+			Resolvers: []visibilityapi.DNSResolver{{PID: 20, PIDVersion: 200}}, ProcessCount: 1,
 		}}}}
 		status, out := getActivityPage(t, reader, "/api/hosts/h1/activity/dns?scope=process&process=2")
 		require.Equal(t, http.StatusOK, status)
