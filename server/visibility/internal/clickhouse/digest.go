@@ -276,7 +276,8 @@ func (s *Store) domainsSeenBefore(ctx context.Context, hostID string, startNs in
 
 // digestTotalsAndTimeline totals the scope's events (activityTotalsColumns) and spreads them over filter.Buckets buckets in one pass.
 // The timeline spans the filter's span, widened to the scope's first and last events. The pass buckets the events over the filter's
-// own span; only when an event falls outside it are the events bucketed again, over the widened span (digestTimeline). Each bucket is
+// own span, counting only the events on it, so the map holds at most filter.Buckets keys however far the scope reaches past the span;
+// only when an event falls outside it are the events bucketed again, over the widened span (digestTimeline). Each bucket is
 // one nanosecond wider than its span divided by Buckets, so the span's last moment falls in the last bucket.
 func (s *Store) digestTotalsAndTimeline(ctx context.Context, scope string, args []any, filter api.DigestFilter) (
 	totals api.ActivitySummary, timeline []int64, startNs, bucketNs int64, err error) {
@@ -290,10 +291,11 @@ func (s *Store) digestTotalsAndTimeline(ctx context.Context, scope string, args 
 		FROM (
 			SELECT `+activityTotalsColumns+`,
 				toInt64(min(timestamp_ns)) AS first, toInt64(max(timestamp_ns)) AS last, toInt64(count()) AS events,
-				sumMap(([toInt64(intDiv(minus(timestamp_ns, ?), ?))], [toInt64(`+activityWeight+`)])) AS timeline
+				sumMapIf(([toInt64(intDiv(minus(timestamp_ns, ?), ?))], [toInt64(`+activityWeight+`)]), timestamp_ns BETWEEN ? AND ?)
+					AS timeline
 			FROM events FINAL
 			WHERE event_type IN `+activityAllTypes+` AND `+scope+`
-		)`, append([]any{start, width}, args...)...)
+		)`, append([]any{start, width, start, end}, args...)...)
 	if err := row.Scan(append(scan.dest(), &first, &last, &events, &buckets, &weights)...); err != nil {
 		return api.ActivitySummary{}, nil, 0, 0, fmt.Errorf("clickhouse digest totals: %w", err)
 	}
