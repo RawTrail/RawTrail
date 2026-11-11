@@ -293,6 +293,9 @@ type ActivityFilter struct {
 	// Search, when set, keeps only the rows of an ActivityPage whose artifact holds it, case-insensitively: a file's path or a rename's
 	// origin, a destination's address or name, a lookup's name (issue #1424). The rollup's totals and lists do not read it.
 	Search string
+	// TotalsOnly reads a rollup's totals alone, leaving its lists empty: a client that reads each list as its own page asks for the
+	// totals beside them (issue #1550).
+	TotalsOnly bool
 }
 
 // GenerationSpan is a process generation and the span its events are counted in: from FromNs, up to but excluding ToNs, zero ToNs

@@ -59,6 +59,12 @@ func (s *Store) ActivityForGenerations(ctx context.Context, filter api.ActivityF
 		out.DNS.Events, out.DNS.Distinct = totals.DNS.Events, totals.DNS.Distinct
 		return err
 	})
+	if filter.TotalsOnly {
+		if err := g.Wait(); err != nil {
+			return api.ActivityRollup{}, err
+		}
+		return out, nil
+	}
 	g.Go(func() (err error) {
 		out.Files.Rows, out.Files.Truncated, err = s.fileActivity(gctx, scope, scopeArgs, nil, limit)
 		return err
