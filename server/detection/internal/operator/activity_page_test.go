@@ -34,12 +34,18 @@ func TestActivityPageHandler(t *testing.T) {
 	t.Run("a class's page after the cursor, over the scope's processes", func(t *testing.T) {
 		t.Parallel()
 		reader := &fakeActivityReader{page: visibilityapi.ActivityPage{
-			DNS: []visibilityapi.DNSActivityRow{{QueryName: "example.com"}}, NextCursor: "next",
+			DNS: []visibilityapi.DNSActivityRow{{
+				ActivityRow: visibilityapi.ActivityRow{PID: 20, PIDVersion: 200, Count: 3, FirstNs: 5, LastNs: 9},
+				QueryName:   "example.com", Addresses: []string{"1.2.3.4"},
+				Resolvers:    []visibilityapi.DNSResolver{{PID: 20, PIDVersion: 200, FirstNs: 5}, {PID: 21, PIDVersion: 201, FirstNs: 7}},
+				ProcessCount: 2,
+			}}, NextCursor: "next",
 		}}
 		status, out := getActivityPage(t, reader, "/api/hosts/h1/activity/dns?scope=process&process=2&cursor=abc&limit=7&q=%20example%20")
 		require.Equal(t, http.StatusOK, status)
-		assert.JSONEq(t, `[{"query_name":"example.com","addresses":null,"pid":0,"pidversion":0,"count":0,"first_ns":0,"last_ns":0}]`,
-			string(out["rows"]))
+		assert.JSONEq(t, `[{"query_name":"example.com","addresses":["1.2.3.4"],"pid":20,"pidversion":200,"count":3,"first_ns":5,`+
+			`"last_ns":9,"resolvers":[{"pid":20,"pidversion":200,"first_ns":5},{"pid":21,"pidversion":201,"first_ns":7}],`+
+			`"process_count":2}]`, string(out["rows"]))
 		assert.JSONEq(t, `"next"`, string(out["next_cursor"]))
 		assert.Equal(t, "dns", reader.class)
 		assert.Equal(t, "abc", reader.cursor)

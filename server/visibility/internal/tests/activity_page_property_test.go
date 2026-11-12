@@ -40,6 +40,8 @@ func TestEventArchive_ActivityPagesMatchOneRead(t *testing.T) {
 		drawn := map[string]map[string]string{
 			visibilityapi.ActivityFiles: {}, visibilityapi.ActivityNetwork: {}, visibilityapi.ActivityDNS: {},
 		}
+		// A name is one row over every process that resolved it (issue #1561), and lists each of them.
+		resolvedBy := map[string]map[int64]bool{}
 		for i := range n {
 			is := strconv.Itoa(i)
 			gen := gens[rapid.IntRange(0, 1).Draw(rt, "gen"+is)]
@@ -65,7 +67,11 @@ func TestEventArchive_ActivityPagesMatchOneRead(t *testing.T) {
 					`,"protocol":"tcp","direction":"outbound","remote_address":"`+address+`","remote_port":`+port+`}`))
 			default:
 				name := rapid.SampledFrom(names).Draw(rt, "name"+is)
-				drawn[visibilityapi.ActivityDNS][name+"|"+strconv.FormatInt(gen.PID, 10)] = name
+				drawn[visibilityapi.ActivityDNS][name] = name
+				if resolvedBy[name] == nil {
+					resolvedBy[name] = map[int64]bool{}
+				}
+				resolvedBy[name][gen.PID] = true
 				events = append(events, activityEvent("d"+is, host, "dns_query", at,
 					`{`+proc+`,"query_name":"`+name+`","query_type":"A"}`))
 			}
@@ -98,7 +104,13 @@ func TestEventArchive_ActivityPagesMatchOneRead(t *testing.T) {
 					keys = append(keys, c.RemoteAddress+"|"+strconv.FormatInt(c.RemotePort, 10)+"|"+strconv.FormatInt(c.PID, 10))
 				}
 				for _, d := range page.DNS {
-					rows, keys = append(rows, d), append(keys, d.QueryName+"|"+strconv.FormatInt(d.PID, 10))
+					rows, keys = append(rows, d), append(keys, d.QueryName)
+					pids := map[int64]bool{}
+					for _, r := range d.Resolvers {
+						pids[r.PID] = true
+					}
+					require.Equal(rt, resolvedBy[d.QueryName], pids, "%s: the row lists each process that resolved it", d.QueryName)
+					require.Equal(rt, int64(len(pids)), d.ProcessCount, d.QueryName)
 				}
 				if cursor = page.NextCursor; cursor == "" {
 					return rows, keys

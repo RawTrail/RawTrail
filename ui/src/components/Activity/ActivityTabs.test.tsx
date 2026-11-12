@@ -13,6 +13,9 @@ const S = 1_000_000_000;
 function session(over: Partial<ActivityResponse> = {}): ActivityResponse {
   const row = (pid: number, pidversion: number, count: number, first: number, last = first) =>
     ({ pid, pidversion, count, first_ns: first * S, last_ns: last * S });
+  // lookup is a name one process resolved: a DNS row lists that process as its one resolver.
+  const lookup = (pid: number, pidversion: number, count: number, first: number, last = first) =>
+    ({ ...row(pid, pidversion, count, first, last), resolvers: [{ pid, pidversion, first_ns: first * S }], process_count: 1 });
   return {
     files: { events: 0, distinct: 0, truncated: false, rows: [] },
     network: {
@@ -31,9 +34,9 @@ function session(over: Partial<ActivityResponse> = {}): ActivityResponse {
       distinct: 3,
       truncated: false,
       rows: [
-        { ...row(43017, 3552872, 2, 9, 10), query_name: "example.com", addresses: ["104.20.23.154", "172.66.147.243"] },
-        { ...row(43023, 3552887, 2, 11), query_name: "fleetdm.com", addresses: ["104.21.82.73"] },
-        { ...row(43027, 3552899, 1, 12), query_name: "qa1285.example.org", addresses: [] },
+        { ...lookup(43017, 3552872, 2, 9, 10), query_name: "example.com", addresses: ["104.20.23.154", "172.66.147.243"] },
+        { ...lookup(43023, 3552887, 2, 11), query_name: "fleetdm.com", addresses: ["104.21.82.73"] },
+        { ...lookup(43027, 3552899, 1, 12), query_name: "qa1285.example.org", addresses: [] },
       ],
     },
     scope: { applied: true, processes: 12, unmatched: 0, truncated: false },
@@ -245,6 +248,45 @@ describe("ActivityTabs", () => {
     expect(within(removed as HTMLElement).queryByText("Docker")).toBeNull();
   });
 
+  // spec:web-ui/a-dns-row-lists-every-process-that-resolved-its-name/a-name-several-processes-resolved-lists-each-of-them
+  it("lists every process that resolved a name in its one row, and selects each at its own first lookup", async () => {
+    const onProcess = vi.fn();
+    const base = session();
+    const shared = {
+      ...base.dns.rows[0], query_name: "api.github.com", addresses: ["140.82.112.6"], count: 20, process_count: 18,
+      resolvers: [
+        { pid: 43019, pidversion: 3552877, first_ns: 3 * S },
+        { pid: 43027, pidversion: 3552899, first_ns: 5 * S },
+      ],
+    };
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows: [shared] } }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    const cell = within(screen.getAllByRole("row")[1]).getAllByRole("cell")[2];
+    expect(cell).toHaveTextContent("curl (43019), dig (43027), and 16 others");
+    expect(cell.firstElementChild).toHaveClass("activity-tabs__resolvers");
+    fireEvent.click(within(cell).getByRole("button", { name: "dig (43027)" }));
+    expect(onProcess).toHaveBeenCalledWith(expect.objectContaining({ id: 10, pid: 43027 }), 5 * S);
+  });
+
+  it("names each process of an older replica's DNS rows, which list a name once per process", async () => {
+    const onProcess = vi.fn();
+    const base = session();
+    // An older replica sends no resolvers or process_count: each row is one process's, named by its pid and pidversion.
+    const older = (pid: number, pidversion: number, first: number) =>
+      ({ pid, pidversion, count: 1, first_ns: first * S, last_ns: first * S, query_name: "api.github.com", addresses: ["140.82.112.6"] });
+    const rows = [older(43019, 3552877, 3), older(43027, 3552899, 5)];
+    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows } }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
+    fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
+    const [, curl, dig] = screen.getAllByRole("row");
+    expect(within(curl).getAllByRole("cell")[2]).toHaveTextContent(/^curl \(43019\)$/);
+    expect(within(dig).getAllByRole("cell")[2]).toHaveTextContent(/^dig \(43027\)$/);
+    fireEvent.click(within(dig).getByRole("button", { name: "dig (43027)" }));
+    expect(onProcess).toHaveBeenCalledWith(expect.objectContaining({ id: 10, pid: 43027 }), 5 * S);
+  });
+
   it("names a process by pid when the scope did not list it, and selects one when asked", async () => {
     const onProcess = vi.fn();
     const activity = session({ processes: session().processes.slice(1) });
@@ -333,7 +375,10 @@ describe("ActivityTabs", () => {
 describe("ActivityTabs paging", () => {
   const S = 1_000_000_000;
   const dnsRow = (name: string, first: number) =>
-    ({ pid: 43027, pidversion: 3552899, count: 1, first_ns: first * S, last_ns: first * S, query_name: name, addresses: [] });
+    ({
+      pid: 43027, pidversion: 3552899, count: 1, first_ns: first * S, last_ns: first * S, query_name: name, addresses: [],
+      resolvers: [{ pid: 43027, pidversion: 3552899, first_ns: first * S }], process_count: 1,
+    });
 
   // spec:web-ui/agent-session-view-pages-its-processes-and-activity/the-rest-of-an-activity-list-comes-on-request
   it("reads a cut list's rows page by page until the last", async () => {

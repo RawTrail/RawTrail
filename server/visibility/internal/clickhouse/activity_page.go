@@ -16,7 +16,7 @@ import (
 const (
 	fileOrder    = "first, path, operation, source_path, rolled_up, folded, pid, pv"
 	networkOrder = "first, address, port, protocol, pid, pv"
-	dnsOrder     = "first, name, pid, pv"
+	dnsOrder     = "first, name"
 )
 
 // activitySearch is what each class's search matches: the artifact a row names, case-insensitively.
@@ -79,7 +79,7 @@ func networkCursor(r api.NetworkActivityRow) string {
 }
 
 func dnsCursor(r api.DNSActivityRow) string {
-	return encodeActivityCursor(activityCursor{Class: api.ActivityDNS, First: r.FirstNs, Text: r.QueryName, PID: r.PID, PV: r.PIDVersion})
+	return encodeActivityCursor(activityCursor{Class: api.ActivityDNS, First: r.FirstNs, Text: r.QueryName})
 }
 
 // nextCursor is the cursor of the page after a list: its last row's, when the list was cut, and none otherwise.
@@ -113,7 +113,7 @@ func decodeActivityCursor(class, token string) (keyset, error) {
 	case api.ActivityNetwork:
 		return keyset{c.First, c.Text, c.Port, c.Op, c.PID, c.PV}, nil
 	default:
-		return keyset{c.First, c.Text, c.PID, c.PV}, nil
+		return keyset{c.First, c.Text}, nil
 	}
 }
 

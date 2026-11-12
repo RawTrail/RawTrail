@@ -85,7 +85,10 @@ func TestEventArchive_ActivityForGenerations(t *testing.T) {
 		{ActivityRow: row(200, 2, 1, at(12), at(12)), RemoteAddress: "8.8.8.8", RemotePort: 53, Protocol: "udp", RemoteHostname: "dns.google"},
 	}, got.Network.Rows)
 	assert.Equal(t, []visibilityapi.DNSActivityRow{
-		{ActivityRow: row(100, 1, 2, at(20), at(21)), QueryName: "example.com", Addresses: []string{"1.2.3.4", "5.6.7.8"}},
+		{
+			ActivityRow: row(100, 1, 2, at(20), at(21)), QueryName: "example.com", Addresses: []string{"1.2.3.4", "5.6.7.8"},
+			Resolvers: []visibilityapi.DNSResolver{{PID: 100, PIDVersion: 1, FirstNs: at(20)}}, ProcessCount: 1,
+		},
 	}, got.DNS.Rows)
 	assert.False(t, got.Files.Truncated || got.Network.Truncated || got.DNS.Truncated)
 
@@ -367,4 +370,74 @@ func TestEventArchive_ActivityFromBound(t *testing.T) {
 	assert.Equal(t, "1.1.1.1", got.Network.Rows[0].RemoteAddress)
 	require.Len(t, got.DNS.Rows, 1)
 	assert.Equal(t, "new.example", got.DNS.Rows[0].QueryName)
+}
+
+// A name resolved by several processes is one row (issue #1561): its count, first and last are the name's over every process, its
+// answers are the union of theirs, and it lists the first 16 processes by when each first resolved it, with how many did.
+//
+// spec:server-rest-api/dns-activity-lists-a-name-once/a-name-several-processes-resolved-is-one-row
+func TestEventArchive_DNSActivityOneRowPerName(t *testing.T) {
+	t.Parallel()
+	arch := openTestArchive(t)
+	ctx := context.Background()
+	base := time.Now().UnixNano()
+	at := func(s int64) int64 { return base + s*int64(time.Second) }
+
+	// Seventeen processes resolve api.github.com, the last-numbered first, so the earliest are not the lowest pids; the first one twice,
+	// and one with another answer. One process resolves another name.
+	const resolvers = 17
+	var scope []visibilityapi.ProcessGeneration
+	var events []visibilityapi.Event
+	for i := range resolvers {
+		pid := int64(500 + i)
+		scope = append(scope, visibilityapi.ProcessGeneration{PID: pid, PIDVersion: 1})
+		answer := "140.82.112.6"
+		if i == 3 {
+			answer = "140.82.112.5"
+		}
+		events = append(events, activityEvent("g"+strconv.Itoa(i), "h1", "dns_query", at(int64(100-i)),
+			`{"pid":`+strconv.FormatInt(pid, 10)+`,"pidversion":1,"query_name":"api.github.com","response_addresses":["`+answer+`"]}`))
+	}
+	events = append(events,
+		activityEvent("again", "h1", "dns_query", at(200), `{"pid":516,"pidversion":1,"query_name":"api.github.com",`+
+			`"response_addresses":["140.82.112.6"]}`),
+		activityEvent("other", "h1", "dns_query", at(50), `{"pid":500,"pidversion":1,"query_name":"ntfy.sh","response_addresses":[]}`))
+	require.NoError(t, arch.Insert(ctx, events))
+
+	filter := visibilityapi.ActivityFilter{HostID: "h1", Generations: scope}
+	var got visibilityapi.ActivityRollup
+	require.Eventually(t, func() bool {
+		var err error
+		got, err = arch.ActivityForGenerations(ctx, filter)
+		return err == nil && got.DNS.Events == resolvers+2
+	}, 5*time.Second, 100*time.Millisecond)
+
+	require.Len(t, got.DNS.Rows, 2, "one row a name")
+	gh := got.DNS.Rows[1]
+	assert.Equal(t, "ntfy.sh", got.DNS.Rows[0].QueryName, "listed by when each name was first resolved")
+	assert.Equal(t, "api.github.com", gh.QueryName)
+	assert.Equal(t, int64(resolvers+1), gh.Count)
+	assert.Equal(t, at(100-resolvers+1), gh.FirstNs)
+	assert.Equal(t, at(200), gh.LastNs)
+	assert.Equal(t, []string{"140.82.112.5", "140.82.112.6"}, gh.Addresses)
+	assert.Equal(t, int64(resolvers), gh.ProcessCount)
+	require.Len(t, gh.Resolvers, 16, "the first 16 processes are listed")
+	for i, r := range gh.Resolvers {
+		// The latest-numbered resolved it first; each is listed at its own first lookup.
+		pid := int64(500 + resolvers - 1 - i)
+		assert.Equal(t, visibilityapi.DNSResolver{PID: pid, PIDVersion: 1, FirstNs: at(100 - (pid - 500))}, r)
+	}
+	assert.Equal(t, int64(516), gh.PID, "the row names its first process")
+
+	t.Run("pages continue by name", func(t *testing.T) {
+		paged := filter
+		paged.Limit = 1
+		first, err := arch.ActivityPage(ctx, paged, visibilityapi.ActivityDNS, "")
+		require.NoError(t, err)
+		require.Len(t, first.DNS, 1)
+		rest, err := arch.ActivityPage(ctx, paged, visibilityapi.ActivityDNS, first.NextCursor)
+		require.NoError(t, err)
+		assert.Equal(t, []visibilityapi.DNSActivityRow{gh}, rest.DNS)
+		assert.Empty(t, rest.NextCursor)
+	})
 }

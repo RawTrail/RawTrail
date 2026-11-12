@@ -2,7 +2,7 @@
 
 ### Requirement: Activity table cells stay on one line
 
-Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line, except a DNS row's answers, which SHALL wrap within a capped width. A file row's cell SHALL be capped in width: its path, or a rename's two, SHALL be cut at its start, so its file name stays in view, with the whole path as its tooltip, and a tag beside it, such as a socket's daemon, SHALL keep its width. When the table is still wider than its frame, the frame SHALL scroll sideways rather than wrap the value.
+Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line, except a DNS row's answers and the processes that resolved its name, which SHALL each wrap within a capped width. A file row's cell SHALL be capped in width, each path cut at its start to keep the file name in view with the whole path as its tooltip, and a tag beside it SHALL keep its width. A table wider than its frame SHALL scroll sideways rather than wrap.
 
 #### Scenario: A file path in the process detail panel reads whole
 
@@ -24,6 +24,17 @@ Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one
 - **THEN** its answers wrap onto further lines within the cap, and the table does not widen past it
 
 ## ADDED Requirements
+
+### Requirement: A DNS row lists every process that resolved its name
+
+The DNS list SHALL list each name once, naming in its process cell every process that resolved it that the server lists, each selectable as a single process is, and how many others resolved it beyond those.
+
+#### Scenario: A name several processes resolved lists each of them
+
+- **GIVEN** a name eighteen processes resolved, of which the server lists two
+- **WHEN** the DNS tab lists it
+- **THEN** it is one row whose process cell names both and says sixteen others resolved it
+- **AND** selecting one selects that process at its own first lookup of the name
 
 ### Requirement: Activity times read as an age
 
