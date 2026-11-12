@@ -30,7 +30,8 @@ export function totalsOf(f: ActivityFixture): ActivityTotals {
 
 // firstPageOf is a class's first page as getActivityPage answers it, naming the fixture's processes.
 export function firstPageOf(f: ActivityFixture, cls: api.ActivityClassName): ActivityPage<unknown> {
-  const c: ClassFixture<unknown> = cls === "files" ? f.files : cls === "network" ? f.network : f.dns;
+  const byClass = new Map<api.ActivityClassName, ClassFixture<unknown>>([["files", f.files], ["network", f.network], ["dns", f.dns]]);
+  const c = byClass.get(cls) ?? f.dns;
   return { rows: c.rows, next_cursor: c.next_cursor, processes: f.processes };
 }
 

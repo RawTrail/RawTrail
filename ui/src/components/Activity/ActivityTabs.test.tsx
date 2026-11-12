@@ -492,6 +492,31 @@ describe("ActivityTabs paging", () => {
     expect(screen.getByText("s2-b.example")).toBeVisible();
     expect(screen.queryByText("s1-b.example")).toBeNull();
   });
+
+  it("drops a page of an earlier read of a scope the operator left and came back to", async () => {
+    const fixture = (scope: api.ActivityScopeQuery) => session({
+      dns: { events: 1, distinct: 1, rows: [dnsRow(`${scope.kind === "session" ? scope.session : ""}-a.example`, 1)] },
+    });
+    // The first read of s1's DNS page is held; the second answers at once.
+    const held: (() => void)[] = [];
+    const { page } = mockActivity(fixture);
+    page.mockImplementation((_h, scope, cls) => {
+      const answer = firstPageOf(fixture(scope), cls);
+      if (cls !== "dns" || scope.kind !== "session" || scope.session !== "s1" || held.length > 0) return Promise.resolve(answer);
+      return new Promise((resolve) => { held.push(() => { resolve({ ...answer, next_cursor: "stale" }); }); });
+    });
+    const at = (session: string) => <ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session }} />;
+    const { rerender } = render(at("s1"));
+    rerender(at("s2"));
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    expect(await screen.findByText("s2-a.example")).toBeVisible();
+    rerender(at("s1"));
+    expect(await screen.findByText("s1-a.example")).toBeVisible();
+    held[0]();
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getAllByText("s1-a.example")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Load more rows" })).toBeNull();
+  });
 });
 
 // The totals and each class's list are read at once, and each is shown as it arrives (issue #1550).

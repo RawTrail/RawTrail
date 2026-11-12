@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./ActivityTabs.scss";
 import { getActivityPage, getActivityTotals, type ActivityScopeQuery } from "../../api";
 import type {
@@ -52,10 +52,11 @@ interface ClassList {
   loaded: boolean;
 }
 
-// Lists is each class's list and the processes their rows name, kept with the scope and search they were read for, and the classes
-// in the order their first pages arrived.
+// Lists is each class's list and the processes their rows name, kept with the scope and search they were read for and the cycle of
+// reads that loaded them, and the classes in the order their first pages arrived.
 interface Lists {
   key: string;
+  cycle: number;
   byClass: ReadonlyMap<TabKey, ClassList>;
   processes: ReadonlyMap<string, ActivityProcess>;
   arrived: readonly TabKey[];
@@ -67,8 +68,8 @@ const READ_ORDER: readonly TabKey[] = ["network", "dns", "files"];
 
 const EMPTY_LIST: ClassList = { rows: [], loading: false, failed: false, loaded: false };
 
-function emptyLists(key: string): Lists {
-  return { key, byClass: new Map(), processes: new Map(), arrived: [] };
+function emptyLists(key: string, cycle = 0): Lists {
+  return { key, cycle, byClass: new Map(), processes: new Map(), arrived: [] };
 }
 
 // firstShown is the class shown until the operator picks one: the first whose list arrived with rows, or while none has, the first to
@@ -113,24 +114,29 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
   const current = read?.key === key ? read : null;
   const [lists, setLists] = useState<Lists>(() => emptyLists(listKey));
   const shown = lists.key === listKey ? lists : emptyLists(listKey);
+  // cycle counts the reads of a scope and search. A page lands only in the cycle it was read in, so after a move from A to B and back
+  // to A, the first A's late pages are dropped rather than appended to the second's.
+  const cycle = useRef(0);
 
   // loadPage reads a class's page after its cursor, the first page from the empty cursor, and appends it, for the scope and search it
   // was asked for only.
   const loadPage = useCallback((cls: TabKey, cursor: string) => {
     const key = listKey;
+    const readIn = cycle.current;
     // A page lands only on the scope it was read for: one read before the operator moved to another scope is dropped, rather than
     // replacing what was loaded for the scope now shown.
     const update = (change: (prior: ClassList) => ClassList, settle: boolean, page?: ActivityPage<unknown>) => {
       setLists((l) => {
-        if (settle && l.key !== key) return l;
-        const base = l.key === key ? l : emptyLists(key);
+        const same = l.key === key && l.cycle === readIn;
+        if (settle && !same) return l;
+        const base = same ? l : emptyLists(key, readIn);
         const byClass = new Map(base.byClass);
         byClass.set(cls, change(byClass.get(cls) ?? EMPTY_LIST));
         if (!page) return { ...base, byClass };
         const processes = new Map(base.processes);
         for (const p of page.processes ?? []) processes.set(generationKey(p.pid, p.pidversion), p);
         const arrived = base.arrived.includes(cls) ? base.arrived : [...base.arrived, cls];
-        return { key, byClass, processes, arrived };
+        return { key, cycle: readIn, byClass, processes, arrived };
       });
     };
     // The cursor being read stays the class's until a page replaces it, so a failed read is offered again.
@@ -145,6 +151,7 @@ export function ActivityTabs({ label, hostId, scope, onProcess, search = "" }: P
   }, [hostId, scope, listKey, search]);
 
   useEffect(() => {
+    cycle.current += 1;
     for (const cls of READ_ORDER) loadPage(cls, "");
   }, [listKey]); // eslint-disable-line react-hooks/exhaustive-deps -- loadPage reads the scope and search listKey names
 
