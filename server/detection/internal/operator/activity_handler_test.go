@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -104,6 +105,17 @@ func getActivity(t *testing.T, srv *httptest.Server, query string) (int, activit
 	return resp.StatusCode, out
 }
 
+// rollupNaming is a rollup whose network list holds a row of each generation, so its response names those processes.
+func rollupNaming(generations ...visibilityapi.ProcessGeneration) visibilityapi.ActivityRollup {
+	var rollup visibilityapi.ActivityRollup
+	for _, g := range generations {
+		rollup.Network.Rows = append(rollup.Network.Rows, visibilityapi.NetworkActivityRow{
+			ActivityRow: visibilityapi.ActivityRow{PID: g.PID, PIDVersion: g.PIDVersion},
+		})
+	}
+	return rollup
+}
+
 func generationsOf(f *visibilityapi.ActivityFilter) []visibilityapi.ProcessGeneration {
 	if f == nil {
 		return nil
@@ -120,7 +132,10 @@ func TestActivityHandler_ProcessAlone(t *testing.T) {
 		return api.ProcessTreeResult{}, nil
 	}}
 	pv := uint32(200)
-	reader := &fakeActivityReader{processes: map[int64]api.Process{2: {ID: 2, HostID: "h1", PID: 20, PIDVersion: &pv, Path: "/bin/zsh"}}}
+	reader := &fakeActivityReader{
+		processes: map[int64]api.Process{2: {ID: 2, HostID: "h1", PID: 20, PIDVersion: &pv, Path: "/bin/zsh"}},
+		result:    rollupNaming(visibilityapi.ProcessGeneration{PID: 20, PIDVersion: 200}),
+	}
 	status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), "scope=process&process=2")
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, []visibilityapi.ProcessGeneration{{PID: 20, PIDVersion: 200}}, generationsOf(reader.filter))
@@ -138,9 +153,9 @@ func TestActivityHandler_Subtree(t *testing.T) {
 		gotPin = pin
 		return activityChain(), nil
 	}
-	reader := &fakeActivityReader{result: visibilityapi.ActivityRollup{Network: visibilityapi.NetworkActivity{
-		ActivityTotals: visibilityapi.ActivityTotals{Events: 5, Distinct: 2},
-	}}}
+	result := rollupNaming(visibilityapi.ProcessGeneration{PID: 20, PIDVersion: 200}, visibilityapi.ProcessGeneration{PID: 30, PIDVersion: 300})
+	result.Network.ActivityTotals = visibilityapi.ActivityTotals{Events: 5, Distinct: 2}
+	reader := &fakeActivityReader{result: result}
 	srv := newActivityServer(t, fakeService{buildChainTree: readChain}, reader, allowAllAuthZ{})
 	status, out := getActivity(t, srv, "scope=subtree&process=2")
 	require.Equal(t, http.StatusOK, status)
@@ -181,7 +196,10 @@ func TestActivityHandler_SessionAndStory(t *testing.T) {
 				return res, nil
 			}
 			svc := fakeService{buildScopedTree: readScope}
-			reader := &fakeActivityReader{}
+			reader := &fakeActivityReader{result: rollupNaming(
+				visibilityapi.ProcessGeneration{PID: 10, PIDVersion: 100}, visibilityapi.ProcessGeneration{PID: 20, PIDVersion: 200},
+				visibilityapi.ProcessGeneration{PID: 30, PIDVersion: 300},
+			)}
 			status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), tc.query)
 			require.Equal(t, http.StatusOK, status)
 			assert.Equal(t, tc.want, got)
@@ -224,7 +242,9 @@ func TestActivityHandler_SessionIncludesTheAgent(t *testing.T) {
 
 	t.Run("the agent joins the scope once", func(t *testing.T) {
 		t.Parallel()
-		reader := &fakeActivityReader{processes: processes}
+		reader := &fakeActivityReader{processes: processes, result: rollupNaming(
+			visibilityapi.ProcessGeneration{PID: int64(agentPID), PIDVersion: 9}, visibilityapi.ProcessGeneration{PID: 5001, PIDVersion: 1},
+		)}
 		h := New(fakeService{buildScopedTree: readScope}, allowAllAuthZ{}, slog.Default())
 		h.SetActivity(reader)
 		h.SetAgentSessions(&fakeSessionLister{result: sessions})
@@ -473,4 +493,101 @@ func TestActivityHandler_ReadsFromTheScopeStart(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.NotNil(t, reader.filter)
 	assert.Equal(t, int64(2000), reader.filter.FromNs, "the earliest fork among the processes the rollup reads")
+}
+
+// A response names only the processes its rows were matched by: a long session's scope is 20,000 processes, and listing each made its
+// Activity response 2 MB of process names (issue #1550). ?rows=false reads the totals alone.
+//
+// spec:server-rest-api/activity-reads-load-in-parts/a-response-names-the-processes-of-its-rows
+func TestActivityHandler_NamesTheProcessesOfItsRows(t *testing.T) {
+	t.Parallel()
+	readChain := func(context.Context, string, api.TimeRange, int64, bool) (api.ProcessTreeResult, error) {
+		return activityChain(), nil
+	}
+	svc := fakeService{buildChainTree: readChain}
+	named := visibilityapi.ProcessGeneration{PID: 30, PIDVersion: 300}
+
+	t.Run("the rollup", func(t *testing.T) {
+		t.Parallel()
+		reader := &fakeActivityReader{result: rollupNaming(named)}
+		status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), "scope=subtree&process=2")
+		require.Equal(t, http.StatusOK, status)
+		assert.Len(t, generationsOf(reader.filter), 2, "the scope is the subtree's")
+		assert.Equal(t, []activityProcess{{ID: 3, PID: 30, PIDVersion: 300, Path: "/bin/pd"}}, out.Processes)
+		assert.False(t, reader.filter.TotalsOnly)
+	})
+	t.Run("a DNS row names each process that resolved its name", func(t *testing.T) {
+		t.Parallel()
+		var rollup visibilityapi.ActivityRollup
+		rollup.DNS.Rows = []visibilityapi.DNSActivityRow{{
+			ActivityRow: visibilityapi.ActivityRow{PID: 20, PIDVersion: 200}, QueryName: "api.github.com", ProcessCount: 2,
+			Resolvers: []visibilityapi.DNSResolver{{PID: 20, PIDVersion: 200}, {PID: 30, PIDVersion: 300}},
+		}}
+		reader := &fakeActivityReader{result: rollup}
+		status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), "scope=subtree&process=2")
+		require.Equal(t, http.StatusOK, status)
+		var ids []int64
+		for _, p := range out.Processes {
+			ids = append(ids, p.ID)
+		}
+		assert.Equal(t, []int64{2, 3}, ids)
+	})
+	t.Run("a page", func(t *testing.T) {
+		t.Parallel()
+		// The page's scope is process 2 (pid 20, pidversion 200), which getActivityPage stores.
+		reader := &fakeActivityReader{page: visibilityapi.ActivityPage{DNS: []visibilityapi.DNSActivityRow{{
+			ActivityRow: visibilityapi.ActivityRow{PID: 20, PIDVersion: 200}, QueryName: "example.com",
+			Resolvers: []visibilityapi.DNSResolver{{PID: 20, PIDVersion: 200}}, ProcessCount: 1,
+		}}}}
+		status, out := getActivityPage(t, reader, "/api/hosts/h1/activity/dns?scope=process&process=2")
+		require.Equal(t, http.StatusOK, status)
+		assert.JSONEq(t, `[{"id":2,"pid":20,"pidversion":200,"path":"/bin/zsh"}]`, string(out["processes"]))
+
+		reader.page = visibilityapi.ActivityPage{}
+		status, out = getActivityPage(t, reader, "/api/hosts/h1/activity/dns?scope=process&process=2")
+		require.Equal(t, http.StatusOK, status)
+		assert.JSONEq(t, `[]`, string(out["processes"]), "a page of no rows names no process")
+	})
+	t.Run("the totals alone", func(t *testing.T) {
+		t.Parallel()
+		reader := &fakeActivityReader{}
+		status, out := getActivity(t, newActivityServer(t, svc, reader, allowAllAuthZ{}), "scope=subtree&process=2&rows=false")
+		require.Equal(t, http.StatusOK, status)
+		assert.True(t, reader.filter.TotalsOnly)
+		assert.Equal(t, timelineScope{Applied: true, Processes: 3, Unmatched: 1}, out.Scope)
+		assert.Empty(t, out.Processes)
+	})
+}
+
+// The Activity tab's totals and its three lists, read beside each other, share the session's read with each other and the session's
+// other views (issue #1550).
+//
+// spec:server-rest-api/activity-reads-load-in-parts/a-session-s-activity-reads-share-its-process-read
+func TestActivityHandler_SessionReadsShareTheSessionRead(t *testing.T) {
+	t.Parallel()
+	var reads atomic.Int32
+	svc := fakeService{buildScopedTree: func(context.Context, string, api.TreeScope, int, bool, int64) (api.ProcessTreeResult, error) {
+		reads.Add(1)
+		return activityChain(), nil
+	}}
+	h := New(svc, allowAllAuthZ{}, slog.Default())
+	h.SetActivity(&fakeActivityReader{})
+	h.SetAgentToolCalls(commandsCalls())
+	h.SetAgentSessions(&fakeSessionLister{result: api.AgentSessionResult{Rows: []api.AgentSessionSummary{
+		{HostID: "h1", AgentSessionID: "47abb2a1", LastSeenNs: 5},
+	}}})
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	const scope = "?scope=session&session=47abb2a1"
+	for _, path := range []string{
+		"/api/hosts/h1/activity" + scope + "&rows=false", "/api/hosts/h1/activity/files" + scope,
+		"/api/hosts/h1/activity/network" + scope, "/api/hosts/h1/activity/dns" + scope, "/api/hosts/h1/agent-sessions/47abb2a1/processes",
+	} {
+		resp := doGet(t, srv, path)
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode, path)
+	}
+	assert.Equal(t, int32(1), reads.Load())
 }

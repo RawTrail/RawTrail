@@ -6,6 +6,7 @@ import { ProcessDetail } from "./ProcessDetail";
 import { PermissionsProvider } from "../permissions";
 import * as api from "../api";
 import type { ProcessNode, ProcessDetail as ProcessDetailType, Alert, Command } from "../types";
+import { mockActivity, type ActivityFixture } from "./Activity/activityTestKit";
 
 // ProcessDetail now renders search-pivot <Link>s, so every render needs a router context. Wrap RTL's render so the existing call
 // sites stay unchanged.
@@ -22,10 +23,10 @@ function render(ui: ReactElement) {
 
 const NS = 1_000_000;
 
-const EMPTY_ACTIVITY = {
-  files: { events: 0, distinct: 0, truncated: false, rows: [] },
-  network: { events: 0, distinct: 0, truncated: false, rows: [] },
-  dns: { events: 0, distinct: 0, truncated: false, rows: [] },
+const EMPTY_ACTIVITY: ActivityFixture = {
+  files: { events: 0, distinct: 0, rows: [] },
+  network: { events: 0, distinct: 0, rows: [] },
+  dns: { events: 0, distinct: 0, rows: [] },
   scope: { applied: true, processes: 1, unmatched: 0, truncated: false },
   processes: [],
 };
@@ -73,7 +74,7 @@ beforeEach(() => {
   vi.spyOn(api, "listAlertsByProcessId").mockResolvedValue([]);
   vi.spyOn(api, "createCommand").mockResolvedValue({ id: 99 });
   vi.spyOn(api, "getCommand");
-  vi.spyOn(api, "getActivity").mockResolvedValue(EMPTY_ACTIVITY);
+  mockActivity(EMPTY_ACTIVITY);
 });
 
 afterEach(() => {
@@ -472,7 +473,7 @@ describe("ProcessDetail related-alert attribution", () => {
 describe("ProcessDetail activity (issue #1285)", () => {
   // spec:web-ui/activity-tabs/a-process-s-activity-switches-between-it-and-its-subtree
   it("totals the process alone, and its whole subtree when asked", async () => {
-    const spy = vi.spyOn(api, "getActivity").mockResolvedValue(EMPTY_ACTIVITY);
+    const { totals: spy } = mockActivity(EMPTY_ACTIVITY);
     render(<ProcessDetail hostId="h1" node={makeNode({ id: 42 })} onClose={vi.fn()} />);
     expect(await screen.findByText("0 connections to 0 destinations")).toBeVisible();
     expect(spy).toHaveBeenLastCalledWith("h1", { kind: "process", process: 42 });

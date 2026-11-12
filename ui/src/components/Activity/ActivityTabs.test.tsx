@@ -3,25 +3,24 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 
 import { ActivityTabs } from "./ActivityTabs";
 import * as api from "../../api";
-import type { ActivityResponse } from "../../types";
+import { firstPageOf, mockActivity, totalsOf, type ActivityFixture } from "./activityTestKit";
 import { formatNs } from "../Search/format";
 
 const S = 1_000_000_000;
 
 // session is the rollup the edr-dev Claude Code session's activity read returned: two curls to example.com and one to fleetdm.com,
 // and a dig, each resolving its name first.
-function session(over: Partial<ActivityResponse> = {}): ActivityResponse {
+function session(over: Partial<ActivityFixture> = {}): ActivityFixture {
   const row = (pid: number, pidversion: number, count: number, first: number, last = first) =>
     ({ pid, pidversion, count, first_ns: first * S, last_ns: last * S });
   // lookup is a name one process resolved: a DNS row lists that process as its one resolver.
   const lookup = (pid: number, pidversion: number, count: number, first: number, last = first) =>
     ({ ...row(pid, pidversion, count, first, last), resolvers: [{ pid, pidversion, first_ns: first * S }], process_count: 1 });
   return {
-    files: { events: 0, distinct: 0, truncated: false, rows: [] },
+    files: { events: 0, distinct: 0, rows: [] },
     network: {
       events: 4,
       distinct: 3,
-      truncated: false,
       rows: [
         { ...row(43017, 3552872, 1, 10), remote_address: "172.66.147.243", remote_port: 443, protocol: "tcp" },
         { ...row(43019, 3552877, 1, 11), remote_address: "172.66.147.243", remote_port: 443, protocol: "tcp" },
@@ -32,7 +31,6 @@ function session(over: Partial<ActivityResponse> = {}): ActivityResponse {
     dns: {
       events: 5,
       distinct: 3,
-      truncated: false,
       rows: [
         { ...lookup(43017, 3552872, 2, 9, 10), query_name: "example.com", addresses: ["104.20.23.154", "172.66.147.243"] },
         { ...lookup(43023, 3552887, 2, 11), query_name: "fleetdm.com", addresses: ["104.21.82.73"] },
@@ -55,7 +53,7 @@ afterEach(() => { vi.restoreAllMocks(); });
 describe("ActivityTabs", () => {
   // spec:web-ui/activity-tabs/a-session-s-network-tab-lists-every-destination-with-its-process
   it("lists every destination a session connected to, with the process that made each connection", async () => {
-    const spy = vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    const { totals: spy } = mockActivity(session());
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     expect(await screen.findByText("4 connections to 3 destinations")).toBeVisible();
     expect(spy).toHaveBeenCalledWith("H1", { kind: "session", session: "s1" });
@@ -71,7 +69,7 @@ describe("ActivityTabs", () => {
   });
 
   it("switches to the DNS and Files tabs", async () => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    mockActivity(session());
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
     expect(screen.getByText("5 queries for 3 names")).toBeVisible();
@@ -85,7 +83,7 @@ describe("ActivityTabs", () => {
   it("shows when a row was first and last seen as an age, with the exact time on hover", async () => {
     // Six minutes after the example.com lookup's first answer.
     vi.spyOn(Date, "now").mockReturnValue((9 * S) / 1_000_000 + 6 * 60_000);
-    vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    mockActivity(session());
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     await screen.findByText("4 connections to 3 destinations");
     // A connection seen once has no last.
@@ -105,7 +103,7 @@ describe("ActivityTabs", () => {
 
   // spec:web-ui/activity-table-cells-stay-on-one-line/a-long-answer-list-wraps-within-its-cap
   it("wraps a DNS row's answers within their cap", async () => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    mockActivity(session());
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
     expect(screen.getByText("104.20.23.154, 172.66.147.243")).toHaveClass("activity-tabs__answers");
@@ -115,7 +113,7 @@ describe("ActivityTabs", () => {
   it("sorts the DNS list by name from its header, and back to first seen", async () => {
     const base = session();
     const late = { ...base.dns.rows[0], query_name: "a.example", first_ns: 20 * S, last_ns: 20 * S };
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows: [...base.dns.rows, late] } }));
+    mockActivity(session({ dns: { ...base.dns, rows: [...base.dns.rows, late] } }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
     const names = () => screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[0].textContent);
@@ -145,7 +143,7 @@ describe("ActivityTabs", () => {
           path: "/tmp/b", source_path: "/tmp/a" },
       ],
     };
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
+    mockActivity(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Files 2" }));
     const renameRow = screen.getByText("rename").closest("tr");
@@ -168,7 +166,7 @@ describe("ActivityTabs", () => {
         { pid: 21989, pidversion: 38549, count: 1, first_ns: 3 * S, last_ns: 3 * S, operation: "connect" as const, path: sock },
       ],
     };
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
+    mockActivity(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
     const [create, rename, connect] = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1]);
@@ -200,7 +198,7 @@ describe("ActivityTabs", () => {
           path: "/tmp/b1.output", processes: 80 },
       ],
     };
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
+    mockActivity(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
     expect(screen.getByText("2,020 file events on 3 paths")).toBeVisible();
@@ -235,7 +233,7 @@ describe("ActivityTabs", () => {
         { pid: 3098, pidversion: 7, count: 1, first_ns: 4 * S, last_ns: 4 * S, operation: "delete" as const, path: "/var/run/docker.sock" },
       ],
     };
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ files }));
+    mockActivity(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
     const agent = screen.getByText("/private/tmp/com.apple.launchd.iIlTeYzViU/Listeners", { exact: false }).closest("tr");
@@ -259,7 +257,7 @@ describe("ActivityTabs", () => {
         { pid: 43027, pidversion: 3552899, first_ns: 5 * S },
       ],
     };
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows: [shared] } }));
+    mockActivity(session({ dns: { ...base.dns, rows: [shared] } }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
     fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
     expect(screen.getAllByRole("row")).toHaveLength(2);
@@ -277,7 +275,7 @@ describe("ActivityTabs", () => {
     const older = (pid: number, pidversion: number, first: number) =>
       ({ pid, pidversion, count: 1, first_ns: first * S, last_ns: first * S, query_name: "api.github.com", addresses: ["140.82.112.6"] });
     const rows = [older(43019, 3552877, 3), older(43027, 3552899, 5)];
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { ...base.dns, rows } }));
+    mockActivity(session({ dns: { ...base.dns, rows } }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
     fireEvent.click(await screen.findByRole("button", { name: "DNS 3" }));
     const [, curl, dig] = screen.getAllByRole("row");
@@ -290,7 +288,7 @@ describe("ActivityTabs", () => {
   it("names a process by pid when the scope did not list it, and selects one when asked", async () => {
     const onProcess = vi.fn();
     const activity = session({ processes: session().processes.slice(1) });
-    vi.spyOn(api, "getActivity").mockResolvedValue(activity);
+    mockActivity(activity);
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} onProcess={onProcess} />);
     expect(await screen.findByText("pid 43017")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "dig (43027)" }));
@@ -298,17 +296,27 @@ describe("ActivityTabs", () => {
     expect(onProcess).toHaveBeenCalledWith(expect.objectContaining({ id: 10, pid: 43027 }), expect.any(Number));
   });
 
+  it("lists an older replica's page, which names no processes, naming each row's process by pid", async () => {
+    const { page } = mockActivity(session());
+    // An older replica's page has rows and a cursor but no processes.
+    page.mockImplementation((_h, _scope, cls, cursor) =>
+      Promise.resolve(cursor === "" ? { rows: firstPageOf(session(), cls).rows } : { rows: [] }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    expect(await screen.findAllByText("pid 43017")).not.toHaveLength(0);
+    expect(screen.queryByText("curl (43017)")).not.toBeInTheDocument();
+  });
+
   it("names the generation a row belongs to, not another process that reused its pid", async () => {
     // pid 43017 is reused: generation 3552872 was curl, a later one a shell. The row belongs to curl.
     const activity = session({ processes: [{ id: 99, pid: 43017, pidversion: 1, path: "/bin/zsh" }, ...session().processes] });
-    vi.spyOn(api, "getActivity").mockResolvedValue(activity);
+    mockActivity(activity);
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     expect(await screen.findByText("curl (43017)")).toBeVisible();
     expect(screen.queryByText("zsh (43017)")).not.toBeInTheDocument();
   });
 
   it("says when a list was cut", async () => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ network: { ...session().network, truncated: true } }));
+    mockActivity(session({ network: { ...session().network, next_cursor: "n1" } }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "subtree", process: 7 }} />);
     expect(await screen.findByText("Showing the first 4 rows; there are more than the list holds.")).toBeVisible();
   });
@@ -341,28 +349,33 @@ describe("ActivityTabs", () => {
       "2 processes carry no process generation, so their activity is not counted.",
     ],
   ])("reports the scope %j", async (scope, message) => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ scope }));
+    mockActivity(session({ scope }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     expect(await screen.findByText(message)).toBeVisible();
   });
 
   it("says nothing about a scope it reflects in full", async () => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session());
+    mockActivity(session());
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     await screen.findByText("4 connections to 3 destinations");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("reports a failed read", async () => {
-    vi.spyOn(api, "getActivity").mockRejectedValue(new Error("boom"));
+  it("reports totals that could not be read, and still lists what was", async () => {
+    mockActivity(session());
+    vi.spyOn(api, "getActivityTotals").mockRejectedValue(new Error("boom"));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
-    expect(await screen.findByText("Error: boom")).toBeVisible();
+    expect(await screen.findByText("The totals could not be loaded: boom")).toBeVisible();
+    expect(await screen.findByText("dig (43027)")).toBeVisible();
+    expect(screen.getByText("Counting...")).toBeVisible();
   });
 
   it("rereads when the scope changes, and never shows the previous scope's activity meanwhile", async () => {
-    vi.spyOn(api, "getActivity")
-      .mockResolvedValueOnce(session())
-      .mockImplementationOnce(() => new Promise(() => undefined));
+    const { totals, page } = mockActivity(session());
+    totals.mockImplementation((_h, scope) =>
+      scope.kind === "process" ? Promise.resolve(totalsOf(session())) : new Promise(() => undefined));
+    page.mockImplementation((_h, scope, cls) =>
+      scope.kind === "process" ? Promise.resolve(firstPageOf(session(), cls)) : new Promise(() => undefined));
     const { rerender } = render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     await screen.findByText("4 connections to 3 destinations");
     rerender(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "subtree", process: 7 }} />);
@@ -371,7 +384,7 @@ describe("ActivityTabs", () => {
   });
 });
 
-// A cut list reads its next page on request (issue #1424), from the cursor the rollup named and then each page's own.
+// A list reads its next page on request (issue #1424), from the cursor its first page named and then each page's own.
 describe("ActivityTabs paging", () => {
   const S = 1_000_000_000;
   const dnsRow = (name: string, first: number) =>
@@ -379,17 +392,18 @@ describe("ActivityTabs paging", () => {
       pid: 43027, pidversion: 3552899, count: 1, first_ns: first * S, last_ns: first * S, query_name: name, addresses: [],
       resolvers: [{ pid: 43027, pidversion: 3552899, first_ns: first * S }], process_count: 1,
     });
+  const none = { rows: [], processes: [] };
 
   // spec:web-ui/agent-session-view-pages-its-processes-and-activity/the-rest-of-an-activity-list-comes-on-request
   it("reads a cut list's rows page by page until the last", async () => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({
-      dns: { events: 3, distinct: 3, truncated: true, rows: [dnsRow("a.example", 1)], next_cursor: "c1" },
-    }));
-    const page = vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, _c, cursor) => Promise.resolve(cursor === "c1"
-      ? { rows: [dnsRow("b.example", 2)], next_cursor: "c2" }
-      : { rows: [dnsRow("c.example", 3)] }));
+    const fixture = session({ dns: { events: 3, distinct: 3, rows: [dnsRow("a.example", 1)], next_cursor: "c1" } });
+    const { page } = mockActivity(fixture);
+    page.mockImplementation((_h, _s, cls, cursor) => Promise.resolve(cursor === "" ? firstPageOf(fixture, cls) : cursor === "c1"
+      ? { rows: [dnsRow("b.example", 2)], next_cursor: "c2", processes: [] }
+      : { rows: [dnsRow("c.example", 3)], processes: [] }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
-    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    await screen.findByText("4 connections to 3 destinations");
+    fireEvent.click(screen.getByRole("button", { name: /^DNS/ }));
     expect(screen.getByRole("status")).toHaveTextContent("Showing the first 1 row");
     fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
     expect(await screen.findByText("b.example")).toBeVisible();
@@ -404,74 +418,151 @@ describe("ActivityTabs paging", () => {
   });
 
   it("says when the next rows could not be loaded, and offers them again", async () => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({
-      files: { events: 2, distinct: 2, truncated: true, next_cursor: "f1",
+    const fixture = session({
+      files: { events: 2, distinct: 2, next_cursor: "f1",
         rows: [{ pid: 43017, pidversion: 3552872, count: 1, first_ns: S, last_ns: S, operation: "modify", path: "/r/a" }] },
-    }));
-    vi.spyOn(api, "getActivityPage").mockRejectedValue(new Error("down"));
+    });
+    const { page } = mockActivity(fixture);
+    page.mockImplementation((_h, _s, cls, cursor) =>
+      cursor === "" ? Promise.resolve(firstPageOf(fixture, cls)) : Promise.reject(new Error("down")));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
-    fireEvent.click(await screen.findByRole("button", { name: /^Files/ }));
+    await screen.findByText("4 connections to 3 destinations");
+    fireEvent.click(screen.getByRole("button", { name: /^Files/ }));
     fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
     expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Load more rows" })).toBeVisible();
   });
 
   // spec:web-ui/the-session-view-searches-its-processes-and-activity-on-the-server/an-activity-search-reads-the-class-from-the-server
-  it("lists a class's rows the server finds for a search, in place of the rollup's, and pages them", async () => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({
-      dns: { events: 3, distinct: 3, truncated: false, rows: [dnsRow("a.example", 1), dnsRow("ab.example", 2)] },
-    }));
-    // The open class (Network) is searched first; DNS is read once it is opened.
-    const page = vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, cls, cursor) => Promise.resolve(cls !== "dns"
-      ? { rows: [] }
-      : cursor === "" ? { rows: [dnsRow("b.example", 3)], next_cursor: "q2" } : { rows: [dnsRow("bb.example", 4)] }));
+  it("lists each class's rows the server finds for a search, and pages them", async () => {
+    const { page } = mockActivity(session({ dns: { events: 3, distinct: 3, rows: [dnsRow("a.example", 1), dnsRow("ab.example", 2)] } }));
+    page.mockImplementation((_h, _s, cls, cursor) => Promise.resolve(cls !== "dns"
+      ? none
+      : cursor === "" ? { rows: [dnsRow("b.example", 3)], next_cursor: "q2", processes: [] } : { rows: [dnsRow("bb.example", 4)], processes: [] }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} search="b." />);
-    await waitFor(() => { expect(page).toHaveBeenCalledWith("H1", { kind: "session", session: "s1" }, "network", "", "b."); });
+    for (const cls of ["network", "dns", "files"]) {
+      await waitFor(() => { expect(page).toHaveBeenCalledWith("H1", { kind: "session", session: "s1" }, cls, "", "b."); });
+    }
     fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
     expect(await screen.findByText("b.example")).toBeVisible();
     expect(screen.queryByText("a.example")).toBeNull();
-    expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "", "b.");
     expect(screen.getByRole("button", { name: /^DNS/ })).toHaveTextContent("3", { normalizeWhitespace: true });
     fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
     expect(await screen.findByText("bb.example")).toBeVisible();
     expect(page).toHaveBeenLastCalledWith("H1", { kind: "session", session: "s1" }, "dns", "q2", "b.");
   });
 
-  it("offers a search's failed first page again", async () => {
-    vi.spyOn(api, "getActivity").mockResolvedValue(session({ dns: { events: 1, distinct: 1, truncated: false, rows: [] } }));
+  it("offers a failed first page again", async () => {
+    const { page } = mockActivity(session({ dns: { events: 1, distinct: 1, rows: [] } }));
     let dnsAttempts = 0;
-    vi.spyOn(api, "getActivityPage").mockImplementation((_h, _s, cls) => {
-      if (cls !== "dns") return Promise.resolve({ rows: [] });
+    page.mockImplementation((_h, _s, cls) => {
+      if (cls !== "dns") return Promise.resolve(none);
       dnsAttempts++;
-      return dnsAttempts === 1 ? Promise.reject(new Error("down")) : Promise.resolve({ rows: [dnsRow("b.example", 3)] });
+      return dnsAttempts === 1 ? Promise.reject(new Error("down")) : Promise.resolve({ rows: [dnsRow("b.example", 3)], processes: [] });
     });
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} search="b." />);
     fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
-    expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("The list could not be loaded.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more rows" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("b.example")).toBeVisible();
     expect(dnsAttempts).toBe(2);
   });
 
   it("drops a page read for a scope the operator has since left", async () => {
-    vi.spyOn(api, "getActivity").mockImplementation((_h, scope) => Promise.resolve(session({
-      dns: { events: 2, distinct: 2, truncated: true, rows: [dnsRow(`${scope.kind === "session" ? scope.session : ""}-a.example`, 1)],
-        next_cursor: "c1" },
-    })));
-    let landOld: (page: { rows: unknown[] }) => void = () => undefined;
-    vi.spyOn(api, "getActivityPage").mockImplementation((_h, scope) => (scope.kind === "session" && scope.session === "s1"
-      ? new Promise((resolve) => { landOld = resolve; })
-      : Promise.resolve({ rows: [dnsRow("s2-b.example", 2)] })));
+    const fixture = (scope: api.ActivityScopeQuery) => session({
+      dns: { events: 2, distinct: 2, rows: [dnsRow(`${scope.kind === "session" ? scope.session : ""}-a.example`, 1)], next_cursor: "c1" },
+    });
+    let landOld: (page: { rows: unknown[]; processes: [] }) => void = () => undefined;
+    const { page } = mockActivity(fixture);
+    page.mockImplementation((_h, scope, cls, cursor) => {
+      if (cursor === "") return Promise.resolve(firstPageOf(fixture(scope), cls));
+      return scope.kind === "session" && scope.session === "s1"
+        ? new Promise((resolve) => { landOld = resolve; })
+        : Promise.resolve({ rows: [dnsRow("s2-b.example", 2)], processes: [] });
+    });
     const { rerender } = render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
     fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load more rows" }));
     rerender(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s2" }} />);
     expect(await screen.findByText("s2-a.example")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
     expect(await screen.findByText("s2-b.example")).toBeVisible();
-    landOld({ rows: [dnsRow("s1-b.example", 2)] });
+    landOld({ rows: [dnsRow("s1-b.example", 2)], processes: [] });
     await new Promise((resolve) => { setTimeout(resolve, 0); });
     expect(screen.getByText("s2-b.example")).toBeVisible();
     expect(screen.queryByText("s1-b.example")).toBeNull();
+  });
+
+  it("drops a page of an earlier read of a scope the operator left and came back to", async () => {
+    const fixture = (scope: api.ActivityScopeQuery) => session({
+      dns: { events: 1, distinct: 1, rows: [dnsRow(`${scope.kind === "session" ? scope.session : ""}-a.example`, 1)] },
+    });
+    // The first read of s1's DNS page is held; the second answers at once.
+    const held: (() => void)[] = [];
+    const { page } = mockActivity(fixture);
+    page.mockImplementation((_h, scope, cls) => {
+      const answer = firstPageOf(fixture(scope), cls);
+      if (cls !== "dns" || scope.kind !== "session" || scope.session !== "s1" || held.length > 0) return Promise.resolve(answer);
+      return new Promise((resolve) => { held.push(() => { resolve({ ...answer, next_cursor: "stale" }); }); });
+    });
+    const at = (session: string) => <ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session }} />;
+    const { rerender } = render(at("s1"));
+    rerender(at("s2"));
+    fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
+    expect(await screen.findByText("s2-a.example")).toBeVisible();
+    rerender(at("s1"));
+    expect(await screen.findByText("s1-a.example")).toBeVisible();
+    held[0]();
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(screen.getAllByText("s1-a.example")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Load more rows" })).toBeNull();
+  });
+});
+
+// The totals and each class's list are read at once, and each is shown as it arrives (issue #1550).
+describe("ActivityTabs loading in parts", () => {
+  // spec:web-ui/activity-lists-show-as-they-arrive/a-list-shows-before-the-totals-and-the-other-lists
+  it("shows the first list to arrive before the totals and the other lists", async () => {
+    const fixture = session();
+    const { totals, page } = mockActivity(fixture);
+    totals.mockImplementation(() => new Promise(() => undefined));
+    page.mockImplementation((_h, _s, cls) => (cls === "dns" ? Promise.resolve(firstPageOf(fixture, cls)) : new Promise(() => undefined)));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    expect(await screen.findByText("fleetdm.com")).toBeVisible();
+    expect(screen.getByRole("button", { name: "DNS" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Counting...")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Network" }));
+    expect(screen.getByText("Loading activity...")).toBeVisible();
+  });
+
+  it("passes over a list that arrived empty for the first that has rows", async () => {
+    const fixture = session({ network: { events: 0, distinct: 0, rows: [] } });
+    const { page } = mockActivity(fixture);
+    let landDNS: (p: ReturnType<typeof firstPageOf>) => void = () => undefined;
+    page.mockImplementation((_h, _s, cls) => (cls === "dns"
+      ? new Promise((resolve) => { landDNS = resolve; })
+      : Promise.resolve(firstPageOf(fixture, cls))));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    // Network and Files arrive empty: the first of them is shown until a list with rows arrives.
+    expect(await screen.findByRole("button", { name: "Network 0" })).toHaveAttribute("aria-pressed", "true");
+    landDNS(firstPageOf(fixture, "dns"));
+    expect(await screen.findByText("fleetdm.com")).toBeVisible();
+    expect(screen.getByRole("button", { name: "DNS 3" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps the class the operator picked while another list arrives first", async () => {
+    const fixture = session();
+    const { page } = mockActivity(fixture);
+    let landFiles: (p: ReturnType<typeof firstPageOf>) => void = () => undefined;
+    page.mockImplementation((_h, _s, cls) => (cls === "files"
+      ? new Promise((resolve) => { landFiles = resolve; })
+      : Promise.resolve(firstPageOf(fixture, cls))));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    expect(await screen.findByRole("button", { name: "Files 0" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Loading activity...")).toBeVisible();
+    landFiles(firstPageOf(fixture, "files"));
+    expect(await screen.findByText("0 file events on 0 paths")).toBeVisible();
   });
 });

@@ -110,6 +110,8 @@ test.describe("agent sessions", () => {
     // The session's activity: git's lookup of github.com, its one connection and its index update, matched to git by its generation.
     await views.getByRole("button", { name: "Activity" }).click();
     const sessionActivity = page.locator(".session-view__main");
+    // Each list shows as it arrives, the first with rows unless one is picked, so pick Network.
+    await page.getByRole("group", { name: "Session activity" }).getByRole("button", { name: /^Network/ }).click();
     await expect(sessionActivity.getByText("1 connection to 1 destination")).toBeVisible({ timeout: 10_000 });
     const connection = sessionActivity.locator(".activity-tabs__panel").getByRole("row").nth(1);
     await expect(connection).toContainText("140.82.112.3:443 tcp");

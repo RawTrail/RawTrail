@@ -43,6 +43,8 @@ const activityPageLimit = 200
 type activityPageResponse struct {
 	Rows       any    `json:"rows"`
 	NextCursor string `json:"next_cursor,omitempty"`
+	// Processes names the processes the page's rows were matched by, as the rollup's does for its lists.
+	Processes []activityProcess `json:"processes"`
 }
 
 // handleActivityPage serves GET /api/hosts/{host_id}/activity/{class}: the page of one class (files, network or dns) of a scope's
@@ -72,7 +74,7 @@ func (h *Handler) handleActivityPage(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusBadRequest, errInvalidCursor)
 		return
 	}
-	filter, _, _, err := h.activityFilter(ctx, hostID, req)
+	filter, _, matched, err := h.activityFilter(ctx, hostID, req)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "resolve activity scope", "host_id", hostID, "err", err)
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
@@ -100,6 +102,7 @@ func (h *Handler) handleActivityPage(w http.ResponseWriter, r *http.Request) {
 	default:
 		resp.Rows = nonNil(page.DNS)
 	}
+	resp.Processes = processesOf(matched, rowGenerations(page.Files, page.Network, page.DNS))
 	h.writeJSON(w, r, resp)
 }
 
@@ -109,6 +112,42 @@ func nonNil[R any](rows []R) []R {
 		return []R{}
 	}
 	return rows
+}
+
+// processesOf names the processes of the scope that the rows were matched by. A session's scope holds up to 20,000 processes and its
+// rows name a few of them, and listing them all made a long session's Activity response 2 MB of process names (issue #1550).
+func processesOf(matched []api.ProcessNode, named map[visibilityapi.ProcessGeneration]bool) []activityProcess {
+	processes := []activityProcess{}
+	for _, n := range matched {
+		// scopeGenerations matches only a process with a generation, so every one here has its pidversion.
+		if named[visibilityapi.ProcessGeneration{PID: int64(n.PID), PIDVersion: int64(*n.PIDVersion)}] {
+			processes = append(processes, activityProcess{ID: n.ID, PID: n.PID, PIDVersion: *n.PIDVersion, Path: n.Path})
+		}
+	}
+	return processes
+}
+
+// rowGenerations is the generations the rows of each class were matched by.
+func rowGenerations(
+	files []visibilityapi.FileActivityRow, network []visibilityapi.NetworkActivityRow, dns []visibilityapi.DNSActivityRow,
+) map[visibilityapi.ProcessGeneration]bool {
+	named := map[visibilityapi.ProcessGeneration]bool{}
+	add := func(r visibilityapi.ActivityRow) {
+		named[visibilityapi.ProcessGeneration{PID: r.PID, PIDVersion: r.PIDVersion}] = true
+	}
+	for _, r := range files {
+		add(r.ActivityRow)
+	}
+	for _, r := range network {
+		add(r.ActivityRow)
+	}
+	// A DNS row stands for every process that resolved its name, and names each (issue #1561).
+	for _, r := range dns {
+		for _, p := range r.Resolvers {
+			named[visibilityapi.ProcessGeneration{PID: p.PID, PIDVersion: p.PIDVersion}] = true
+		}
+	}
+	return named
 }
 
 // activityProcess names a process of the scope, so a client can say which process touched each artifact: rows carry the (pid,
@@ -168,6 +207,8 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
+	// ?rows=false reads the totals alone, for a client that reads each class's list as its own page beside them (issue #1550).
+	filter.TotalsOnly = r.URL.Query().Get("rows") == "false"
 	// A scope with no generation to match is answered with nothing, not with the host's whole activity: the totals would claim the
 	// scope touched what other processes did.
 	rollup, err := h.activity.ActivityForGenerations(ctx, filter)
@@ -176,10 +217,7 @@ func (h *Handler) handleActivity(w http.ResponseWriter, r *http.Request) {
 		h.writeError(ctx, w, http.StatusInternalServerError, errInternal)
 		return
 	}
-	processes := make([]activityProcess, 0, len(matched))
-	for _, n := range matched {
-		processes = append(processes, activityProcess{ID: n.ID, PID: n.PID, PIDVersion: *n.PIDVersion, Path: n.Path})
-	}
+	processes := processesOf(matched, rowGenerations(rollup.Files.Rows, rollup.Network.Rows, rollup.DNS.Rows))
 	h.writeJSON(w, r, activityResponse{ActivityRollup: rollup, Scope: *scope, Processes: processes})
 }
 
@@ -264,7 +302,7 @@ func (h *Handler) activityScopeProcesses(
 ) (roots, agents []api.ProcessNode, truncated bool, err error) {
 	switch {
 	case req.process == 0:
-		res, err := h.svc.BuildScopedTree(ctx, hostID, req.tree, scopeBound(req), true, 0)
+		res, err := h.scopedTree(ctx, hostID, req)
 		if err != nil || req.tree.AgentSessionID == "" {
 			return res.Roots, nil, res.Truncated, err
 		}
@@ -286,6 +324,19 @@ func (h *Handler) activityScopeProcesses(
 		return nil, nil, false, nil
 	}
 	return []api.ProcessNode{*pinned}, nil, res.Truncated, nil
+}
+
+// scopedTree reads a story's or session's processes. A session's is the read its other views keep (readSession), so the Activity
+// tab's lists, read beside each other, and the session's other tabs share one read of a long session (issue #1550).
+func (h *Handler) scopedTree(ctx context.Context, hostID string, req activityScopeRequest) (api.ProcessTreeResult, error) {
+	if req.tree.AgentSessionID == "" || h.agentSessions == nil {
+		return h.svc.BuildScopedTree(ctx, hostID, req.tree, scopeBound(req), true, 0)
+	}
+	session, err := h.agentSessions.GetAgentSession(ctx, hostID, req.tree.AgentSessionID)
+	if err != nil || session == nil {
+		return api.ProcessTreeResult{}, err
+	}
+	return h.readSession(ctx, session)
 }
 
 // sessionAgents returns the agent process of a session's processes (issue #1287): the creator of a tool call's root whose pid is the

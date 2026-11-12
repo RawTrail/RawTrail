@@ -9,7 +9,7 @@
 import type {
   ActivityHistogram,
   ActivityPage,
-  ActivityResponse,
+  ActivityTotals,
   AgentSessionLineage,
   AgentSessionResult,
   AgentSessionTotals,
@@ -399,16 +399,19 @@ function activityScopeParams(scope: ActivityScopeQuery): URLSearchParams {
   return query;
 }
 
-// getActivity reads what a scope touched on a host: its files, network destinations and DNS names (issue #1285).
-export async function getActivity(hostId: string, scope: ActivityScopeQuery): Promise<ActivityResponse> {
-  return fetchJSON<ActivityResponse>(`/hosts/${encodeURIComponent(hostId)}/activity?${queryString(activityScopeParams(scope))}`);
+// getActivityTotals reads how much a scope touched on a host (issue #1285): its file events, connections and DNS lookups, and how far
+// its scope reached. Each class's list is read with getActivityPage, beside it (issue #1550).
+export async function getActivityTotals(hostId: string, scope: ActivityScopeQuery): Promise<ActivityTotals> {
+  const query = activityScopeParams(scope);
+  query.set("rows", "false");
+  return fetchJSON<ActivityTotals>(`/hosts/${encodeURIComponent(hostId)}/activity?${queryString(query)}`);
 }
 
 // ActivityClassName names one class of a scope's activity.
 export type ActivityClassName = "files" | "network" | "dns";
 
-// getActivityPage reads the page of one class of a scope's activity after a cursor the rollup or the previous page handed out
-// (issue #1424).
+// getActivityPage reads a page of one class of a scope's activity (issue #1424): the first from the empty cursor, and each after it from
+// the cursor the page before handed out. It names the processes its rows were matched by.
 export async function getActivityPage<Row>(
   hostId: string, scope: ActivityScopeQuery, cls: ActivityClassName, cursor: string, q = "",
 ): Promise<ActivityPage<Row>> {

@@ -104,6 +104,21 @@ func TestEventArchive_ActivityForGenerations(t *testing.T) {
 		assert.Equal(t, int64(4), cut.Files.Events, "totals are the scope's, not the page's")
 	})
 
+	// spec:server-rest-api/activity-reads-load-in-parts/the-totals-are-read-alone
+	t.Run("the totals alone leave the lists empty", func(t *testing.T) {
+		filter := filter
+		filter.TotalsOnly = true
+		totals, err := arch.ActivityForGenerations(ctx, filter)
+		require.NoError(t, err)
+		assert.Equal(t, got.Files.ActivityTotals, totals.Files.ActivityTotals)
+		assert.Equal(t, got.Network.ActivityTotals, totals.Network.ActivityTotals)
+		assert.Equal(t, got.DNS.ActivityTotals, totals.DNS.ActivityTotals)
+		assert.Empty(t, totals.Files.Rows)
+		assert.Empty(t, totals.Network.Rows)
+		assert.Empty(t, totals.DNS.Rows)
+		assert.NotNil(t, totals.DNS.Rows, "an empty list marshals as []")
+	})
+
 	t.Run("no generations reads nothing", func(t *testing.T) {
 		empty, err := arch.ActivityForGenerations(ctx, visibilityapi.ActivityFilter{HostID: "h1"})
 		require.NoError(t, err)
