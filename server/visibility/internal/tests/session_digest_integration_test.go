@@ -212,6 +212,7 @@ func TestEventArchive_ActivityDigestFiles(t *testing.T) {
 }
 
 // spec:server-rest-api/a-session-digest-counts-its-unrecorded-file-operations/dropped-operations-across-a-clear-count-toward-both-sessions
+// spec:server-rest-api/activity-rollup-bounded-to-its-scope-s-start/an-agent-bounded-to-a-later-session-bounds-it-from-that-session
 //
 // A Claude Code process serves the session after a /clear with no session id of its own, so the server splits its events between the
 // sessions by time, and one drop event can begin before the /clear and end after it. Read by its start alone, the later session
@@ -236,16 +237,22 @@ func TestEventArchive_ActivityDigestCountsDropsAcrossAClear(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		span visibilityapi.GenerationSpan
-		want int64
+		// fromNs is the read's own lower bound, which the server sets to the agent's span start when the span is what starts the scope.
+		fromNs int64
+		want   int64
 	}{
-		{"the session before the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, ToNs: clearedAt}, 15},
-		{"the session after the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, FromNs: clearedAt}, 8},
+		{"the session before the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, ToNs: clearedAt}, 0, 15},
+		{"the session after the clear", visibilityapi.GenerationSpan{ProcessGeneration: agent, FromNs: clearedAt}, 0, 8},
+		{"the session after the clear, read from its start", visibilityapi.GenerationSpan{ProcessGeneration: agent, FromNs: clearedAt},
+			clearedAt, 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			filter := visibilityapi.DigestFilter{
-				ActivityFilter: visibilityapi.ActivityFilter{HostID: "h1", Spans: []visibilityapi.GenerationSpan{tc.span}},
-				StartNs:        at(0), EndNs: at(100), Buckets: 2,
+				ActivityFilter: visibilityapi.ActivityFilter{
+					HostID: "h1", Spans: []visibilityapi.GenerationSpan{tc.span}, FromNs: tc.fromNs,
+				},
+				StartNs: at(0), EndNs: at(100), Buckets: 2,
 			}
 			// The archive shows inserted rows a part at a time, so the count is read until it settles.
 			assert.EventuallyWithT(t, func(c *assert.CollectT) {

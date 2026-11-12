@@ -246,7 +246,7 @@ func (h *Handler) filterOf(
 			return visibilityapi.ActivityFilter{}, nil, nil, fmt.Errorf("bound agent activity: %w", err)
 		}
 	}
-	filter.FromNs = scopeStart(matched)
+	filter.FromNs = scopeStart(matched, filter.Spans)
 	return filter, scope, matched, nil
 }
 
@@ -259,21 +259,17 @@ func (h *Handler) withSessionAgents(
 	return append(slices.Clone(agents), tree.Roots...), agents, err
 }
 
-// scopeStart is the earliest moment a process of the scope can have an event: the earliest of each one's start and fork. The rollup
-// reads from it, which skips the host's older history and leaves out an older process that shared a generation, as one from before a
-// reboot can. A snapshot row's fork is when the agent first saw it, so a snapshot with no recorded start, or a process with no time
-// at all, leaves the read unbounded (zero) rather than cut short.
-func scopeStart(processes []api.ProcessNode) int64 {
+// scopeStart is the earliest moment a process of the scope can have an event in it: the earliest of each one's start and fork, or,
+// for an agent bounded to the span it served a later session, that span's start. The rollup reads from it, which skips the host's
+// older history and leaves out an older process that shared a generation, as one from before a reboot can. A long-lived agent's own
+// start would reach back to the first session it served: on dogfood an 11-day-old Claude Code process made every read of a 10-day
+// session scan the host's last 20 days (issue #1550). A snapshot row's fork is when the agent first saw it, so a snapshot with no
+// recorded start, or a process with no time at all, leaves the read unbounded (zero) rather than cut short.
+func scopeStart(processes []api.ProcessNode, spans []visibilityapi.GenerationSpan) int64 {
 	from := int64(math.MaxInt64)
 	for _, p := range processes {
-		start := p.ForkTimeNs
-		switch {
-		case p.StartTimeNs != nil:
-			start = min(start, *p.StartTimeNs)
-		case p.IsSnapshot:
-			return 0
-		}
-		if start <= 0 {
+		start, bounded := processStart(p, spans)
+		if !bounded {
 			return 0
 		}
 		from = min(from, start)
@@ -282,6 +278,26 @@ func scopeStart(processes []api.ProcessNode) int64 {
 		return 0
 	}
 	return from
+}
+
+// processStart is the earliest moment the process can have an event in the scope, and false when it has no time to bound it by.
+func processStart(p api.ProcessNode, spans []visibilityapi.GenerationSpan) (int64, bool) {
+	if p.PIDVersion != nil {
+		gen := visibilityapi.ProcessGeneration{PID: int64(p.PID), PIDVersion: int64(*p.PIDVersion)}
+		if i := slices.IndexFunc(spans, func(s visibilityapi.GenerationSpan) bool {
+			return s.ProcessGeneration == gen && s.FromNs > 0
+		}); i >= 0 {
+			return spans[i].FromNs, true
+		}
+	}
+	start := p.ForkTimeNs
+	switch {
+	case p.StartTimeNs != nil:
+		start = min(start, *p.StartTimeNs)
+	case p.IsSnapshot:
+		return 0, false
+	}
+	return start, start > 0
 }
 
 // scopeBound is how many of a scope's processes its activity reads: a whole session up to the scoped read's bound (issue #1424), so
@@ -401,13 +417,35 @@ func (h *Handler) agentSpan(
 		return visibilityapi.GenerationSpan{}, false, nil
 	}
 	gen := visibilityapi.ProcessGeneration{PID: int64(agent.PID), PIDVersion: int64(*agent.PIDVersion)}
-	touches, err := h.activity.SessionTouches(ctx, hostID, gen)
+	touches, err := h.agentTouches.get(ctx, agentTouchKey{hostID: hostID, generation: gen}, 0,
+		func(ctx context.Context) ([]visibilityapi.SessionTouch, error) {
+			return h.activity.SessionTouches(ctx, hostID, gen)
+		})
 	if err != nil {
 		return visibilityapi.GenerationSpan{}, false, err
 	}
 	span, bounded := sessionSpan(touches, sessionID)
 	span.ProcessGeneration = gen
 	return span, bounded, nil
+}
+
+// An agent's session touches are read from its file events, unbounded in time since an agent can serve sessions for days, and
+// every read of a session's activity looks them up for each of the session's agents: on dogfood the read took 0.25 to 0.3 s alone
+// and about 1 s beside a session's other reads (issue #1550). agentTouches keeps them for sessionReadTTL. A touch made since may be
+// missing from a kept list: a session the agent began in that time is not yet split from the one before, for up to sessionReadTTL.
+const maxAgentTouches = 64
+
+// agentTouchKey names one agent generation's session touches.
+type agentTouchKey struct {
+	hostID     string
+	generation visibilityapi.ProcessGeneration
+}
+
+// agentTouchCache is the per-replica perf cache of agent session touches, safe to lose: a miss reads them again.
+type agentTouchCache = keptReads[agentTouchKey, []visibilityapi.SessionTouch]
+
+func newAgentTouches() *agentTouchCache {
+	return newKeptReads[agentTouchKey, []visibilityapi.SessionTouch](maxAgentTouches)
 }
 
 // agentWindow is the window an agent process's own processes are listed for in a session (issue #1361): the span it served the

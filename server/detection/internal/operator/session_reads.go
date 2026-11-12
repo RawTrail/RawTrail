@@ -2,7 +2,7 @@ package operator
 
 import (
 	"context"
-	"strconv"
+	"fmt"
 	"sync"
 	"time"
 
@@ -29,9 +29,31 @@ const (
 // A kept read is shared by every request that hits it, so no caller may change it: commandsOf, the Summary and the processes search
 // each build their own values from it.
 type sessionReads struct {
+	*keptReads[sessionKey, api.ProcessTreeResult]
+}
+
+type sessionKey struct{ hostID, sessionID string }
+
+func newSessionReads() *sessionReads {
+	return &sessionReads{newKeptReads[sessionKey, api.ProcessTreeResult](maxSessionReads)}
+}
+
+// get returns the session's kept read when it is younger than sessionReadTTL and the session has done nothing since, and otherwise
+// reads it with read and keeps it. A session that is still running moves its last activity as its processes arrive, so its views
+// read it afresh.
+func (c *sessionReads) get(
+	ctx context.Context, session *api.AgentSessionSummary, read func(context.Context) (api.ProcessTreeResult, error),
+) (api.ProcessTreeResult, error) {
+	return c.keptReads.get(ctx, sessionKey{hostID: session.HostID, sessionID: session.AgentSessionID}, session.LastSeenNs, read)
+}
+
+// keptReads keeps up to max recent reads, each for sessionReadTTL while the version it was read at stays current. It is a per-replica
+// perf cache, safe to lose: a miss reads again.
+type keptReads[K comparable, V any] struct {
 	mu      sync.Mutex
-	entries map[sessionKey]sessionRead
-	// flight lets concurrent misses on one session at one last activity, a session view's tabs opening together, share one read.
+	max     int
+	entries map[K]keptRead[V]
+	// flight lets concurrent misses on one key at one version, a session view's tabs opening together, share one read.
 	flight singleflight.Group
 	now    func() time.Time
 	// waiting, when set, is called once a caller has joined or started a shared read and is about to wait on it. Tests use it to
@@ -39,81 +61,76 @@ type sessionReads struct {
 	waiting func()
 }
 
-type sessionKey struct{ hostID, sessionID string }
-
-// sessionRead is one kept read, with the session's last activity when it was read and when that was.
-type sessionRead struct {
-	tree       api.ProcessTreeResult
-	lastSeenNs int64
-	readAt     time.Time
+// keptRead is one kept read, with the version it was read at and when that was.
+type keptRead[V any] struct {
+	value   V
+	version int64
+	readAt  time.Time
 }
 
-func newSessionReads() *sessionReads {
-	return &sessionReads{entries: map[sessionKey]sessionRead{}, now: time.Now}
+func newKeptReads[K comparable, V any](maxReads int) *keptReads[K, V] {
+	return &keptReads[K, V]{max: maxReads, entries: map[K]keptRead[V]{}, now: time.Now}
 }
 
-// get returns the session's kept read when it is younger than sessionReadTTL and the session has done nothing since, and otherwise
-// reads it with read and keeps it. A session that is still running moves its last activity as its processes arrive, so its views
-// read it afresh.
+// get returns the key's kept read when it is younger than sessionReadTTL and was read at version, and otherwise reads it with read
+// and keeps it.
 //
-// Views that miss on the same session at the same last activity share one read. The read is not canceled with the caller that
-// started it, so the others waiting on it are not failed by that caller hanging up; it is bounded by sessionReadTimeout instead. A
-// caller whose own request ends stops waiting.
-func (c *sessionReads) get(
-	ctx context.Context, session *api.AgentSessionSummary, read func(context.Context) (api.ProcessTreeResult, error),
-) (api.ProcessTreeResult, error) {
-	key := sessionKey{hostID: session.HostID, sessionID: session.AgentSessionID}
-	lastSeenNs := session.LastSeenNs
-	if tree, ok := c.kept(key, lastSeenNs); ok {
-		return tree, nil
+// Callers that miss on the same key at the same version share one read. The read is not canceled with the caller that started it,
+// so the others waiting on it are not failed by that caller hanging up; it is bounded by sessionReadTimeout instead. A caller whose
+// own request ends stops waiting.
+func (c *keptReads[K, V]) get(ctx context.Context, key K, version int64, read func(context.Context) (V, error)) (V, error) {
+	if value, ok := c.kept(key, version); ok {
+		return value, nil
 	}
 	shared := context.WithoutCancel(ctx)
-	flight := c.flight.DoChan(key.hostID+"\x00"+key.sessionID+"\x00"+strconv.FormatInt(lastSeenNs, 10), func() (any, error) {
-		// A view that missed just as another's read was kept finds it here rather than reading again.
-		if tree, ok := c.kept(key, lastSeenNs); ok {
-			return tree, nil
+	flight := c.flight.DoChan(fmt.Sprintf("%v\x00%d", key, version), func() (any, error) {
+		// A caller that missed just as another's read was kept finds it here rather than reading again.
+		if value, ok := c.kept(key, version); ok {
+			return value, nil
 		}
 		readCtx, cancel := context.WithTimeout(shared, sessionReadTimeout)
 		defer cancel()
 		// The read is as old as its start: what changed while it ran may be missing from it.
 		readAt := c.now()
-		tree, err := read(readCtx)
+		value, err := read(readCtx)
 		if err != nil {
-			return api.ProcessTreeResult{}, err
+			return nil, err
 		}
-		c.keep(key, sessionRead{tree: tree, lastSeenNs: lastSeenNs, readAt: readAt})
-		return tree, nil
+		c.keep(key, keptRead[V]{value: value, version: version, readAt: readAt})
+		return value, nil
 	})
 	if c.waiting != nil {
 		c.waiting()
 	}
+	var zero V
 	select {
 	case res := <-flight:
 		if res.Err != nil {
-			return api.ProcessTreeResult{}, res.Err
+			return zero, res.Err
 		}
-		return res.Val.(api.ProcessTreeResult), nil
+		return res.Val.(V), nil
 	case <-ctx.Done():
-		return api.ProcessTreeResult{}, ctx.Err()
+		return zero, ctx.Err()
 	}
 }
 
-func (c *sessionReads) kept(key sessionKey, lastSeenNs int64) (api.ProcessTreeResult, bool) {
+func (c *keptReads[K, V]) kept(key K, version int64) (V, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.entries[key]
-	if !ok || e.lastSeenNs != lastSeenNs || c.now().Sub(e.readAt) >= sessionReadTTL {
-		return api.ProcessTreeResult{}, false
+	if !ok || e.version != version || c.now().Sub(e.readAt) >= sessionReadTTL {
+		var zero V
+		return zero, false
 	}
-	return e.tree, true
+	return e.value, true
 }
 
-// keep stores a read, dropping the expired ones and then, while the cache is full, the oldest. A read of the session at an earlier
-// last activity than the one kept, which finished after it, is not kept over it.
-func (c *sessionReads) keep(key sessionKey, e sessionRead) {
+// keep stores a read, dropping the expired ones and then, while the cache is full, the oldest. A read at an earlier version than the
+// one kept, which finished after it, is not kept over it.
+func (c *keptReads[K, V]) keep(key K, e keptRead[V]) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if kept, ok := c.entries[key]; ok && kept.lastSeenNs > e.lastSeenNs {
+	if kept, ok := c.entries[key]; ok && kept.version > e.version {
 		return
 	}
 	now := c.now()
@@ -123,8 +140,8 @@ func (c *sessionReads) keep(key sessionKey, e sessionRead) {
 			delete(c.entries, k)
 		}
 	}
-	for len(c.entries) >= maxSessionReads {
-		var oldest sessionKey
+	for len(c.entries) >= c.max {
+		var oldest K
 		var oldestAt time.Time
 		for k, kept := range c.entries {
 			if oldestAt.IsZero() || kept.readAt.Before(oldestAt) {

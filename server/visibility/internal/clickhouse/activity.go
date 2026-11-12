@@ -133,8 +133,9 @@ func scopeWithSpanStart(filter api.ActivityFilter, spanStart string) (string, []
 	scope := hostPredicate + " AND " + genClause
 	args := append([]any{filter.HostID}, genArgs...)
 	if filter.FromNs > 0 {
-		// timestamp_ns follows (host_id, event_type) in the sorting key, so the bound prunes the host's older granules.
-		scope += " AND timestamp_ns >= ?"
+		// timestamp_ns follows (host_id, event_type) in the sorting key, so the bound prunes the host's older granules. It is judged by
+		// spanStart, as each span's start is: an agent's span can be what sets it, and the overlap form keeps an event that began before.
+		scope += " AND " + spanStart + " >= ?"
 		args = append(args, filter.FromNs)
 	}
 	return scope, slices.Clip(args)

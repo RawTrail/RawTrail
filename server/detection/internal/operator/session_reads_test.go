@@ -240,8 +240,8 @@ func TestSessionReads_LooksAgainBeforeReading(t *testing.T) {
 	reads := newSessionReads()
 	session := &api.AgentSessionSummary{HostID: "h1", AgentSessionID: "s1", LastSeenNs: 100}
 	readAt := time.Unix(1_000, 0)
-	reads.entries[sessionKey{hostID: "h1", sessionID: "s1"}] = sessionRead{
-		tree: api.ProcessTreeResult{Roots: []api.ProcessNode{{Process: api.Process{ID: 7}}}}, lastSeenNs: 100, readAt: readAt,
+	reads.entries[sessionKey{hostID: "h1", sessionID: "s1"}] = keptRead[api.ProcessTreeResult]{
+		value: api.ProcessTreeResult{Roots: []api.ProcessNode{{Process: api.Process{ID: 7}}}}, version: 100, readAt: readAt,
 	}
 	// The first look finds the read expired, as one about to be replaced is; by the second, inside the shared read, it is fresh again.
 	looks := 0
