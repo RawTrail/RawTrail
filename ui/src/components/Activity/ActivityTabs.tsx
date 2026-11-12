@@ -248,12 +248,16 @@ function LoadMore({ cls, list, onMore }: {
   readonly onMore: (cls: TabKey, cursor: string) => void;
 }) {
   const { cursor } = list;
+  // A first page that failed has shown nothing, so it is offered again rather than as more rows.
+  const first = !list.loaded;
   return (
     <>
-      {list.failed && <p className="activity-tabs__note" role="status">The next rows could not be loaded.</p>}
+      {list.failed && (
+        <p className="activity-tabs__note" role="status">{first ? "The list could not be loaded." : "The next rows could not be loaded."}</p>
+      )}
       {cursor !== undefined && (cursor !== "" || list.failed) && (
         <Button variant="text-link" disabled={list.loading} onClick={() => { onMore(cls, cursor); }}>
-          Load more rows
+          {first ? "Try again" : "Load more rows"}
         </Button>
       )}
     </>

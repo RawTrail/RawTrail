@@ -462,8 +462,9 @@ describe("ActivityTabs paging", () => {
     });
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} search="b." />);
     fireEvent.click(await screen.findByRole("button", { name: /^DNS/ }));
-    expect(await screen.findByText("The next rows could not be loaded.")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Load more rows" }));
+    expect(await screen.findByText("The list could not be loaded.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more rows" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("b.example")).toBeVisible();
     expect(dnsAttempts).toBe(2);
   });
