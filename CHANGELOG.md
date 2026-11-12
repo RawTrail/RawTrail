@@ -35,7 +35,7 @@ See what your AI coding agent is actually doing. Each Claude Code session gets a
 - **Activity lists are easier to read.** A DNS name is one row listing every process that resolved it, its answers wrap instead of widening the table, the DNS list sorts by name, and First and Last read as an age with the exact time on hover.
 - **MySQL keeps more in memory, so agent session views load faster.** The quickstart now gives MySQL a 1 GB buffer pool, set with `EDR_MYSQL_BUFFER_POOL_SIZE` in `.env`, and the laptop install 512 MB, which raises its MySQL memory cap to 1,024 MB. An existing install takes the new size when MySQL is next recreated.
 - **The console's pages download several times less data.** The server now compresses its responses with zstd or gzip for browsers that accept it, so a long agent session's Timeline is about 1.5 MB on the wire instead of 20 MB. A session's views also share one read of its processes for 30 seconds while it is idle, so its tabs and later Timeline pages answer sooner.
-- **A long AI agent session's Summary and Activity tab load faster.** The Activity tab shows each of its lists as soon as it is read, instead of after the slowest.
+- **A long AI agent session's Summary and Activity tab load faster.** The Activity tab reads only the session's own time, not the history of an agent process that served earlier sessions, and shows each of its lists as soon as it is read.
 
 ### Fixed
 

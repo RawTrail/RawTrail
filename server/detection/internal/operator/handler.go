@@ -103,7 +103,9 @@ type Handler struct {
 	activity       ActivityReader
 	sessionTotals  AgentSessionTotalsReader
 	sessionReads   *sessionReads
-	storage        *storageSettings
+	// agentTouches keeps each agent generation's session touches (agentSpan), which every read of a session's activity looks up.
+	agentTouches *agentTouchCache
+	storage      *storageSettings
 	// processRetentionDays is how many days completed process records are kept, or 0 when retention is disabled. See
 	// SetProcessRetention.
 	processRetentionDays int
@@ -124,7 +126,7 @@ func New(svc api.Service, authz identityapi.AuthZ, logger *slog.Logger) *Handler
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{svc: svc, authz: authz, logger: logger, sessionReads: newSessionReads()}
+	return &Handler{svc: svc, authz: authz, logger: logger, sessionReads: newSessionReads(), agentTouches: newAgentTouches()}
 }
 
 // SetProcessRetention tells the tree endpoint how long completed process records are kept (EDR_RETENTION_DAYS), so a response
