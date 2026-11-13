@@ -33,7 +33,9 @@ async function readMac(wanted: string | null, canReadSessions: boolean): Promise
 
 // SetupChecklist is the first-run checklist (issue #1436): the approvals a Mac needs before it captures, in order, each with where to
 // make it, read live from the agent's health. A refused Full Disk Access grant shows red instead of leaving the extension looping.
-export function SetupChecklist() {
+// signInEmail is the break-glass account the operator signed in with, named because nothing else tells them the email to sign in with
+// next time: setup asks only for a password and a passkey.
+export function SetupChecklist({ signInEmail }: { readonly signInEmail?: string }) {
   const [params] = useSearchParams();
   const wanted = params.get("host");
   const canReadSessions = useCan()(PermissionAction.ProcessRead);
@@ -88,6 +90,11 @@ export function SetupChecklist() {
               `${String(remaining)} of ${String(steps.length)} steps left. This page updates as you go.`
             )}
           </output>
+          {signInEmail && (
+            <p className="setup-checklist__sign-in">
+              To sign in again, enter <strong>{signInEmail}</strong>, the password you set and your passkey.
+            </p>
+          )}
           <ol className="setup-checklist__steps" aria-label="Setup steps">
             {steps.map((step) => (
               <li key={step.id} className={`setup-checklist__step setup-checklist__step--${step.state}`}>

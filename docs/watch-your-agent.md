@@ -25,7 +25,7 @@ The installer:
 
 1. Starts the server stack in Docker, reachable from this Mac only, on `https://localhost:8443`. It generates its secrets and a TLS certificate for `localhost` under `~/.rawtrail-laptop`.
 2. Installs the notarized agent package and points it at that server, pinned to its certificate. It asks for your password for this step.
-3. Opens the one-time link that registers your admin passkey (Touch ID). The link is valid for an hour; `scripts/laptop/rawtrail-laptop login` makes a new one.
+3. Opens the one-time link that registers your admin passkey (Touch ID). The link is valid for an hour; `scripts/laptop/rawtrail-laptop login` makes a new one. Your admin account is `admin@rawtrail.local`: sign in with it, the password you set and the passkey.
 
 Once your passkey is registered, the console opens its setup checklist, which is also **Set up this Mac** in your account menu. It lists the approvals macOS asks for, such as allowing RawTrail's system extensions and Full Disk Access, says where to make each, and ticks them off as the agent reports them. If an upgrade left the previous network extension in place until a restart, as happens on some Macs, it asks you to restart. Start a Claude Code session and it appears under **Agent sessions**.
 

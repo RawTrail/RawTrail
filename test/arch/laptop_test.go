@@ -306,6 +306,8 @@ func TestLaptopInstallPinsTheAgentToItsServer(t *testing.T) {
 	require.Len(t, staged, 3, calls)
 	assert.Equal(t, staged[1], staged[2], "Gatekeeper and the installer must see the same staged copy")
 	assert.Contains(t, calls, "open "+setupLink+"\n")
+	// The setup page asks only for a password and a passkey, so the installer names the email the admin signs in with later.
+	assert.Contains(t, out, "Your admin account is "+seededAdminEmail(t)+": sign in with it later")
 	// Without mkcert the certificate is self-signed and trusted in the login keychain, for the passkey page's secure context.
 	assert.Contains(t, calls, "security add-trusted-cert -r trustRoot -p ssl")
 	// The config is in place before the package's postinstall starts the agent.
@@ -476,6 +478,8 @@ func TestLaptopOpensTheSignInPageWhenNoSetupLinkWasPrinted(t *testing.T) {
 	calls := r.callLog(t)
 	assert.Contains(t, calls, "open "+laptopURL+"\n")
 	assert.NotContains(t, calls, "open "+setupLink)
+	// Setup asked only for a password and a passkey, so the sign-in page's email is named.
+	assert.Contains(t, out, "Sign in as "+seededAdminEmail(t)+" with your password and passkey.")
 	// The link is read from the running server's current start only.
 	assert.Contains(t, calls, "logs --no-log-prefix --since 2026-10-31T12:00:00Z server")
 }
@@ -630,4 +634,13 @@ func TestLaptopUninstallNeedsTheInstallsStateDirectory(t *testing.T) {
 	assert.NotContains(t, calls, "uninstall.sh")
 	assert.NotContains(t, calls, "down -v")
 	assert.FileExists(t, r.conf())
+}
+
+// seededAdminEmail is the first admin's email as the server seeds it, read from its source so the installer cannot name another.
+func seededAdminEmail(t *testing.T) string {
+	t.Helper()
+	src := readFile(t, filepath.Join("..", "..", "server", "identity", "internal", "seed", "admin.go"))
+	m := regexp.MustCompile(`const DefaultAdminEmail = "([^"]+)"`).FindStringSubmatch(src)
+	require.Len(t, m, 2, "DefaultAdminEmail not found in the seed")
+	return m[1]
 }

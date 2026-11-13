@@ -240,7 +240,7 @@ export function AuthedApp() {
               path="/setup"
               element={(
                 <RequirePermission action={PermissionAction.HostRead} surface="Setup">
-                  <SetupChecklist />
+                  <SetupChecklist signInEmail={auth.authMethod === "local_password" ? auth.user.email : undefined} />
                 </RequirePermission>
               )}
             />
