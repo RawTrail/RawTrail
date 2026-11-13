@@ -107,11 +107,11 @@ export function setupSteps({ host, health, sessions, canReadSessions }: SetupInp
 }
 
 // networkFilterStep is the network filtering approval. An upgrade on some Macs leaves the previous network extension registered until
-// the Mac restarts, and no Allow prompt comes until then, so a restart the agent reports is asked for instead.
+// the Mac restarts, and no Allow prompt comes until then, so a restart the agent reports is asked for instead. It comes first: the
+// agent keeps the providers' last report while the restart is pending, so their stale "activated" does not mean filtering resumed.
 function networkFilterStep(components: ReadonlyMap<string, ComponentHealth>): SetupStep {
   const step = { id: "network_filter", title: "Allow network filtering",
     instruction: "When macOS asks whether RawTrail may filter network content, click Allow." };
-  if (capturing(components.get("content_filter")) && capturing(components.get("dns_proxy"))) return { ...step, state: "done" };
   if (components.get("network_extension")?.reason === REBOOT_REQUIRED) {
     return {
       ...step,
@@ -120,6 +120,7 @@ function networkFilterStep(components: ReadonlyMap<string, ComponentHealth>): Se
         "reports that it does. After the restart, allow network filtering if macOS asks.",
     };
   }
+  if (capturing(components.get("content_filter")) && capturing(components.get("dns_proxy"))) return { ...step, state: "done" };
   return { ...step, state: "waiting" };
 }
 

@@ -18,4 +18,4 @@ When the Mac's agent reports that its network extension needs a restart to finis
 
 - **GIVEN** a Mac whose agent reports the network extension `reboot_required`
 - **WHEN** the person opens the checklist
-- **THEN** network filtering is shown red, saying to restart this Mac because an upgrade on some Macs needs a restart before network events resume, and it turns done once filtering is capturing
+- **THEN** network filtering is shown red, saying to restart this Mac because an upgrade on some Macs needs a restart before network events resume, and it turns done once the extension reconnects after the restart and filtering is capturing

@@ -110,8 +110,14 @@ describe("setupSteps", () => {
     expect(states({ host: host(), health: pending, sessions: 0, canReadSessions: true }).network_extension).toBe("done");
   });
 
-  it("drops the restart once the filter and the DNS proxy are capturing", () => {
-    const restarted = health(component("network_extension", "unhealthy", "reboot_required"), component("content_filter", "healthy", "activated"),
+  it("keeps asking for the restart over the providers' last report from before it", () => {
+    const stale = health(component("network_extension", "unhealthy", "reboot_required"), component("content_filter", "healthy", "activated"),
+      component("dns_proxy", "healthy", "activated"));
+    expect(states({ host: host(), health: stale, sessions: 0, canReadSessions: true }).network_filter).toBe("missing");
+  });
+
+  it("drops the restart once the extension reconnects and the filter and the DNS proxy are capturing", () => {
+    const restarted = health(component("network_extension", "healthy", "activated"), component("content_filter", "healthy", "activated"),
       component("dns_proxy", "healthy", "activated"));
     expect(states({ host: host(), health: restarted, sessions: 0, canReadSessions: true }).network_filter).toBe("done");
   });
