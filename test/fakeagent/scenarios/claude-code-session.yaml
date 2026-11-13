@@ -102,6 +102,31 @@ timeline:
     path: /Users/dev/project/.git/index
     count: 2
     last_at: 16ms
+  # And writes a pack index under a long temporary directory, a path wider than the old 36rem cap on the Files tab's path (issue #1573).
+  - at: 18ms
+    type: file_activity
+    pid: 5002
+    pidversion: 21
+    operation: create
+    path: /Users/dev/project/.git/objects/pack/tmp_pack_incoming_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0/pack-0123456789abcdef0123456789abcdef01234567.idx
+    count: 1
+  # A long name under a short head, whose cut the tail marks itself, and a rename from a short path to a long one, whose short path keeps
+  # its name in view beside the long one.
+  - at: 19ms
+    type: file_activity
+    pid: 5002
+    pidversion: 21
+    operation: create
+    path: /tmp/cache/claude-tool-output-0123456789abcdef0123456789abcdef0123456789abcdef.json
+    count: 1
+  - at: 20ms
+    type: file_activity
+    pid: 5002
+    pidversion: 21
+    operation: rename
+    source_path: /Users/dev/notes.md
+    path: /Users/dev/project/docs/archive/2026/november/meeting-notes-from-the-agent-sessions-review-with-every-attendee.md
+    count: 1
   - at: 30ms
     type: exit
     pid: 5002

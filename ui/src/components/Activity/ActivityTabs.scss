@@ -83,13 +83,22 @@
     text-transform: inherit;
   }
 
-  // A file row's cell: its path (or a rename's two), and the tags some rows carry, on one line capped so one long path cannot stretch the
-  // table past the panel. The paths shrink to make room; the tags and the arrow keep their width.
+  // The path column takes the width the other columns leave, so a wide screen shows more of each path, down to a minimum below which
+  // the table scrolls sideways rather than crush the path. Its zero maximum keeps a long path's text out of the table's sizing, which
+  // would otherwise widen the column to the whole path; the minimum wins over it.
+  &__file-cell {
+    max-width: 0;
+    min-width: 16rem;
+    width: 100%;
+  }
+
+  // A file row's cell: its path (or a rename's two), and the tags some rows carry, on one line. The paths shrink to make room; the tags
+  // and the arrow keep their width.
   &__file {
     align-items: baseline;
     display: inline-flex;
     gap: 0.5rem;
-    max-width: 36rem;
+    max-width: 100%;
     vertical-align: bottom;
   }
 
@@ -99,20 +108,39 @@
     flex: none;
   }
 
-  // A path, cut at its start: the block runs right to left so the ellipsis falls at the path's start and its file name stays in view,
-  // and the <bdi> inside keeps the path itself in its own order.
+  // A path, cut in its middle: the head gives up its width long before the tail does, so the ellipsis falls at the head's end, between
+  // where the file lives and its parent and name. Only a tail wider than the cell on its own is cut, at its start, so the name's end
+  // stays in view, after the head's first few characters (its inline minimum); the <bdi> inside keeps the path itself in its own order.
   &__path {
-    direction: rtl;
+    display: inline-flex;
+    white-space: nowrap;
+  }
+
+  &__path-head,
+  &__path-tail {
     min-width: 0;
     overflow: hidden;
-    text-align: left;
     text-overflow: ellipsis;
-    white-space: nowrap;
+  }
+
+  &__path-head {
+    flex: 0 100000 auto;
+  }
+
+  &__path-tail {
+    direction: rtl;
+    flex: 0 1 auto;
+    text-align: left;
 
     bdi {
       direction: ltr;
       unicode-bidi: isolate;
     }
+  }
+
+  // After a head cut with its own ellipsis, a tail cut at its start is clipped rather than given a second one.
+  &__path-tail--after-cut {
+    text-overflow: clip;
   }
 
   &__hostname {
