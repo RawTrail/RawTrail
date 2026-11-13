@@ -28,6 +28,7 @@ test.describe("agent sessions", () => {
   // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
   // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/a-file-path-in-the-process-detail-panel-reads-whole
   // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/the-path-column-takes-the-free-width
+  // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/a-name-too-long-for-its-cell-keeps-the-path-s-start
   // spec:web-ui/session-processes-view/every-process-is-listed-under-the-agent-that-ran-it
   // spec:web-ui/session-processes-view/a-reparented-process-stays-under-its-creator
   test("a Claude Code session is listed with its project, opens on its Summary and lists its commands", async ({ page, agent }) => {
@@ -178,6 +179,8 @@ test.describe("agent sessions", () => {
       overflow: getComputedStyle(t).textOverflow,
     }));
     expect(tailCut).toEqual({ cut: true, overflow: "ellipsis" });
+    await expect(shortHead.locator(".activity-tabs__path-head")).toHaveText("/tmp");
+    await expect(shortHead.locator(".activity-tabs__path-head")).toBeVisible();
     // A rename's short path keeps its name in view beside the long one, and stays clear of the arrow.
     const rename = panelRows.filter({ hasText: "/Users/dev/notes.md" });
     const sides = await rename.locator(".activity-tabs__file").evaluate((file) => {

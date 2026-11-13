@@ -13,10 +13,18 @@ describe("splitPath", () => {
   });
 
   it.each([
+    ["a long name under /tmp", "/tmp/claude-tool-output-0123456789abcdef.json", "/tmp", "/claude-tool-output-0123456789abcdef.json"],
+    ["a socket", "/tmp/x.sock", "/tmp", "/x.sock"],
+    ["a directory with a trailing slash", "/private/tmp/", "/private", "/tmp/"],
+    ["a relative pair", "src/main.go", "src", "/main.go"],
+  ])("keeps the first segment of %s, a two-segment path, as its head", (_, path, head, tail) => {
+    expect(splitPath(path)).toEqual({ head, tail });
+  });
+
+  it.each([
     ["the root", "/"],
     ["one segment", "/tmp"],
-    ["two segments", "/tmp/x.sock"],
-    ["two segments and a trailing slash", "/private/tmp/"],
+    ["one segment and a trailing slash", "/tmp/"],
     ["a bare name", "main.go"],
     ["an empty path", ""],
   ])("shows %s whole", (_, path) => {

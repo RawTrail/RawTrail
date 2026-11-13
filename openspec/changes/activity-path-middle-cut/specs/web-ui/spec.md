@@ -10,7 +10,7 @@
 
 ### Requirement: Activity cells keep one line and cut paths in the middle
 
-Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line, except a DNS row's answers and the processes that resolved its name, which SHALL each wrap within a capped width. A file row's path column SHALL take the width the other columns leave, each path cut in its middle to keep its start and its last two segments in view, with the whole path as its tooltip, and a tag beside it SHALL keep its width. A table wider than its frame SHALL scroll sideways rather than wrap.
+Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line, except a DNS row's answers and resolving processes, which SHALL wrap within a capped width. The path column SHALL take the width the other columns leave, each path cut in its middle to keep its start and last two segments in view, or cut at their start when they alone overflow, with the whole path as its tooltip. A table wider than its frame SHALL scroll sideways.
 
 #### Scenario: A file path in the process detail panel reads whole
 
@@ -24,6 +24,12 @@ Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one
 - **WHEN** the Files tab lists them
 - **THEN** each cell holds its paths, the rename's arrow and the daemon's tag in one row, each path showing its start and its parent directory and name with the cut between them, and carrying its whole path as its tooltip
 - **AND** a copy of the cell keeps the whole paths with a space between its parts
+
+#### Scenario: A name too long for its cell keeps the path's start
+
+- **GIVEN** a file row whose folder and file name alone are wider than its cell, such as a long name under `/tmp`
+- **WHEN** the Files tab lists it in a narrow panel
+- **THEN** the path's start (`/tmp`) stays in view and the name is cut at its start, the cut marked with an ellipsis
 
 #### Scenario: The path column takes the free width
 

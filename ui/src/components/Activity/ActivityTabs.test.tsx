@@ -195,7 +195,7 @@ describe("ActivityTabs", () => {
     expect(connect).toHaveTextContent(`${sock} 1Password SSH agent`);
   });
 
-  // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/a-long-path-is-cut-in-its-middle-and-shown-whole-on-hover
+  // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/a-name-too-long-for-its-cell-keeps-the-path-s-start
   it("marks a tail's own cut only when its head is too short to be cut, and keeps each path a floor of width", async () => {
     const name = "claude-tool-output-0123456789abcdef0123456789abcdef.json";
     const long = `/Users/victor/work/project/.git/objects/pack/${name}`;
@@ -236,19 +236,19 @@ describe("ActivityTabs", () => {
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
     expect(screen.getByText("2,020 file events on 3 paths")).toBeVisible();
-    const edit = screen.getByText("/r/main.go").closest("tr");
+    const edit = screen.getByTitle("/r/main.go").closest("tr");
     expect(edit).not.toBeNull();
     expect(within(edit as HTMLElement).getByText("modify")).toBeVisible();
     expect(within(edit as HTMLElement).getByText("4")).toBeVisible();
     expect(within(edit as HTMLElement).queryByText("/ and below")).toBeNull();
     const install = screen.getByText("/ and below").closest("tr");
     expect(install).not.toBeNull();
-    expect(within(install as HTMLElement).getByText("/r/node_modules", { exact: false })).toBeVisible();
+    expect(within(install as HTMLElement).getByTitle("/r/node_modules")).toBeVisible();
     expect(within(install as HTMLElement).getByText("create")).toBeVisible();
     expect(within(install as HTMLElement).getByText("1,856")).toBeVisible();
     expect(within(install as HTMLElement).queryByText(/processes under/)).toBeNull();
     // A row folded from a fan-out names how many processes it counts, under the one they descend from.
-    const fanout = screen.getByText("/tmp/b1.output").closest("tr");
+    const fanout = screen.getByTitle("/tmp/b1.output").closest("tr");
     expect(fanout).not.toBeNull();
     expect(within(fanout as HTMLElement).getByText(/^up to 80 processes under/)).toBeVisible();
     expect(within(fanout as HTMLElement).getByText("160")).toBeVisible();

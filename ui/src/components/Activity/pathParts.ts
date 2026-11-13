@@ -6,12 +6,13 @@ export interface PathParts {
 }
 
 // splitPath keeps a path's last two segments, with the slash before them, as its tail, since the parent often says what the file is
-// (.ssh/id_rsa, LaunchAgents/x.plist), and the rest, which says where it lives, as its head. A trailing slash stays with the tail. A
-// path with nothing before those two segments has no head and is shown whole.
+// (.ssh/id_rsa, LaunchAgents/x.plist), and the rest, which says where it lives, as its head. A path of two segments keeps its first as
+// the head, so a long name under /tmp still shows /tmp. A trailing slash stays with the tail. A path of one segment is all tail.
 export function splitPath(path: string): PathParts {
   const end = path.endsWith("/") ? path.length - 1 : path.length;
   const nameStart = path.lastIndexOf("/", end - 1);
-  const parentStart = nameStart > 0 ? path.lastIndexOf("/", nameStart - 1) : -1;
-  if (parentStart <= 0) return { head: "", tail: path };
-  return { head: path.slice(0, parentStart), tail: path.slice(parentStart) };
+  if (nameStart <= 0) return { head: "", tail: path };
+  const parentStart = path.lastIndexOf("/", nameStart - 1);
+  const cut = parentStart > 0 ? parentStart : nameStart;
+  return { head: path.slice(0, cut), tail: path.slice(cut) };
 }
