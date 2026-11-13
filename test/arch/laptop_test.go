@@ -44,6 +44,7 @@ type laptopService struct {
 	MemLimit    string            `json:"mem_limit"`
 	Volumes     []string          `json:"volumes"`
 	Command     []string          `json:"command"`
+	Labels      map[string]string `json:"labels"`
 }
 
 func readLaptopCompose(t *testing.T) laptopDoc {
@@ -115,6 +116,20 @@ func TestLaptopClickHouseKeepsItsBackgroundWorkSmall(t *testing.T) {
 	assert.Contains(t, []string{"warning", "error", "fatal", "none"}, config.LogLevel)
 	assert.Equal(t, "1", config.TextLog.Remove, "the text log is kept")
 	assert.Equal(t, "1", config.QueryLog.Remove, "the query log is kept")
+}
+
+// spec:release-packaging/the-laptop-clickhouse-is-sized-for-one-mac-s-inserts/a-changed-config-recreates-clickhouse
+func TestLaptopClickHouseIsRecreatedWhenItsConfigChanges(t *testing.T) {
+	t.Parallel()
+	// The service is labelled with what the installer passes, so compose recreates the container when the label's value changes.
+	assert.Equal(t, "${RAWTRAIL_LAPTOP_CLICKHOUSE_CONFIG:-}",
+		readLaptopCompose(t).Services["clickhouse"].Labels["io.rawtrail.laptop.clickhouse-config"])
+	r := newLaptopRun(t)
+	out, ok := r.run(t, []string{"NO_BANNER=1"}, "install", "--no-agent")
+	require.True(t, ok, out)
+	// The installer passes the config's digest on every compose call, so a start after the file changed sees a new label.
+	digest := sha256.Sum256([]byte(laptopClickHouseConfig(t)))
+	assert.Contains(t, r.callLog(t), "clickhouse config="+hex.EncodeToString(digest[:])[:16]+"\n")
 }
 
 // laptopClickHouseConfig is the ClickHouse config file the laptop compose profile mounts.
@@ -191,7 +206,7 @@ var laptopStubs = map[string]string{
   "info ") [ -z "$NO_ENGINE" ] ;;
   "inspect -f") echo 2026-10-31T12:00:00Z ;;
   *)
-    [ "$1" != compose ] || echo "image EDR_VERSION=$EDR_VERSION" >> "$CALLS"
+    [ "$1" != compose ] || echo "image EDR_VERSION=$EDR_VERSION clickhouse config=$RAWTRAIL_LAPTOP_CLICKHOUSE_CONFIG" >> "$CALLS"
     case "$*" in
       *" ps -q "*) echo server-container ;;
       *" logs "*) [ -n "$NO_BANNER" ] || printf '  Email: admin@localhost\n  URL:   ` + setupLink + `\n  TTL:   1h0m0s\n' ;;
@@ -522,7 +537,7 @@ func TestLaptopLoginKeepsTheInstalledImage(t *testing.T) {
 	calls := r.callLog(t)
 	assert.Contains(t, calls, "restart server")
 	assert.NotContains(t, calls, " up ")
-	assert.Contains(t, calls, "image EDR_VERSION=v1.2.3\n")
+	assert.Contains(t, calls, "image EDR_VERSION=v1.2.3 ")
 	assert.NotContains(t, calls, "image EDR_VERSION=latest")
 }
 
