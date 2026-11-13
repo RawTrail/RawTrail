@@ -1457,29 +1457,6 @@ The process graph SHALL tell the operator when the window it shows starts before
 - **THEN** a notice says process records from before the boundary have been deleted
 - **AND** no notice appears for a window inside retention or when no boundary is reported
 
-### Requirement: Activity table cells stay on one line
-
-Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line, except a DNS row's answers and the processes that resolved its name, which SHALL each wrap within a capped width. A file row's cell SHALL be capped in width, each path cut at its start to keep the file name in view with the whole path as its tooltip, and a tag beside it SHALL keep its width. A table wider than its frame SHALL scroll sideways rather than wrap.
-
-#### Scenario: A file path in the process detail panel reads whole
-
-- **GIVEN** a process whose file activity names a path longer than the panel's path column would otherwise allow
-- **WHEN** the operator opens its Files activity in the process detail panel at an 800 pixel wide viewport
-- **THEN** the path's cell is one line tall
-
-#### Scenario: A long path is cut at its start and shown whole on hover
-
-- **GIVEN** a file row whose path is longer than the cap, a rename between two such paths, and a connect to a well-known daemon's socket
-- **WHEN** the Files tab lists them
-- **THEN** each cell holds its paths, the rename's arrow and the daemon's tag in one capped row, and each path carries its whole path as its tooltip
-- **AND** a copy of the cell keeps the whole paths with a space between its parts
-
-#### Scenario: A long answer list wraps within its cap
-
-- **GIVEN** a DNS name answered by more addresses than fit the answers cap on one line
-- **WHEN** the DNS tab lists it
-- **THEN** its answers wrap onto further lines within the cap, and the table does not widen past it
-
 ### Requirement: Activity tabs
 
 Process detail and the session view SHALL show what their scope touched in Files, Network and DNS tabs, each with its totals and a list naming the process behind each entry. Process detail SHALL switch between the process alone and its whole subtree. The tabs SHALL say when a list was cut and when the scope reached only part of its processes, or none.
@@ -2395,3 +2372,64 @@ The DNS list's Name header SHALL order the rows listed by name when selected, an
 - **WHEN** the operator selects the Name header
 - **THEN** the rows are listed by name and the header states it sorts ascending
 - **AND** selecting it again lists them by when each was first seen
+
+### Requirement: Activity cells keep one line and cut paths in the middle
+
+Each cell of an activity table (Files, Network, DNS) SHALL keep its value on one line, except a DNS row's answers and resolving processes, which SHALL wrap within a capped width. The path column SHALL take the width the other columns leave, each path cut in its middle to keep its start and last two segments in view, or cut at their start when they alone overflow, with the whole path as its tooltip. A table wider than its frame SHALL scroll sideways.
+
+#### Scenario: A file path in the process detail panel reads whole
+
+- **GIVEN** a process whose file activity names a path longer than the panel's path column would otherwise allow
+- **WHEN** the operator opens its Files activity in the process detail panel at an 800 pixel wide viewport
+- **THEN** the path's cell is one line tall
+
+#### Scenario: A long path is cut in its middle and shown whole on hover
+
+- **GIVEN** a file row whose path is longer than its cell, a rename between two such paths, and a connect to a well-known daemon's socket
+- **WHEN** the Files tab lists them
+- **THEN** each cell holds its paths, the rename's arrow and the daemon's tag in one row, each path showing its start and its parent directory and name with the cut between them, and carrying its whole path as its tooltip
+- **AND** a copy of the cell keeps the whole paths with a space between its parts
+
+#### Scenario: A name too long for its cell keeps the path's start
+
+- **GIVEN** a file row whose folder and file name alone are wider than its cell, such as a long name under `/tmp`
+- **WHEN** the Files tab lists it in a narrow panel
+- **THEN** the path's start (`/tmp`) stays in view and the name is cut at its start, the cut marked with an ellipsis
+
+#### Scenario: The path column takes the free width
+
+- **GIVEN** a session's Files tab on a 1920 pixel wide window, listing a path wider than its table
+- **WHEN** it is shown
+- **THEN** the path fills the width the other columns leave, and the table does not scroll sideways
+
+#### Scenario: A long answer list wraps within its cap
+
+- **GIVEN** a DNS name answered by more addresses than fit the answers cap on one line
+- **WHEN** the DNS tab lists it
+- **THEN** its answers wrap onto further lines within the cap, and the table does not widen past it
+
+### Requirement: A laptop opens its setup checklist after the first admin is set up
+
+On a server whose profile is `laptop`, the console SHALL open the first-run checklist right after the first admin's passkey is registered, for an operator who can read hosts. Any later visit to the console's root SHALL open Agent sessions as before, and a `server` profile SHALL keep the alert queue first after setup too. The checklist SHALL name the email a break-glass operator signs in with.
+
+#### Scenario: The first sign-in lands on the checklist
+
+- **GIVEN** a laptop install whose first admin has just registered their passkey
+- **WHEN** the setup page hands them to the console
+- **THEN** the console shows **Set up this Mac**, and a later visit to the root shows Agent sessions
+
+#### Scenario: The checklist names the email to sign in with
+
+- **GIVEN** an operator signed in with the break-glass account, whose setup asked only for a password and a passkey
+- **WHEN** they open **Set up this Mac**
+- **THEN** it tells them to sign in again with that account's email, the password they set and their passkey, and an SSO operator sees no such line
+
+### Requirement: The first-run checklist asks for a restart an upgrade left pending
+
+When the Mac's agent reports that its network extension needs a restart to finish an upgrade, the checklist SHALL show network filtering as a step that needs the person, telling them to restart the Mac, instead of waiting for an approval macOS will not ask for until then.
+
+#### Scenario: A pending restart is asked for
+
+- **GIVEN** a Mac whose agent reports the network extension `reboot_required`
+- **WHEN** the person opens the checklist
+- **THEN** network filtering is shown red, saying to restart this Mac because an upgrade on some Macs needs a restart before network events resume, and it turns done once the extension reconnects after the restart and filtering is capturing
