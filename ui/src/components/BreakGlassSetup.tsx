@@ -14,7 +14,8 @@
 //      password to /admin/break-glass/setup → server runs the
 //      atomic redemption → 200 (with redirect target).
 //   5. On success, navigate to the redirect target (typically
-//      /ui/) so the freshly-minted session is exercised.
+//      /ui/) so the freshly-minted session is exercised, marked as
+//      the first sign-in so a laptop install opens its checklist.
 
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -23,6 +24,7 @@ import { Card } from "./ui/Card";
 import { Input } from "./ui/Input";
 import {
   BreakglassError,
+  FIRST_SIGN_IN,
   breakglassBeginSetup,
   breakglassFinishSetup,
 } from "../auth";
@@ -121,7 +123,7 @@ export function BreakGlassSetup() {
         result.redirect === "/ui" || result.redirect.startsWith("/ui/")
           ? result.redirect.slice("/ui".length) || "/"
           : result.redirect;
-      await navigate(dest, { replace: true });
+      await navigate(dest, { replace: true, state: FIRST_SIGN_IN });
     } catch (err) {
       if (err instanceof BreakglassError) {
         setError(setupErrorLabels.get(err.reason) ?? "Setup failed. Please try again.");

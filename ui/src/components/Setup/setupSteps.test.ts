@@ -100,6 +100,22 @@ describe("setupSteps", () => {
     }
   });
 
+  // spec:web-ui/the-first-run-checklist-asks-for-a-restart-an-upgrade-left-pending/a-pending-restart-is-asked-for
+  it("asks for a restart instead of an Allow when the network extension reports one", () => {
+    const pending = health(component("network_extension", "unhealthy", "reboot_required"));
+    const step = setupSteps({ host: host(), health: pending, sessions: 0, canReadSessions: true }).find((s) => s.id === "network_filter");
+    expect(step).toMatchObject({ state: "missing" });
+    expect(step?.instruction).toMatch(/^Restart this Mac\. An upgrade on some Macs needs a restart before network events resume/);
+    // An approved extension still reads as approved: only the restart is open.
+    expect(states({ host: host(), health: pending, sessions: 0, canReadSessions: true }).network_extension).toBe("done");
+  });
+
+  it("drops the restart once the filter and the DNS proxy are capturing", () => {
+    const restarted = health(component("network_extension", "unhealthy", "reboot_required"), component("content_filter", "healthy", "activated"),
+      component("dns_proxy", "healthy", "activated"));
+    expect(states({ host: host(), health: restarted, sessions: 0, canReadSessions: true }).network_filter).toBe("done");
+  });
+
   it("has no session step for an operator who may not read sessions", () => {
     const steps = setupSteps({ host: host({ event_count: 3 }), health: ALL_DONE, sessions: null, canReadSessions: false });
     expect(steps.map((s) => s.id)).not.toContain("first_session");

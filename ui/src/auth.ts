@@ -125,6 +125,15 @@ async function requestJSON<T>(
   return (await res.json()) as T;
 }
 
+// FIRST_SIGN_IN is the router state the break-glass setup page navigates with, so the console can tell the first admin's first
+// sign-in from any later visit to its root: a laptop install opens its setup checklist then.
+export const FIRST_SIGN_IN = { firstSignIn: true } as const;
+
+// isFirstSignIn says the router state is the one the break-glass setup page navigated with.
+export function isFirstSignIn(state: unknown): boolean {
+  return typeof state === "object" && state !== null && (state as { firstSignIn?: unknown }).firstSignIn === true;
+}
+
 // breakglassBeginSetup fetches the WebAuthn registration challenge
 // for a redemption token, then runs the browser's
 // navigator.credentials.create() ceremony. Returns the attestation

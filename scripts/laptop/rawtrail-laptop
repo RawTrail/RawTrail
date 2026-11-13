@@ -206,8 +206,9 @@ install_agent() {
   trap "sudo rm -rf '$staged'" EXIT
   sudo cp "$pkg" "$staged/agent.pkg"
   pkg="$staged/agent.pkg"
-  # Gatekeeper's check: the package is signed with a Developer ID and notarized by Apple.
-  spctl --assess --type install "$pkg" 2> /dev/null || die "the agent package is not notarized; it was not installed"
+  # Gatekeeper's check: the package is signed with a Developer ID and notarized by Apple. It runs as root because only root can
+  # read the staged copy.
+  sudo spctl --assess --type install "$pkg" 2> /dev/null || die "the agent package is not notarized; it was not installed"
   local replacing=""
   if [ -n "$had_conf" ] && [ "$current" != "$URL" ]; then
     replacing=1

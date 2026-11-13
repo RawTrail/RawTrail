@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router";
+import { MemoryRouter, Routes, Route, useLocation } from "react-router";
 import { BreakGlassSetup } from "./BreakGlassSetup";
 import * as auth from "../auth";
 
@@ -16,11 +16,17 @@ function renderAt(initialPath = "/admin/break-glass/setup?token=abc") {
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
         <Route path="/admin/break-glass/setup" element={<BreakGlassSetup />} />
-        <Route path="/" element={<div>HOME</div>} />
+        <Route path="/" element={<Home />} />
         <Route path="/alerts" element={<div>ALERTS</div>} />
       </Routes>
     </MemoryRouter>,
   );
+}
+
+// Home says whether it was reached as the first sign-in, which is what sends a laptop install to its checklist.
+function Home() {
+  const state: unknown = useLocation().state;
+  return <div>{auth.isFirstSignIn(state) ? "HOME after first sign-in" : "HOME"}</div>;
 }
 
 beforeEach(() => {
@@ -81,7 +87,7 @@ describe("BreakGlassSetup submit happy path", () => {
     renderAt();
     fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: VALID_PASSWORD } });
     fireEvent.click(screen.getByRole("button", { name: /register security key/i }));
-    expect(await screen.findByText("HOME")).toBeInTheDocument();
+    expect(await screen.findByText("HOME after first sign-in")).toBeVisible();
   });
 });
 

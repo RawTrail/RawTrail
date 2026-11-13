@@ -34,6 +34,7 @@ import { PermissionAction, useCan } from "./permissions-core";
 import { ProfileProvider } from "./profile";
 import { toProfile, useProfile, type Profile } from "./profile-core";
 import { createDedupedRunner } from "./dedupe";
+import { isFirstSignIn } from "./auth";
 
 type AuthState =
   | { status: "loading" }
@@ -69,12 +70,19 @@ export function App() {
 
 // HomeRedirect lands "/" on the alert queue (the analyst's entry point), or on the
 // first nav entry the operator's permission set confers when alert.read is absent. A laptop install (issue #1436) is one person
-// watching their own agents, so it lands on Agent sessions instead, when they can see them.
+// watching their own agents, so it lands on Agent sessions instead, when they can see them, and on its setup checklist right after
+// the first admin's passkey is registered, when the Mac still has its approvals to make.
 function HomeRedirect() {
   const can = useCan();
   const { profile } = useProfile();
-  const to = profile === "laptop" && can(PermissionAction.ProcessRead) ? "/agent-sessions" : firstPermittedRoute(can);
-  return <Navigate to={to} replace />;
+  const state: unknown = useLocation().state;
+  return <Navigate to={homeRoute(profile === "laptop", isFirstSignIn(state), can)} replace />;
+}
+
+function homeRoute(laptop: boolean, firstSignIn: boolean, can: ReturnType<typeof useCan>): string {
+  if (laptop && firstSignIn && can(PermissionAction.HostRead)) return "/setup";
+  if (laptop && can(PermissionAction.ProcessRead)) return "/agent-sessions";
+  return firstPermittedRoute(can);
 }
 
 // AuthedApp is everything behind the /api/session gate. On mount it

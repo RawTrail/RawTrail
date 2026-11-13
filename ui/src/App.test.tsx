@@ -5,6 +5,7 @@ import { AuthedApp } from "./App";
 import * as api from "./api";
 import { setUnauthorizedHandler, setForbiddenHandler } from "./api";
 import { PermissionAction } from "./permissions-core";
+import { FIRST_SIGN_IN } from "./auth";
 
 // AuthedApp gates the app on a live session. On mount it probes GET /api/session; on a 401 there it
 // renders the login page. The regression this suite pins: a session that lapses MID-USE (a background
@@ -58,7 +59,7 @@ function stubSessionThen401(permissions: string[] = []): ReturnType<typeof vi.fn
   return mock;
 }
 
-function renderAuthedApp(at = "/") {
+function renderAuthedApp(at: string | { pathname: string; state: unknown } = "/") {
   return render(
     <MemoryRouter initialEntries={[at]}>
       <Routes>
@@ -113,6 +114,23 @@ describe("home view routing", () => {
     unmount();
     stubAuthedSession(perms, "server");
     renderAuthedApp();
+    expect(await screen.findByText("No alerts found.")).toBeVisible();
+  });
+
+  // spec:web-ui/a-laptop-opens-its-setup-checklist-after-the-first-admin-is-set-up/the-first-sign-in-lands-on-the-checklist
+  it("opens a laptop's setup checklist right after the first admin's setup, and Agent sessions on any later visit", async () => {
+    const perms = [PermissionAction.AlertRead, PermissionAction.HostRead, PermissionAction.ProcessRead];
+    stubAuthedSession(perms, "laptop");
+    const { unmount } = renderAuthedApp({ pathname: "/", state: FIRST_SIGN_IN });
+    expect(await screen.findByRole("heading", { name: "Set up this Mac" })).toBeVisible();
+    unmount();
+    renderAuthedApp();
+    expect(await screen.findByText("No AI agent sessions match.")).toBeVisible();
+  });
+
+  it("keeps a server on the alert list after the first admin's setup", async () => {
+    stubAuthedSession([PermissionAction.AlertRead, PermissionAction.HostRead, PermissionAction.ProcessRead], "server");
+    renderAuthedApp({ pathname: "/", state: FIRST_SIGN_IN });
     expect(await screen.findByText("No alerts found.")).toBeVisible();
   });
 

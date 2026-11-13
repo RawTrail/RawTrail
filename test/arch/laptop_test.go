@@ -300,7 +300,7 @@ func TestLaptopInstallPinsTheAgentToItsServer(t *testing.T) {
 	calls := r.callLog(t)
 	// The installer runs on a root-owned copy of the given package, the same copy Gatekeeper checked.
 	assert.Contains(t, calls, "cp "+filepath.Join(r.dir, "rawtrail-v9.9.9.pkg")+" ")
-	assert.Regexp(t, `spctl --assess --type install (\S+)/agent\.pkg\n(?s:.*)installer -pkg (\S+)/agent\.pkg -target /`, calls)
+	assert.Regexp(t, `sudo spctl --assess --type install (\S+)/agent\.pkg\n(?s:.*)installer -pkg (\S+)/agent\.pkg -target /`, calls)
 	assert.Contains(t, calls, "open "+setupLink+"\n")
 	// Without mkcert the certificate is self-signed and trusted in the login keychain, for the passkey page's secure context.
 	assert.Contains(t, calls, "security add-trusted-cert -r trustRoot -p ssl")

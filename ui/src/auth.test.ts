@@ -8,6 +8,8 @@ import {
   breakglassFinishLogin,
   reauthBreakglass,
   reauthOIDC,
+  FIRST_SIGN_IN,
+  isFirstSignIn,
 } from "./auth";
 import { setUnauthorizedHandler } from "./api";
 
@@ -81,6 +83,15 @@ describe("BreakglassError", () => {
     expect(e.reason).toBe("rate_limited");
     expect(e.message).toContain("rate_limited");
     expect(e.message).toContain("429");
+  });
+});
+
+describe("isFirstSignIn", () => {
+  it("recognizes only the state the break-glass setup page navigates with", () => {
+    expect(isFirstSignIn(FIRST_SIGN_IN)).toBe(true);
+    for (const other of [null, undefined, "firstSignIn", {}, { firstSignIn: "true" }, { firstSignIn: false }]) {
+      expect(isFirstSignIn(other), JSON.stringify(other)).toBe(false);
+    }
   });
 });
 
