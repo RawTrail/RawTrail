@@ -1,0 +1,27 @@
+## ADDED Requirements
+
+### Requirement: A laptop opens its setup checklist after the first admin is set up
+
+On a server whose profile is `laptop`, the console SHALL open the first-run checklist right after the first admin's passkey is registered, for an operator who can read hosts. Any later visit to the console's root SHALL open Agent sessions as before, and a `server` profile SHALL keep the alert queue first after setup too. The checklist SHALL name the email a break-glass operator signs in with.
+
+#### Scenario: The first sign-in lands on the checklist
+
+- **GIVEN** a laptop install whose first admin has just registered their passkey
+- **WHEN** the setup page hands them to the console
+- **THEN** the console shows **Set up this Mac**, and a later visit to the root shows Agent sessions
+
+#### Scenario: The checklist names the email to sign in with
+
+- **GIVEN** an operator signed in with the break-glass account, whose setup asked only for a password and a passkey
+- **WHEN** they open **Set up this Mac**
+- **THEN** it tells them to sign in again with that account's email, the password they set and their passkey, and an SSO operator sees no such line
+
+### Requirement: The first-run checklist asks for a restart an upgrade left pending
+
+When the Mac's agent reports that its network extension needs a restart to finish an upgrade, the checklist SHALL show network filtering as a step that needs the person, telling them to restart the Mac, instead of waiting for an approval macOS will not ask for until then.
+
+#### Scenario: A pending restart is asked for
+
+- **GIVEN** a Mac whose agent reports the network extension `reboot_required`
+- **WHEN** the person opens the checklist
+- **THEN** network filtering is shown red, saying to restart this Mac because an upgrade on some Macs needs a restart before network events resume, and it turns done once the extension reconnects after the restart and filtering is capturing

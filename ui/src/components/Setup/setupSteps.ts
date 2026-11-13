@@ -29,6 +29,8 @@ const FULL_DISK_ACCESS_PANE = "System Settings > Privacy & Security > Full Disk 
 const NEVER_CONNECTED = "never_connected";
 const FULL_DISK_ACCESS_MISSING = "full_disk_access_missing";
 const ACTIVATED = "activated";
+// REBOOT_REQUIRED is the network extension's reason when an upgrade left the previous version registered until the Mac restarts.
+const REBOOT_REQUIRED = "reboot_required";
 
 function healthy(c: ComponentHealth | undefined): boolean {
   return c?.status === "healthy";
@@ -73,12 +75,7 @@ export function setupSteps({ host, health, sessions, canReadSessions }: SetupInp
       state: approved(components.get("network_extension")) ? "done" : "waiting",
       instruction: `In ${EXTENSIONS_PANE}, open Network Extensions and turn on RawTrail.`,
     },
-    {
-      id: "network_filter",
-      title: "Allow network filtering",
-      state: capturing(components.get("content_filter")) && capturing(components.get("dns_proxy")) ? "done" : "waiting",
-      instruction: "When macOS asks whether RawTrail may filter network content, click Allow.",
-    },
+    networkFilterStep(components),
     {
       id: "security_extension_fda",
       title: "Give the security extension Full Disk Access",
@@ -107,6 +104,24 @@ export function setupSteps({ host, health, sessions, canReadSessions }: SetupInp
     });
   }
   return steps;
+}
+
+// networkFilterStep is the network filtering approval. An upgrade on some Macs leaves the previous network extension registered until
+// the Mac restarts, and no Allow prompt comes until then, so a restart the agent reports is asked for instead. It comes first: the
+// agent keeps the providers' last report while the restart is pending, so their stale "activated" does not mean filtering resumed.
+function networkFilterStep(components: ReadonlyMap<string, ComponentHealth>): SetupStep {
+  const step = { id: "network_filter", title: "Allow network filtering",
+    instruction: "When macOS asks whether RawTrail may filter network content, click Allow." };
+  if (components.get("network_extension")?.reason === REBOOT_REQUIRED) {
+    return {
+      ...step,
+      state: "missing",
+      instruction: "Restart this Mac. An upgrade on some Macs needs a restart before network events resume, and this Mac's agent " +
+        "reports that it does. After the restart, allow network filtering if macOS asks.",
+    };
+  }
+  if (capturing(components.get("content_filter")) && capturing(components.get("dns_proxy"))) return { ...step, state: "done" };
+  return { ...step, state: "waiting" };
 }
 
 // latestMac is the Mac a checklist with no host named sets up: the one that reported most recently, which on a laptop is the only one.

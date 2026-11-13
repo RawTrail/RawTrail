@@ -5,6 +5,7 @@ import { AuthedApp } from "./App";
 import * as api from "./api";
 import { setUnauthorizedHandler, setForbiddenHandler } from "./api";
 import { PermissionAction } from "./permissions-core";
+import { FIRST_SIGN_IN } from "./auth";
 
 // AuthedApp gates the app on a live session. On mount it probes GET /api/session; on a 401 there it
 // renders the login page. The regression this suite pins: a session that lapses MID-USE (a background
@@ -58,7 +59,7 @@ function stubSessionThen401(permissions: string[] = []): ReturnType<typeof vi.fn
   return mock;
 }
 
-function renderAuthedApp(at = "/") {
+function renderAuthedApp(at: string | { pathname: string; state: unknown } = "/") {
   return render(
     <MemoryRouter initialEntries={[at]}>
       <Routes>
@@ -79,10 +80,12 @@ afterEach(() => {
 // stubAuthedSession routes GET /api/session to an authed session carrying the given
 // permission set, and every list endpoint to an empty 200 result so the home redirect's
 // destination page mounts to its empty state instead of tripping the 401 handler.
-function stubAuthedSession(permissions: string[], profile?: string): void {
+function stubAuthedSession(permissions: string[], profile?: string, authMethod = authedSession.auth_method): void {
   const mock = vi.fn((input: unknown): Promise<FakeResponse> => {
     const url = String(input);
-    if (url.includes("/api/session")) return Promise.resolve(makeResponse({ ...authedSession, permissions, profile }, 200));
+    if (url.includes("/api/session")) {
+      return Promise.resolve(makeResponse({ ...authedSession, permissions, profile, auth_method: authMethod }, 200));
+    }
     if (url.includes("/agent-sessions")) return Promise.resolve(makeResponse({ rows: [], total_matched: 0 }, 200));
     return Promise.resolve(makeResponse([], 200));
   });
@@ -113,6 +116,38 @@ describe("home view routing", () => {
     unmount();
     stubAuthedSession(perms, "server");
     renderAuthedApp();
+    expect(await screen.findByText("No alerts found.")).toBeVisible();
+  });
+
+  // spec:web-ui/a-laptop-opens-its-setup-checklist-after-the-first-admin-is-set-up/the-first-sign-in-lands-on-the-checklist
+  it("opens a laptop's setup checklist right after the first admin's setup, and Agent sessions on any later visit", async () => {
+    const perms = [PermissionAction.AlertRead, PermissionAction.HostRead, PermissionAction.ProcessRead];
+    stubAuthedSession(perms, "laptop");
+    const { unmount } = renderAuthedApp({ pathname: "/", state: FIRST_SIGN_IN });
+    expect(await screen.findByRole("heading", { name: "Set up this Mac" })).toBeVisible();
+    unmount();
+    renderAuthedApp();
+    expect(await screen.findByText("No AI agent sessions match.")).toBeVisible();
+  });
+
+  // spec:web-ui/a-laptop-opens-its-setup-checklist-after-the-first-admin-is-set-up/the-checklist-names-the-email-to-sign-in-with
+  it("names the break-glass email to sign in with on the checklist, and no email to an SSO operator", async () => {
+    const perms = [PermissionAction.HostRead, PermissionAction.ProcessRead];
+    stubAuthedSession(perms, "laptop", "local_password");
+    const { unmount } = renderAuthedApp("/setup");
+    const note = await screen.findByText(/To sign in again, enter/);
+    expect(note).toBeVisible();
+    expect(note).toHaveTextContent("To sign in again, enter operator@example.com, the password you set and your passkey.");
+    unmount();
+    stubAuthedSession(perms, "laptop", "oidc");
+    renderAuthedApp("/setup");
+    expect(await screen.findByRole("heading", { name: "Set up this Mac" })).toBeVisible();
+    expect(screen.queryByText(/To sign in again/)).toBeNull();
+  });
+
+  it("keeps a server on the alert list after the first admin's setup", async () => {
+    stubAuthedSession([PermissionAction.AlertRead, PermissionAction.HostRead, PermissionAction.ProcessRead], "server");
+    renderAuthedApp({ pathname: "/", state: FIRST_SIGN_IN });
     expect(await screen.findByText("No alerts found.")).toBeVisible();
   });
 

@@ -29,6 +29,9 @@ ROOT="${RAWTRAIL_LAPTOP_ROOT:-}"
 CONF="$ROOT/etc/rawtrail.conf"
 KEPT_CONF="$CONF.before-laptop"
 ENROLLED="$ROOT/var/db/rawtrail/enrolled.plist"
+# ADMIN_EMAIL is the first admin's email, the one break-glass account the server seeds (DefaultAdminEmail in
+# server/identity/internal/seed/admin.go). Setup asks only for a password and a passkey, so the installer names it for signing in later.
+ADMIN_EMAIL="admin@rawtrail.local"
 UNINSTALLER="$ROOT/Library/Application Support/io.rawtrail/uninstall.sh"
 RELEASES="https://github.com/RawTrail/RawTrail/releases"
 # MARKER says a directory is this tool's, so uninstall removes only a state directory it made.
@@ -206,8 +209,9 @@ install_agent() {
   trap "sudo rm -rf '$staged'" EXIT
   sudo cp "$pkg" "$staged/agent.pkg"
   pkg="$staged/agent.pkg"
-  # Gatekeeper's check: the package is signed with a Developer ID and notarized by Apple.
-  spctl --assess --type install "$pkg" 2> /dev/null || die "the agent package is not notarized; it was not installed"
+  # Gatekeeper's check: the package is signed with a Developer ID and notarized by Apple. It runs as root because only root can
+  # read the staged copy.
+  sudo spctl --assess --type install "$pkg" 2> /dev/null || die "the agent package is not notarized; it was not installed"
   local replacing=""
   if [ -n "$had_conf" ] && [ "$current" != "$URL" ]; then
     replacing=1
@@ -255,11 +259,12 @@ open_setup() {
     sleep 1
   done
   if [ -z "$link" ]; then
-    sub "The admin is already set up: opening the sign-in page."
+    sub "The admin is already set up: opening the sign-in page. Sign in as $ADMIN_EMAIL with your password and passkey."
     open "$URL"
     return
   fi
   sub "Opening the one-time link that registers your admin passkey (valid for an hour; rawtrail-laptop login makes a new one)."
+  sub "Your admin account is $ADMIN_EMAIL: sign in with it later, with the password you set and the passkey."
   open "$link"
 }
 
