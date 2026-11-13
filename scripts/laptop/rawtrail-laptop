@@ -52,10 +52,15 @@ load_selection() {
   BUILD=$(sed -n 's/^BUILD=//p' "$SELECTION")
 }
 
+# compose runs docker compose on the laptop stack. It passes a digest of ClickHouse's config, which labels the ClickHouse service, so a
+# changed config recreates the container on the next start: the config is a mounted file, and compose sees no change in its contents.
 compose() {
   local files=(-f "$REPO/docker-compose.laptop.yml")
   [ -z "$BUILD" ] || files+=(-f "$REPO/docker-compose.prod.build.yml")
-  RAWTRAIL_LAPTOP_HOME="$STATE" RAWTRAIL_LAPTOP_PORT="$PORT" EDR_VERSION="${EDR_VERSION:-latest}" docker compose "${files[@]}" "$@"
+  local clickhouse_config
+  clickhouse_config=$(shasum -a 256 "$REPO/packaging/laptop/clickhouse-laptop.xml" | cut -c1-16)
+  RAWTRAIL_LAPTOP_HOME="$STATE" RAWTRAIL_LAPTOP_PORT="$PORT" EDR_VERSION="${EDR_VERSION:-latest}" \
+    RAWTRAIL_LAPTOP_CLICKHOUSE_CONFIG="$clickhouse_config" docker compose "${files[@]}" "$@"
 }
 
 preflight() {

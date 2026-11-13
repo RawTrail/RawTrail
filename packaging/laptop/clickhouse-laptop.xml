@@ -6,7 +6,32 @@
     <mark_cache_size>134217728</mark_cache_size>
     <uncompressed_cache_size>67108864</uncompressed_cache_size>
     <index_mark_cache_size>33554432</index_mark_cache_size>
+    <!-- Background pools sized for one Mac's inserts, about one a second, rather than a server's many cores. Each pool thread keeps the
+         memory its merges and flushes used, so the server-sized defaults (64 merge threads) grew a laptop's ClickHouse past its cap
+         within hours and refused the agent's events. -->
+    <background_pool_size>4</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+    <background_common_pool_size>2</background_common_pool_size>
+    <background_move_pool_size>1</background_move_pool_size>
+    <background_fetches_pool_size>1</background_fetches_pool_size>
+    <background_schedule_pool_size>16</background_schedule_pool_size>
+    <background_buffer_flush_schedule_pool_size>1</background_buffer_flush_schedule_pool_size>
+    <background_message_broker_schedule_pool_size>1</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>1</background_distributed_schedule_pool_size>
+    <merge_tree>
+        <!-- Merges read smaller blocks, and the pool-size thresholds the defaults assume (8 and more free entries) fit four threads. -->
+        <merge_max_block_size>1024</merge_max_block_size>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>2</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <number_of_free_entries_in_pool_to_execute_mutation>2</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>2</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
+    <!-- The image logs at trace level, about 250,000 lines an hour on a laptop, each also written to system.text_log. -->
+    <logger>
+        <level>warning</level>
+    </logger>
     <!-- The system log tables are for diagnosing a busy server; on a laptop they are disk and memory spent on nothing. -->
+    <text_log remove="1"/>
+    <query_log remove="1"/>
     <query_thread_log remove="1"/>
     <query_views_log remove="1"/>
     <part_log remove="1"/>

@@ -44,6 +44,7 @@ type laptopService struct {
 	MemLimit    string            `json:"mem_limit"`
 	Volumes     []string          `json:"volumes"`
 	Command     []string          `json:"command"`
+	Labels      map[string]string `json:"labels"`
 }
 
 func readLaptopCompose(t *testing.T) laptopDoc {
@@ -84,24 +85,63 @@ func TestLaptopServerExportsNoTelemetryAndServesItsOwnTLS(t *testing.T) {
 func TestLaptopClickHouseCapsItselfBelowItsContainer(t *testing.T) {
 	t.Parallel()
 	clickhouse := readLaptopCompose(t).Services["clickhouse"]
-	var mounted string
-	for _, v := range clickhouse.Volumes {
-		if strings.Contains(v, "/etc/clickhouse-server/config.d/") {
-			mounted = strings.SplitN(v, ":", 2)[0]
-		}
-	}
-	require.NotEmpty(t, mounted, "ClickHouse mounts no config of its own")
-	//nolint:gosec // G304: the path is the compose file's own mount, inside this repository.
-	raw, err := os.ReadFile(filepath.Join("..", "..", mounted))
-	require.NoError(t, err)
 	var config struct {
 		MaxServerMemoryUsage int64 `xml:"max_server_memory_usage"`
 	}
-	require.NoError(t, xml.Unmarshal(raw, &config))
+	require.NoError(t, xml.Unmarshal([]byte(laptopClickHouseConfig(t)), &config))
 	require.Positive(t, config.MaxServerMemoryUsage)
 	assert.LessOrEqual(t, config.MaxServerMemoryUsage, int64(1_100_000_000))
 	assert.Less(t, config.MaxServerMemoryUsage, megabytes(t, clickhouse.MemLimit),
 		"the container limit must sit above ClickHouse's own cap, or the kernel kills it first")
+}
+
+// spec:release-packaging/the-laptop-clickhouse-is-sized-for-one-mac-s-inserts/the-config-keeps-clickhouse-s-background-work-small
+func TestLaptopClickHouseKeepsItsBackgroundWorkSmall(t *testing.T) {
+	t.Parallel()
+	var config struct {
+		BackgroundPoolSize int    `xml:"background_pool_size"`
+		LogLevel           string `xml:"logger>level"`
+		TextLog            struct {
+			Remove string `xml:"remove,attr"`
+		} `xml:"text_log"`
+		QueryLog struct {
+			Remove string `xml:"remove,attr"`
+		} `xml:"query_log"`
+	}
+	require.NoError(t, xml.Unmarshal([]byte(laptopClickHouseConfig(t)), &config))
+	// The server-sized default is 16 threads (64 merges at its concurrency ratio); one Mac inserts about once a second.
+	assert.Positive(t, config.BackgroundPoolSize)
+	assert.LessOrEqual(t, config.BackgroundPoolSize, 4)
+	// The image logs at trace level, every line also kept in system.text_log.
+	assert.Contains(t, []string{"warning", "error", "fatal", "none"}, config.LogLevel)
+	assert.Equal(t, "1", config.TextLog.Remove, "the text log is kept")
+	assert.Equal(t, "1", config.QueryLog.Remove, "the query log is kept")
+}
+
+// spec:release-packaging/the-laptop-clickhouse-is-sized-for-one-mac-s-inserts/a-changed-config-recreates-clickhouse
+func TestLaptopClickHouseIsRecreatedWhenItsConfigChanges(t *testing.T) {
+	t.Parallel()
+	// The service is labelled with what the installer passes, so compose recreates the container when the label's value changes.
+	assert.Equal(t, "${RAWTRAIL_LAPTOP_CLICKHOUSE_CONFIG:-}",
+		readLaptopCompose(t).Services["clickhouse"].Labels["io.rawtrail.laptop.clickhouse-config"])
+	r := newLaptopRun(t)
+	out, ok := r.run(t, []string{"NO_BANNER=1"}, "install", "--no-agent")
+	require.True(t, ok, out)
+	// The installer passes the config's digest on every compose call, so a start after the file changed sees a new label.
+	digest := sha256.Sum256([]byte(laptopClickHouseConfig(t)))
+	assert.Contains(t, r.callLog(t), "clickhouse config="+hex.EncodeToString(digest[:])[:16]+"\n")
+}
+
+// laptopClickHouseConfig is the ClickHouse config file the laptop compose profile mounts.
+func laptopClickHouseConfig(t *testing.T) string {
+	t.Helper()
+	for _, v := range readLaptopCompose(t).Services["clickhouse"].Volumes {
+		if strings.Contains(v, "/etc/clickhouse-server/config.d/") {
+			return readFile(t, filepath.Join("..", "..", strings.SplitN(v, ":", 2)[0]))
+		}
+	}
+	require.FailNow(t, "ClickHouse mounts no config of its own")
+	return ""
 }
 
 // megabytes reads a compose memory size such as 1280m as bytes.
@@ -166,7 +206,7 @@ var laptopStubs = map[string]string{
   "info ") [ -z "$NO_ENGINE" ] ;;
   "inspect -f") echo 2026-10-31T12:00:00Z ;;
   *)
-    [ "$1" != compose ] || echo "image EDR_VERSION=$EDR_VERSION" >> "$CALLS"
+    [ "$1" != compose ] || echo "image EDR_VERSION=$EDR_VERSION clickhouse config=$RAWTRAIL_LAPTOP_CLICKHOUSE_CONFIG" >> "$CALLS"
     case "$*" in
       *" ps -q "*) echo server-container ;;
       *" logs "*) [ -n "$NO_BANNER" ] || printf '  Email: admin@localhost\n  URL:   ` + setupLink + `\n  TTL:   1h0m0s\n' ;;
@@ -251,7 +291,7 @@ func (r laptopRun) pkg(t *testing.T) string {
 
 func readFile(t *testing.T, path string) string {
 	t.Helper()
-	//nolint:gosec // G304: the path is under the test's own scratch directory.
+	//nolint:gosec // G304: the path is under the test's own scratch directory or in this repository.
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(raw)
@@ -497,7 +537,7 @@ func TestLaptopLoginKeepsTheInstalledImage(t *testing.T) {
 	calls := r.callLog(t)
 	assert.Contains(t, calls, "restart server")
 	assert.NotContains(t, calls, " up ")
-	assert.Contains(t, calls, "image EDR_VERSION=v1.2.3\n")
+	assert.Contains(t, calls, "image EDR_VERSION=v1.2.3 ")
 	assert.NotContains(t, calls, "image EDR_VERSION=latest")
 }
 

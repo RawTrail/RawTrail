@@ -40,6 +40,10 @@ services:
     # The container limit sits above ClickHouse's own cap (packaging/laptop/clickhouse-laptop.xml), so a heavy query is refused by
     # ClickHouse with an error instead of the whole server being killed by the kernel.
     mem_limit: 1280m
+    # A digest of the mounted config (packaging/laptop/clickhouse-laptop.xml), set by the installer, so a changed config recreates the
+    # container: compose cannot see a change inside a mounted file.
+    labels:
+      io.rawtrail.laptop.clickhouse-config: ${RAWTRAIL_LAPTOP_CLICKHOUSE_CONFIG:-}
     environment:
       CLICKHOUSE_DB: edr
       # Required for the default user to authenticate over the network with an empty password (code 516 otherwise).
