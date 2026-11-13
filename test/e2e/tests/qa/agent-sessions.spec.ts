@@ -26,7 +26,8 @@ test.describe("agent sessions", () => {
   // spec:web-ui/inferred-launches-in-the-ui/a-session-lists-a-launch-under-the-call-that-asked
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
   // spec:web-ui/tool-calls-beside-their-processes/each-bash-group-shows-its-tool-call
-  // spec:web-ui/activity-table-cells-stay-on-one-line/a-file-path-in-the-process-detail-panel-reads-whole
+  // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/a-file-path-in-the-process-detail-panel-reads-whole
+  // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/the-path-column-takes-the-free-width
   // spec:web-ui/session-processes-view/every-process-is-listed-under-the-agent-that-ran-it
   // spec:web-ui/session-processes-view/a-reparented-process-stays-under-its-creator
   test("a Claude Code session is listed with its project, opens on its Summary and lists its commands", async ({ page, agent }) => {
@@ -118,13 +119,32 @@ test.describe("agent sessions", () => {
     await expect(connection).toContainText("git (5002)");
     await page.getByRole("group", { name: "Session activity" }).getByRole("button", { name: /^DNS/ }).click();
     await expect(sessionActivity.getByText("1 query for 1 name")).toBeVisible();
-    // git's index update, as the agent-file client folded it: one modify standing for two writes, under git's generation.
+    // git's index update, as the agent-file client folded it: one modify standing for two writes, under git's generation, and the pack
+    // index it wrote.
+    await page.setViewportSize({ width: 1920, height: 1000 });
     await page.getByRole("group", { name: "Session activity" }).getByRole("button", { name: /^Files/ }).click();
-    await expect(sessionActivity.getByText("2 file events on 1 path")).toBeVisible();
-    const edit = sessionActivity.locator(".activity-tabs__panel").getByRole("row").nth(1);
+    await expect(sessionActivity.getByText("3 file events on 2 paths")).toBeVisible();
+    const fileRows = sessionActivity.locator(".activity-tabs__panel").getByRole("row");
+    const edit = fileRows.filter({ hasText: "/Users/dev/project/.git/index" });
     await expect(edit).toContainText("modify");
-    await expect(edit).toContainText("/Users/dev/project/.git/index");
     await expect(edit).toContainText("git (5002)");
+    // The long pack path's cell takes the width the other columns leave, cut in its middle with its start and its parent and name in
+    // view, and the table does not scroll sideways.
+    const pack = fileRows.filter({ hasText: "pack-0123456789abcdef" });
+    await expect(pack.locator(".activity-tabs__path-head")).toContainText("/Users/dev/project/.git/objects/pack");
+    await expect(pack.locator(".activity-tabs__path-tail")).toHaveText(
+      "/tmp_pack_incoming_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0/pack-0123456789abcdef0123456789abcdef01234567.idx",
+    );
+    // Filling its column: the path is as wide as the cell's content box, to the pixel.
+    const fill = await pack.locator(".activity-tabs__file-cell").evaluate((cell) => {
+      const style = getComputedStyle(cell);
+      const content = cell.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+      return { content, path: cell.querySelector(".activity-tabs__file")?.getBoundingClientRect().width ?? 0 };
+    });
+    expect(fill.path).toBeGreaterThan(fill.content - 1);
+    const table = sessionActivity.locator(".activity-tabs__panel .table-wrapper");
+    const widths = await table.evaluate((w) => ({ scroll: w.scrollWidth, client: w.clientWidth }));
+    expect(widths.scroll).toBeLessThanOrEqual(widths.client);
 
     // The same edit in git's process detail panel, at a width that puts the panel below the commands: the path keeps to one line and
     // the table scrolls sideways, rather than wrapping the path a few characters at a time.
@@ -132,11 +152,12 @@ test.describe("agent sessions", () => {
     await views.getByRole("button", { name: "Timeline" }).click();
     await commands.nth(0).getByRole("button", { name: "git", exact: true }).click();
     await page.getByRole("group", { name: "Process activity" }).getByRole("button", { name: /^Files/ }).click();
-    const panelRow = page.locator(".process-detail__activity .activity-tabs__panel").getByRole("row").nth(1);
+    const panelRows = page.locator(".process-detail__activity .activity-tabs__panel").getByRole("row");
+    const panelRow = panelRows.filter({ hasText: "/Users/dev/project/.git/index" });
     await expect(panelRow).toContainText("/Users/dev/project/.git/index");
     // The lines the path's text sits on, by the distinct tops of its text's rendered boxes: cells share their row's height, so a cell's
-    // own box cannot tell one line from several. Only text nodes are measured, since the capped path's inline-block wrapper has a box
-    // of its own whose top is not a line of text.
+    // own box cannot tell one line from several. Only text nodes are measured, since the path's wrappers have boxes of their own whose
+    // tops are not lines of text.
     const pathLines = await panelRow.locator("td").nth(1).evaluate((cell) => {
       const tops = new Set<number>();
       const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);

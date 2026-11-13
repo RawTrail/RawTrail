@@ -9,6 +9,7 @@ import { Table, EmptyState } from "../ui/Table";
 import { formatNs, executableName, hostPort, plural } from "../Search/format";
 import { formatRelativeNs } from "../../time";
 import { scopeNote } from "./activityScope";
+import { splitPath } from "./pathParts";
 import { socketDaemon } from "./socketDaemon";
 
 type TabKey = "files" | "network" | "dns";
@@ -298,13 +299,26 @@ function DaemonName({ path }: { readonly path: string }) {
   return name ? <span className="activity-tabs__daemon" title={DAEMON_TITLE}>{name}</span> : null;
 }
 
-// TruncatedPath shows a path on one line, giving up width to whatever else its row's capped cell holds. It is cut at its start, so the
-// file name, the part an operator reads for, stays in view, and the whole path is its tooltip. A long path otherwise stretched the
-// table past the panel, with nothing to say it scrolled.
+// HEAD_KEPT_CHARS is how much of a path's start stays in view when even its parent directory and name are too wide for the cell, so the
+// root (/Users/..., /Library/...) is never cut away entirely. The cell is monospaced, so a ch is one character.
+const HEAD_KEPT_CHARS = 12;
+
+// TruncatedPath shows a path on one line, giving up width to whatever else its row's cell holds. It is cut in its middle: the start says
+// where the file lives (a home directory or a system one) and the parent directory and name say what it is, so both stay in view and
+// the ellipsis falls between them. A parent and name too long for the cell on their own are cut at their start, after the path's first few characters. The text is the whole path, so a
+// copy keeps it, and it is the tooltip too.
 function TruncatedPath({ path }: { readonly path: string }) {
+  const { head, tail } = splitPath(path);
   return (
     <span className="activity-tabs__path" title={path}>
-      <bdi>{path}</bdi>
+      {head && (
+        <span className="activity-tabs__path-head" style={{ minWidth: `${String(Math.min(head.length, HEAD_KEPT_CHARS))}ch` }}>
+          {head}
+        </span>
+      )}
+      <span className="activity-tabs__path-tail">
+        <bdi>{tail}</bdi>
+      </span>
     </span>
   );
 }
@@ -322,7 +336,7 @@ function FilesPanel({ totals, rows, processName, hasMore: listsMore, more }: Pan
             {rows.map((r) => (
               <tr key={`${r.operation}|${r.path}|${r.source_path ?? ""}|${r.rolled_up ? "dir" : ""}|${r.processes ? "folded" : ""}|${String(r.pid)}:${String(r.pidversion)}`}>
                 <td>{OPERATION_LABELS[r.operation] ?? r.operation}</td>
-                <td className="activity-tabs__mono">
+                <td className="activity-tabs__mono activity-tabs__file-cell">
                   <span className="activity-tabs__file">
                     {r.source_path ? (
                       <>

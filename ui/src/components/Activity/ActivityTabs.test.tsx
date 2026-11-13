@@ -101,7 +101,7 @@ describe("ActivityTabs", () => {
     expect(lookup[5]).toHaveAttribute("title", formatNs(10 * S));
   });
 
-  // spec:web-ui/activity-table-cells-stay-on-one-line/a-long-answer-list-wraps-within-its-cap
+  // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/a-long-answer-list-wraps-within-its-cap
   it("wraps a DNS row's answers within their cap", async () => {
     mockActivity(session());
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "session", session: "s1" }} />);
@@ -153,8 +153,8 @@ describe("ActivityTabs", () => {
     expect(screen.getByText("open")).toBeVisible();
   });
 
-  // spec:web-ui/activity-table-cells-stay-on-one-line/a-long-path-is-cut-at-its-start-and-shown-whole-on-hover
-  it("caps a file row's cell, with each path and its daemon tag inside the cap and each path's whole value as its tooltip", async () => {
+  // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/a-long-path-is-cut-in-its-middle-and-shown-whole-on-hover
+  it("cuts each path in its middle, keeps its daemon tag in the row, and shows the whole path as its tooltip", async () => {
     const dir = "/Users/victor/.claude/plugins/cache/goland-claude-marketplace/modern-go-guidelines/1.0.0/.in_use";
     const sock = "/Users/victor/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock";
     const files = {
@@ -170,7 +170,7 @@ describe("ActivityTabs", () => {
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
     const [create, rename, connect] = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1]);
-    // Everything a cell shows sits in its one capped row, so a tag cannot widen the cell past the cap.
+    // Everything a cell shows sits in its one row, so the paths shrink around a tag rather than wrap.
     for (const cell of [create, rename, connect]) {
       expect(cell.children).toHaveLength(1);
       expect(cell.firstElementChild).toHaveClass("activity-tabs__file");
@@ -179,6 +179,16 @@ describe("ActivityTabs", () => {
     expect(tooltips(create)).toEqual([`${dir}/21989.tmp.c22cddba`]);
     expect(tooltips(rename)).toEqual([`${dir}/21989.tmp.c22cddba`, `${dir}/21989`]);
     expect(tooltips(connect)).toEqual([sock]);
+    // The head, where the file lives, is what the cell cuts; the tail, its parent directory and name, stays in view.
+    const parts = (cell: HTMLElement) =>
+      Array.from(cell.querySelectorAll(".activity-tabs__path"), (p) => [
+        p.querySelector(".activity-tabs__path-head")?.textContent,
+        p.querySelector(".activity-tabs__path-tail")?.textContent,
+      ]);
+    const head = "/Users/victor/.claude/plugins/cache/goland-claude-marketplace/modern-go-guidelines/1.0.0";
+    expect(parts(create)).toEqual([[head, "/.in_use/21989.tmp.c22cddba"]]);
+    expect(parts(rename)).toEqual([[head, "/.in_use/21989.tmp.c22cddba"], [head, "/.in_use/21989"]]);
+    expect(parts(connect)).toEqual([["/Users/victor/Library/Group Containers/2BUA8C4S2C.com.1password", "/t/agent.sock"]]);
     expect(within(connect).getByText("1Password SSH agent")).toHaveClass("activity-tabs__daemon");
     // A copy of a cell keeps the whole path and spaces between its parts.
     expect(rename).toHaveTextContent(`${dir}/21989.tmp.c22cddba → ${dir}/21989`);
@@ -236,13 +246,13 @@ describe("ActivityTabs", () => {
     mockActivity(session({ files }));
     render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Files 3" }));
-    const agent = screen.getByText("/private/tmp/com.apple.launchd.iIlTeYzViU/Listeners", { exact: false }).closest("tr");
+    const agent = screen.getByTitle("/private/tmp/com.apple.launchd.iIlTeYzViU/Listeners").closest("tr");
     expect(agent).not.toBeNull();
     expect(within(agent as HTMLElement).getByText("ssh-agent")).toBeVisible();
     expect(within(agent as HTMLElement).getByText("connect")).toBeVisible();
-    const unknown = screen.getByText("/private/tmp/qa1355.sock", { exact: false }).closest("tr");
+    const unknown = screen.getByTitle("/private/tmp/qa1355.sock").closest("tr");
     expect(unknown?.querySelector(".activity-tabs__daemon")).toBeNull();
-    const removed = screen.getByText("/var/run/docker.sock", { exact: false }).closest("tr");
+    const removed = screen.getByTitle("/var/run/docker.sock").closest("tr");
     expect(within(removed as HTMLElement).queryByText("Docker")).toBeNull();
   });
 
