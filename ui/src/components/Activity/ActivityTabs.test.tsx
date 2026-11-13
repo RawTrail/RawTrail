@@ -195,6 +195,30 @@ describe("ActivityTabs", () => {
     expect(connect).toHaveTextContent(`${sock} 1Password SSH agent`);
   });
 
+  // spec:web-ui/activity-cells-keep-one-line-and-cut-paths-in-the-middle/a-long-path-is-cut-in-its-middle-and-shown-whole-on-hover
+  it("marks a tail's own cut only when its head is too short to be cut, and keeps each path a floor of width", async () => {
+    const name = "claude-tool-output-0123456789abcdef0123456789abcdef.json";
+    const long = `/Users/victor/work/project/.git/objects/pack/${name}`;
+    const files = {
+      events: 2, distinct: 2, truncated: false,
+      rows: [
+        { pid: 7, pidversion: 1, count: 1, first_ns: S, last_ns: S, operation: "create" as const, path: `/tmp/cache/${name}` },
+        { pid: 7, pidversion: 1, count: 1, first_ns: 2 * S, last_ns: 2 * S, operation: "create" as const, path: long },
+      ],
+    };
+    mockActivity(session({ files }));
+    render(<ActivityTabs label="Session activity" hostId="H1" scope={{ kind: "process", process: 7 }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Files 2" }));
+    const [short, cut] = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1]);
+    // "/tmp" is never cut, so its tail's cut is the only one and shows its own ellipsis; a cut head already shows one.
+    expect(short.querySelector(".activity-tabs__path-head")).toHaveTextContent("/tmp");
+    expect(short.querySelector(".activity-tabs__path-tail")).not.toHaveClass("activity-tabs__path-tail--after-cut");
+    expect(cut.querySelector(".activity-tabs__path-tail")).toHaveClass("activity-tabs__path-tail--after-cut");
+    // A path keeps at least its head's few characters and as many of its tail, so a rename's shorter path keeps its name in view.
+    expect(cut.querySelector<HTMLElement>(".activity-tabs__path")?.style.minWidth).toBe("24ch");
+    expect(cut.querySelector<HTMLElement>(".activity-tabs__path-head")?.style.minWidth).toBe("12ch");
+  });
+
   // spec:web-ui/agent-file-activity-views/the-files-tab-lists-an-agent-s-edits
   // spec:web-ui/folded-agent-file-rows-name-their-process-count/a-fan-out-s-row-names-how-many-processes-it-counts
   it("lists an agent's file operations, and a rolled-up row as the directory it counts", async () => {

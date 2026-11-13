@@ -123,7 +123,7 @@ test.describe("agent sessions", () => {
     // index it wrote.
     await page.setViewportSize({ width: 1920, height: 1000 });
     await page.getByRole("group", { name: "Session activity" }).getByRole("button", { name: /^Files/ }).click();
-    await expect(sessionActivity.getByText("3 file events on 2 paths")).toBeVisible();
+    await expect(sessionActivity.getByText("5 file events on 4 paths")).toBeVisible();
     const fileRows = sessionActivity.locator(".activity-tabs__panel").getByRole("row");
     const edit = fileRows.filter({ hasText: "/Users/dev/project/.git/index" });
     await expect(edit).toContainText("modify");
@@ -169,6 +169,28 @@ test.describe("agent sessions", () => {
       return tops.size;
     });
     expect(pathLines).toBe(1);
+
+    // In the narrow panel, a long name under "/tmp", a head too short to cut, is cut at its start with its own ellipsis, so it does not
+    // read as a whole, different path.
+    const shortHead = panelRows.filter({ hasText: "claude-tool-output" });
+    const tailCut = await shortHead.locator(".activity-tabs__path-tail").evaluate((t) => ({
+      cut: t.scrollWidth > t.clientWidth,
+      overflow: getComputedStyle(t).textOverflow,
+    }));
+    expect(tailCut).toEqual({ cut: true, overflow: "ellipsis" });
+    // A rename's short path keeps its name in view beside the long one, and stays clear of the arrow.
+    const rename = panelRows.filter({ hasText: "/Users/dev/notes.md" });
+    const sides = await rename.locator(".activity-tabs__file").evaluate((file) => {
+      const [source] = Array.from(file.querySelectorAll<HTMLElement>(".activity-tabs__path"));
+      const tail = source.querySelector<HTMLElement>(".activity-tabs__path-tail");
+      return {
+        sourceTailWhole: tail ? tail.scrollWidth <= tail.clientWidth : false,
+        sourceRight: source.getBoundingClientRect().right,
+        arrowLeft: file.querySelector(".activity-tabs__arrow")?.getBoundingClientRect().left ?? 0,
+      };
+    });
+    expect(sides.sourceTailWhole).toBe(true);
+    expect(sides.sourceRight).toBeLessThanOrEqual(sides.arrowLeft);
   });
 });
 

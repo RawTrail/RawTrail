@@ -113,7 +113,6 @@
   // stays in view, after the head's first few characters (its inline minimum); the <bdi> inside keeps the path itself in its own order.
   &__path {
     display: inline-flex;
-    min-width: 0;
     white-space: nowrap;
   }
 
@@ -139,8 +138,8 @@
     }
   }
 
-  // After a head, whose own ellipsis already marks the cut, a tail cut at its start is clipped rather than given a second ellipsis.
-  &__path-head + &__path-tail {
+  // After a head cut with its own ellipsis, a tail cut at its start is clipped rather than given a second one.
+  &__path-tail--after-cut {
     text-overflow: clip;
   }
 

@@ -303,20 +303,27 @@ function DaemonName({ path }: { readonly path: string }) {
 // root (/Users/..., /Library/...) is never cut away entirely. The cell is monospaced, so a ch is one character.
 const HEAD_KEPT_CHARS = 12;
 
+// PATH_KEPT_CHARS is the narrowest a path gets, so that beside a rename's other path it keeps some of its name in view after its head,
+// rather than giving its width away in proportion to its length.
+const PATH_KEPT_CHARS = 2 * HEAD_KEPT_CHARS;
+
 // TruncatedPath shows a path on one line, giving up width to whatever else its row's cell holds. It is cut in its middle: the start says
 // where the file lives (a home directory or a system one) and the parent directory and name say what it is, so both stay in view and
-// the ellipsis falls between them. A parent and name too long for the cell on their own are cut at their start, after the path's first few characters. The text is the whole path, so a
-// copy keeps it, and it is the tooltip too.
+// the ellipsis falls between them. A parent and name too long for the cell on their own are cut at their start, after the path's first
+// few characters. The text is the whole path, so a copy keeps it, and it is the tooltip too.
 function TruncatedPath({ path }: { readonly path: string }) {
   const { head, tail } = splitPath(path);
+  // A head longer than it keeps in view is cut, with its own ellipsis, before the tail is, so that tail's cut needs no second one. A
+  // shorter head is never cut, so the tail marks its own.
+  const headCut = head.length > HEAD_KEPT_CHARS;
   return (
-    <span className="activity-tabs__path" title={path}>
+    <span className="activity-tabs__path" title={path} style={{ minWidth: `${String(Math.min(path.length, PATH_KEPT_CHARS))}ch` }}>
       {head && (
         <span className="activity-tabs__path-head" style={{ minWidth: `${String(Math.min(head.length, HEAD_KEPT_CHARS))}ch` }}>
           {head}
         </span>
       )}
-      <span className="activity-tabs__path-tail">
+      <span className={headCut ? "activity-tabs__path-tail activity-tabs__path-tail--after-cut" : "activity-tabs__path-tail"}>
         <bdi>{tail}</bdi>
       </span>
     </span>
