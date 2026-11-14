@@ -6,4 +6,4 @@
 ## 2. Verify
 
 - [x] 2.1 Replay a burst of a real laptop's uploads and session page reads against the current allocator, two arenas and one, and compare the failures and memory.
-- [ ] 2.2 Recreate ClickHouse on the laptop install and load the session pages that failed.
+- [x] 2.2 Recreate ClickHouse on the laptop install, run the session page's reads four at a time, and watch its memory, uploads and event freshness for 20 minutes.
