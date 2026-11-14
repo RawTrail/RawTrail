@@ -48,6 +48,10 @@ services:
       CLICKHOUSE_DB: edr
       # Required for the default user to authenticate over the network with an empty password (code 516 otherwise).
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      # One allocator arena instead of one a core. ClickHouse's allocator uses 64 KB pages, and spread over an arena for each of a Mac's
+      # cores it held twice the memory it had allocated, which ClickHouse counts against its cap: a burst of the agent's uploads and a
+      # session page's reads then refused both. On a replay of a Mac's events one arena kept them under the cap.
+      MALLOC_CONF: "percpu_arena:disabled,narenas:1"
     ulimits:
       nofile:
         soft: 262144

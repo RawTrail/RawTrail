@@ -118,6 +118,15 @@ func TestLaptopClickHouseKeepsItsBackgroundWorkSmall(t *testing.T) {
 	assert.Equal(t, "1", config.QueryLog.Remove, "the query log is kept")
 }
 
+// spec:release-packaging/the-laptop-clickhouse-is-sized-for-one-mac-s-inserts/clickhouse-s-allocator-keeps-one-arena
+func TestLaptopClickHouseAllocatorKeepsOneArena(t *testing.T) {
+	t.Parallel()
+	// Without percpu_arena disabled, jemalloc keeps an arena a core and ignores narenas.
+	options := strings.Split(readLaptopCompose(t).Services["clickhouse"].Environment["MALLOC_CONF"], ",")
+	assert.Contains(t, options, "percpu_arena:disabled")
+	assert.Contains(t, options, "narenas:1")
+}
+
 // spec:release-packaging/the-laptop-clickhouse-is-sized-for-one-mac-s-inserts/a-changed-config-recreates-clickhouse
 func TestLaptopClickHouseIsRecreatedWhenItsConfigChanges(t *testing.T) {
 	t.Parallel()
