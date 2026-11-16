@@ -2,7 +2,7 @@
 
 Notable changes to RawTrail (formerly Fleet EDR), newest first. This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0).
 
-## [0.9.0] (2026-11-06)
+## [0.9.0] (2026-11-16)
 
 See what your AI coding agent is actually doing. Each Claude Code session gets a Summary, a Timeline grouped by prompt, its tokens and permission modes, and an alert when it reads your credentials, which protect mode can refuse. A one-command install runs it all on your own Mac.
 
@@ -51,6 +51,11 @@ See what your AI coding agent is actually doing. Each Claude Code session gets a
 - **An agent upgraded in place gets the fleet's settings and policies on its next check-in,** instead of up to six hours later. This covers the watched paths, agent settings and credential guard policy.
 - **A missing Full Disk Access grant is reported as such.** Host health names it for the extension and for the agent, instead of a generic failure.
 - **A contained Mac keeps restoring its network filter, however often a local administrator switches it off.** Before, the agent stopped trying after three failed repairs in a row, which could leave a contained host reachable.
+
+### Known limitations
+
+- **A local administrator with root can lift a Mac's network containment.** Switching the filter off once is repaired within about a minute and raises a tamper alert; stopping the agent first is caught only by the **Contained host stopped reporting** alert after 10 minutes (#1541).
+- **Protect mode refuses credential tools that carry no vendor signature,** such as `gh`, `kubectl` and `awscli` installed with Homebrew, when an AI agent runs them. Use the vendor's signed installer, or remove that credential from the policy so its reads are allowed (#1585).
 
 ## [0.8.0] (2026-10-21)
 
