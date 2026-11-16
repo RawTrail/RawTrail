@@ -55,7 +55,7 @@ See what your AI coding agent is actually doing. Each Claude Code session gets a
 ### Known limitations
 
 - **A local administrator with root can lift a Mac's network containment.** Switching the filter off once is repaired within about a minute and raises a tamper alert; stopping the agent first is caught only by the **Contained host stopped reporting** alert after 10 minutes (#1541).
-- **Protect mode refuses credential tools that carry no vendor signature,** such as `gh`, `kubectl` and `awscli` installed with Homebrew, when an AI agent runs them. Use the vendor's signed installer, or remove that credential from the policy so its reads are allowed (#1585).
+- **Protect mode refuses credential tools that carry no vendor signature,** such as `gh`, `kubectl` and `awscli` installed with Homebrew, when an AI agent runs them. Use the vendor's signed installer. Removing that credential from the policy also works, but it stops all alerts and blocking for that file on every host (#1585).
 
 ## [0.8.0] (2026-10-21)
 
