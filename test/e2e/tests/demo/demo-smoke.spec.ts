@@ -16,6 +16,8 @@ import { Page, test, expect } from "@playwright/test";
 //   - four detection-source alerts: credential_keychain_dump, dns_c2_beacon,
 //     sudoers_tamper, persistence_launchagent
 //   - one application_control-source alert (the app-control block)
+//   - four captured Claude Code sessions on alex-mbp.local, two of which raise
+//     agent_credential_read
 //
 // The host list grew a hostname column after v0.2.1, so the released leg may run
 // against an image whose /api/hosts omits hostname and whose UI lists hosts by
@@ -27,6 +29,9 @@ const DEMO_EMAIL = "demo@rawtrail.local";
 const DEMO_PASSWORD = "demo"; // NOSONAR(typescript:S2068): checked-in demo credential, not a secret
 const DEMO_HOSTNAMES = ["alex-mbp.local", "ci-builder.local"];
 const DETECTION_RULE_IDS = ["credential_keychain_dump", "dns_c2_beacon", "sudoers_tamper", "persistence_launchagent"];
+// The Claude Code sessions captured on a Mac and woven onto alex-mbp: an ordinary coding session, an honest credential read the guard
+// refused, a prompt injection it refused, and a bypassPermissions session with a subagent.
+const DEMO_SESSION_COUNT = 4;
 
 // STRICT_BUILD gates assertions that only hold against the current source tree.
 // demo-nightly.yml sets MODE per matrix leg; it is unset for local runs, which
@@ -117,5 +122,45 @@ test.describe("demo stack smoke", () => {
     for (const ruleID of DETECTION_RULE_IDS) {
       expect(ruleIDs, `expected a fired alert for rule ${ruleID}`).toContain(ruleID);
     }
+  });
+
+  // The captured Claude Code sessions woven onto alex-mbp (server/cmd/rawtrail-demo-seed/sessions.go). Released images up to v0.9.0
+  // seed none, so the released leg skips this until `latest` carries them.
+  test("the Agent sessions page lists the captured sessions and one opens", async ({ page }) => {
+    test.skip(!STRICT_BUILD, "released images before the session capture seed no agent sessions");
+    await signInViaDex(page);
+
+    const sessionsResp = await page.request.get("/api/agent-sessions");
+    expect(sessionsResp.status()).toBe(200);
+    const { rows } = (await sessionsResp.json()) as {
+      rows: Array<{ agent_session_id: string; cwd?: string; bypass: boolean; alert_count: number }>;
+    };
+    expect(rows).toHaveLength(DEMO_SESSION_COUNT);
+    expect(
+      rows.filter((r) => r.bypass),
+      "one session ran in bypassPermissions",
+    ).toHaveLength(1);
+    expect(
+      rows.filter((r) => r.alert_count > 0),
+      "the honest read and the injection each raised an alert",
+    ).toHaveLength(2);
+
+    const alertsResp = await page.request.get("/api/alerts");
+    const alerts = (await alertsResp.json()) as Array<{ rule_id: string }>;
+    expect(
+      alerts.map((a) => a.rule_id),
+      "the refused credential reads raised the agent alert",
+    ).toContain("agent_credential_read");
+
+    await page.goto("/ui/agent-sessions");
+    const sessionRows = page.locator('tbody tr:has(a[href*="/agent-sessions/"])');
+    await expect(sessionRows).toHaveCount(DEMO_SESSION_COUNT, { timeout: 15_000 });
+
+    // The injection session: its Summary's share card says the guard stopped the read.
+    const injection = rows.find((r) => r.cwd?.includes("deploy-helper"));
+    expect(injection, "the prompt-injection session is listed").toBeDefined();
+    await sessionRows.filter({ hasText: "deploy-helper" }).getByRole("link", { name: "claude-code" }).click();
+    await expect(page).toHaveURL(new RegExp(`/agent-sessions/[^/]+/${injection?.agent_session_id ?? ""}$`));
+    await expect(page.getByText("The credential guard stopped it reading my SSH private key").first()).toBeVisible({ timeout: 15_000 });
   });
 });

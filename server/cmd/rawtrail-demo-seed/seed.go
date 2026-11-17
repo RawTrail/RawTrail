@@ -416,14 +416,17 @@ func (s *seeder) applyTimestampSlide(ctx context.Context, inClause string, hostA
 	}{
 		{`UPDATE processes SET fork_time_ns = fork_time_ns + ?, fork_ingested_at_ns = fork_ingested_at_ns + ?,
 			exec_time_ns = exec_time_ns + ?, exit_time_ns = exit_time_ns + ?, exit_ingested_at_ns = exit_ingested_at_ns + ?,
-			last_seen_ns = last_seen_ns + ? WHERE ` + inClause,
-			append([]any{deltaNs, deltaNs, deltaNs, deltaNs, deltaNs, deltaNs}, hostArgs...)},
+			last_seen_ns = last_seen_ns + ?, start_time_ns = start_time_ns + ? WHERE ` + inClause,
+			append([]any{deltaNs, deltaNs, deltaNs, deltaNs, deltaNs, deltaNs, deltaNs}, hostArgs...)},
 		// Drop the synthesized force-exits: anchoring on the fork tail slides them maxAge into the future, and for a just-refreshed
 		// demo the honest reading is "still running" (the forks are now minutes old). The reconciler re-creates them after maxAge,
 		// long after anyone is looking at this `up`. Real captured exits (any other reason) keep their shifted, in-the-past values.
 		{`UPDATE processes SET exit_time_ns = NULL, exit_ingested_at_ns = NULL, exit_reason = NULL WHERE exit_reason = ? AND ` + inClause,
 			append([]any{api.ExitReasonTTLReconciliation}, hostArgs...)},
 		{`UPDATE hosts SET last_seen_ns = last_seen_ns + ? WHERE ` + inClause, append([]any{deltaNs}, hostArgs...)},
+		{`UPDATE agent_sessions SET first_seen_ns = first_seen_ns + ?, last_seen_ns = last_seen_ns + ? WHERE ` + inClause,
+			append([]any{deltaNs, deltaNs}, hostArgs...)},
+		{`UPDATE agent_session_bypass SET first_seen_ns = first_seen_ns + ? WHERE ` + inClause, append([]any{deltaNs}, hostArgs...)},
 		{`UPDATE alerts SET created_at = DATE_ADD(created_at, INTERVAL ? SECOND),
 			updated_at = DATE_ADD(updated_at, INTERVAL ? SECOND),
 			resolved_at = DATE_ADD(resolved_at, INTERVAL ? SECOND) WHERE ` + inClause,
@@ -487,6 +490,10 @@ func (s *seeder) waitForProcess(ctx context.Context, hostID string, pid int) err
 // the seeder exit 0 on that partial state, deferring the failure to the Playwright smoke where it is much harder to debug.
 func (s *seeder) verify(ctx context.Context) error {
 	expected := expectedDetectionRules()
+	wantSessions, err := expectedAgentSessions()
+	if err != nil {
+		return err
+	}
 	inClause, hostArgs, err := demoHostScope()
 	if err != nil {
 		return err
@@ -499,18 +506,20 @@ func (s *seeder) verify(ctx context.Context) error {
 		}
 		last = c
 		s.logger.DebugContext(ctx, "verify counts", "processes", c.processes,
-			"detection_alerts", c.detectionAlerts, "app_control_alerts", c.appControlAlerts,
+			"detection_alerts", c.detectionAlerts, "app_control_alerts", c.appControlAlerts, "agent_sessions", c.agentSessions,
 			"missing_rules", missingRules(expected, c.detectionRuleIDs))
-		return c.processes > 0 && c.appControlAlerts > 0 && len(missingRules(expected, c.detectionRuleIDs)) == 0, nil
+		return c.processes > 0 && c.appControlAlerts > 0 && c.agentSessions >= wantSessions &&
+			len(missingRules(expected, c.detectionRuleIDs)) == 0, nil
 	})
 	if err != nil {
-		return fmt.Errorf("%w (processes=%d detection_alerts=%d app_control_alerts=%d missing_rules=%v)",
-			err, last.processes, last.detectionAlerts, last.appControlAlerts, missingRules(expected, last.detectionRuleIDs))
+		return fmt.Errorf("%w (processes=%d detection_alerts=%d app_control_alerts=%d agent_sessions=%d of %d missing_rules=%v)",
+			err, last.processes, last.detectionAlerts, last.appControlAlerts, last.agentSessions, wantSessions,
+			missingRules(expected, last.detectionRuleIDs))
 	}
 	return nil
 }
 
-// expectedDetectionRules returns the catalog rule ids the woven attacks are expected to trip, in manifest order.
+// expectedDetectionRules returns the catalog rule ids the woven attacks and sessions are expected to trip, in manifest order.
 func expectedDetectionRules() []string {
 	var rules []string
 	for _, h := range hostManifest {
@@ -519,8 +528,31 @@ func expectedDetectionRules() []string {
 				rules = append(rules, atk.ExpectRule)
 			}
 		}
+		if h.Sessions != nil && h.Sessions.ExpectRule != "" {
+			rules = append(rules, h.Sessions.ExpectRule)
+		}
 	}
 	return rules
+}
+
+// expectedAgentSessions returns how many agent sessions the manifest's session captures hold, which verify waits to see listed.
+func expectedAgentSessions() (int, error) {
+	n := 0
+	for _, h := range hostManifest {
+		if h.Sessions == nil {
+			continue
+		}
+		envs, _, err := loadSessionEnvelopes(h.Sessions.File)
+		if err != nil {
+			return 0, err
+		}
+		ids, err := sessionIDs(envs)
+		if err != nil {
+			return 0, fmt.Errorf("session corpus %s: %w", h.Sessions.File, err)
+		}
+		n += len(ids)
+	}
+	return n, nil
 }
 
 // missingRules returns the expected rule ids that have no fired alert yet, preserving expected order for a stable error message.
@@ -539,6 +571,7 @@ type demoCounts struct {
 	processes        int
 	detectionAlerts  int
 	appControlAlerts int
+	agentSessions    int
 	// detectionRuleIDs is the set of rule ids with at least one detection-source alert, so verify can assert per expected rule.
 	detectionRuleIDs map[string]bool
 }
@@ -552,6 +585,10 @@ func (s *seeder) counts(ctx context.Context, inClause string, hostArgs []any) (d
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM processes WHERE `+inClause, hostArgs...).Scan(&c.processes); err != nil {
 		return c, fmt.Errorf("count processes: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM agent_sessions WHERE `+inClause, hostArgs...).Scan(&c.agentSessions); err != nil {
+		return c, fmt.Errorf("count agent sessions: %w", err)
 	}
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM alerts WHERE disposition = 'alert' AND source = 'detection' AND `+inClause, hostArgs...).
