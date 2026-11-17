@@ -301,6 +301,40 @@ func TestPostWovenEnvelopes_FlowBarrier(t *testing.T) {
 		assert.Equal(t, []string{"network_connect"}, got[1], "connect released after the barrier")
 	})
 
+	t.Run("a refused credential read is held like a connect", func(t *testing.T) {
+		t.Parallel()
+		db := full.Open(t)
+		const pid = 26060
+		insertProcess(t, db, hostID, pid)
+		ts, batches := recordingEventsServer(t)
+		s := newSeeder(runTestConfig(ts.URL), db, testHTTPClient(), discardLogger())
+		envs := []fakeagent.Envelope{
+			{EventType: "exec", Payload: []byte(`{"pid":26060,"path":"/opt/homebrew/bin/node"}`)},
+			{EventType: "agent_credential_block", Payload: []byte(`{"pid":26060,"credential":"ssh_private_key"}`)},
+			{EventType: "agent_prompt", Payload: []byte(`{"agent_session_id":"s"}`)},
+		}
+		require.NoError(t, s.postWovenEnvelopes(t.Context(), hostID, "tok", "alex-mbp.jsonl", envs))
+		got := batches()
+		require.Len(t, got, 2)
+		assert.Equal(t, []string{"exec", "agent_prompt"}, got[0], "lifecycle batch")
+		assert.Equal(t, []string{"agent_credential_block"}, got[1], "the block is released after its process materialises")
+	})
+
+	t.Run("a long stream posts in batches", func(t *testing.T) {
+		t.Parallel()
+		ts, batches := recordingEventsServer(t)
+		s := newSeeder(runTestConfig(ts.URL), nil, testHTTPClient(), discardLogger())
+		envs := make([]fakeagent.Envelope, hostReplayBatchSize+1)
+		for i := range envs {
+			envs[i] = fakeagent.Envelope{EventType: "file_activity", Payload: []byte(`{"pid":5}`)}
+		}
+		require.NoError(t, s.postWovenEnvelopes(t.Context(), hostID, "tok", "alex-mbp.jsonl", envs))
+		got := batches()
+		require.Len(t, got, 2)
+		assert.Len(t, got[0], hostReplayBatchSize)
+		assert.Len(t, got[1], 1)
+	})
+
 	t.Run("connect withheld when the process never materialises", func(t *testing.T) {
 		t.Parallel()
 		db := full.Open(t) // no insertProcess: the connecting pid never materialises
@@ -347,10 +381,10 @@ type hostPID struct {
 	pid    int
 }
 
-// flowConnectTargets walks the manifest for every woven attack whose scenario emits a network_connect and returns the (captured host
-// UUID, offset connecting pid) pairs, replicating the seeder's pid offset. postWovenEnvelopes' flow barrier waits on each of these
-// rows before releasing its connect, and the test server runs no processor, so a full-seed test must pre-materialise them (same
-// reason as appControlTarget).
+// flowConnectTargets walks the manifest for every woven attack whose scenario emits a network_connect, and every held event of a woven
+// session capture, and returns the (captured host UUID, pid) pairs, replicating the seeder's pid offset. postWovenEnvelopes' barrier
+// waits on each of these rows before releasing the held event, and the test server runs no processor, so a full-seed test must
+// pre-materialise them (same reason as appControlTarget).
 func flowConnectTargets(t *testing.T) []hostPID {
 	t.Helper()
 	var out []hostPID
@@ -367,8 +401,41 @@ func flowConnectTargets(t *testing.T) []hostPID {
 				}
 			}
 		}
+		if h.Sessions == nil {
+			continue
+		}
+		envs, _, err := loadSessionEnvelopes(h.Sessions.File)
+		require.NoError(t, err)
+		seen := map[int]bool{}
+		for _, e := range envs {
+			if pid, ok := envelopePID(e); ok && heldUntilProcess[e.EventType] && !seen[pid] {
+				seen[pid] = true
+				out = append(out, hostPID{hostID, pid})
+			}
+		}
 	}
 	return out
+}
+
+// insertManifestSessions writes an agent_sessions row for every session the manifest's session captures hold, on the host each is
+// woven onto, standing in for the processor the test server does not run so verify can count them.
+func insertManifestSessions(t *testing.T, db *sqlx.DB) {
+	t.Helper()
+	for _, h := range hostManifest {
+		if h.Sessions == nil {
+			continue
+		}
+		envs, hostID, err := loadSessionEnvelopes(h.Sessions.File)
+		require.NoError(t, err)
+		ids, err := sessionIDs(envs)
+		require.NoError(t, err)
+		for id := range ids {
+			_, err := db.ExecContext(t.Context(), `INSERT INTO agent_sessions
+				(host_id, agent_session_id, agent_name, first_seen_ns, first_event_id, last_seen_ns) VALUES (?, ?, 'claude-code', 1, ?, 1)`,
+				hostID, id, "seed-"+id)
+			require.NoError(t, err)
+		}
+	}
 }
 
 func TestRunSeedsEndToEnd(t *testing.T) {
@@ -387,6 +454,7 @@ func TestRunSeedsEndToEnd(t *testing.T) {
 	for _, tgt := range flowConnectTargets(t) {
 		insertProcess(t, db, tgt.hostID, tgt.pid)
 	}
+	insertManifestSessions(t, db)
 	// One detection alert per woven attack's expected rule + an app-control alert, on a DEMO host so the scoped verify counts
 	// them. The keychain alert is inserted by the loop, so alreadySeeded would normally short-circuit the replay; force runs it
 	// anyway.
@@ -482,6 +550,48 @@ func TestRefreshTimestamps(t *testing.T) {
 		`SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) FROM alerts WHERE host_id = ?`, hostID).Scan(&alertAgeSec))
 	assert.GreaterOrEqual(t, alertAgeSec, int64(0), "alert fired-at must not be in the future")
 	assert.Less(t, alertAgeSec, int64(10*time.Minute/time.Second), "alert fired-at is recent after refresh")
+}
+
+// TestRefreshTimestampsSlidesAgentSessions checks a refresh moves a woven session with the processes it ran: the session's first and
+// last seen, its bypassPermissions record, and its processes' start times all slide by the processes' delta. Left behind, a refreshed
+// demo would list the sessions as days old while their processes read as minutes old.
+func TestRefreshTimestampsSlidesAgentSessions(t *testing.T) {
+	t.Parallel()
+	db := full.Open(t)
+	ctx := t.Context()
+	s := newSeeder(config{}, db, testHTTPClient(), discardLogger())
+	hostID := firstDemoHostID(t)
+
+	const twoDaysNs = int64(2*24*60*60) * int64(time.Second)
+	fork := time.Now().UnixNano() - twoDaysNs
+	start := fork - int64(time.Millisecond)
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO processes (host_id, pid, ppid, path, fork_time_ns, exec_time_ns, start_time_ns) VALUES (?, 23953, 811, '/claude', ?, ?, ?)`,
+		hostID, fork, fork, start)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO agent_sessions (host_id, agent_session_id, agent_name, first_seen_ns, first_event_id,
+		last_seen_ns) VALUES (?, 'session-a', 'claude-code', ?, 'first-event', ?)`, hostID, fork, fork+int64(time.Minute))
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO agent_session_bypass (host_id, agent_session_id, first_seen_ns, uid) VALUES (?, 'session-a', ?, 501)`,
+		hostID, fork+int64(time.Second))
+	require.NoError(t, err)
+
+	require.NoError(t, s.refreshTimestamps(ctx))
+
+	var newFork, newStart, firstSeen, lastSeen, bypassSeen int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT fork_time_ns, start_time_ns FROM processes WHERE host_id = ? AND pid = 23953`,
+		hostID).Scan(&newFork, &newStart))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT first_seen_ns, last_seen_ns FROM agent_sessions WHERE host_id = ?`, hostID).
+		Scan(&firstSeen, &lastSeen))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT first_seen_ns FROM agent_session_bypass WHERE host_id = ?`, hostID).Scan(&bypassSeen))
+
+	delta := newFork - fork
+	assert.Greater(t, delta, twoDaysNs-int64(time.Hour), "the processes slid forward about two days")
+	assert.Equal(t, start+delta, newStart, "process start time slid by the same delta")
+	assert.Equal(t, fork+delta, firstSeen, "session first seen slid by the same delta")
+	assert.Equal(t, fork+int64(time.Minute)+delta, lastSeen, "session last seen slid by the same delta")
+	assert.Equal(t, fork+int64(time.Second)+delta, bypassSeen, "bypassPermissions record slid by the same delta")
 }
 
 // TestRefreshTimestampsIgnoresSynthesizedExit is the regression for the empty-1h-window bug: the process-TTL reconciler
@@ -599,6 +709,7 @@ func TestVerifyReportsMissingRule(t *testing.T) {
 	withheld := expected[0]
 
 	insertProcess(t, db, demoHost, 100)
+	insertManifestSessions(t, db)
 	insertAlert(t, db, demoHost, "demo_blocklist_binary", "application_control", "high")
 	for _, rule := range expected[1:] {
 		insertAlert(t, db, demoHost, rule, "detection", "high")
@@ -607,6 +718,44 @@ func TestVerifyReportsMissingRule(t *testing.T) {
 	err := s.verify(ctx)
 	require.Error(t, err, "verify must fail when one expected rule never fired")
 	assert.Contains(t, err.Error(), withheld, "the timeout error names the missing rule")
+}
+
+// TestVerifyWaitsForAgentSessions checks verify holds out for every captured session to be listed, and for the alert the sessions'
+// refused credential reads raise: a demo that shows its attacks but not the agent sessions is not seeded.
+func TestVerifyWaitsForAgentSessions(t *testing.T) {
+	t.Parallel()
+	assert.Contains(t, expectedDetectionRules(), "agent_credential_read", "the sessions' refused reads are expected to raise an alert")
+	want, err := expectedAgentSessions()
+	require.NoError(t, err)
+	assert.Equal(t, 4, want)
+
+	seed := func(t *testing.T) (*seeder, *sqlx.DB, string) {
+		t.Helper()
+		db := full.Open(t)
+		demoHost := firstDemoHostID(t)
+		insertProcess(t, db, demoHost, 100)
+		insertAlert(t, db, demoHost, "demo_blocklist_binary", "application_control", "high")
+		for _, rule := range expectedDetectionRules() {
+			insertAlert(t, db, demoHost, rule, "detection", "high")
+		}
+		return newSeeder(config{pollInterval: time.Millisecond, verifyTimeout: 30 * time.Millisecond}, db, testHTTPClient(),
+			discardLogger()), db, demoHost
+	}
+
+	t.Run("fails while the sessions are not listed", func(t *testing.T) {
+		t.Parallel()
+		s, _, _ := seed(t)
+		err := s.verify(t.Context())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "agent_sessions=0 of 4")
+	})
+
+	t.Run("passes once every session is listed", func(t *testing.T) {
+		t.Parallel()
+		s, db, _ := seed(t)
+		insertManifestSessions(t, db)
+		require.NoError(t, s.verify(t.Context()))
+	})
 }
 
 // payloadRecordingServer is recordingEventsServer's sibling for assertions about payload CONTENT rather than batch shape: it keeps
@@ -670,6 +819,73 @@ func TestReplayHost_StampsPIDVersionsOnTheWire(t *testing.T) {
 	}
 	require.Positive(t, lifecycle, "the capture must contain process lifecycle events for this to prove anything")
 	assert.Equal(t, lifecycle, stamped, "every replayed fork and exec reaches the server carrying a process generation")
+}
+
+// TestReplayHost_WeavesSessions checks what a host with captured agent sessions puts on the wire: every session's prompts, claude hanging
+// off the host's own shell, the kernel's pidversions kept rather than re-stamped (so a process's file activity still names the
+// generation its exec carries), and the sessions ending sessionTailOffset before now.
+func TestReplayHost_WeavesSessions(t *testing.T) {
+	t.Parallel()
+	db := full.Open(t)
+	for _, tgt := range flowConnectTargets(t) {
+		insertProcess(t, db, tgt.hostID, tgt.pid)
+	}
+	ts, posted := payloadRecordingServer(t)
+	s := newSeeder(runTestConfig(ts.URL), db, testHTTPClient(), discardLogger())
+	host := hostManifest[0]
+	require.NotNil(t, host.Sessions, "the first manifest host carries the sessions")
+	captured, _, err := loadHostEnvelopes(host.File)
+	require.NoError(t, err)
+	anchor := pickAttackAnchorPID(captured)
+	before := time.Now()
+	require.NoError(t, s.replayHost(t.Context(), host))
+
+	execVersion := map[int]int64{}
+	sessions := map[string]bool{}
+	var claudeParents []int
+	var latest int64
+	var fileActivity []fakeagent.Envelope
+	for _, e := range posted() {
+		var p struct {
+			PID        int      `json:"pid"`
+			PPID       int      `json:"ppid"`
+			PIDVersion int64    `json:"pidversion"`
+			Args       []string `json:"args"`
+			SessionID  string   `json:"agent_session_id"`
+		}
+		require.NoError(t, json.Unmarshal(e.Payload, &p))
+		switch e.EventType {
+		case "agent_prompt":
+			sessions[p.SessionID] = true
+			latest = max(latest, e.TimestampNs)
+		case "exec":
+			execVersion[p.PID] = p.PIDVersion
+			if len(p.Args) > 0 && p.Args[0] == "claude" {
+				claudeParents = append(claudeParents, p.PPID)
+			}
+		case "file_activity":
+			fileActivity = append(fileActivity, e)
+			latest = max(latest, e.TimestampNs)
+		}
+	}
+	assert.Len(t, sessions, 4, "every captured session's prompts reach the server")
+	require.NotEmpty(t, claudeParents)
+	for _, ppid := range claudeParents {
+		assert.Equal(t, anchor, ppid, "claude is started by the host's shell")
+	}
+	matched := 0
+	for _, e := range fileActivity {
+		var p struct {
+			PID        int   `json:"pid"`
+			PIDVersion int64 `json:"pidversion"`
+		}
+		require.NoError(t, json.Unmarshal(e.Payload, &p))
+		if v, ok := execVersion[p.PID]; ok && v == p.PIDVersion {
+			matched++
+		}
+	}
+	assert.Positive(t, matched, "a process's file activity names the generation its exec carries")
+	assert.InDelta(t, before.Add(-sessionTailOffset).UnixNano(), latest, float64(30*time.Second), "the sessions end before the tail")
 }
 
 // The woven attacks are the processes the demo's alerts actually fire on, so their generations are exactly what an alert-chain

@@ -216,14 +216,14 @@ func TestReparentAttackToHost(t *testing.T) {
 func TestManifestCapturesHaveAttackAnchor(t *testing.T) {
 	t.Parallel()
 	for _, host := range hostManifest {
-		if len(host.Attacks) == 0 {
+		if len(host.Attacks) == 0 && host.Sessions == nil {
 			continue
 		}
 		t.Run(host.File, func(t *testing.T) {
 			t.Parallel()
 			envs, _, err := loadHostEnvelopes(host.File)
 			require.NoError(t, err)
-			assert.Positive(t, pickAttackAnchorPID(envs), "capture must carry a shell for woven attacks to nest under")
+			assert.Positive(t, pickAttackAnchorPID(envs), "capture must carry a shell for woven attacks and sessions to nest under")
 		})
 	}
 }

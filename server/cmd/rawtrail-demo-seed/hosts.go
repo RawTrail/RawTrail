@@ -21,7 +21,9 @@ import (
 // dropped heartbeats, remapped the host UUID, mapped real IPs to RFC 5737 / RFC 3849 documentation ranges
 // (consistently, so the DNS -> network correlation survives), and redacted identity strings.
 //
-//go:embed corpus/hosts/*.jsonl
+// It also holds the captured agent sessions woven onto those hosts (corpus/sessions/, see wovenSessions).
+//
+//go:embed corpus/hosts/*.jsonl corpus/sessions/*.jsonl
 var hostCorpusFS embed.FS
 
 // hostReplayBatchSize is how many captured envelopes are POSTed per /api/events request. Captured hosts carry hundreds to low
@@ -61,6 +63,9 @@ type demoHost struct {
 	File     string // captured stream under corpus/hosts/
 	Hostname string
 	Attacks  []wovenAttack // attacks re-hosted onto this host
+	// Sessions are real AI agent sessions captured on a Mac and woven onto this host, so the Agent sessions views have content;
+	// nil for a host that shows none.
+	Sessions *wovenSessions
 }
 
 // hostManifest is the ordered set of rich captured hosts and the attacks woven onto each. Order is replay order and the order
@@ -70,7 +75,7 @@ var hostManifest = []demoHost{
 	{File: "alex-mbp.jsonl", Hostname: "alex-mbp.local", Attacks: []wovenAttack{
 		{File: "keychain-dump.yaml", Kind: kindAttack, ExpectRule: "credential_keychain_dump"},
 		{File: "dns-c2-beacon.yaml", Kind: kindAttack, ExpectRule: "dns_c2_beacon"},
-	}},
+	}, Sessions: &wovenSessions{File: "alex-mbp.jsonl", ExpectRule: "agent_credential_read"}},
 	{File: "ci-builder.jsonl", Hostname: "ci-builder.local", Attacks: []wovenAttack{
 		{File: "sudoers-tamper.yaml", Kind: kindAttack, ExpectRule: "sudoers_tamper"},
 		{File: "launchagent-persistence.yaml", Kind: kindAttack, ExpectRule: "persistence_launchagent"},
@@ -205,11 +210,8 @@ func (s *seeder) replayHost(ctx context.Context, host demoHost) error {
 	if err := stamper.stamp(envs); err != nil {
 		return fmt.Errorf("stamp host %s: %w", host.File, err)
 	}
-	for start := 0; start < len(envs); start += hostReplayBatchSize {
-		end := min(start+hostReplayBatchSize, len(envs))
-		if err := s.postEnvelopes(ctx, token, envs[start:end]); err != nil {
-			return fmt.Errorf("post host %s batch [%d:%d]: %w", host.File, start, end, err)
-		}
+	if err := s.postBatched(ctx, token, envs); err != nil {
+		return fmt.Errorf("post host %s: %w", host.File, err)
 	}
 	s.logger.InfoContext(ctx, "replayed captured host",
 		"file", host.File, "host_id", hostID, "hostname", host.Hostname, "events", len(envs), "attack_anchor_pid", anchorPID)
@@ -217,6 +219,23 @@ func (s *seeder) replayHost(ctx context.Context, host demoHost) error {
 	for i, atk := range host.Attacks {
 		if err := s.weaveAttack(ctx, hostID, token, atk, i, now, anchorPID, stamper); err != nil {
 			return fmt.Errorf("weave %s onto %s: %w", atk.File, host.File, err)
+		}
+	}
+	if host.Sessions == nil {
+		return nil
+	}
+	if err := s.weaveSessions(ctx, hostID, token, *host.Sessions, now, anchorPID, stamper); err != nil {
+		return fmt.Errorf("weave sessions %s onto %s: %w", host.Sessions.File, host.File, err)
+	}
+	return nil
+}
+
+// postBatched posts envelopes to the ingest API hostReplayBatchSize at a time, in order.
+func (s *seeder) postBatched(ctx context.Context, token string, envs []fakeagent.Envelope) error {
+	for start := 0; start < len(envs); start += hostReplayBatchSize {
+		end := min(start+hostReplayBatchSize, len(envs))
+		if err := s.postEnvelopes(ctx, token, envs[start:end]); err != nil {
+			return fmt.Errorf("batch [%d:%d]: %w", start, end, err)
 		}
 	}
 	return nil
@@ -327,34 +346,33 @@ func (s *seeder) weaveAttack(
 	return nil
 }
 
-// postWovenEnvelopes posts a woven attack's envelopes with a process-materialization barrier before any network_connect. A
-// flow-correlated rule (dns_c2_beacon) fires on the connect but resolves it back to the process a SEPARATE exec materialized; if the
-// connect and its exec ride the same ingest batch and the connect is evaluated first, the rule's tight flow-process grace
-// (flowProcessMaterializationGrace) lapses and the alert is silently dropped, not merely delayed. So post the lifecycle (fork / exec /
-// dns_query) first, wait for each connecting pid's process row to commit, then release the connects. Attacks with no network_connect
-// (the file-write / exec rules, which resolve their own subject process under the wider grace) keep the single-batch post unchanged.
-// Mirrors the app-control block barrier in weaveAttack. This is a demo-replay determinism fix only: it changes ingest ordering, not any
-// detection timing, so it cannot mask a real materialization race in production, where a beacon connect trails its exec by seconds.
+// heldUntilProcess are the event types a woven stream holds back until their process has materialised: a connection, which a
+// flow-correlated rule (dns_c2_beacon) resolves back to the process a SEPARATE exec materialised under a tight grace
+// (flowProcessMaterializationGrace), and a credential read the guard refused, which agent_credential_read attributes to the process's
+// agent session.
+var heldUntilProcess = map[string]bool{"network_connect": true, "agent_credential_block": true}
+
+// postWovenEnvelopes posts a woven stream's envelopes with a process-materialization barrier before the events in heldUntilProcess.
+// If a connect and its exec ride the same ingest batch and the connect is evaluated first, the alert is silently dropped, not merely
+// delayed. So post the lifecycle (fork / exec / dns_query and the rest) first, wait for each held event's pid to commit, then release
+// the held events. A stream with none (the file-write / exec rules, which resolve their own subject process under the wider grace)
+// keeps the single post. Mirrors the app-control block barrier in weaveAttack. This is a demo-replay determinism fix only: it changes
+// ingest ordering, not any detection timing, so it cannot mask a real materialization race in production, where a beacon connect
+// trails its exec by seconds.
 func (s *seeder) postWovenEnvelopes(ctx context.Context, hostID, token, file string, envs []fakeagent.Envelope) error {
-	var lifecycle, connects []fakeagent.Envelope
+	var lifecycle, held []fakeagent.Envelope
 	for _, e := range envs {
-		if e.EventType == "network_connect" {
-			connects = append(connects, e)
+		if heldUntilProcess[e.EventType] {
+			held = append(held, e)
 			continue
 		}
 		lifecycle = append(lifecycle, e)
 	}
-	if len(connects) == 0 {
-		if err := s.postEnvelopes(ctx, token, envs); err != nil {
-			return fmt.Errorf("post %s events: %w", file, err)
-		}
-		return nil
-	}
-	if err := s.postEnvelopes(ctx, token, lifecycle); err != nil {
+	if err := s.postBatched(ctx, token, lifecycle); err != nil {
 		return fmt.Errorf("post %s lifecycle events: %w", file, err)
 	}
-	seen := make(map[int]struct{}, len(connects))
-	for _, c := range connects {
+	seen := make(map[int]struct{}, len(held))
+	for _, c := range held {
 		pid, ok := envelopePID(c)
 		if !ok {
 			continue
@@ -364,11 +382,11 @@ func (s *seeder) postWovenEnvelopes(ctx context.Context, hostID, token, file str
 		}
 		seen[pid] = struct{}{}
 		if err := s.waitForProcess(ctx, hostID, pid); err != nil {
-			return fmt.Errorf("%s connect pid %d never materialised: %w", file, pid, err)
+			return fmt.Errorf("%s %s pid %d never materialised: %w", file, c.EventType, pid, err)
 		}
 	}
-	if err := s.postEnvelopes(ctx, token, connects); err != nil {
-		return fmt.Errorf("post %s network_connect events: %w", file, err)
+	if err := s.postBatched(ctx, token, held); err != nil {
+		return fmt.Errorf("post %s held events: %w", file, err)
 	}
 	return nil
 }
