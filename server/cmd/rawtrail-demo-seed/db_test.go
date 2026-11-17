@@ -821,9 +821,10 @@ func TestReplayHost_StampsPIDVersionsOnTheWire(t *testing.T) {
 	assert.Equal(t, lifecycle, stamped, "every replayed fork and exec reaches the server carrying a process generation")
 }
 
-// TestReplayHost_WeavesSessions checks what a host with captured agent sessions puts on the wire: every session's prompts, claude hanging
-// off the host's own shell, the kernel's pidversions kept rather than re-stamped (so a process's file activity still names the
-// generation its exec carries), and the sessions ending sessionTailOffset before now.
+// TestReplayHost_WeavesSessions checks what a host with captured agent sessions puts on the wire: every session's prompts, claude keeping
+// the parent it was captured with rather than a host process that did not yet exist, the kernel's pidversions kept rather than
+// re-stamped (so a process's file activity still names the generation its exec carries), and the sessions ending sessionTailOffset
+// before now.
 func TestReplayHost_WeavesSessions(t *testing.T) {
 	t.Parallel()
 	db := full.Open(t)
@@ -836,7 +837,12 @@ func TestReplayHost_WeavesSessions(t *testing.T) {
 	require.NotNil(t, host.Sessions, "the first manifest host carries the sessions")
 	captured, _, err := loadHostEnvelopes(host.File)
 	require.NoError(t, err)
-	anchor := pickAttackAnchorPID(captured)
+	hostPIDs := map[int]bool{}
+	for _, e := range captured {
+		if pid, ok := envelopePID(e); ok {
+			hostPIDs[pid] = true
+		}
+	}
 	before := time.Now()
 	require.NoError(t, s.replayHost(t.Context(), host))
 
@@ -871,7 +877,7 @@ func TestReplayHost_WeavesSessions(t *testing.T) {
 	assert.Len(t, sessions, 4, "every captured session's prompts reach the server")
 	require.NotEmpty(t, claudeParents)
 	for _, ppid := range claudeParents {
-		assert.Equal(t, anchor, ppid, "claude is started by the host's shell")
+		assert.False(t, hostPIDs[ppid], "claude keeps its captured parent, ppid %d, not a process of the host capture", ppid)
 	}
 	matched := 0
 	for _, e := range fileActivity {

@@ -224,7 +224,7 @@ func (s *seeder) replayHost(ctx context.Context, host demoHost) error {
 	if host.Sessions == nil {
 		return nil
 	}
-	if err := s.weaveSessions(ctx, hostID, token, *host.Sessions, now, anchorPID, stamper); err != nil {
+	if err := s.weaveSessions(ctx, hostID, token, *host.Sessions, now); err != nil {
 		return fmt.Errorf("weave sessions %s onto %s: %w", host.Sessions.File, host.File, err)
 	}
 	return nil

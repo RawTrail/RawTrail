@@ -20,15 +20,6 @@ const sessionTailOffset = 2 * time.Minute
 // on the day of the capture while their events read as recent.
 var sessionTimeFields = []string{"start_time_ns", "last_timestamp_ns"}
 
-// sessionParentFields pair each payload field naming another process with the field holding that process's generation, for the
-// fields a woven session re-points when the process they name is outside the capture.
-var sessionParentFields = []struct{ pid, version string }{
-	{pid: "parent_pid", version: "parent_pidversion"},
-	{pid: "ppid", version: "parent_pidversion"},
-	{pid: "original_ppid", version: ""},
-	{pid: "responsible_pid", version: "responsible_pidversion"},
-}
-
 // wovenSessions is a capture of real AI agent sessions woven onto a captured host: the processes each session ran with their
 // file, network and DNS activity, the agent's prompts, tool calls and token usage, and any credential reads the guard refused.
 // Unlike the host captures it keeps the kernel's own pidversions, which its file activity and credential blocks are keyed on too,
@@ -47,19 +38,17 @@ func loadSessionEnvelopes(file string) ([]fakeagent.Envelope, string, error) {
 	return decodeHostEnvelopes(raw, file)
 }
 
-// weaveSessions posts a host's captured agent sessions after its ambient stream: shifted to end sessionTailOffset before now, with
-// the processes that started each session (outside the capture) replaced by the host's shell, so a session hangs off the host's
-// genuine tree. Connections and refused credential reads wait for their process, as a woven attack's connections do.
-func (s *seeder) weaveSessions(
-	ctx context.Context, hostID, token string, sessions wovenSessions, now time.Time, anchorPID int, stamper *pidVersionStamper,
-) error {
+// weaveSessions posts a host's captured agent sessions after its ambient stream, shifted to end sessionTailOffset before now.
+// Connections and refused credential reads wait for their process, as a woven attack's connections do.
+//
+// The sessions keep the parents they were captured with. The shells that started claude are not in the capture, and no shell in the
+// host's one-minute capture was alive across the sessions' minutes, which a parent must be for the server to link a child to it. So
+// each session's claude reads as a root whose parent was not recorded, which is what the capture holds.
+func (s *seeder) weaveSessions(ctx context.Context, hostID, token string, sessions wovenSessions, now time.Time) error {
 	// The capture already carries hostID: the scrub stamps the host it is woven onto, and TestSessionCaptures holds it to that.
 	envs, _, err := loadSessionEnvelopes(sessions.File)
 	if err != nil {
 		return err
-	}
-	if err := reparentSessionsToHost(envs, anchorPID, stamper.current[anchorPID]); err != nil {
-		return fmt.Errorf("re-parent %s: %w", sessions.File, err)
 	}
 	if err := shiftSessionEnvelopes(envs, now.Add(-sessionTailOffset)); err != nil {
 		return fmt.Errorf("shift %s: %w", sessions.File, err)
@@ -69,58 +58,6 @@ func (s *seeder) weaveSessions(
 	}
 	s.logger.InfoContext(ctx, "wove agent sessions onto host", "file", sessions.File, "host_id", hostID, "events", len(envs))
 	return nil
-}
-
-// reparentSessionsToHost re-points every reference to a process outside the capture (the shell that started claude, and the SSH
-// session behind it) at the host's anchor shell and that shell's generation. A process is in the capture when the capture forks or
-// execs it. launchd and the kernel (pids <= 1) stay as they are: a process adopted by launchd is genuinely its child.
-func reparentSessionsToHost(envs []fakeagent.Envelope, anchorPID int, anchorVersion int64) error {
-	captured := map[int]bool{}
-	payloads := make([]map[string]any, len(envs))
-	for i := range envs {
-		payload, err := decodePayload(envs[i].Payload)
-		if err != nil {
-			return fmt.Errorf("%s %s: %w", envs[i].EventType, envs[i].EventID, err)
-		}
-		payloads[i] = payload
-		if pid, ok := intFrom(payload[processField(envs[i].EventType)]); ok {
-			captured[pid] = true
-		}
-	}
-	for i, payload := range payloads {
-		changed := false
-		for _, f := range sessionParentFields {
-			pid, ok := intFrom(payload[f.pid])
-			if !ok || pid <= 1 || captured[pid] {
-				continue
-			}
-			payload[f.pid] = anchorPID
-			if f.version != "" {
-				payload[f.version] = anchorVersion
-			}
-			changed = true
-		}
-		if !changed {
-			continue
-		}
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("re-encode %s: %w", envs[i].EventID, err)
-		}
-		envs[i].Payload = raw
-	}
-	return nil
-}
-
-// processField names the payload field holding the process an event creates: the child of a fork, the process an exec images.
-func processField(eventType string) string {
-	if eventType == "fork" {
-		return "child_pid"
-	}
-	if eventType == "exec" {
-		return "pid"
-	}
-	return ""
 }
 
 // shiftSessionEnvelopes moves a session capture so its latest event lands at end, keeping every gap between its events. The

@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"strings"
@@ -103,41 +105,6 @@ func envelope(t *testing.T, eventType string, ts int64, payload map[string]any) 
 	return fakeagent.Envelope{EventID: eventType, EventType: eventType, TimestampNs: ts, Payload: raw}
 }
 
-func TestReparentSessionsToHost(t *testing.T) {
-	t.Parallel()
-	const anchor, anchorVersion = 811, int64(10042)
-	envs := []fakeagent.Envelope{
-		// claude is forked by a shell outside the capture, so the fork and the exec name an outside parent.
-		envelope(t, "fork", 1, map[string]any{"child_pid": 23953, "parent_pid": 23951, "pidversion": 7496, "parent_pidversion": 7491}),
-		envelope(t, "exec", 2, map[string]any{"pid": 23953, "ppid": 23951, "original_ppid": 23951, "parent_pidversion": 7491,
-			"responsible_pid": 23947, "responsible_pidversion": 7486, "pidversion": 7497}),
-		// A tool call's shell names claude, which the capture holds, and launchd as its responsible process.
-		envelope(t, "exec", 3, map[string]any{"pid": 23976, "ppid": 23953, "parent_pidversion": 7497, "responsible_pid": 1,
-			"pidversion": 7530}),
-		envelope(t, "file_activity", 4, map[string]any{"pid": 23976, "pidversion": 7530, "path": "/Users/alex/src/a.js"}),
-	}
-	require.NoError(t, reparentSessionsToHost(envs, anchor, anchorVersion))
-
-	fork := payloadOf(t, envs[0])
-	assert.Equal(t, json.Number("811"), fork["parent_pid"], "the outside shell becomes the host's shell")
-	assert.Equal(t, json.Number("10042"), fork["parent_pidversion"], "with that shell's generation")
-	assert.Equal(t, json.Number("23953"), fork["child_pid"])
-
-	claude := payloadOf(t, envs[1])
-	for field, want := range map[string]string{"ppid": "811", "original_ppid": "811", "parent_pidversion": "10042",
-		"responsible_pid": "811", "responsible_pidversion": "10042", "pidversion": "7497"} {
-		assert.Equal(t, json.Number(want), claude[field], field)
-	}
-
-	shell := payloadOf(t, envs[2])
-	assert.Equal(t, json.Number("23953"), shell["ppid"], "a parent inside the capture is kept")
-	assert.Equal(t, json.Number("7497"), shell["parent_pidversion"])
-	assert.Equal(t, json.Number("1"), shell["responsible_pid"], "launchd is kept")
-
-	assert.JSONEq(t, `{"pid":23976,"pidversion":7530,"path":"/Users/alex/src/a.js"}`, string(envs[3].Payload),
-		"an event naming no parent is left byte for byte")
-}
-
 func TestShiftSessionEnvelopes(t *testing.T) {
 	t.Parallel()
 	const captured = int64(1_794_925_130_000_000_000)
@@ -180,4 +147,52 @@ func TestSessionIDs(t *testing.T) {
 	ids, err := sessionIDs(envs)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]bool{"a": true, "c": true}, ids, "sessions are counted from their prompts")
+}
+
+// TestSessionWeaveErrors pins how a broken capture or a failing server surfaces: as an error naming what failed, never a partial seed
+// that verify would then wait out.
+func TestSessionWeaveErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a missing capture", func(t *testing.T) {
+		t.Parallel()
+		_, _, err := loadSessionEnvelopes("missing.jsonl")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read session corpus missing.jsonl")
+	})
+
+	t.Run("the server refuses the events", func(t *testing.T) {
+		t.Parallel()
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "ingest down", http.StatusServiceUnavailable)
+		}))
+		t.Cleanup(ts.Close)
+		s := newSeeder(runTestConfig(ts.URL), nil, testHTTPClient(), discardLogger())
+		err := s.weaveSessions(t.Context(), "h", "tok", *hostManifest[0].Sessions, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "HTTP 503")
+	})
+
+	t.Run("a payload that is not an object", func(t *testing.T) {
+		t.Parallel()
+		envs := []fakeagent.Envelope{{EventID: "e1", EventType: "exec", Payload: []byte(`null`)}}
+		err := shiftSessionEnvelopes(envs, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exec e1")
+	})
+
+	t.Run("a device time that is not an integer", func(t *testing.T) {
+		t.Parallel()
+		envs := []fakeagent.Envelope{{EventID: "e2", EventType: "exec", Payload: []byte(`{"start_time_ns":1.5}`)}}
+		err := shiftSessionEnvelopes(envs, time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "start_time_ns")
+	})
+
+	t.Run("a prompt whose session id is not a string", func(t *testing.T) {
+		t.Parallel()
+		_, err := sessionIDs([]fakeagent.Envelope{{EventID: "p1", EventType: "agent_prompt", Payload: []byte(`{"agent_session_id":5}`)}})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "agent_prompt p1")
+	})
 }
