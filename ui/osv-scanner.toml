@@ -5,7 +5,23 @@
 # entry must carry a reason a reviewer can audit; prefer fixing the dependency over
 # ignoring it.
 #
-# Currently empty, and that is the goal state. The one historical entry
-# (GHSA-gv7w-rqvm-qjhr, the Deno-only esbuild advisory) was dropped on 2026-07-30:
-# vite 8.2 builds with rolldown and no longer pulls esbuild at all, so the package is
-# gone from the tree and osv-scanner reported the ignore as unused.
+# Empty is the goal state. The historical entry GHSA-gv7w-rqvm-qjhr (the Deno-only
+# esbuild advisory) was dropped on 2026-07-30: vite 8.2 builds with rolldown and no
+# longer pulls esbuild at all, so the package is gone from the tree and osv-scanner
+# reported the ignore as unused.
+
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+# picomatch ReDoS on single-branch repeated extglobs such as +(*), affecting every version
+# through 4.0.7, which is also the latest release: there is no fixed version to move to.
+# picomatch reaches this tree only through build and test tooling (vite, its tinyglobby and
+# fdir, vitest, and sass's @parcel/watcher), which match glob patterns from this repo's own
+# config files, never input from a user or an agent. It is not in the shipped UI bundle:
+# server/ui/dist holds no picomatch code. The entry expires so the next scan after
+# 2027-01-17 rechecks for a fixed release.
+ignoreUntil = 2027-01-17
+reason = """\
+No fixed picomatch release exists (4.0.7 is the latest). It is a dev-only dependency of the \
+build and test tooling, matches only globs from this repo's own config, and is absent from \
+the shipped UI bundle, so the ReDoS has no attacker-controlled input. Recheck after expiry.\
+"""
