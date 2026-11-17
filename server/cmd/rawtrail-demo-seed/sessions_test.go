@@ -21,8 +21,6 @@ import (
 // (or the materialization barrier would wait out its timeout), and the scrub left none of the capture machine's identity behind.
 func TestSessionCaptures_EachManifestHost(t *testing.T) {
 	t.Parallel()
-	// The capture user, the VM's LAN, and anything shaped like a credential.
-	leak := regexp.MustCompile(`(?i)victor|192\.168\.|edr-dev|BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|sk-ant-|ghp_[A-Za-z0-9]{20}`)
 	for _, host := range hostManifest {
 		if host.Sessions == nil {
 			continue
@@ -35,60 +33,93 @@ func TestSessionCaptures_EachManifestHost(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, hostID, sessionHost, "the capture carries the id of the host it is woven onto")
 
-			types := map[string]int{}
-			execs := map[int]bool{}
-			for _, e := range envs {
-				types[e.EventType]++
-				if e.EventType == "exec" {
-					pid, ok := envelopePID(e)
-					require.True(t, ok)
-					execs[pid] = true
-				}
-				assert.NotRegexp(t, leak, string(e.Payload), "%s %s", e.EventType, e.EventID)
-			}
-			for _, kind := range []string{"exec", "fork", "file_activity", "network_connect", "dns_query", "agent_prompt", "agent_tool_call",
-				"agent_usage", "agent_credential_block"} {
-				assert.Positive(t, types[kind], "capture carries %s events", kind)
-			}
-			for _, e := range envs {
-				if !heldUntilProcess[e.EventType] {
-					continue
-				}
-				pid, ok := envelopePID(e)
-				require.True(t, ok)
-				assert.True(t, execs[pid], "%s %s: pid %d is exec'd in the capture", e.EventType, e.EventID, pid)
-			}
-
-			// The session names its agent by the pid in the CLAUDE_PID marker, so the marker must name a claude the capture execs.
-			claudes := map[string]bool{}
-			for _, e := range envs {
-				var p struct {
-					PID  int      `json:"pid"`
-					Args []string `json:"args"`
-				}
-				require.NoError(t, json.Unmarshal(e.Payload, &p))
-				if e.EventType == "exec" && len(p.Args) > 0 && strings.HasSuffix(p.Args[0], "claude") {
-					claudes[strconv.Itoa(p.PID)] = true
-				}
-			}
-			markers := 0
-			for _, e := range envs {
-				var p struct {
-					Env map[string]string `json:"env"`
-				}
-				require.NoError(t, json.Unmarshal(e.Payload, &p))
-				if pid, ok := p.Env["CLAUDE_PID"]; ok {
-					markers++
-					assert.True(t, claudes[pid], "%s %s: CLAUDE_PID %s names a claude in the capture", e.EventType, e.EventID, pid)
-				}
-			}
-			assert.Positive(t, markers, "the capture carries agent pid markers")
-
+			assertNoCaptureIdentity(t, envs)
+			assertEventKinds(t, envs)
+			assertHeldEventsExecd(t, envs)
+			assertAgentPIDMarkers(t, envs)
 			ids, err := sessionIDs(envs)
 			require.NoError(t, err)
 			assert.Len(t, ids, 4, "an ordinary session, an honest credential read, a prompt injection, and a bypassPermissions session")
 		})
 	}
+}
+
+// captureLeak matches the capture user, the VM's LAN, and anything shaped like a credential.
+var captureLeak = regexp.MustCompile(`(?i)victor|192\.168\.|edr-dev|BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|sk-ant-|ghp_[A-Za-z0-9]{20}`)
+
+func assertNoCaptureIdentity(t *testing.T, envs []fakeagent.Envelope) {
+	t.Helper()
+	for _, e := range envs {
+		assert.NotRegexp(t, captureLeak, string(e.Payload), "%s %s", e.EventType, e.EventID)
+	}
+}
+
+func assertEventKinds(t *testing.T, envs []fakeagent.Envelope) {
+	t.Helper()
+	kinds := map[string]int{}
+	for _, e := range envs {
+		kinds[e.EventType]++
+	}
+	for _, kind := range []string{"exec", "fork", "file_activity", "network_connect", "dns_query", "agent_prompt", "agent_tool_call",
+		"agent_usage", "agent_credential_block"} {
+		assert.Positive(t, kinds[kind], "capture carries %s events", kind)
+	}
+}
+
+// execdPIDs returns the pids the capture execs, and, of those, the ones whose argv[0] is claude.
+func execdPIDs(t *testing.T, envs []fakeagent.Envelope) (all, claudes map[int]bool) {
+	t.Helper()
+	all, claudes = map[int]bool{}, map[int]bool{}
+	for _, e := range envs {
+		if e.EventType != "exec" {
+			continue
+		}
+		var p struct {
+			PID  int      `json:"pid"`
+			Args []string `json:"args"`
+		}
+		require.NoError(t, json.Unmarshal(e.Payload, &p))
+		all[p.PID] = true
+		if len(p.Args) > 0 && strings.HasSuffix(p.Args[0], "claude") {
+			claudes[p.PID] = true
+		}
+	}
+	return all, claudes
+}
+
+func assertHeldEventsExecd(t *testing.T, envs []fakeagent.Envelope) {
+	t.Helper()
+	execd, _ := execdPIDs(t, envs)
+	for _, e := range envs {
+		if !heldUntilProcess[e.EventType] {
+			continue
+		}
+		pid, ok := envelopePID(e)
+		require.True(t, ok)
+		assert.True(t, execd[pid], "%s %s: pid %d is exec'd in the capture", e.EventType, e.EventID, pid)
+	}
+}
+
+// assertAgentPIDMarkers checks the CLAUDE_PID marker names a claude the capture execs: the session names its agent by that pid.
+func assertAgentPIDMarkers(t *testing.T, envs []fakeagent.Envelope) {
+	t.Helper()
+	_, claudes := execdPIDs(t, envs)
+	markers := 0
+	for _, e := range envs {
+		var p struct {
+			Env map[string]string `json:"env"`
+		}
+		require.NoError(t, json.Unmarshal(e.Payload, &p))
+		marker, ok := p.Env["CLAUDE_PID"]
+		if !ok {
+			continue
+		}
+		markers++
+		pid, err := strconv.Atoi(marker)
+		require.NoError(t, err)
+		assert.True(t, claudes[pid], "%s %s: CLAUDE_PID %s names a claude in the capture", e.EventType, e.EventID, marker)
+	}
+	assert.Positive(t, markers, "the capture carries agent pid markers")
 }
 
 func payloadOf(t *testing.T, env fakeagent.Envelope) map[string]any {

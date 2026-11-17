@@ -391,27 +391,42 @@ func flowConnectTargets(t *testing.T) []hostPID {
 	for _, h := range hostManifest {
 		_, hostID, err := loadHostEnvelopes(h.File)
 		require.NoError(t, err)
-		for i, atk := range h.Attacks {
-			sc, err := loadAttackScenario(atk.File)
-			require.NoError(t, err)
-			offsetScenarioPIDs(sc, attackPIDOffsetBase+i*attackPIDOffsetStride)
-			for _, ev := range sc.Timeline {
-				if ev.Type == "network_connect" && ev.PID > 1 {
-					out = append(out, hostPID{hostID, ev.PID})
-				}
-			}
+		out = append(out, attackConnectTargets(t, hostID, h.Attacks)...)
+		if h.Sessions != nil {
+			out = append(out, sessionHeldTargets(t, hostID, *h.Sessions)...)
 		}
-		if h.Sessions == nil {
-			continue
-		}
-		envs, _, err := loadSessionEnvelopes(h.Sessions.File)
+	}
+	return out
+}
+
+// attackConnectTargets returns the offset pid of every network_connect in a host's woven attacks.
+func attackConnectTargets(t *testing.T, hostID string, attacks []wovenAttack) []hostPID {
+	t.Helper()
+	var out []hostPID
+	for i, atk := range attacks {
+		sc, err := loadAttackScenario(atk.File)
 		require.NoError(t, err)
-		seen := map[int]bool{}
-		for _, e := range envs {
-			if pid, ok := envelopePID(e); ok && heldUntilProcess[e.EventType] && !seen[pid] {
-				seen[pid] = true
-				out = append(out, hostPID{hostID, pid})
+		offsetScenarioPIDs(sc, attackPIDOffsetBase+i*attackPIDOffsetStride)
+		for _, ev := range sc.Timeline {
+			if ev.Type == "network_connect" && ev.PID > 1 {
+				out = append(out, hostPID{hostID, ev.PID})
 			}
+		}
+	}
+	return out
+}
+
+// sessionHeldTargets returns each distinct pid a session capture's held events wait on.
+func sessionHeldTargets(t *testing.T, hostID string, sessions wovenSessions) []hostPID {
+	t.Helper()
+	envs, _, err := loadSessionEnvelopes(sessions.File)
+	require.NoError(t, err)
+	var out []hostPID
+	seen := map[int]bool{}
+	for _, e := range envs {
+		if pid, ok := envelopePID(e); ok && heldUntilProcess[e.EventType] && !seen[pid] {
+			seen[pid] = true
+			out = append(out, hostPID{hostID, pid})
 		}
 	}
 	return out
@@ -846,52 +861,61 @@ func TestReplayHost_WeavesSessions(t *testing.T) {
 	before := time.Now()
 	require.NoError(t, s.replayHost(t.Context(), host))
 
+	wire := summarizeSessionWire(t, posted())
+	assert.Len(t, wire.sessions, 4, "every captured session's prompts reach the server")
+	require.NotEmpty(t, wire.claudeParents)
+	for _, ppid := range wire.claudeParents {
+		assert.False(t, hostPIDs[ppid], "claude keeps its captured parent, ppid %d, not a process of the host capture", ppid)
+	}
+	assert.Positive(t, wire.fileActivityOnExecGeneration, "a process's file activity names the generation its exec carries")
+	assert.InDelta(t, before.Add(-sessionTailOffset).UnixNano(), wire.latest, float64(30*time.Second), "the sessions end before the tail")
+}
+
+// sessionWire is what TestReplayHost_WeavesSessions reads off the posted envelopes.
+type sessionWire struct {
+	sessions      map[string]bool
+	claudeParents []int
+	// fileActivityOnExecGeneration counts file activity whose pidversion is the one its process's exec carried.
+	fileActivityOnExecGeneration int
+	latest                       int64 // the latest prompt or file activity
+}
+
+type wirePayload struct {
+	PID        int      `json:"pid"`
+	PPID       int      `json:"ppid"`
+	PIDVersion int64    `json:"pidversion"`
+	Args       []string `json:"args"`
+	SessionID  string   `json:"agent_session_id"`
+}
+
+func summarizeSessionWire(t *testing.T, envs []fakeagent.Envelope) sessionWire {
+	t.Helper()
+	w := sessionWire{sessions: map[string]bool{}}
 	execVersion := map[int]int64{}
-	sessions := map[string]bool{}
-	var claudeParents []int
-	var latest int64
-	var fileActivity []fakeagent.Envelope
-	for _, e := range posted() {
-		var p struct {
-			PID        int      `json:"pid"`
-			PPID       int      `json:"ppid"`
-			PIDVersion int64    `json:"pidversion"`
-			Args       []string `json:"args"`
-			SessionID  string   `json:"agent_session_id"`
-		}
+	var fileActivity []wirePayload
+	for _, e := range envs {
+		var p wirePayload
 		require.NoError(t, json.Unmarshal(e.Payload, &p))
 		switch e.EventType {
 		case "agent_prompt":
-			sessions[p.SessionID] = true
-			latest = max(latest, e.TimestampNs)
+			w.sessions[p.SessionID] = true
+			w.latest = max(w.latest, e.TimestampNs)
 		case "exec":
 			execVersion[p.PID] = p.PIDVersion
 			if len(p.Args) > 0 && p.Args[0] == "claude" {
-				claudeParents = append(claudeParents, p.PPID)
+				w.claudeParents = append(w.claudeParents, p.PPID)
 			}
 		case "file_activity":
-			fileActivity = append(fileActivity, e)
-			latest = max(latest, e.TimestampNs)
+			fileActivity = append(fileActivity, p)
+			w.latest = max(w.latest, e.TimestampNs)
 		}
 	}
-	assert.Len(t, sessions, 4, "every captured session's prompts reach the server")
-	require.NotEmpty(t, claudeParents)
-	for _, ppid := range claudeParents {
-		assert.False(t, hostPIDs[ppid], "claude keeps its captured parent, ppid %d, not a process of the host capture", ppid)
-	}
-	matched := 0
-	for _, e := range fileActivity {
-		var p struct {
-			PID        int   `json:"pid"`
-			PIDVersion int64 `json:"pidversion"`
-		}
-		require.NoError(t, json.Unmarshal(e.Payload, &p))
+	for _, p := range fileActivity {
 		if v, ok := execVersion[p.PID]; ok && v == p.PIDVersion {
-			matched++
+			w.fileActivityOnExecGeneration++
 		}
 	}
-	assert.Positive(t, matched, "a process's file activity names the generation its exec carries")
-	assert.InDelta(t, before.Add(-sessionTailOffset).UnixNano(), latest, float64(30*time.Second), "the sessions end before the tail")
+	return w
 }
 
 // The woven attacks are the processes the demo's alerts actually fire on, so their generations are exactly what an alert-chain
