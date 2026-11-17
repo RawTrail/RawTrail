@@ -4,7 +4,7 @@
 
 **See what your AI coding agent actually did on your Mac.**
 
-Your agent's log shows what it says it did. RawTrail records what actually ran, from the kernel: every process behind each prompt, the files it changed, the hosts it reached, and any credential file it tried to open. Protect mode can refuse those reads. It is open source and self-hosted, and on a laptop it runs entirely on your own Mac.
+Your agent's log shows what it says it did. RawTrail records what actually ran, from the kernel: every process behind each prompt, the files it changed, the hosts it reached, and any SSH key or cloud credential it read with a tool other than that file's own. Protect mode can refuse those reads. It is open source and self-hosted, and on a laptop it runs entirely on your own Mac.
 
 RawTrail watches Claude Code sessions today. Codex and other agents are coming soon.
 
@@ -25,7 +25,7 @@ Start a Claude Code session and open **Agent sessions** in the console:
 - **Summary:** what the agent's log reports beside what the kernel saw run, with a card you can share as an image.
 - **Timeline:** each prompt you typed, with the commands and tool calls that followed it, in order.
 - **Processes and Activity:** every process the session started, with its files, connections and DNS lookups.
-- **Credential guard:** an alert when the agent opens an SSH key, cloud credentials or another credential file. In protect mode the read is refused.
+- **Credential guard:** an alert when a process in the session opens an SSH key, cloud credentials or another watched credential file with anything but that file's own tool, such as `ssh` for a key. In protect mode the read is refused.
 
 <p align="center">
   <img src="docs/images/agent-session-timeline.png" alt="An agent session's Timeline in RawTrail: a prompt asking for a subagent review, with the agent's subagent call and each command it ran beneath it" width="800">
