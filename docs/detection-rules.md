@@ -2425,7 +2425,7 @@ This process is primarily used to detect and avoid virtualization and analysis e
 ### References
 
 - <https://www.loobins.io/binaries/sysctl/>
-- <https://evasions.checkpoint.com/techniques/macos.html>
+- <https://web.archive.org/web/20240309235614/https://evasions.checkpoint.com/techniques/macos.html>
 - <https://www.welivesecurity.com/2019/04/09/oceanlotus-macos-malware-update/>
 - <https://www.sentinelone.com/labs/20-common-tools-techniques-used-by-macos-threat-actors-malware/>
 - <https://objective-see.org/blog/blog_0x1E.html>
@@ -2487,7 +2487,7 @@ This process is primarily used for system information discovery. However, "syste
 ### References
 
 - <https://www.trendmicro.com/en_za/research/20/k/new-macos-backdoor-connected-to-oceanlotus-surfaces.html>
-- <https://www.sentinelone.com/wp-content/uploads/pdf-gen/1630910064/20-common-tools-techniques-used-by-macos-threat-actors-malware.pdf>
+- <https://web.archive.org/web/20230330071958/https://www.sentinelone.com/wp-content/uploads/pdf-gen/1630910064/20-common-tools-techniques-used-by-macos-threat-actors-malware.pdf>
 - <https://ss64.com/mac/system_profiler.html>
 - <https://objective-see.org/blog/blog_0x62.html>
 - <https://www.welivesecurity.com/2019/04/09/oceanlotus-macos-malware-update/>
