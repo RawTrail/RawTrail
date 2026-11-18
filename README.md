@@ -4,56 +4,69 @@
 
 **See what your AI coding agent actually did on your Mac.**
 
-Your agent's log shows what it says it did. RawTrail records what actually ran, from the kernel: every process behind each prompt, the files it changed, the hosts it reached, and any SSH key or cloud credential it read with a tool other than that file's own. Protect mode can refuse those reads. It is open source and self-hosted, and on a laptop it runs entirely on your own Mac.
+Your agent's log lists the tool calls it made. It doesn't show what those calls did next: one command can start dozens of processes, open your credentials and connect to hosts you never see in the transcript.
 
-RawTrail watches Claude Code sessions today. Codex and other agents are coming soon.
+RawTrail records that activity on the Mac itself, through macOS Endpoint Security, and ties it to the agent session that caused it.
+
+- **See what actually ran.** The processes, file changes and network connections behind each prompt.
+- **Catch credential reads.** An alert when something in the session opens an SSH key or cloud credentials, and in protect mode the read is refused.
+- **Keep your data.** On a laptop nothing leaves your Mac. Across a team, the agents report to a server you host.
+
+Open source (MIT) · Apple Silicon, macOS 26+ · Claude Code today, Codex and other agents coming soon
 
 <p align="center">
   <img src="docs/images/agent-session-summary.png" alt="An agent session's Summary in RawTrail: 3 tool calls in the agent's own log against 21 processes the kernel saw run, and the credential guard stopping a read of an SSH private key" width="800">
+  <br />
+  <em>A prompt injection from the demo: the agent's log shows 3 tool calls, the Mac saw 21 processes run, and the credential guard refused a read of an SSH key.</em>
 </p>
 
-## Watch your own AI agent
+## Get started
 
-Run the server and the agent on your own Mac. You need an Apple Silicon Mac on macOS 26 or later and Docker. From a clone of this repository:
+| Path | What you see | You need |
+| --- | --- | --- |
+| [Watch your own agent](#watch-your-own-agent) | Your Claude Code sessions, live | An Apple Silicon Mac on macOS 26+, Docker |
+| [Try the demo](#try-the-demo) | Recorded sessions and alerts in the full UI | Docker on any machine |
+| [Deploy it on your Macs](#deploy-it-on-your-macs) | Your team's Macs, live | A Linux server or container host, and an MDM |
+
+### Watch your own agent
+
+Run the server and the agent on your own Mac:
 
 ```sh
+git clone https://github.com/rawtrail/rawtrail.git
+cd rawtrail
 scripts/laptop/rawtrail-laptop install
 ```
 
-Start a Claude Code session and open **Agent sessions** in the console:
+The installer opens a link to register your admin passkey. The console then walks you through the approvals macOS asks for, such as allowing RawTrail's system extensions and granting Full Disk Access. Start a Claude Code session and open **Agent sessions**:
 
-- **Summary:** what the agent's log reports beside what the kernel saw run, with a card you can share as an image.
+- **Summary:** what the agent's log reports beside what the Mac saw run, with a card you can share as an image.
 - **Timeline:** each prompt you typed, with the commands and tool calls that followed it, in order.
-- **Processes and Activity:** every process the session started, with its files, connections and DNS lookups.
+- **Processes and Activity:** the processes the session started, with their files, connections and DNS lookups.
 - **Credential guard:** an alert when a process in the session opens an SSH key, cloud credentials or another watched credential file with anything but that file's own tool, such as `ssh` for a key. In protect mode the read is refused.
 
 <p align="center">
   <img src="docs/images/agent-session-timeline.png" alt="An agent session's Timeline in RawTrail: a prompt asking for a subagent review, with the agent's subagent call and each command it ran beneath it" width="800">
 </p>
 
-Nothing leaves the Mac. What you see, what it costs and how to remove it: [docs/watch-your-agent.md](docs/watch-your-agent.md).
+What it records, what it costs and how to remove it: [docs/watch-your-agent.md](docs/watch-your-agent.md).
 
-## Try the demo (no Mac required)
+### Try the demo
 
-Want to look before installing anything? Evaluate the full server, UI, and detection pipeline in about five minutes. No Apple Silicon Mac, MDM, or Apple entitlement needed.
+Look before installing anything. The demo runs the server, UI and detection pipeline in Docker with data captured on real Macs. It shows recorded activity, not live capture.
 
 ```sh
 docker compose -f docker-compose.demo.yml up
 ```
 
-Open <https://localhost:8088/ui/>, accept the self-signed certificate warning, and sign in through the bundled IdP with the demo account `demo@rawtrail.local` / `demo`. It signs in as an **admin**: user invitations, policy authoring, and every host and alert action, so you can drive the full operator surface.
+Open <https://localhost:8088/ui/>, accept the self-signed certificate warning, and sign in with `demo@rawtrail.local` / `demo`. You'll find:
 
-Under **Agent sessions** you'll find four real Claude Code sessions, captured on a Mac and scrubbed: an ordinary coding session, a session in bypassPermissions mode with a subagent, and two the credential guard stopped, one an honest mistake and one a prompt injection. Around them are two real macOS hosts (an engineer laptop and a CI build server), each with a deep process graph and correlated network and DNS activity drawn from genuine scrubbed captures. Woven into that ambient activity are five fired ATT&CK detections: a credential keychain dump and a suspicious process phoning home (exec, DNS, and outbound connection correlated across all three streams), plus sudoers tampering, launchd persistence, and an application-control block. Every alert comes from the real ingestion and detection pipeline, not hand-inserted rows, and the benign activity raises no false alarms.
+- Four Claude Code sessions under **Agent sessions**, two of them stopped by the credential guard.
+- Two Mac hosts with full process trees, network and DNS activity, and five ATT&CK detections.
 
-Notes:
+The demo is for evaluation only: it uses checked-in dev secrets, so do not expose it to the internet. What's in it, admin access and building from source: [docs/demo.md](docs/demo.md).
 
-- Super admin: the demo account is an `admin` with SSO login; for a `super_admin` break-glass account, open the one-shot `BREAK-GLASS ADMIN SETUP` redemption URL for `admin@rawtrail.local` that the server prints on each boot until it is redeemed (valid for one hour), and register a WebAuthn passkey. Retrieve it with `docker compose -f docker-compose.demo.yml logs server | grep -A4 BREAK-GLASS`.
-- The on-device half (system extension, network extension, agent) needs an Apple-granted Endpoint Security entitlement and Apple Silicon, so it cannot run in Docker. The demo exercises the server, UI, and detection pipeline; install on your own Mac (above) to see live capture.
-- Response actions enqueue but never complete in the demo because no live agent is connected.
-- Evaluation only: empty MySQL password, self-signed cert, checked-in dev secrets. Do not expose it to the internet.
-- To build the demo images from source instead of pulling the release tag: `docker compose -f docker-compose.demo.yml -f docker-compose.demo.build.yml up --build`.
-
-## Deploy it on your Macs
+### Deploy it on your Macs
 
 To watch a team's Macs, stand up a server, then push the agent to them.
 
@@ -76,9 +89,9 @@ To watch a team's Macs, stand up a server, then push the agent to them.
 
 Once agents enroll, open the server's `/ui/` to watch hosts, process trees, and alerts in real time.
 
-## Also a macOS EDR
+## Beyond AI agents: macOS endpoint security
 
-Agent sessions are built on a full endpoint detection and response stack for macOS fleets: real-time process, network and DNS visibility on Apple Silicon Macs, behavioral detection rules run against a materialized process graph, and blocking at exec time. It is fully self-hosted: your own server, your own data, no SaaS dependency.
+Agent sessions are built on a full endpoint detection and response (EDR) stack for macOS fleets: real-time process, network and DNS visibility on Apple Silicon Macs, behavioral detection rules run against a materialized process graph, and blocking at exec time. It is fully self-hosted: your own server, your own data, no SaaS dependency.
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=3pPhDc-AIOQ">
@@ -123,6 +136,7 @@ Operator and reference docs live in [`docs/`](docs/):
 | Deploy the agent via any MDM                             | [`mdm-deployment.md`](docs/mdm-deployment.md)                         |
 | Evaluate on 1 to 5 Macs without an MDM                   | [`install-agent-manual.md`](docs/install-agent-manual.md)             |
 | Watch your own AI agent on your laptop                   | [`watch-your-agent.md`](docs/watch-your-agent.md)                     |
+| Run the demo stack                                       | [`demo.md`](docs/demo.md)                                             |
 | Day-2 ops: upgrades, rotations, backups, troubleshooting | [`operations.md`](docs/operations.md)                                 |
 | Detection rules: behavior, ATT&CK mapping, configuration | [`detection-rules.md`](docs/detection-rules.md)                       |
 | HTTP API reference                                       | [`api.md`](docs/api.md) + [`api/openapi.yaml`](docs/api/openapi.yaml) |
