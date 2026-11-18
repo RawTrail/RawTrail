@@ -9,7 +9,7 @@ Your agent's log lists the tool calls it made. It doesn't show what those calls 
 RawTrail records that activity on the Mac itself, through macOS Endpoint Security, and ties it to the agent session that caused it.
 
 - **See what actually ran.** The processes, file changes and network connections behind each prompt.
-- **Catch credential reads.** An alert when something in the session opens an SSH key or cloud credentials, and in protect mode the read is refused.
+- **Catch credential reads.** An alert when something in the session opens an SSH key or cloud credentials with anything but that file's own tool, such as `ssh` for a key. In protect mode the read is refused.
 - **Keep your data.** On a laptop nothing leaves your Mac. Across a team, the agents report to a server you host.
 
 Open source (MIT) · Apple Silicon, macOS 26+ · Claude Code today, Codex and other agents coming soon
