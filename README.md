@@ -15,9 +15,11 @@ RawTrail records that activity on the Mac itself, through macOS Endpoint Securit
 Open source (MIT) · Apple Silicon, macOS 26+ · Claude Code today, Codex and other agents coming soon
 
 <p align="center">
-  <img src="docs/images/agent-session-summary.png" alt="An agent session's Summary in RawTrail: 3 tool calls in the agent's own log against 21 processes the kernel saw run, and the credential guard stopping a read of an SSH private key" width="800">
+  <a href="https://www.youtube.com/watch?v=XZ2LVcl8Uys">
+    <img src="docs/images/rawtrail-demo-video.jpg" alt="Watch the 3-minute RawTrail demo on YouTube: 3 tool calls, 81 processes, what my AI agent actually did" width="800">
+  </a>
   <br />
-  <em>A prompt injection from the demo: the agent's log shows 3 tool calls, the Mac saw 21 processes run, and the credential guard refused a read of an SSH key.</em>
+  <a href="https://www.youtube.com/watch?v=XZ2LVcl8Uys"><strong>▶ Watch the 3-minute demo</strong></a> · <a href="https://www.youtube.com/watch?v=vR9Nt5WCvn0">the full 13-minute walkthrough</a>
 </p>
 
 ## Get started
@@ -63,6 +65,12 @@ Open <https://localhost:8088/ui/>, accept the self-signed certificate warning, a
 
 - Four Claude Code sessions under **Agent sessions**, two of them stopped by the credential guard.
 - Two Mac hosts with full process trees, network and DNS activity, and five ATT&CK detections.
+
+<p align="center">
+  <img src="docs/images/agent-session-summary.png" alt="An agent session's Summary in RawTrail: 3 tool calls in the agent's own log against 21 processes the kernel saw run, and the credential guard stopping a read of an SSH private key" width="800">
+  <br />
+  <em>A prompt injection from the demo: the agent's log shows 3 tool calls, the Mac saw 21 processes run, and the credential guard refused a read of an SSH key.</em>
+</p>
 
 The demo is for evaluation only: it uses checked-in dev secrets, so do not expose it to the internet. What's in it, admin access and building from source: [docs/demo.md](docs/demo.md).
 
