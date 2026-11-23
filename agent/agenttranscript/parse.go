@@ -32,6 +32,9 @@ const UsageEventType = "agent_usage"
 // sdkPromptSource is the prompt source Claude Code records for a prompt passed on the command line (claude -p), which records no origin.
 const sdkPromptSource = "sdk"
 
+// localCommandCaveat begins the turn Claude Code writes, marked meta, just before a slash command it runs as a local command.
+const localCommandCaveat = "<local-command-caveat>"
+
 // maxPromptBytes caps a prompt's text on the wire. A prompt can hold a pasted file; the first 16 KiB say what was asked.
 const maxPromptBytes = 16 << 10
 
@@ -165,8 +168,10 @@ var errUnreadable = errors.New("unreadable transcript line")
 // transcriptLine is the part of a transcript entry a tool call or a prompt is read from. Entries of other types (attachments,
 // bookkeeping) decode into it too and are recognized by Type.
 type transcriptLine struct {
-	Type          string `json:"type"`
-	UUID          string `json:"uuid"`
+	Type string `json:"type"`
+	UUID string `json:"uuid"`
+	// ParentUUID is the entry this one follows in the conversation.
+	ParentUUID    string `json:"parentUuid"`
 	SessionID     string `json:"sessionId"`
 	OriginSession string `json:"session_id"`
 	PromptID      string `json:"promptId"`
@@ -225,6 +230,11 @@ type Line struct {
 	Usage       *Usage
 	Mode        string
 	ModeSession string
+	// Caveat is the id of a local-command caveat entry, and Command a slash command passed to a headless session, which counts as a
+	// prompt only when it follows that caveat (issue #1543): CommandParent names the entry it follows. Both are for TurnSession.
+	Caveat        string
+	Command       *Prompt
+	CommandParent string
 }
 
 // syntheticModel is the model Claude Code names on a message it wrote itself (an error, an interrupted turn), which used no tokens.
@@ -295,8 +305,16 @@ func ParseLine(raw []byte) (Line, error) {
 		return Line{Calls: calls, Usage: usage}, err
 	case "user":
 		prompt, err := parsePrompt(line)
-		return Line{Prompt: prompt, Turn: line.PromptID, TurnSession: line.SessionID, Mode: line.PermissionMode,
-			ModeSession: line.SessionID}, err
+		if err != nil {
+			return Line{}, err
+		}
+		command, err := parseHeadlessCommand(line)
+		out := Line{Prompt: prompt, Turn: line.PromptID, TurnSession: line.SessionID, Mode: line.PermissionMode,
+			ModeSession: line.SessionID, Command: command, CommandParent: line.ParentUUID}
+		if isLocalCommandCaveat(line) {
+			out.Caveat = line.UUID
+		}
+		return out, err
 	case "permission-mode":
 		return Line{Mode: line.PermissionMode, ModeSession: line.SessionID}, nil
 	}
@@ -373,16 +391,50 @@ func parsePrompt(line transcriptLine) (*Prompt, error) {
 	if err := json.Unmarshal(line.Message.Content, &typed); err != nil {
 		return nil, errUnreadable
 	}
+	return newPrompt(line, slashCommand(typed), len(typed), line.PromptSource)
+}
+
+// newPrompt is the prompt of a user entry, given its text as read and its length as given.
+func newPrompt(line transcriptLine, text string, length int, source string) (*Prompt, error) {
 	at, err := time.Parse(time.RFC3339Nano, line.Timestamp)
 	if err != nil || line.SessionID == "" || line.UUID == "" {
 		return nil, errUnreadable
 	}
-	text, redacted := Redact(slashCommand(typed))
+	text, redacted := Redact(text)
 	text, truncated := capText(text, maxPromptBytes)
 	return &Prompt{
-		SessionID: line.SessionID, EntryID: line.UUID, PromptID: line.PromptID, Text: text, Length: len(typed), Truncated: truncated,
-		Redacted: redacted, Source: line.PromptSource, CWD: line.CWD, At: at,
+		SessionID: line.SessionID, EntryID: line.UUID, PromptID: line.PromptID, Text: text, Length: length, Truncated: truncated,
+		Redacted: redacted, Source: source, CWD: line.CWD, At: at,
 	}, nil
+}
+
+// parseHeadlessCommand reads a slash command passed to claude -p (issue #1543). Claude Code runs it as a local command: it writes a
+// meta caveat entry, then the command as plain text with neither an origin nor a prompt source, so parsePrompt passes it by. The
+// shape alone is not enough to call it the person's, so this returns a candidate the reader accepts only when its entry follows a
+// caveat (Line.CommandParent). An interactive local command such as /clear, which is not a prompt, follows a caveat too, but is
+// recorded as its <command-name> tags rather than as plain text starting with a slash, so it is not a candidate.
+func parseHeadlessCommand(line transcriptLine) (*Prompt, error) {
+	if line.Origin.Kind != "" || line.PromptSource != "" || line.IsMeta ||
+		line.IsSidechain || len(line.Message.Content) == 0 || line.Message.Content[0] != '"' {
+		return nil, nil
+	}
+	var given string
+	if err := json.Unmarshal(line.Message.Content, &given); err != nil {
+		return nil, errUnreadable
+	}
+	if !strings.HasPrefix(given, "/") {
+		return nil, nil
+	}
+	return newPrompt(line, given, len(given), sdkPromptSource)
+}
+
+// isLocalCommandCaveat reports whether line is the meta entry Claude Code writes just before running a slash command locally.
+func isLocalCommandCaveat(line transcriptLine) bool {
+	if !line.IsMeta || len(line.Message.Content) == 0 || line.Message.Content[0] != '"' {
+		return false
+	}
+	var text string
+	return json.Unmarshal(line.Message.Content, &text) == nil && strings.HasPrefix(text, localCommandCaveat)
 }
 
 // commandEnvelope is how the transcript records a slash command the user typed: nothing but its <command-message>, <command-name>
