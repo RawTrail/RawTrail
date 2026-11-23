@@ -82,8 +82,12 @@ type Reader struct {
 // position is how far one transcript has been read: the offset of the next unread line, the file it was read from, so a transcript
 // replaced in place is read from its start, and whether the reader is passing over the rest of a line too long to read.
 type position struct {
-	offset   int64
-	file     os.FileInfo
+	offset int64
+	file   os.FileInfo
+	// changed is when the transcript last changed, as the latest pass listed it. Kept apart from file, which is what the reader last
+	// read, because a growing transcript that the pass budget skips is still active, and judging it by its last read would call it
+	// idle or evict it ahead of a transcript truly quieter (issue #1545).
+	changed  time.Time
 	skipping bool
 	// parent is the session the transcript's session was forked from, read once from its job's parent transcript (issue #1354).
 	parent     string
@@ -175,6 +179,13 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 		}
 	}
 	slices.SortFunc(found, func(a, b transcript) int { return b.listed.ModTime().Compare(a.listed.ModTime()) })
+	// Every listed transcript's activity is recorded before the budgets decide which are read, so one they skip is not judged by
+	// when it was last read.
+	for _, t := range found {
+		if pos := r.files[path.Join(t.home, t.rel)]; pos != nil {
+			pos.changed = t.listed.ModTime()
+		}
+	}
 	budget := int64(maxBytesTotalPerPass)
 	for i, t := range found {
 		if i == maxFilesPerPass {
@@ -206,7 +217,7 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 func (r *Reader) trimPositions() {
 	idleBefore := r.now().Add(-recentWindow)
 	for _, pos := range r.files {
-		if pos.file.ModTime().Before(idleBefore) {
+		if pos.changed.Before(idleBefore) {
 			pos.messages = nil
 		}
 	}
@@ -214,7 +225,7 @@ func (r *Reader) trimPositions() {
 		return
 	}
 	keys := slices.SortedFunc(maps.Keys(r.files), func(a, b string) int {
-		return r.files[a].file.ModTime().Compare(r.files[b].file.ModTime())
+		return r.files[a].changed.Compare(r.files[b].changed)
 	})
 	for _, key := range keys[:len(keys)-maxPositions] {
 		delete(r.files, key)
@@ -317,6 +328,7 @@ func (r *Reader) readFrom(ctx context.Context, hostID string, t transcript, key 
 		r.files[key] = pos
 	}
 	pos.file = info
+	pos.changed = info.ModTime()
 	if info.Size() == pos.offset {
 		return 0, nil
 	}

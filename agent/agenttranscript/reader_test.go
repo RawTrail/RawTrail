@@ -576,14 +576,6 @@ func TestReader_ResumedTranscriptIsReadFromWhereItStopped(t *testing.T) {
 	assert.Equal(t, []string{"toolu_01", "toolu_02"}, q.toolUseIDs(), "the call before the break is not sent again")
 }
 
-// fakeFileInfo is a transcript's identity as a position records it, changed at modTime.
-type fakeFileInfo struct {
-	os.FileInfo
-	modTime time.Time
-}
-
-func (f fakeFileInfo) ModTime() time.Time { return f.modTime }
-
 // spec:endpoint-event-collection/a-resumed-transcript-is-read-from-where-it-stopped/the-positions-kept-are-bounded
 func TestReader_TrimPositions(t *testing.T) {
 	t.Parallel()
@@ -594,7 +586,7 @@ func TestReader_TrimPositions(t *testing.T) {
 		t.Parallel()
 		r := &Reader{now: func() time.Time { return now }, files: map[string]*position{}}
 		for i := range maxPositions + 2 {
-			r.files[fmt.Sprintf("t%04d", i)] = &position{offset: 1, file: fakeFileInfo{modTime: now.Add(-time.Duration(i) * time.Hour)}}
+			r.files[fmt.Sprintf("t%04d", i)] = &position{offset: 1, changed: now.Add(-time.Duration(i) * time.Hour)}
 		}
 		r.trimPositions()
 		assert.Len(t, r.files, maxPositions)
@@ -606,14 +598,56 @@ func TestReader_TrimPositions(t *testing.T) {
 
 	t.Run("an idle transcript keeps its offset and drops the messages it sent", func(t *testing.T) {
 		t.Parallel()
-		idle := &position{offset: 42, turn: "turn-1", mode: "plan", file: fakeFileInfo{modTime: now.Add(-2 * recentWindow)},
-			messages: sentMessages()}
-		recent := &position{offset: 7, file: fakeFileInfo{modTime: now.Add(-time.Minute)}, messages: sentMessages()}
+		idle := &position{offset: 42, turn: "turn-1", mode: "plan", changed: now.Add(-2 * recentWindow), messages: sentMessages()}
+		recent := &position{offset: 7, changed: now.Add(-time.Minute), messages: sentMessages()}
 		r := &Reader{now: func() time.Time { return now }, files: map[string]*position{"idle": idle, "recent": recent}}
 		r.trimPositions()
-		assert.Equal(t, &position{offset: 42, turn: "turn-1", mode: "plan", file: idle.file}, r.files["idle"],
+		assert.Equal(t, &position{offset: 42, turn: "turn-1", mode: "plan", changed: idle.changed}, r.files["idle"],
 			"what the resumed session needs stays: where to read from, its turn and its permission mode")
 		assert.Equal(t, sentMessages(), r.files["recent"].messages,
 			"a recent transcript this pass did not read keeps them, since the rest of a streamed message may still come")
 	})
+}
+
+// A transcript the pass budget skips is judged by when it last changed, not by when it was last read: one still growing keeps the
+// messages it sent, so a streamed message split across passes is not counted twice.
+func TestReader_ASkippedTranscriptIsJudgedByItsLatestChange(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	dir := filepath.Dir(path)
+	newest := time.Now()
+	for i := range maxFilesPerPass {
+		session := fmt.Sprintf("s%03d", i)
+		name := filepath.Join(dir, session+".jsonl")
+		require.NoError(t, os.WriteFile(name, []byte(bashLineIn(session, fmt.Sprintf("toolu_%03d", i), "ls")), 0o600))
+		require.NoError(t, os.Chtimes(name, newest, newest))
+	}
+	// The fixture's transcript was read long ago, but has kept changing: it is the 257th most recent, so this pass skips it.
+	appendTo(t, path, bashLine("toolu_skipped", "ls"))
+	recent := newest.Add(-time.Minute)
+	require.NoError(t, os.Chtimes(path, recent, recent))
+	key := filepath.Join("dev", ".claude", "projects", "-Users-dev-project", filepath.Base(path))
+	lastRead, err := os.Stat(path)
+	require.NoError(t, err)
+	r.files[key] = &position{file: lastRead, changed: newest.Add(-2 * recentWindow), messages: map[string]struct{}{"msg_01": {}}}
+
+	r.RunOnce(context.Background())
+
+	require.NotContains(t, q.toolUseIDs(), "toolu_skipped", "the budget must have skipped it, or this proves nothing")
+	assert.Equal(t, map[string]struct{}{"msg_01": {}}, r.files[key].messages, "a transcript still changing is not idle")
+	assert.Equal(t, recent.Unix(), r.files[key].changed.Unix(), "and it is dated by its latest change")
+}
+
+// A streamed message whose entries land in two passes is sent once: the pass that first reads a transcript keeps what it sent, rather
+// than dropping it as though the transcript were idle.
+func TestReader_AMessageStreamedAcrossPassesIsSentOnce(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, usageLine("msg_01", "claude-opus-5-5", "")+"\n")
+	require.Equal(t, 1, r.RunOnce(context.Background()).Usage)
+
+	appendTo(t, path, strings.Replace(usageLine("msg_01", "claude-opus-5-5", ""), "09:31:00.500Z", "09:31:02.000Z", 1)+"\n")
+	assert.Zero(t, r.RunOnce(context.Background()).Usage, "the message's later entry, in the next pass, is not sent again")
 }
