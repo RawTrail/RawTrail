@@ -40,6 +40,10 @@ const defaultKeepAliveInterval = 1 * time.Minute
 // and so the connection holding the lock was already gone. The callback's context is cancelled when this happens, but a callback
 // that ignores cancellation and returns nil would otherwise look like a success that ran under mutual exclusion when it did not.
 // Callers that care about exclusivity (a migration, a claim-fold-flush section) SHOULD treat it as a failure and retry.
+//
+// It is also the cancellation cause of the callback's context (context.Cause), so the callback can tell a lost lock from its
+// caller's own cancellation while it is still running, before the coordinator returns this error. That matters to work that must
+// still finish after a stop but must not run without the lock (issue #1571): a lost lock keeps this cause even when a stop follows.
 var ErrLockLost = errors.New("advisory lock lost while the callback was running")
 
 // lockWaitSeconds is the GET_LOCK timeout. 0 means non-blocking: GET_LOCK returns immediately (1 if free, 0 if held by another
@@ -180,23 +184,23 @@ func (c *mysqlCoordinator) runAsLeader(ctx context.Context, lockName string, con
 // fn runs under a lease context derived from ctx. A keep-alive goroutine pings the lock connection every keepAliveInterval, so
 // MySQL's wait_timeout cannot close it as idle and silently free the lock underneath fn (issue #721): during fn the lock connection
 // is idle by construction, because fn does its work on a different pooled connection. If a ping fails the connection, and therefore
-// the lock, is already gone, so the lease is cancelled and fn stops promptly rather than continuing to act as though it were still
-// holding it.
+// the lock, is already gone, so the lease is cancelled with ErrLockLost as its cause and fn stops promptly rather than continuing to
+// act as though it were still holding it.
 //
 // The lock is released on return (deferred, so a panic in fn still frees it), and the keep-alive is stopped and joined before
 // release so it never touches the connection concurrently with RELEASE_LOCK / Close.
 func (c *mysqlCoordinator) runWithKeepAlive(
 	ctx context.Context, lockName string, conn *sql.Conn, fn func(context.Context) error,
 ) (lostLock bool, err error) {
-	leaseCtx, cancelLease := context.WithCancel(ctx)
+	leaseCtx, cancelLease := context.WithCancelCause(ctx)
 	var lost atomic.Bool
 	keepAliveDone := make(chan struct{})
 	go func() {
 		defer close(keepAliveDone)
-		c.keepAlive(leaseCtx, cancelLease, lockName, conn, &lost)
+		c.keepAlive(leaseCtx, func() { cancelLease(ErrLockLost) }, lockName, conn, &lost)
 	}()
 	defer func() {
-		cancelLease()
+		cancelLease(nil)
 		<-keepAliveDone // wait for the keep-alive to stop using conn before releasing it
 		c.release(context.WithoutCancel(ctx), lockName, conn)
 	}()
@@ -209,7 +213,7 @@ func (c *mysqlCoordinator) runWithKeepAlive(
 // keepAlive pings the lock connection every keepAliveInterval so MySQL does not close it as idle while the callback runs. A failed
 // ping means the connection (and thus the lock) is gone, so it records the loss, relinquishes the lease, and returns.
 func (c *mysqlCoordinator) keepAlive(
-	ctx context.Context, relinquish context.CancelFunc, lockName string, conn *sql.Conn, lost *atomic.Bool,
+	ctx context.Context, relinquish func(), lockName string, conn *sql.Conn, lost *atomic.Bool,
 ) {
 	ticker := time.NewTicker(c.keepAliveInterval)
 	defer ticker.Stop()

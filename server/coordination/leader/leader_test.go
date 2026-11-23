@@ -411,13 +411,17 @@ func TestLockSurvivesAnIdleConnectionClose(t *testing.T) {
 		defer cancel()
 		lockName := uniqueLockName()
 
+		var cause error
 		ran, err := coord.DoOnceIfLeader(ctx, lockName, func(fnCtx context.Context) error {
 			killLockHolder(t, ctx, lockName)
 			<-fnCtx.Done() // the keep-alive notices the dead connection and cancels the lease
+			cause = context.Cause(fnCtx)
 			return nil
 		})
 
 		assert.True(t, ran, "this replica did win the lock, so it did run")
+		// The callback can tell a lost lock from its caller's own cancellation while it still runs (issue #1571).
+		require.ErrorIs(t, cause, leader.ErrLockLost, "the lease is cancelled with the loss as its cause")
 		require.ErrorIs(t, err, leader.ErrLockLost,
 			"returning nil here is the bug: the callback ran, but not under the exclusion it asked for")
 	})

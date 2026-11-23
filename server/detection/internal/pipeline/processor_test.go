@@ -542,8 +542,8 @@ func TestProcessor_ShutdownCancellationLogLevel(t *testing.T) {
 type lockLosingCoordinator struct{ stubCoordinator }
 
 func (lockLosingCoordinator) DoOnceIfLeader(ctx context.Context, _ string, fn func(context.Context) error) (bool, error) {
-	leaseCtx, relinquish := context.WithCancel(ctx)
-	relinquish()
+	leaseCtx, relinquish := context.WithCancelCause(ctx)
+	relinquish(leader.ErrLockLost)
 	_ = fn(leaseCtx)
 	return true, leader.ErrLockLost
 }

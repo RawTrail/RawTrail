@@ -508,15 +508,15 @@ func settleContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // settleUnderLock is settleContext for a statement that must run while the host's claim lock is held: it outlives a stop the same
 // way, but still ends the moment the lock itself is lost.
 //
-// The two are told apart by the worker's context. A stop cancels worker, and locked with it, and the lock is still held until the
-// locked section returns, so the statement may land. A lost lock cancels locked alone, and a requeue without the lock reopens the
-// window the lock exists to close (issue #863): its row locks make a concurrent claimer's SKIP LOCKED skip this batch's earlier
-// events and fold a later one first. Cancellation propagates from parent to child, so by the time locked's watcher runs on a stop,
-// worker.Err() already reports it.
+// The coordinator cancels the locked section with leader.ErrLockLost as the cause when the lock goes, and a stop cancels it with the
+// worker's own cause, so the cause tells the two apart. A stop leaves the lock held until the locked section returns, so the
+// statement may land. A requeue without the lock reopens the window the lock exists to close (issue #863): its row locks make a
+// concurrent claimer's SKIP LOCKED skip this batch's earlier events and fold a later one first. The cause is kept when a stop
+// follows a lost lock, which is why it is read rather than whether the worker is still running.
 func settleUnderLock(worker, locked context.Context) (context.Context, context.CancelFunc) {
 	settleCtx, settled := settleContext(worker)
 	lockLost := func() {
-		if worker.Err() == nil {
+		if errors.Is(context.Cause(locked), leader.ErrLockLost) {
 			settled()
 		}
 	}

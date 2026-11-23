@@ -39,3 +39,4 @@ When the server stops gracefully while the processor holds a claimed batch, the 
 - **GIVEN** a processor folding a claimed batch under its host's lock
 - **WHEN** the lock is lost and the fold fails
 - **THEN** the batch is not handed back without the lock, since its row locks would let another claimer fold the host's later events first, and the claim lease returns it instead
+- **AND** this holds when a stop arrives after the lock is lost, since the stop does not give the lock back

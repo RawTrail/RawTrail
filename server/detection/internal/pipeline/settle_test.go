@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rawtrail/rawtrail/server/coordination/leader"
 	rulesapi "github.com/rawtrail/rawtrail/server/rules/api"
 	visibilityapi "github.com/rawtrail/rawtrail/server/visibility/api"
 )
@@ -85,14 +86,28 @@ func TestSettleUnderLock(t *testing.T) {
 	t.Run("a lost lock ends the requeue at once", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
-			locked, loseLock := context.WithCancel(context.Background())
+			locked, loseLock := context.WithCancelCause(context.Background())
 			settleCtx, settled := settleUnderLock(context.Background(), locked)
 			defer settled()
 
-			loseLock()
+			loseLock(leader.ErrLockLost)
 			synctest.Wait()
 			assert.ErrorIs(t, settleCtx.Err(), context.Canceled, "a requeue without the lock must not run")
 		})
+	})
+
+	// A stop that follows a lost lock cancels the worker too, so the worker's state cannot be what tells the two apart.
+	t.Run("a lock lost before a stop still ends the requeue", func(t *testing.T) {
+		t.Parallel()
+		worker, stop := context.WithCancel(context.Background())
+		locked, loseLock := context.WithCancelCause(worker)
+		loseLock(leader.ErrLockLost)
+		stop()
+
+		settleCtx, settled := settleUnderLock(worker, locked)
+		defer settled()
+
+		assert.ErrorIs(t, settleCtx.Err(), context.Canceled, "the lock is gone, whatever the worker is doing")
 	})
 }
 
@@ -184,17 +199,17 @@ func TestStopRecordsTheSettledBatchTally(t *testing.T) {
 	}
 }
 
-// interruptibleLockCoordinator runs the locked section under a context that loseLock cancels on its own, which is how a lost
-// advisory lock reaches it while the worker keeps running. Unlike lockLosingCoordinator, the lock is held when the section starts.
+// interruptibleLockCoordinator runs the locked section under a context that loseLock cancels with leader.ErrLockLost, as the real
+// coordinator does when the lock goes while the section runs. Unlike lockLosingCoordinator, the lock is held when the section starts.
 type interruptibleLockCoordinator struct {
 	stubCoordinator
-	loseLock context.CancelFunc
+	loseLock func()
 }
 
 func (c *interruptibleLockCoordinator) DoOnceIfLeader(ctx context.Context, _ string, fn func(context.Context) error) (bool, error) {
-	locked, lose := context.WithCancel(ctx)
-	defer lose()
-	c.loseLock = lose
+	locked, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	c.loseLock = func() { cancel(leader.ErrLockLost) }
 	return true, fn(locked)
 }
 
