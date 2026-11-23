@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -25,9 +26,13 @@ const (
 	// defaultInterval is how often the transcripts are read. A tool call's process is on the wire within a second; the call itself
 	// may trail it by this much, which only delays the label beside it.
 	defaultInterval = 5 * time.Second
-	// recentWindow is how long after its last change a transcript is still read. Older transcripts belong to finished sessions, and
-	// the window also bounds what is kept per transcript: a file outside it is forgotten.
+	// recentWindow is how long after its last change a transcript is still read. An older transcript is idle: its session has paused
+	// or finished, and the reader keeps only how far it read it (issue #1545), so a session that resumes is read from there.
 	recentWindow = 10 * time.Minute
+	// maxPositions bounds the transcripts whose read position is kept between passes. Past it the least recently changed are
+	// forgotten, and one of those that resumes is read from its start again, which the archive keeps once. An idle position holds an
+	// offset, a file identity and two short strings, so the bound is generous.
+	maxPositions = 1024
 	// maxBytesPerPass bounds what one pass reads from one transcript, so a long session first seen after a restart is caught up over
 	// several passes rather than in one long one. A line longer than this is skipped, not waited on.
 	maxBytesPerPass = 4 << 20
@@ -170,16 +175,14 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 		}
 	}
 	slices.SortFunc(found, func(a, b transcript) int { return b.listed.ModTime().Compare(a.listed.ModTime()) })
-	kept := map[string]bool{}
 	budget := int64(maxBytesTotalPerPass)
 	for i, t := range found {
 		if i == maxFilesPerPass {
 			break
 		}
 		key := path.Join(t.home, t.rel)
-		kept[key] = true
 		if ctx.Err() != nil || budget <= 0 {
-			continue
+			break
 		}
 		read, err := r.readFrom(ctx, hostID, t, key, budget, &stats)
 		budget -= read
@@ -187,12 +190,35 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 			r.logger.WarnContext(ctx, "read agent transcript", "err", err)
 		}
 	}
-	for key := range r.files {
-		if !kept[key] {
-			delete(r.files, key)
+	r.trimPositions()
+	return stats
+}
+
+// trimPositions bounds what the reader keeps between passes (issue #1545). A transcript keeps its position for as long as it stays
+// among the maxPositions most recently changed, whether or not this pass read it, so a session that resumes after recentWindow is
+// read from where the reader stopped rather than from its start. Forgetting a position whenever its transcript went quiet re-sent a
+// 61 MB transcript in full three times in one night.
+//
+// An idle transcript drops the assistant messages it has sent. They only stop the several entries Claude Code writes for one
+// streamed message from each sending its usage, and those entries are written within seconds of each other, so a session that
+// resumes writes new messages. A transcript that is recent but went unread this pass keeps them, since the rest of a message may
+// still be on its way.
+func (r *Reader) trimPositions() {
+	idleBefore := r.now().Add(-recentWindow)
+	for _, pos := range r.files {
+		if pos.file.ModTime().Before(idleBefore) {
+			pos.messages = nil
 		}
 	}
-	return stats
+	if len(r.files) <= maxPositions {
+		return
+	}
+	keys := slices.SortedFunc(maps.Keys(r.files), func(a, b string) int {
+		return r.files[a].file.ModTime().Compare(r.files[b].file.ModTime())
+	})
+	for _, key := range keys[:len(keys)-maxPositions] {
+		delete(r.files, key)
+	}
 }
 
 // listHome lists the recent transcripts under one home directory, sessions' and their subagents', through an os.Root confined to it.

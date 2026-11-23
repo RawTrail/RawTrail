@@ -362,7 +362,6 @@ func TestReader_SkipsWhatItCannotAttribute(t *testing.T) {
 		old := time.Now().Add(-2 * recentWindow)
 		require.NoError(t, os.Chtimes(path, old, old))
 		assert.Equal(t, PassStats{}, r.RunOnce(context.Background()), "a transcript gone quiet is not read")
-		assert.Empty(t, r.files, "and its position is forgotten")
 	})
 }
 
@@ -552,4 +551,69 @@ func TestReader_AForeignUserEntryLeavesTheTurn(t *testing.T) {
 		}
 		assert.Equal(t, "p-1", turn, "capture=%v", capture)
 	}
+}
+
+// spec:endpoint-event-collection/a-resumed-transcript-is-read-from-where-it-stopped/a-resumed-session-sends-only-what-it-added
+//
+// Issue #1545: a session idle past recentWindow and then resumed had its transcript read from the start again, so every call in it was
+// sent again. On a dogfood laptop one 61 MB transcript was sent in full three times in a night.
+func TestReader_ResumedTranscriptIsReadFromWhereItStopped(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, bashLine("toolu_01", "ls"))
+	r.RunOnce(context.Background())
+	require.Equal(t, []string{"toolu_01"}, q.toolUseIDs())
+
+	idle := time.Now().Add(-2 * recentWindow)
+	require.NoError(t, os.Chtimes(path, idle, idle))
+	require.Equal(t, PassStats{}, r.RunOnce(context.Background()), "an idle transcript is not read")
+
+	appendTo(t, path, bashLine("toolu_02", "pwd")) // the session resumes, which also makes the transcript recent again
+	stats := r.RunOnce(context.Background())
+
+	assert.Equal(t, 1, stats.Calls, "only the call the session added")
+	assert.Equal(t, []string{"toolu_01", "toolu_02"}, q.toolUseIDs(), "the call before the break is not sent again")
+}
+
+// fakeFileInfo is a transcript's identity as a position records it, changed at modTime.
+type fakeFileInfo struct {
+	os.FileInfo
+	modTime time.Time
+}
+
+func (f fakeFileInfo) ModTime() time.Time { return f.modTime }
+
+// spec:endpoint-event-collection/a-resumed-transcript-is-read-from-where-it-stopped/the-positions-kept-are-bounded
+func TestReader_TrimPositions(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	sentMessages := func() map[string]struct{} { return map[string]struct{}{"msg_01": {}} }
+
+	t.Run("past the bound, the least recently changed are forgotten", func(t *testing.T) {
+		t.Parallel()
+		r := &Reader{now: func() time.Time { return now }, files: map[string]*position{}}
+		for i := range maxPositions + 2 {
+			r.files[fmt.Sprintf("t%04d", i)] = &position{offset: 1, file: fakeFileInfo{modTime: now.Add(-time.Duration(i) * time.Hour)}}
+		}
+		r.trimPositions()
+		assert.Len(t, r.files, maxPositions)
+		assert.Contains(t, r.files, "t0000", "the most recently changed is kept")
+		assert.Contains(t, r.files, fmt.Sprintf("t%04d", maxPositions-1))
+		assert.NotContains(t, r.files, fmt.Sprintf("t%04d", maxPositions), "the two least recently changed are forgotten")
+		assert.NotContains(t, r.files, fmt.Sprintf("t%04d", maxPositions+1))
+	})
+
+	t.Run("an idle transcript keeps its offset and drops the messages it sent", func(t *testing.T) {
+		t.Parallel()
+		idle := &position{offset: 42, turn: "turn-1", mode: "plan", file: fakeFileInfo{modTime: now.Add(-2 * recentWindow)},
+			messages: sentMessages()}
+		recent := &position{offset: 7, file: fakeFileInfo{modTime: now.Add(-time.Minute)}, messages: sentMessages()}
+		r := &Reader{now: func() time.Time { return now }, files: map[string]*position{"idle": idle, "recent": recent}}
+		r.trimPositions()
+		assert.Equal(t, &position{offset: 42, turn: "turn-1", mode: "plan", file: idle.file}, r.files["idle"],
+			"what the resumed session needs stays: where to read from, its turn and its permission mode")
+		assert.Equal(t, sentMessages(), r.files["recent"].messages,
+			"a recent transcript this pass did not read keeps them, since the rest of a streamed message may still come")
+	})
 }
