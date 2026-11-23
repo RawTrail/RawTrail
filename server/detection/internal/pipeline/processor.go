@@ -388,7 +388,12 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 			// No tally is handed over: this attempt failed before detection ran, so it resolved nothing. Nack keeps whatever an
 			// EARLIER attempt supplied rather than clearing it, which is what lets the withdrawal below report matches this
 			// attempt never saw (issue #893).
-			nacked, nackErr := p.eventLog.Nack(lockedCtx, eventIDsOf(claimed), stamp, nil)
+			//
+			// On a settle context rather than lockedCtx itself, because a stop cancels lockedCtx and is the commonest reason the
+			// fold failed at all (issue #1571). The advisory lock is still held here: it is released only once this callback returns.
+			settleCtx, settled := settleContext(lockedCtx)
+			nacked, nackErr := p.eventLog.Nack(settleCtx, eventIDsOf(claimed), stamp, nil)
+			settled()
 			if nackErr != nil {
 				p.logStoreFailure(ctx, "nack events after builder failure", nackErr)
 			}
@@ -407,8 +412,9 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 		ran, err := p.coordinator.DoOnceIfLeader(ctx, hostClaimLockName(host), claimAndBuild)
 		if err != nil {
 			// ErrLockLost is distinct from failing to acquire: the section DID start and may have folded part of a batch before
-			// the lock went. Nothing is acked until the batch completes, so those events stay in flight and are redelivered when
-			// the claim lease expires. Moving to another host is right either way; the two just need different names in the log.
+			// the lock went. Nothing is acked until the batch completes, so those events are either handed back by the fold's
+			// failure path above or stay in flight and are redelivered when the claim lease expires. Moving to another host is
+			// right either way; the two just need different names in the log.
 			msg := "acquire host claim lock"
 			if errors.Is(err, leader.ErrLockLost) {
 				msg = "lost host claim lock mid-batch; events stay in flight for redelivery"
@@ -469,6 +475,31 @@ func (p *Processor) withHostLock(ctx context.Context, host string, fn func(conte
 	return p.coordinator.WithLock(ctx, hostClaimLockName(host), fn)
 }
 
+// settleGrace bounds how long a stopping worker spends settling the batch it holds. Well inside the server's default 30 s drain
+// window, so a graceful stop lands the statement, and short enough that an unresponsive database cannot hold the stop open.
+const settleGrace = 5 * time.Second
+
+// settleContext returns the context a claimed batch is acknowledged or handed back on (issue #1571).
+//
+// Detached from ctx's cancellation, because the statement that settles a batch has to land even while the worker is being stopped.
+// A stop cancels ctx, which fails the batch in progress, and a Nack issued on that same context never reached MySQL. The rows then
+// stayed claimed with no owner, and because a claim stops at its host's oldest in-flight event, every later event for that host
+// waited out the 5-minute claim lease. The lease stays the fallback for a crash, where no statement can run at all.
+//
+// Bounded by settleGrace only once ctx is done. While ctx is live it carries no deadline of its own: an acknowledgement can wait for
+// the host lock behind another worker's claim, and timing that wait out in normal running would strand a processed batch for the
+// lease, which is the defect this exists to remove.
+//
+// The caller MUST call the returned func once the settling statement returns.
+func settleContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	settleCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopWatching := context.AfterFunc(ctx, func() { time.AfterFunc(settleGrace, cancel) })
+	return settleCtx, func() {
+		stopWatching()
+		cancel()
+	}
+}
+
 // underHostLock is withHostLock for a callback that also reports a value, which the acknowledgement does: whether the claim was
 // still held. Written out rather than closing over a variable at each call site, because the variable would be read after the
 // lock is released and the point of the helper is that everything about the acknowledgement happens inside it.
@@ -523,12 +554,16 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 			if encodeErr != nil {
 				p.logger.ErrorContext(ctx, "encode monitor tally for retry", "err", encodeErr, "entries", len(tally))
 			}
+			// Taken on a settle context, lock and all: a stop cancels ctx and so fails this evaluation, and the batch it leaves
+			// behind is exactly the one that has to be handed back (issue #1571).
 			var nacked visibilityapi.NackResult
-			nackErr := p.withHostLock(ctx, hostOf(events), func(lockedCtx context.Context) error {
+			settleCtx, settled := settleContext(ctx)
+			nackErr := p.withHostLock(settleCtx, hostOf(events), func(lockedCtx context.Context) error {
 				var innerErr error
 				nacked, innerErr = p.eventLog.Nack(lockedCtx, eventIDs, claimStamp, carry)
 				return innerErr
 			})
+			settled()
 			if nackErr != nil {
 				p.logStoreFailure(ctx, "nack events after detection failure", nackErr)
 			}
@@ -581,9 +616,13 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 		}
 	}
 
-	held, err := p.underHostLock(ctx, hostOf(events), func(lockedCtx context.Context) (bool, error) {
+	// A settle context for the same reason as the nack above: a batch that finished evaluating as the stop arrived is acknowledged
+	// rather than left claimed for the lease and processed again by whoever claims it next.
+	settleCtx, settled := settleContext(ctx)
+	held, err := p.underHostLock(settleCtx, hostOf(events), func(lockedCtx context.Context) (bool, error) {
 		return p.eventLog.Ack(lockedCtx, eventIDs, claimStamp)
 	})
+	settled()
 	if err != nil {
 		// The batch processed but the queue was not durably advanced (the rows stay leased until the claim lease expires).
 		// Returning 0 stops the drain loop so the worker waits for the next tick rather than treating this as a full-batch
