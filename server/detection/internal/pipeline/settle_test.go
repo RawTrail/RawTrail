@@ -283,3 +283,31 @@ func TestFoldRequeueAfterAStopButNotAfterALostLock(t *testing.T) {
 		})
 	}
 }
+
+// lockLostAfterSectionCoordinator runs the locked section to completion and then reports the lock lost, which is what the real
+// coordinator does when the keep-alive finds the lock gone after the section's last statement but before it returned.
+type lockLostAfterSectionCoordinator struct{ stubCoordinator }
+
+func (lockLostAfterSectionCoordinator) DoOnceIfLeader(ctx context.Context, _ string, fn func(context.Context) error) (bool, error) {
+	_ = fn(ctx)
+	return true, leader.ErrLockLost
+}
+
+// A fold-stage withdrawal that landed before the lock was lost is committed, so its carried tally is still recorded, though the
+// coordinator reports the loss.
+func TestFoldWithdrawalTallyIsRecordedWhenTheLockIsLostAfterIt(t *testing.T) {
+	t.Parallel()
+	carried, err := encodeMonitorTally(rulesapi.MonitorTally{{RuleID: "imported", HostID: "host-a", Severity: "high", Count: 2}})
+	require.NoError(t, err)
+	log := &scriptedEventLog{batch: oneEventBatch(), setAside: 1, carried: carried}
+	rec := &liveContextRecorder{}
+	opts := singleCycleOpts(&capturingLogHandler{})
+	opts.Coordinator = lockLostAfterSectionCoordinator{}
+	p := newTestProcessor(t, log, stubBuilder{err: errors.New("fold failed")}, stubEvaluator{}, opts)
+	p.SetMonitorMatchRecorder(rec)
+
+	p.ProcessOnce(t.Context())
+
+	require.Equal(t, []string{"evt-1"}, log.nacked, "the batch must have been withdrawn inside the section, or this proves nothing")
+	assert.Equal(t, []error{nil}, rec.writes, "the withdrawn batch's tally is recorded once")
+}

@@ -421,6 +421,9 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 				msg = "lost host claim lock mid-batch; events stay in flight for redelivery"
 			}
 			p.logStoreFailure(ctx, msg, err, "host_id", host)
+			// The fold's requeue may have withdrawn the batch before the lock went. That is committed and the batch's last word,
+			// so its carried tally is recorded here as on the path below, or nothing ever records it.
+			p.recordSettledCarry(ctx, carried)
 			return 0, false
 		}
 		if !ran {
@@ -439,11 +442,7 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 		// tally back only for a batch it withdrew in full, and nothing otherwise, so a whole-batch comparison here would re-check
 		// what the contract guarantees. Exactly-once comes from the same place: the 0 -> 3 transition happens once for a row in
 		// its life, so only the caller whose statement performed it is handed the tally.
-		//
-		// On a settle context because the withdrawal above can now land after a stop, and its tally is recorded nowhere else.
-		recordCtx, recorded := settleContext(ctx)
-		p.recordCarriedMatches(recordCtx, carried)
-		recorded()
+		p.recordSettledCarry(ctx, carried)
 		// Already requeued inside the lock. Stop draining so a persistently failing batch cannot hot-spin.
 		return 0, true
 	}
@@ -733,6 +732,14 @@ func (p *Processor) recordMonitorMatches(ctx context.Context, tally rulesapi.Mon
 	if err := p.monitorMatches.RecordMonitorMatches(ctx, tally); err != nil {
 		p.logStoreFailure(ctx, "record monitor matches", err, "entries", len(tally))
 	}
+}
+
+// recordSettledCarry records the tally a fold-stage withdrawal carried, on a settle context because the withdrawal can land after a
+// stop (issue #1571) and the tally is recorded nowhere else.
+func (p *Processor) recordSettledCarry(ctx context.Context, carried []byte) {
+	recordCtx, recorded := settleContext(ctx)
+	defer recorded()
+	p.recordCarriedMatches(recordCtx, carried)
 }
 
 // recordCarriedMatches records the tally Nack carried across a batch's attempts, for a withdrawal reached by an attempt that never
