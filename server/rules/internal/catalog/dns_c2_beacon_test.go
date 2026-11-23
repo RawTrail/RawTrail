@@ -226,6 +226,10 @@ func (r *perPIDGraphReader) GetExecChain(_ context.Context, current api.Process)
 	return []api.Process{current}, nil
 }
 
+func (*perPIDGraphReader) GetAgentSessionLedBy(context.Context, api.Process, int64) (string, error) {
+	return "", nil
+}
+
 func (r *perPIDGraphReader) GetHostEventsByType(_ context.Context, _, _ string, _ api.TimeRange) ([]api.Event, error) {
 	return nil, nil
 }

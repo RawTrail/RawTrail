@@ -40,6 +40,10 @@ func (r *recordingGraphReader) GetExecChain(_ context.Context, current api.Proce
 	return []api.Process{current}, nil
 }
 
+func (*recordingGraphReader) GetAgentSessionLedBy(context.Context, api.Process, int64) (string, error) {
+	return "", nil
+}
+
 func (r *recordingGraphReader) GetHostEventsByType(_ context.Context, _, _ string, _ api.TimeRange) ([]api.Event, error) {
 	return nil, nil
 }

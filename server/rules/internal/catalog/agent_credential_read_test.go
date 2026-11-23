@@ -25,10 +25,16 @@ func guardEvent(t *testing.T, pid int, path, kind string) api.Event {
 		EventType: "agent_credential_would_block", Payload: raw}
 }
 
-// generationReader answers the guard rule's lookup, by pid and the kernel generation its report carries.
+// generationReader answers the guard rule's lookups: the opener by pid and the kernel generation its report carries, and the
+// session an agent process leads, by its pid.
 type generationReader struct {
 	perPIDGraphReader
 	byGeneration map[[2]int64]*api.Process
+	ledBy        map[int]string
+}
+
+func (r *generationReader) GetAgentSessionLedBy(_ context.Context, agent api.Process, _ int64) (string, error) {
+	return r.ledBy[agent.PID], nil
 }
 
 func (r *generationReader) GetProcessByPIDVersion(_ context.Context, _ string, pid int, pidversion uint32, _ int64) (*api.Process, error) {
@@ -36,8 +42,8 @@ func (r *generationReader) GetProcessByPIDVersion(_ context.Context, _ string, p
 }
 
 // agentProcesses are a Claude Code session's processes, by pid and generation (pid*10, as guardEvent reports): two of its
-// commands, which carry the session, and the agent itself, which does not. Pid 6991's earlier image, generation 69909, is the
-// shell that execed cat, recorded with another session.
+// commands, which carry the session, and the agent itself, which does not but leads it. Pid 6991's earlier image, generation
+// 69909, is the shell that execed cat, recorded with another session. Pid 7400 is in no session and leads none.
 func agentProcesses() *generationReader {
 	session := agentCredentialSession
 	sig := func(team, signingID string, platform bool) api.NullRawJSON {
@@ -55,11 +61,13 @@ func agentProcesses() *generationReader {
 	shell := &api.Process{ID: 9, PID: 6991, Path: "/bin/zsh", CodeSigning: sig("", "com.apple.zsh", true)}
 	shell.AgentSessionID = &other
 	agent := &api.Process{ID: 3, PID: 6833, Path: "/Users/victor/.local/share/claude/versions/2.1.302", CodeSigning: sig("", "a.out", false)}
+	outsider := &api.Process{ID: 5, PID: 7400, Path: "/usr/bin/python3", CodeSigning: sig("", "com.apple.python3", true)}
 	return &generationReader{
-		perPIDGraphReader: perPIDGraphReader{procByPID: map[int]*api.Process{6991: shell, 7200: gh, 7300: aws, 6833: agent}},
+		perPIDGraphReader: perPIDGraphReader{procByPID: map[int]*api.Process{6991: shell, 7200: gh, 7300: aws, 6833: agent, 7400: outsider}},
 		byGeneration: map[[2]int64]*api.Process{
-			{6991, 69910}: cat, {6991, 69909}: shell, {7200, 72000}: gh, {7300, 73000}: aws, {6833, 68330}: agent,
+			{6991, 69910}: cat, {6991, 69909}: shell, {7200, 72000}: gh, {7300, 73000}: aws, {6833, 68330}: agent, {7400, 74000}: outsider,
 		},
+		ledBy: map[int]string{6833: agentCredentialSession},
 	}
 }
 
@@ -78,8 +86,9 @@ func TestAgentCredentialRead_AlertsOncePerSessionAndKind(t *testing.T) {
 		guardEvent(t, 6991, "/Users/victor/.ssh/id_rsa", "ssh_private_key"),
 		guardEvent(t, 7200, "/Users/victor/.config/gh/hosts.yml", "github_cli_token"),
 		guardEvent(t, 6833, "/Users/victor/.ssh/id_ed25519", "ssh_private_key"),
+		guardEvent(t, 7400, "/Users/victor/.ssh/id_ed25519", "ssh_private_key"),
 	)
-	require.Len(t, findings, 4, "each report is a finding; the alert store joins those of one subject")
+	require.Len(t, findings, 5, "each report is a finding; the alert store joins those of one subject")
 	subjects := map[string]string{}
 	for _, f := range findings {
 		subjects[f.EventIDs[0]] = f.Subject
@@ -89,8 +98,9 @@ func TestAgentCredentialRead_AlertsOncePerSessionAndKind(t *testing.T) {
 		"6991:/Users/victor/.ssh/id_ed25519":      keySubject,
 		"6991:/Users/victor/.ssh/id_rsa":          keySubject,
 		"7200:/Users/victor/.config/gh/hosts.yml": "agentcredential:" + agentCredentialSession + ":github_cli_token",
-		"6833:/Users/victor/.ssh/id_ed25519":      "",
-	}, subjects, "a session's reads of one kind share a subject; the agent's own process, with no session, keeps its own")
+		"6833:/Users/victor/.ssh/id_ed25519":      keySubject,
+		"7400:/Users/victor/.ssh/id_ed25519":      "",
+	}, subjects, "a session's reads of one kind share a subject, the agent's own among them; a process in no session keeps its own")
 	assert.Equal(t, "An AI agent's /bin/cat tried to read your SSH private key (/Users/victor/.ssh/id_ed25519)",
 		findings[0].Description)
 	assert.Equal(t, api.SeverityHigh, findings[0].Severity)

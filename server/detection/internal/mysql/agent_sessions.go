@@ -47,6 +47,26 @@ func decodeSessionCursor(token string) (sessionCursor, error) {
 	return c, nil
 }
 
+// GetAgentSessionLedBy implements api.GraphReader (issue #1589). The host_id prefix of the primary key bounds the read to one host's
+// sessions, and it runs only for a credential read by a process with no session of its own, so it needs no index of its own.
+func (s *Store) GetAgentSessionLedBy(ctx context.Context, agent api.Process, atNs int64) (string, error) {
+	startNs := agent.ForkTimeNs
+	if agent.ExecTimeNs != nil {
+		startNs = *agent.ExecTimeNs
+	}
+	var ids []string
+	if err := s.db.SelectContext(ctx, &ids, `
+		SELECT agent_session_id FROM agent_sessions
+		WHERE host_id = ? AND agent_pid = ? AND first_seen_ns BETWEEN ? AND ?
+		ORDER BY first_seen_ns DESC LIMIT 1`, agent.HostID, agent.PID, startNs, atNs); err != nil {
+		return "", fmt.Errorf("agent session led by pid %d: %w", agent.PID, err)
+	}
+	if len(ids) == 0 {
+		return "", nil
+	}
+	return ids[0], nil
+}
+
 // GetAgentSession reads one session's record without its process and alert counts, which a caller that needs only the agent's pid
 // or the session's time span should not pay for (issue #1334). It returns nil when the host holds no such session.
 func (s *Store) GetAgentSession(ctx context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error) {

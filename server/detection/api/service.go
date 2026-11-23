@@ -118,6 +118,12 @@ type GraphReader interface {
 	// gap between them is the thing being measured. The window a caller passes must be narrow; this is a correlation read, not a
 	// history scan.
 	GetHostEventsByType(ctx context.Context, hostID, eventType string, tr TimeRange) ([]Event, error)
+
+	// GetAgentSessionLedBy returns the id of the AI agent session the agent process leads at atNs, or "" when it leads none (issue
+	// #1589). The agent's own process carries no session marker, since the agent sets them only on the commands it runs, but those
+	// commands record its pid as the session's agent_pid. The session is the latest one first seen at or before atNs and no earlier
+	// than the process's own start, so a recycled pid's older sessions do not match and /clear's newer session does.
+	GetAgentSessionLedBy(ctx context.Context, agent Process, atNs int64) (string, error)
 }
 
 // MetricsRecorder is the optional OTel hook the engine + intake + pipeline goroutines write to. Nil-safe: cmd/main wires the

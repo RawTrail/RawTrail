@@ -73,6 +73,11 @@ func (r *retryableGraphReader) GetChildProcesses(
 	return procs, retryable(err, "GetChildProcesses")
 }
 
+func (r *retryableGraphReader) GetAgentSessionLedBy(ctx context.Context, agent api.Process, atNs int64) (string, error) {
+	id, err := r.inner.GetAgentSessionLedBy(ctx, agent, atNs)
+	return id, retryable(err, "GetAgentSessionLedBy")
+}
+
 func (r *retryableGraphReader) GetExecChain(ctx context.Context, current api.Process) ([]api.Process, error) {
 	chain, err := r.inner.GetExecChain(ctx, current)
 	return chain, retryable(err, "GetExecChain")
