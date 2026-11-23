@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -31,10 +32,11 @@ type generationReader struct {
 	perPIDGraphReader
 	byGeneration map[[2]int64]*api.Process
 	ledBy        map[int]string
+	ledByErr     error
 }
 
 func (r *generationReader) GetAgentSessionLedBy(_ context.Context, agent api.Process, _ int64) (string, error) {
-	return r.ledBy[agent.PID], nil
+	return r.ledBy[agent.PID], r.ledByErr
 }
 
 func (r *generationReader) GetProcessByPIDVersion(_ context.Context, _ string, pid int, pidversion uint32, _ int64) (*api.Process, error) {
@@ -101,6 +103,17 @@ func TestAgentCredentialRead_AlertsOncePerSessionAndKind(t *testing.T) {
 		"6833:/Users/victor/.ssh/id_ed25519":      keySubject,
 		"7400:/Users/victor/.ssh/id_ed25519":      "",
 	}, subjects, "a session's reads of one kind share a subject, the agent's own among them; a process in no session keeps its own")
+	sessions := map[string]string{}
+	for _, f := range findings {
+		sessions[f.EventIDs[0]] = f.AgentSessionID
+	}
+	assert.Equal(t, map[string]string{
+		"6991:/Users/victor/.ssh/id_ed25519":      agentCredentialSession,
+		"6991:/Users/victor/.ssh/id_rsa":          agentCredentialSession,
+		"7200:/Users/victor/.config/gh/hosts.yml": agentCredentialSession,
+		"6833:/Users/victor/.ssh/id_ed25519":      agentCredentialSession,
+		"7400:/Users/victor/.ssh/id_ed25519":      "",
+	}, sessions, "each finding carries its session, so an alert anchored on the agent's own process stays with the session")
 	assert.Equal(t, "An AI agent's /bin/cat tried to read your SSH private key (/Users/victor/.ssh/id_ed25519)",
 		findings[0].Description)
 	assert.Equal(t, api.SeverityHigh, findings[0].Severity)
@@ -211,4 +224,15 @@ func TestAgentCredentialRead_ALongSessionIDStillFitsTheSubject(t *testing.T) {
 	require.Len(t, findings, 1)
 	assert.LessOrEqual(t, len(findings[0].Subject), subjectColumnLimit)
 	assert.True(t, strings.HasPrefix(findings[0].Subject, "agentcredential:sha256:"))
+}
+
+// A failed lookup of the session the agent leads fails the evaluation, which the engine retries, rather than alerting the read on
+// its own: that would raise the second alert issue #1589 removed.
+func TestAgentCredentialRead_AFailedSessionLookupFailsTheEvaluation(t *testing.T) {
+	t.Parallel()
+	reader := agentProcesses()
+	reader.ledByErr = errors.New("connection refused")
+	_, err := (&AgentCredentialRead{}).Evaluate(t.Context(),
+		[]api.Event{guardEvent(t, 6833, "/Users/victor/.aws/credentials", "aws_credentials")}, reader)
+	require.ErrorIs(t, err, reader.ledByErr)
 }

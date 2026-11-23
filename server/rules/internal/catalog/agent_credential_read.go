@@ -166,6 +166,8 @@ func (r *AgentCredentialRead) evalEvent(
 	}
 	if sessionID != "" {
 		finding.Subject = pathSubject("agentcredential", sessionID+":"+p.Credential)
+		// Carried on the alert too, since a first read by the agent's own process anchors the alert outside the session.
+		finding.AgentSessionID = sessionID
 	}
 	return finding, nil
 }

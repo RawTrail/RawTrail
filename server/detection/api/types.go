@@ -528,7 +528,10 @@ type Alert struct {
 	// Alert is defaulted to the ProcessID string by InsertAlert.
 	Subject    string          `db:"subject" json:"-"`
 	Techniques JSONStringSlice `db:"techniques" json:"techniques,omitempty"`
-	Status     AlertStatus     `db:"status" json:"status"`
+	// AgentSessionID is the session the alert belongs to when its process does not carry it (issue #1589). Written once, at insert,
+	// and read only by the session queries, which take it before the process's session.
+	AgentSessionID string      `db:"-" json:"-"`
+	Status         AlertStatus `db:"status" json:"status"`
 	// Disposition says whether this row is an alert or a monitor record (issue #994): a match from a rule in monitor mode, kept so an
 	// operator can read what the rule would have raised. Empty on an Alert handed to InsertAlert means an alert.
 	Disposition AlertDisposition `db:"disposition" json:"disposition"`
@@ -688,6 +691,9 @@ type Finding struct {
 	Subject    string
 	EventIDs   []string
 	Techniques []string
+	// AgentSessionID is the AI agent session the finding belongs to when the rule resolved one that the process does not carry:
+	// the agent's own process has no session marker (issue #1589). Empty otherwise, and the alert's session is its process's.
+	AgentSessionID string
 	// Modifiers are the conditional escalations this finding earned, each carrying the risk it adds and the techniques that
 	// come with it. Empty for the ordinary case, which is most findings.
 	//

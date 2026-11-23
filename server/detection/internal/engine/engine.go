@@ -985,6 +985,8 @@ func alertFromFinding(f api.Finding, techniques []string, origin string, disposi
 		ProcessID:   f.ProcessID,
 		Subject:     f.Subject,
 		Techniques:  f.Techniques,
+		// The session the rule resolved, for an alert whose process carries none (issue #1589).
+		AgentSessionID: f.AgentSessionID,
 	}
 }
 
