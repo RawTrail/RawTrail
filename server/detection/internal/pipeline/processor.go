@@ -390,8 +390,9 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 			// attempt never saw (issue #893).
 			//
 			// On a settle context rather than lockedCtx itself, because a stop cancels lockedCtx and is the commonest reason the
-			// fold failed at all (issue #1571). The advisory lock is still held here: it is released only once this callback returns.
-			settleCtx, settled := settleContext(lockedCtx)
+			// fold failed at all (issue #1571). The advisory lock is still held here after a stop: it is released only once this
+			// callback returns. A LOST lock still cancels the nack, which then leaves the batch to the lease as before.
+			settleCtx, settled := settleUnderLock(ctx, lockedCtx)
 			nacked, nackErr := p.eventLog.Nack(settleCtx, eventIDsOf(claimed), stamp, nil)
 			settled()
 			if nackErr != nil {
@@ -438,7 +439,11 @@ func (p *Processor) processHost(ctx context.Context, host string) (int, bool) {
 		// tally back only for a batch it withdrew in full, and nothing otherwise, so a whole-batch comparison here would re-check
 		// what the contract guarantees. Exactly-once comes from the same place: the 0 -> 3 transition happens once for a row in
 		// its life, so only the caller whose statement performed it is handed the tally.
-		p.recordCarriedMatches(ctx, carried)
+		//
+		// On a settle context because the withdrawal above can now land after a stop, and its tally is recorded nowhere else.
+		recordCtx, recorded := settleContext(ctx)
+		p.recordCarriedMatches(recordCtx, carried)
+		recorded()
 		// Already requeued inside the lock. Stop draining so a persistently failing batch cannot hot-spin.
 		return 0, true
 	}
@@ -500,6 +505,33 @@ func settleContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	}
 }
 
+// settleUnderLock is settleContext for a statement that must run while the host's claim lock is held: it outlives a stop the same
+// way, but still ends the moment the lock itself is lost.
+//
+// The two are told apart by the worker's context. A stop cancels worker, and locked with it, and the lock is still held until the
+// locked section returns, so the statement may land. A lost lock cancels locked alone, and a requeue without the lock reopens the
+// window the lock exists to close (issue #863): its row locks make a concurrent claimer's SKIP LOCKED skip this batch's earlier
+// events and fold a later one first. Cancellation propagates from parent to child, so by the time locked's watcher runs on a stop,
+// worker.Err() already reports it.
+func settleUnderLock(worker, locked context.Context) (context.Context, context.CancelFunc) {
+	settleCtx, settled := settleContext(worker)
+	lockLost := func() {
+		if worker.Err() == nil {
+			settled()
+		}
+	}
+	stopWatchingLock := context.AfterFunc(locked, lockLost)
+	// AfterFunc calls back on its own goroutine, so a lock already lost would race the statement this context is for. Checked
+	// here as well, so that case is decided before the caller runs anything.
+	if locked.Err() != nil {
+		lockLost()
+	}
+	return settleCtx, func() {
+		stopWatchingLock()
+		settled()
+	}
+}
+
 // underHostLock is withHostLock for a callback that also reports a value, which the acknowledgement does: whether the claim was
 // still held. Written out rather than closing over a variable at each call site, because the variable would be read after the
 // lock is released and the point of the helper is that everything about the acknowledgement happens inside it.
@@ -555,15 +587,16 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 				p.logger.ErrorContext(ctx, "encode monitor tally for retry", "err", encodeErr, "entries", len(tally))
 			}
 			// Taken on a settle context, lock and all: a stop cancels ctx and so fails this evaluation, and the batch it leaves
-			// behind is exactly the one that has to be handed back (issue #1571).
+			// behind is exactly the one that has to be handed back (issue #1571). It lives until the withdrawal's tally below is
+			// recorded too, because a withdrawal that lands after a stop has no later attempt to record it.
 			var nacked visibilityapi.NackResult
 			settleCtx, settled := settleContext(ctx)
+			defer settled()
 			nackErr := p.withHostLock(settleCtx, hostOf(events), func(lockedCtx context.Context) error {
 				var innerErr error
 				nacked, innerErr = p.eventLog.Nack(lockedCtx, eventIDs, claimStamp, carry)
 				return innerErr
 			})
-			settled()
 			if nackErr != nil {
 				p.logStoreFailure(ctx, "nack events after detection failure", nackErr)
 			}
@@ -607,9 +640,9 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 				// The fallback is for an encoding failure alone, where the queue could NOT have this attempt's tally, so the
 				// value in hand is the only one that reflects this attempt.
 				if encodeErr != nil {
-					p.recordMonitorMatches(ctx, tally)
+					p.recordMonitorMatches(settleCtx, tally)
 				} else {
-					p.recordCarriedMatches(ctx, nacked.CarriedTally)
+					p.recordCarriedMatches(settleCtx, nacked.CarriedTally)
 				}
 			}
 			return 0
@@ -617,12 +650,13 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 	}
 
 	// A settle context for the same reason as the nack above: a batch that finished evaluating as the stop arrived is acknowledged
-	// rather than left claimed for the lease and processed again by whoever claims it next.
+	// rather than left claimed for the lease and processed again by whoever claims it next. It lives until the batch's tally is
+	// recorded, since an acknowledged batch is never evaluated again and its matches would otherwise be lost with the stop.
 	settleCtx, settled := settleContext(ctx)
+	defer settled()
 	held, err := p.underHostLock(settleCtx, hostOf(events), func(lockedCtx context.Context) (bool, error) {
 		return p.eventLog.Ack(lockedCtx, eventIDs, claimStamp)
 	})
-	settled()
 	if err != nil {
 		// The batch processed but the queue was not durably advanced (the rows stay leased until the claim lease expires).
 		// Returning 0 stops the drain loop so the worker waits for the next tick rather than treating this as a full-batch
@@ -641,7 +675,7 @@ func (p *Processor) evaluateAndAck(ctx context.Context, events []visibilityapi.E
 			"host_id", hostOf(events), "events", len(eventIDs))
 		return 0
 	}
-	p.recordMonitorMatches(ctx, tally)
+	p.recordMonitorMatches(settleCtx, tally)
 	p.recordDetectionLag(ctx, events)
 	return len(events)
 }

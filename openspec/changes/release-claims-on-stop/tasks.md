@@ -1,6 +1,8 @@
 ## 1. Processor
 
 - [x] 1.1 Settle a claimed batch on a context detached from the stop, bounded once the stop arrives, on both requeue paths and the acknowledgement.
+- [x] 1.2 Record a settled batch's monitor-mode counts on the same context.
+- [x] 1.3 Keep a lost host lock cancelling the requeue made under it.
 
 ## 2. Tests
 

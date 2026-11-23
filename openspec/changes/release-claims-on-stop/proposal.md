@@ -5,6 +5,8 @@ When the server stops while the processor is working on a claimed batch, the bat
 ## What changes
 
 - The processor settles the batch it holds, whether by handing it back or by acknowledging it, on a context detached from the stop, bounded by a short grace once the stop arrives. This covers the requeue after a failed fold, the requeue after a failed evaluation, and the acknowledgement of a batch that finished evaluating as the stop arrived.
+- A batch settled after a stop also has its monitor-mode counts recorded on that context, since it is never evaluated again.
+- A requeue made under the host's lock still ends when the lock is lost, as before: requeueing without the lock would let another claimer fold the host's later events first.
 - The claim lease stays the fallback for a crash, where nothing can run.
 
 ## Impact
