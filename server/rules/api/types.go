@@ -39,7 +39,7 @@ type (
 	// with a conditional severity declares one instead of reporting a finished severity, so an operator's per-rule setting
 	// re-ranks the rule rather than erasing what the rule observed (issue #753).
 	RiskModifier = detectionapi.RiskModifier
-	// GraphReader is the narrow read surface the engine exposes to rules: six methods, the entire graph surface the production rules
+	// GraphReader is the narrow read surface the engine exposes to rules: seven methods, the entire graph surface the production rules
 	// consume. The count is load-bearing rather than trivia, because the engine wraps every one of them to make a failed read
 	// retryable (issue #798), and a method missing from that wrapper loses detections silently.
 	GraphReader = detectionapi.GraphReader

@@ -47,6 +47,26 @@ func decodeSessionCursor(token string) (sessionCursor, error) {
 	return c, nil
 }
 
+// GetAgentSessionLedBy implements api.GraphReader (issue #1589). The host_id prefix of the primary key bounds the read to one host's
+// sessions, and it runs only for a credential read by a process with no session of its own, so it needs no index of its own.
+func (s *Store) GetAgentSessionLedBy(ctx context.Context, agent api.Process, atNs int64) (string, error) {
+	startNs := agent.ForkTimeNs
+	if agent.ExecTimeNs != nil {
+		startNs = *agent.ExecTimeNs
+	}
+	var ids []string
+	if err := s.db.SelectContext(ctx, &ids, `
+		SELECT agent_session_id FROM agent_sessions
+		WHERE host_id = ? AND agent_pid = ? AND first_seen_ns BETWEEN ? AND ?
+		ORDER BY first_seen_ns DESC LIMIT 1`, agent.HostID, agent.PID, startNs, atNs); err != nil {
+		return "", fmt.Errorf("agent session led by pid %d: %w", agent.PID, err)
+	}
+	if len(ids) == 0 {
+		return "", nil
+	}
+	return ids[0], nil
+}
+
 // GetAgentSession reads one session's record without its process and alert counts, which a caller that needs only the agent's pid
 // or the session's time span should not pay for (issue #1334). It returns nil when the host holds no such session.
 func (s *Store) GetAgentSession(ctx context.Context, hostID, sessionID string) (*api.AgentSessionSummary, error) {
@@ -76,10 +96,16 @@ func (s *Store) AgentSessionCounts(ctx context.Context, hostID, sessionID string
 		Severity string `db:"severity"`
 		N        int64  `db:"n"`
 	}
+	// An alert's session is its own when it carries one (issue #1589), and its process's otherwise: two indexed reads, kept apart so
+	// neither has to scan the host's alerts.
 	if err := s.db.SelectContext(ctx, &bySeverity, `
-		SELECT a.severity, COUNT(*) AS n FROM alerts a JOIN processes p ON p.id = a.process_id
-		WHERE p.host_id = ? AND p.agent_session_id = ? AND a.disposition = ?
-		GROUP BY a.severity`, hostID, sessionID, api.AlertDispositionAlert); err != nil {
+		SELECT severity, COUNT(*) AS n FROM (
+			SELECT a.severity FROM alerts a WHERE a.host_id = ? AND a.agent_session_id = ? AND a.disposition = ?
+			UNION ALL
+			SELECT a.severity FROM alerts a JOIN processes p ON p.id = a.process_id
+			WHERE p.host_id = ? AND p.agent_session_id = ? AND a.disposition = ? AND a.agent_session_id IS NULL
+		) AS session_alerts
+		GROUP BY severity`, hostID, sessionID, api.AlertDispositionAlert, hostID, sessionID, api.AlertDispositionAlert); err != nil {
 		return api.AgentSessionCounts{}, fmt.Errorf("count session alerts by severity: %w", err)
 	}
 	for _, c := range bySeverity {
@@ -251,10 +277,18 @@ func (s *Store) countSessionActivity(ctx context.Context, rows []api.AgentSessio
 		SessionID string `db:"agent_session_id"`
 		N         int64  `db:"n"`
 	}
+	// An alert's session is its own when it carries one (issue #1589), and its process's otherwise, as AgentSessionCounts counts.
+	in := strings.Join(keys, ", ")
+	queryArgs := append(append(append(append([]any{}, args...), api.AlertDispositionAlert), args...), api.AlertDispositionAlert)
 	if err := s.db.SelectContext(ctx, &alerts, `
-		SELECT p.host_id, p.agent_session_id, COUNT(*) AS n FROM alerts a JOIN processes p ON p.id = a.process_id
-		WHERE (p.host_id, p.agent_session_id) IN (`+strings.Join(keys, ", ")+`) AND a.disposition = ?
-		GROUP BY p.host_id, p.agent_session_id`, append(args, api.AlertDispositionAlert)...); err != nil {
+		SELECT host_id, agent_session_id, COUNT(*) AS n FROM (
+			SELECT a.host_id, a.agent_session_id FROM alerts a
+			WHERE (a.host_id, a.agent_session_id) IN (`+in+`) AND a.disposition = ?
+			UNION ALL
+			SELECT p.host_id, p.agent_session_id FROM alerts a JOIN processes p ON p.id = a.process_id
+			WHERE (p.host_id, p.agent_session_id) IN (`+in+`) AND a.disposition = ? AND a.agent_session_id IS NULL
+		) AS session_alerts
+		GROUP BY host_id, agent_session_id`, queryArgs...); err != nil {
 		return fmt.Errorf("count session alerts: %w", err)
 	}
 	for _, c := range alerts {

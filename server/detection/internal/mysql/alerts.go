@@ -130,10 +130,12 @@ func insertAlertRow(ctx context.Context, tx *sqlx.Tx, a api.Alert) (int64, bool,
 	// rowsAffected == 1; this holds because no DSN enables clientFoundRows (which would make a match report 1 as "found").
 	// Keeps the single-statement, race-safe dedup the insert-and-catch path gave us across replicas (ADR-0010), span-free.
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO alerts (host_id, rule_id, source, disposition, severity, title, description, origin, process_id, subject, techniques)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, ?)
+		INSERT INTO alerts (host_id, rule_id, source, disposition, severity, title, description, origin, process_id, subject, techniques,
+			agent_session_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, ?, NULLIF(?, ''))
 		ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), updated_at = updated_at`,
 		a.HostID, a.RuleID, a.Source, a.Disposition, a.Severity, a.Title, a.Description, a.Origin, a.ProcessID, a.Subject, a.Techniques,
+		a.AgentSessionID,
 	)
 	if err != nil {
 		return 0, false, fmt.Errorf("insert alert: %w", err)
@@ -315,9 +317,11 @@ func alertFilterWhere(f api.AlertFilter) (string, []any) {
 		args = append(args, f.ProcessID)
 	}
 	if f.AgentSessionID != "" {
-		// The session's processes are the indexed (host_id, agent_session_id) lookup; the handler requires the host.
-		clauses = append(clauses, "process_id IN (SELECT id FROM processes WHERE host_id = ? AND agent_session_id = ?)")
-		args = append(args, f.HostID, f.AgentSessionID)
+		// An alert's session is its own when it carries one, which the agent's own read does (issue #1589), and its process's
+		// otherwise. The session's processes are the indexed (host_id, agent_session_id) lookup; the handler requires the host.
+		clauses = append(clauses, "(agent_session_id = ? OR (agent_session_id IS NULL AND "+
+			"process_id IN (SELECT id FROM processes WHERE host_id = ? AND agent_session_id = ?)))")
+		args = append(args, f.AgentSessionID, f.HostID, f.AgentSessionID)
 	}
 	if f.AgentProcessID != 0 {
 		// The agent's own processes in the window the tree read lists them for, by the same walk.

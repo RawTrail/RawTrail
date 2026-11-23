@@ -40,6 +40,10 @@ func (s stubGraphReader) GetNetworkEventsForProcess(context.Context, string, int
 	return nil, s.err
 }
 
+func (s stubGraphReader) GetAgentSessionLedBy(context.Context, api.Process, int64) (string, error) {
+	return "", s.err
+}
+
 func (s stubGraphReader) GetHostEventsByType(context.Context, string, string, api.TimeRange) ([]api.Event, error) {
 	return nil, s.err
 }
@@ -66,6 +70,10 @@ func graphReads() map[string]func(context.Context, api.GraphReader) error {
 		},
 		"GetNetworkEventsForProcess": func(ctx context.Context, gr api.GraphReader) error {
 			_, err := gr.GetNetworkEventsForProcess(ctx, "host", 1, api.TimeRange{})
+			return err
+		},
+		"GetAgentSessionLedBy": func(ctx context.Context, gr api.GraphReader) error {
+			_, err := gr.GetAgentSessionLedBy(ctx, api.Process{}, 0)
 			return err
 		},
 		"GetHostEventsByType": func(ctx context.Context, gr api.GraphReader) error {

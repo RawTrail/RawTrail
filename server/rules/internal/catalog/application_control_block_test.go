@@ -291,6 +291,10 @@ func (s *stubBlockGraphReader) GetExecChain(_ context.Context, current api.Proce
 	return []api.Process{current}, nil
 }
 
+func (*stubBlockGraphReader) GetAgentSessionLedBy(context.Context, api.Process, int64) (string, error) {
+	return "", nil
+}
+
 func (s *stubBlockGraphReader) GetHostEventsByType(_ context.Context, _, _ string, _ api.TimeRange) ([]api.Event, error) {
 	return nil, nil
 }

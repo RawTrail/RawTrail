@@ -433,7 +433,7 @@ In detect mode the read goes through and the alert says the agent tried to read 
 ### Limitations
 
 - Only Claude Code sessions are recognized, by the markers it sets in the environment of the commands it runs.
-- The agent's own process carries no session marker, so its reads are alerted apart from its commands'.
+- A read by the agent's own process before it has run any command is alerted on its own: the session is recorded from the commands it runs, so none is known for it yet.
 - Needs an agent whose extension runs the credential guard.
 
 ## tcc_sensitive_grant

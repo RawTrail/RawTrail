@@ -87,7 +87,8 @@ func (r *AgentCredentialRead) Doc() api.Documentation {
 		},
 		Limitations: []string{
 			"Only Claude Code sessions are recognized, by the markers it sets in the environment of the commands it runs.",
-			"The agent's own process carries no session marker, so its reads are alerted apart from its commands'.",
+			"A read by the agent's own process before it has run any command is alerted on its own: the session is recorded " +
+				"from the commands it runs, so none is known for it yet.",
 			"Needs an agent whose extension runs the credential guard.",
 		},
 	}
@@ -156,10 +157,30 @@ func (r *AgentCredentialRead) evalEvent(
 		ProcessID:   proc.ID,
 		EventIDs:    []string{evt.EventID},
 	}
-	// One alert per session and kind of credential: the session's later reads of it join the first. A process the graph holds no
-	// session for (the agent's own) is alerted on its own, by the default per-process subject.
-	if id := proc.AgentSessionID; id != nil && *id != "" {
-		finding.Subject = pathSubject("agentcredential", *id+":"+p.Credential)
+	// One alert per session and kind of credential: the session's later reads of it join the first. The agent's own process carries
+	// no session marker, so its read joins the session it leads (issue #1589). A process in no session at all is alerted on its own,
+	// by the default per-process subject.
+	sessionID, err := r.sessionOf(ctx, proc, evt.TimestampNs, s)
+	if err != nil {
+		return nil, err
+	}
+	if sessionID != "" {
+		finding.Subject = pathSubject("agentcredential", sessionID+":"+p.Credential)
+		// Carried on the alert too, since a first read by the agent's own process anchors the alert outside the session.
+		finding.AgentSessionID = sessionID
 	}
 	return finding, nil
+}
+
+// sessionOf returns the AI agent session the reading process belongs to: the one its own markers name, or else the one it leads as
+// the agent process, or "" for neither.
+func (r *AgentCredentialRead) sessionOf(ctx context.Context, proc *api.Process, atNs int64, s api.GraphReader) (string, error) {
+	if id := proc.AgentSessionID; id != nil && *id != "" {
+		return *id, nil
+	}
+	id, err := s.GetAgentSessionLedBy(ctx, *proc, atNs)
+	if err != nil {
+		return "", fmt.Errorf("agent session led by pid %d: %w", proc.PID, err)
+	}
+	return id, nil
 }

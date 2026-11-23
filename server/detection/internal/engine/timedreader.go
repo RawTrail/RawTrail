@@ -93,6 +93,11 @@ func (r *timedReader) GetNetworkEventsForProcess(
 	return r.inner.GetNetworkEventsForProcess(ctx, hostID, pid, tr)
 }
 
+func (r *timedReader) GetAgentSessionLedBy(ctx context.Context, agent api.Process, atNs int64) (string, error) {
+	defer observeWait(ctx, time.Now())
+	return r.inner.GetAgentSessionLedBy(ctx, agent, atNs)
+}
+
 func (r *timedReader) GetExecChain(ctx context.Context, current api.Process) ([]api.Process, error) {
 	defer observeWait(ctx, time.Now())
 	return r.inner.GetExecChain(ctx, current)

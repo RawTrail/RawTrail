@@ -43,6 +43,10 @@ func (stubGraphReader) GetChildProcesses(context.Context, string, int, api.TimeR
 func (stubGraphReader) GetExecChain(context.Context, api.Process) ([]api.Process, error) {
 	return nil, nil
 }
+func (stubGraphReader) GetAgentSessionLedBy(context.Context, api.Process, int64) (string, error) {
+	return "", nil
+}
+
 func (stubGraphReader) GetHostEventsByType(context.Context, string, string, api.TimeRange) ([]api.Event, error) {
 	return nil, nil
 }

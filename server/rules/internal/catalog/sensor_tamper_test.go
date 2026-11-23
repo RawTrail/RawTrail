@@ -59,6 +59,10 @@ func (a *transitionArchive) GetChildProcesses(
 	return nil, nil
 }
 
+func (*transitionArchive) GetAgentSessionLedBy(context.Context, api.Process, int64) (string, error) {
+	return "", nil
+}
+
 func (a *transitionArchive) GetExecChain(context.Context, api.Process) ([]api.Process, error) {
 	return nil, nil
 }
