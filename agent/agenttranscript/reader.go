@@ -432,7 +432,7 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, pos 
 	if line.Mode != "" && line.ModeSession == src.session {
 		pos.mode = line.Mode
 	}
-	if line.Caveat != "" {
+	if line.Caveat != "" && line.TurnSession == src.session {
 		pos.caveat = line.Caveat
 	}
 	// A slash command passed to claude -p is the person's only when Claude Code wrote its caveat just before it.

@@ -4,7 +4,7 @@
 
 ## 2. Tests
 
-- [x] 2.1 Reader cases: the command after its caveat; the same text with no caveat, after another entry, or after a meta entry that is not a caveat; text that is not a slash command; an agent-origin line; an interactive `/clear`.
+- [x] 2.1 Reader cases: the command after its caveat; the same text with no caveat, after another entry, or after a meta entry that is not a caveat; text that is not a slash command; an agent-origin line; an interactive `/clear`; and the command still reported with another session's caveat between it and its own.
 
 ## 3. Verify
 
