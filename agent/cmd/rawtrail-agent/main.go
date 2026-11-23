@@ -789,7 +789,7 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 	hooks = withHealthHooks(hooks, p)
 	// Only the network-extension loop wires UpgradeProbe (nil for ESF): after a staged upgrade the NE's nesessionmanager-owned
 	// Mach service stays bound to the terminated old version until reboot, so a sustained NE connect failure paired with a
-	// pending-uninstall old version means "reboot required", not "needs approval" (#399).
+	// pending-uninstall old version and an enabled new one means "reboot required", not "needs approval" (#399, #1598).
 	hooks.UpgradeProbe = p.upgradeProbe
 	loop := receiver.NewLoop(factory, receiver.LoopConfig{
 		ServiceName:       p.serviceLabel,

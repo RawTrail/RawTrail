@@ -217,9 +217,10 @@ func (l *Loop) runOnce(ctx context.Context) (reconnect, connected bool) {
 
 // logConnectFailure emits the per-attempt connect-failure log. Once the failure has persisted past staleProbeAfterFailures
 // consecutive attempts AND an UpgradeProbe is wired (the network-extension loop) AND it reports a previous version pending
-// removal on reboot, it emits a distinct, actionable reboot-required hint once per stale episode (#399) instead of the bare
-// "receiver connect" warning. The bare warning stays for the genuine not-yet-approved case, where no UpgradeProbe is wired or
-// no old version is pending removal, so an operator can still tell "needs approval" from "needs reboot after upgrade".
+// removal on reboot while the new one is enabled, it emits a distinct, actionable reboot-required hint once per stale episode (#399)
+// instead of the bare "receiver connect" warning. The bare warning stays for the not-yet-approved case, where no UpgradeProbe is
+// wired or the probe finds no enabled new version beside a pending old one, so an operator can still tell "needs approval" from
+// "needs reboot after upgrade" (#1598).
 func (l *Loop) logConnectFailure(ctx context.Context, err error) {
 	if l.hooks.UpgradeProbe != nil && l.consecutiveFailures >= staleProbeAfterFailures && !l.staleHintLogged && l.hooks.UpgradeProbe() {
 		l.staleHintLogged = true
