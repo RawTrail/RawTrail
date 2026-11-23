@@ -84,10 +84,10 @@ type Reader struct {
 type position struct {
 	offset int64
 	file   os.FileInfo
-	// changed is when the transcript last changed, as the latest pass listed it. Kept apart from file, which is what the reader last
-	// read, because a growing transcript that the pass budget skips is still active, and judging it by its last read would call it
-	// idle or evict it ahead of a transcript truly quieter (issue #1545).
-	changed  time.Time
+	// latest is the transcript as the latest pass listed it, or as the reader last read it if that is later. Kept apart from file,
+	// which is what the reader last read, because a growing transcript that the pass budget skips is still active, and judging it by
+	// its last read would call it idle or evict it ahead of a transcript truly quieter (issue #1545).
+	latest   os.FileInfo
 	skipping bool
 	// parent is the session the transcript's session was forked from, read once from its job's parent transcript (issue #1354).
 	parent     string
@@ -183,7 +183,7 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 	// when it was last read.
 	for _, t := range found {
 		if pos := r.files[path.Join(t.home, t.rel)]; pos != nil {
-			pos.changed = t.listed.ModTime()
+			pos.latest = t.listed
 		}
 	}
 	budget := int64(maxBytesTotalPerPass)
@@ -210,14 +210,15 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 // read from where the reader stopped rather than from its start. Forgetting a position whenever its transcript went quiet re-sent a
 // 61 MB transcript in full three times in one night.
 //
-// An idle transcript drops the assistant messages it has sent. They only stop the several entries Claude Code writes for one
-// streamed message from each sending its usage, and those entries are written within seconds of each other, so a session that
-// resumes writes new messages. A transcript that is recent but went unread this pass keeps them, since the rest of a message may
-// still be on its way.
+// An idle transcript the reader has read to its end drops the assistant messages it has sent. They only stop the several entries
+// Claude Code writes for one streamed message from each sending its usage, and those entries are written within seconds of each
+// other, so a session that resumes writes new messages. A transcript that is recent but went unread this pass keeps them, since the
+// rest of a message may still be on its way, and so does one with lines left to read, such as a line the queue refused, which is
+// read again and may be a later entry of a message already sent.
 func (r *Reader) trimPositions() {
 	idleBefore := r.now().Add(-recentWindow)
 	for _, pos := range r.files {
-		if pos.changed.Before(idleBefore) {
+		if pos.latest.ModTime().Before(idleBefore) && pos.offset >= pos.latest.Size() {
 			pos.messages = nil
 		}
 	}
@@ -225,7 +226,7 @@ func (r *Reader) trimPositions() {
 		return
 	}
 	keys := slices.SortedFunc(maps.Keys(r.files), func(a, b string) int {
-		return r.files[a].changed.Compare(r.files[b].changed)
+		return r.files[a].latest.ModTime().Compare(r.files[b].latest.ModTime())
 	})
 	for _, key := range keys[:len(keys)-maxPositions] {
 		delete(r.files, key)
@@ -328,7 +329,7 @@ func (r *Reader) readFrom(ctx context.Context, hostID string, t transcript, key 
 		r.files[key] = pos
 	}
 	pos.file = info
-	pos.changed = info.ModTime()
+	pos.latest = info
 	if info.Size() == pos.offset {
 		return 0, nil
 	}
