@@ -16,4 +16,4 @@ The agent SHALL keep a transcript's read position while the transcript is idle, 
 - **GIVEN** more transcripts with a kept position than the bound allows
 - **WHEN** the agent finishes a pass over them
 - **THEN** it forgets the least recently changed beyond the bound
-- **AND** an idle transcript keeps where it was read to, its turn and its permission mode, and drops the record of the streamed messages it sent, which a resumed session does not write again
+- **AND** each kept position remembers at most the 64 most recent streamed messages whose usage it sent, since a message's entries are written one after another and a later entry needs no older record

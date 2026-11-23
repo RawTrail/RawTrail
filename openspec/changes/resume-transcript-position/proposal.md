@@ -5,7 +5,8 @@ The agent re-sent a whole Claude Code transcript every time a session resumed af
 ## What changes
 
 - The reader keeps a transcript's position while it is idle, so a resumed session's transcript is read from where the reader stopped.
-- The positions kept are bounded at 1,024, the least recently changed forgotten first. An idle position keeps its offset, file identity, turn and permission mode, and drops the set of streamed messages whose usage it sent, which only spans the seconds one message is written over.
+- The positions kept are bounded at 1,024, the least recently changed forgotten first, dated by when each transcript last changed rather than when it was last read.
+- Each position remembers at most the 64 most recent streamed messages whose usage it sent, instead of all of them. That record only stops a message's several entries from each sending its usage, and the entries are written one after another (measured: no other message's entry between them across 32,489 messages in 162 transcripts), so a kept position stays small however long its transcript is idle.
 - A transcript replaced at its path is still read from its start, and a restart still reads each recent transcript once from its start.
 
 ## Impact

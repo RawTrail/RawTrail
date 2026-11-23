@@ -576,27 +576,24 @@ func TestReader_ResumedTranscriptIsReadFromWhereItStopped(t *testing.T) {
 	assert.Equal(t, []string{"toolu_01", "toolu_02"}, q.toolUseIDs(), "the call before the break is not sent again")
 }
 
-// fakeFileInfo is a transcript as a pass listed it: its size, changed at modTime.
+// fakeFileInfo is a transcript as a pass listed it, changed at modTime.
 type fakeFileInfo struct {
 	os.FileInfo
-	size    int64
 	modTime time.Time
 }
 
 func (f fakeFileInfo) ModTime() time.Time { return f.modTime }
-func (f fakeFileInfo) Size() int64        { return f.size }
 
 // spec:endpoint-event-collection/a-resumed-transcript-is-read-from-where-it-stopped/the-positions-kept-are-bounded
 func TestReader_TrimPositions(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	sentMessages := func() map[string]struct{} { return map[string]struct{}{"msg_01": {}} }
 
 	t.Run("past the bound, the least recently changed are forgotten", func(t *testing.T) {
 		t.Parallel()
 		r := &Reader{now: func() time.Time { return now }, files: map[string]*position{}}
 		for i := range maxPositions + 2 {
-			r.files[fmt.Sprintf("t%04d", i)] = &position{offset: 1, latest: fakeFileInfo{size: 1, modTime: now.Add(-time.Duration(i) * time.Hour)}}
+			r.files[fmt.Sprintf("t%04d", i)] = &position{offset: 1, latest: fakeFileInfo{modTime: now.Add(-time.Duration(i) * time.Hour)}}
 		}
 		r.trimPositions()
 		assert.Len(t, r.files, maxPositions)
@@ -606,25 +603,21 @@ func TestReader_TrimPositions(t *testing.T) {
 		assert.NotContains(t, r.files, fmt.Sprintf("t%04d", maxPositions+1))
 	})
 
-	t.Run("an idle transcript keeps its offset and drops the messages it sent", func(t *testing.T) {
+	t.Run("each keeps the most recent messages it sent, at most maxSentMessages", func(t *testing.T) {
 		t.Parallel()
-		idleAt := now.Add(-2 * recentWindow)
-		idle := &position{offset: 42, turn: "turn-1", mode: "plan", latest: fakeFileInfo{size: 42, modTime: idleAt}, messages: sentMessages()}
-		recent := &position{offset: 7, latest: fakeFileInfo{size: 7, modTime: now.Add(-time.Minute)}, messages: sentMessages()}
-		unread := &position{offset: 30, latest: fakeFileInfo{size: 42, modTime: idleAt}, messages: sentMessages()}
-		r := &Reader{now: func() time.Time { return now }, files: map[string]*position{"idle": idle, "recent": recent, "unread": unread}}
-		r.trimPositions()
-		assert.Equal(t, &position{offset: 42, turn: "turn-1", mode: "plan", latest: idle.latest}, r.files["idle"],
-			"what the resumed session needs stays: where to read from, its turn and its permission mode")
-		assert.Equal(t, sentMessages(), r.files["recent"].messages,
-			"a recent transcript this pass did not read keeps them, since the rest of a streamed message may still come")
-		assert.Equal(t, sentMessages(), r.files["unread"].messages,
-			"an idle transcript with lines left to read keeps them, since a line read again may be a later entry of a sent message")
+		pos := &position{}
+		for i := range maxSentMessages + 6 {
+			pos.markSent(fmt.Sprintf("msg_%03d", i))
+		}
+		assert.Len(t, pos.messages, maxSentMessages)
+		assert.True(t, pos.sent(fmt.Sprintf("msg_%03d", maxSentMessages+5)), "the most recent is remembered")
+		assert.True(t, pos.sent("msg_006"), "and the oldest still within the bound")
+		assert.False(t, pos.sent("msg_005"), "the older ones are forgotten")
 	})
 }
 
-// A transcript the pass budget skips is judged by when it last changed, not by when it was last read: one still growing keeps the
-// messages it sent, so a streamed message split across passes is not counted twice.
+// A transcript the pass budget skips is dated by when it last changed, not by when it was last read, so one still growing is not
+// evicted ahead of a transcript truly quieter.
 func TestReader_ASkippedTranscriptIsJudgedByItsLatestChange(t *testing.T) {
 	t.Parallel()
 	q := &recordingQueue{}
@@ -644,18 +637,15 @@ func TestReader_ASkippedTranscriptIsJudgedByItsLatestChange(t *testing.T) {
 	key := filepath.Join("dev", ".claude", "projects", "-Users-dev-project", filepath.Base(path))
 	lastRead, err := os.Stat(path)
 	require.NoError(t, err)
-	r.files[key] = &position{file: lastRead, latest: fakeFileInfo{modTime: newest.Add(-2 * recentWindow)},
-		messages: map[string]struct{}{"msg_01": {}}}
+	r.files[key] = &position{file: lastRead, latest: fakeFileInfo{modTime: newest.Add(-2 * recentWindow)}}
 
 	r.RunOnce(context.Background())
 
 	require.NotContains(t, q.toolUseIDs(), "toolu_skipped", "the budget must have skipped it, or this proves nothing")
-	assert.Equal(t, map[string]struct{}{"msg_01": {}}, r.files[key].messages, "a transcript still changing is not idle")
-	assert.Equal(t, recent.Unix(), r.files[key].latest.ModTime().Unix(), "and it is dated by its latest change")
+	assert.Equal(t, recent.Unix(), r.files[key].latest.ModTime().Unix(), "it is dated by its latest change")
 }
 
-// A streamed message whose entries land in two passes is sent once: the pass that first reads a transcript keeps what it sent, rather
-// than dropping it as though the transcript were idle.
+// A streamed message whose entries land in two passes is sent once.
 func TestReader_AMessageStreamedAcrossPassesIsSentOnce(t *testing.T) {
 	t.Parallel()
 	q := &recordingQueue{}

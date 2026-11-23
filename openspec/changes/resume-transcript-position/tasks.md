@@ -1,12 +1,13 @@
 ## 1. Agent
 
 - [x] 1.1 Keep an idle transcript's read position, bounded at 1,024 positions with the least recently changed forgotten first.
-- [x] 1.2 Drop an idle position's sent-message set, and keep it for a recent transcript a pass did not read.
+- [x] 1.2 Bound each position's sent-message record to its 64 most recent messages, and date positions by the transcript's latest change.
 
 ## 2. Tests
 
 - [x] 2.1 A session resuming after an idle break sends only what it added.
-- [x] 2.2 The bound forgets the least recently changed, and an idle position keeps its offset, turn and mode.
+- [x] 2.2 The bounds: the least recently changed position is forgotten, and a position keeps its 64 most recent sent messages.
+- [x] 2.3 A refused line read after an idle break, and a message streamed across passes, do not send usage twice.
 
 ## 3. Verify
 
