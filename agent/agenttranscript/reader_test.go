@@ -362,7 +362,6 @@ func TestReader_SkipsWhatItCannotAttribute(t *testing.T) {
 		old := time.Now().Add(-2 * recentWindow)
 		require.NoError(t, os.Chtimes(path, old, old))
 		assert.Equal(t, PassStats{}, r.RunOnce(context.Background()), "a transcript gone quiet is not read")
-		assert.Empty(t, r.files, "and its position is forgotten")
 	})
 }
 
@@ -552,4 +551,133 @@ func TestReader_AForeignUserEntryLeavesTheTurn(t *testing.T) {
 		}
 		assert.Equal(t, "p-1", turn, "capture=%v", capture)
 	}
+}
+
+// spec:endpoint-event-collection/a-resumed-transcript-is-read-from-where-it-stopped/a-resumed-session-sends-only-what-it-added
+//
+// Issue #1545: a session idle past recentWindow and then resumed had its transcript read from the start again, so every call in it was
+// sent again. On a dogfood laptop one 61 MB transcript was sent in full three times in a night.
+func TestReader_ResumedTranscriptIsReadFromWhereItStopped(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, bashLine("toolu_01", "ls"))
+	r.RunOnce(context.Background())
+	require.Equal(t, []string{"toolu_01"}, q.toolUseIDs())
+
+	idle := time.Now().Add(-2 * recentWindow)
+	require.NoError(t, os.Chtimes(path, idle, idle))
+	require.Equal(t, PassStats{}, r.RunOnce(context.Background()), "an idle transcript is not read")
+
+	appendTo(t, path, bashLine("toolu_02", "pwd")) // the session resumes, which also makes the transcript recent again
+	stats := r.RunOnce(context.Background())
+
+	assert.Equal(t, 1, stats.Calls, "only the call the session added")
+	assert.Equal(t, []string{"toolu_01", "toolu_02"}, q.toolUseIDs(), "the call before the break is not sent again")
+}
+
+// fakeFileInfo is a transcript as a pass listed it, changed at modTime.
+type fakeFileInfo struct {
+	os.FileInfo
+	modTime time.Time
+}
+
+func (f fakeFileInfo) ModTime() time.Time { return f.modTime }
+
+// spec:endpoint-event-collection/a-resumed-transcript-is-read-from-where-it-stopped/the-positions-kept-are-bounded
+func TestReader_TrimPositions(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+
+	t.Run("past the bound, the least recently changed are forgotten", func(t *testing.T) {
+		t.Parallel()
+		r := &Reader{now: func() time.Time { return now }, files: map[string]*position{}}
+		for i := range maxPositions + 2 {
+			r.files[fmt.Sprintf("t%04d", i)] = &position{offset: 1, latest: fakeFileInfo{modTime: now.Add(-time.Duration(i) * time.Hour)}}
+		}
+		r.trimPositions()
+		assert.Len(t, r.files, maxPositions)
+		assert.Contains(t, r.files, "t0000", "the most recently changed is kept")
+		assert.Contains(t, r.files, fmt.Sprintf("t%04d", maxPositions-1))
+		assert.NotContains(t, r.files, fmt.Sprintf("t%04d", maxPositions), "the two least recently changed are forgotten")
+		assert.NotContains(t, r.files, fmt.Sprintf("t%04d", maxPositions+1))
+	})
+
+	t.Run("each keeps the most recent messages it sent, at most maxSentMessages", func(t *testing.T) {
+		t.Parallel()
+		pos := &position{}
+		for i := range maxSentMessages + 6 {
+			pos.markSent(fmt.Sprintf("msg_%03d", i))
+		}
+		assert.Len(t, pos.messages, maxSentMessages)
+		assert.True(t, pos.sent(fmt.Sprintf("msg_%03d", maxSentMessages+5)), "the most recent is remembered")
+		assert.True(t, pos.sent("msg_006"), "and the oldest still within the bound")
+		assert.False(t, pos.sent("msg_005"), "the older ones are forgotten")
+	})
+}
+
+// A transcript the pass budget skips is dated by when it last changed, not by when it was last read, so one still growing is not
+// evicted ahead of a transcript truly quieter.
+func TestReader_ASkippedTranscriptIsJudgedByItsLatestChange(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	dir := filepath.Dir(path)
+	newest := time.Now()
+	for i := range maxFilesPerPass {
+		session := fmt.Sprintf("s%03d", i)
+		name := filepath.Join(dir, session+".jsonl")
+		require.NoError(t, os.WriteFile(name, []byte(bashLineIn(session, fmt.Sprintf("toolu_%03d", i), "ls")), 0o600))
+		require.NoError(t, os.Chtimes(name, newest, newest))
+	}
+	// The fixture's transcript was read long ago, but has kept changing: it is the 257th most recent, so this pass skips it.
+	appendTo(t, path, bashLine("toolu_skipped", "ls"))
+	recent := newest.Add(-time.Minute)
+	require.NoError(t, os.Chtimes(path, recent, recent))
+	key := filepath.Join("dev", ".claude", "projects", "-Users-dev-project", filepath.Base(path))
+	lastRead, err := os.Stat(path)
+	require.NoError(t, err)
+	r.files[key] = &position{file: lastRead, latest: fakeFileInfo{modTime: newest.Add(-2 * recentWindow)}}
+
+	r.RunOnce(context.Background())
+
+	require.NotContains(t, q.toolUseIDs(), "toolu_skipped", "the budget must have skipped it, or this proves nothing")
+	assert.Equal(t, recent.Unix(), r.files[key].latest.ModTime().Unix(), "it is dated by its latest change")
+}
+
+// A streamed message whose entries land in two passes is sent once.
+func TestReader_AMessageStreamedAcrossPassesIsSentOnce(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, usageLine("msg_01", "claude-opus-5-5", "")+"\n")
+	require.Equal(t, 1, r.RunOnce(context.Background()).Usage)
+
+	appendTo(t, path, strings.Replace(usageLine("msg_01", "claude-opus-5-5", ""), "09:31:00.500Z", "09:31:02.000Z", 1)+"\n")
+	assert.Zero(t, r.RunOnce(context.Background()).Usage, "the message's later entry, in the next pass, is not sent again")
+}
+
+// A line the queue refused is read again, and may be a later entry of a message whose usage an earlier line sent. Going idle in
+// between does not forget that the message was sent.
+func TestReader_ARefusedLineReadAfterAnIdleBreakDoesNotResendUsage(t *testing.T) {
+	t.Parallel()
+	q := &recordingQueue{}
+	r, path := newTestReader(t, q, "H1")
+	appendTo(t, path, usageLine("msg_01", "claude-opus-5-5", "")+"\n")
+	require.Equal(t, 1, r.RunOnce(context.Background()).Usage)
+
+	q.fail = true
+	appendTo(t, path, bashLine("toolu_refused", "ls")+
+		strings.Replace(usageLine("msg_01", "claude-opus-5-5", ""), "09:31:00.500Z", "09:31:02.000Z", 1)+"\n")
+	r.RunOnce(context.Background())
+	r.now = func() time.Time { return time.Now().Add(2 * recentWindow) } // the session pauses for longer than the window
+	require.Equal(t, PassStats{}, r.RunOnce(context.Background()), "an idle transcript is not read")
+
+	q.fail = false
+	r.now = time.Now
+	now := time.Now()
+	require.NoError(t, os.Chtimes(path, now, now)) // and resumes
+	stats := r.RunOnce(context.Background())
+	assert.Equal(t, 1, stats.Calls, "the refused call is sent")
+	assert.Zero(t, stats.Usage, "and the message whose usage was sent before the break is not sent again")
 }

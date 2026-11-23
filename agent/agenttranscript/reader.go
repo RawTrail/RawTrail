@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -25,9 +26,15 @@ const (
 	// defaultInterval is how often the transcripts are read. A tool call's process is on the wire within a second; the call itself
 	// may trail it by this much, which only delays the label beside it.
 	defaultInterval = 5 * time.Second
-	// recentWindow is how long after its last change a transcript is still read. Older transcripts belong to finished sessions, and
-	// the window also bounds what is kept per transcript: a file outside it is forgotten.
+	// recentWindow is how long after its last change a transcript is still read. An older transcript is idle: its session has paused
+	// or finished, and the reader keeps its position (issue #1545), so a session that resumes is read from where it stopped.
 	recentWindow = 10 * time.Minute
+	// maxPositions bounds the transcripts whose read position is kept between passes. Past it the least recently changed are
+	// forgotten, and one of those that resumes is read from its start again, which the archive keeps once. A position holds an
+	// offset, a file identity, two short strings and at most maxSentMessages message ids, so the bound is generous.
+	maxPositions = 1024
+	// maxSentMessages bounds the streamed messages one transcript remembers sending, the most recent kept. See position.messages.
+	maxSentMessages = 64
 	// maxBytesPerPass bounds what one pass reads from one transcript, so a long session first seen after a restart is caught up over
 	// several passes rather than in one long one. A line longer than this is skipped, not waited on.
 	maxBytesPerPass = 4 << 20
@@ -77,8 +84,12 @@ type Reader struct {
 // position is how far one transcript has been read: the offset of the next unread line, the file it was read from, so a transcript
 // replaced in place is read from its start, and whether the reader is passing over the rest of a line too long to read.
 type position struct {
-	offset   int64
-	file     os.FileInfo
+	offset int64
+	file   os.FileInfo
+	// latest is the transcript as the latest pass listed it, or as the reader last read it if that is later. Kept apart from file,
+	// which is what the reader last read, because a growing transcript that the pass budget skips is still active, and judging it by
+	// its last read would evict it ahead of a transcript truly quieter (issue #1545).
+	latest   os.FileInfo
 	skipping bool
 	// parent is the session the transcript's session was forked from, read once from its job's parent transcript (issue #1354).
 	parent     string
@@ -88,25 +99,27 @@ type position struct {
 	turn string
 	// mode is the permission mode the last entry that names one put in force (issue #1427).
 	mode string
-	// messages are the assistant messages whose usage this transcript has sent (issue #1427). Claude Code writes a streamed message as
-	// several entries, each with the whole message's usage and its own time, so only the first is sent: the archive keeps one row
-	// for an event only when its time matches too, which the first entry's does each time the transcript is read from its start.
-	messages map[string]struct{}
+	// messages are the assistant messages whose usage this transcript sent most recently, oldest first, at most maxSentMessages
+	// (issue #1427). Claude Code writes a streamed message as several entries, each with the whole message's usage and its own time,
+	// so only the first is sent: the archive keeps one row for an event only when its time matches too, which the first entry's
+	// does each time the transcript is read from its start. A message's entries are written one after another, with no other
+	// message's between them (measured on 162 transcripts, 32,489 messages), so the most recent few are all a later entry can need,
+	// and the bound keeps a position kept for a long-idle transcript small (issue #1545).
+	messages []string
 }
 
 // sent reports whether the transcript has sent a message's usage.
 func (p *position) sent(messageID string) bool {
-	_, ok := p.messages[messageID]
-	return ok
+	return slices.Contains(p.messages, messageID)
 }
 
 // markSent records that the transcript sent a message's usage. It is called once the queue took the event, so a message the queue
 // refused is sent again when its line is read again.
 func (p *position) markSent(messageID string) {
-	if p.messages == nil {
-		p.messages = map[string]struct{}{}
+	p.messages = append(p.messages, messageID)
+	if len(p.messages) > maxSentMessages {
+		p.messages = slices.Delete(p.messages, 0, len(p.messages)-maxSentMessages)
 	}
-	p.messages[messageID] = struct{}{}
 }
 
 // New returns a Reader over the home directories under root (/Users on macOS). capturePrompts reports whether the prompts the user typed
@@ -170,16 +183,21 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 		}
 	}
 	slices.SortFunc(found, func(a, b transcript) int { return b.listed.ModTime().Compare(a.listed.ModTime()) })
-	kept := map[string]bool{}
+	// Every listed transcript's activity is recorded before the budgets decide which are read, so one they skip is not judged by
+	// when it was last read.
+	for _, t := range found {
+		if pos := r.files[path.Join(t.home, t.rel)]; pos != nil {
+			pos.latest = t.listed
+		}
+	}
 	budget := int64(maxBytesTotalPerPass)
 	for i, t := range found {
 		if i == maxFilesPerPass {
 			break
 		}
 		key := path.Join(t.home, t.rel)
-		kept[key] = true
 		if ctx.Err() != nil || budget <= 0 {
-			continue
+			break
 		}
 		read, err := r.readFrom(ctx, hostID, t, key, budget, &stats)
 		budget -= read
@@ -187,12 +205,24 @@ func (r *Reader) RunOnce(ctx context.Context) PassStats {
 			r.logger.WarnContext(ctx, "read agent transcript", "err", err)
 		}
 	}
-	for key := range r.files {
-		if !kept[key] {
-			delete(r.files, key)
-		}
-	}
+	r.trimPositions()
 	return stats
+}
+
+// trimPositions bounds what the reader keeps between passes (issue #1545). A transcript keeps its position for as long as it stays
+// among the maxPositions most recently changed, whether or not this pass read it, so a session that resumes after recentWindow is
+// read from where the reader stopped rather than from its start. Forgetting a position whenever its transcript went quiet re-sent a
+// 61 MB transcript in full three times in one night.
+func (r *Reader) trimPositions() {
+	if len(r.files) <= maxPositions {
+		return
+	}
+	keys := slices.SortedFunc(maps.Keys(r.files), func(a, b string) int {
+		return r.files[a].latest.ModTime().Compare(r.files[b].latest.ModTime())
+	})
+	for _, key := range keys[:len(keys)-maxPositions] {
+		delete(r.files, key)
+	}
 }
 
 // listHome lists the recent transcripts under one home directory, sessions' and their subagents', through an os.Root confined to it.
@@ -291,6 +321,7 @@ func (r *Reader) readFrom(ctx context.Context, hostID string, t transcript, key 
 		r.files[key] = pos
 	}
 	pos.file = info
+	pos.latest = info
 	if info.Size() == pos.offset {
 		return 0, nil
 	}
