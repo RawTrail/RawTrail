@@ -27,6 +27,8 @@ type drainRecorder struct {
 	mu       sync.Mutex
 	gathered int
 	batches  []int
+	// ctxErrs is the context error each OnDrained call was handed: a write cancelled by the stop would lose the batch.
+	ctxErrs []error
 }
 
 func (d *drainRecorder) onEvent(context.Context, Event) {
@@ -35,9 +37,10 @@ func (d *drainRecorder) onEvent(context.Context, Event) {
 	d.gathered++
 }
 
-func (d *drainRecorder) onDrained(context.Context) {
+func (d *drainRecorder) onDrained(ctx context.Context) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.ctxErrs = append(d.ctxErrs, ctx.Err())
 	d.batches = append(d.batches, d.gathered)
 	d.gathered = 0
 }
@@ -106,4 +109,38 @@ func TestLoop_WritesWhatItGatheredWhenTheConnectionEnds(t *testing.T) {
 		total += b
 	}
 	assert.Equal(t, handled, total, "every event handed to OnEvent was written")
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	for _, err := range rec.ctxErrs {
+		assert.NoError(t, err, "the write is not cancelled by the stop")
+	}
+}
+
+// A stop that lands as the channel empties still writes the batch, with a context the stop does not cancel.
+func TestLoop_AStopAtTheEndOfABurstStillWritesIt(t *testing.T) {
+	t.Parallel()
+	const burst = 5
+	conn := burstConnector(burst)
+	rec := &drainRecorder{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	handled := 0
+	loop := NewLoop(func() Connector { return conn }, LoopConfig{ServiceName: "sys", HeartbeatInterval: time.Hour, HeartbeatTimeout: time.Second},
+		LoopHooks{
+			OnEvent: func(ctx context.Context, evt Event) {
+				rec.onEvent(ctx, evt)
+				if handled++; handled == burst {
+					cancel() // the last event: the channel is now empty, so OnDrained fires right after this returns
+				}
+			},
+			OnDrained: rec.onDrained,
+			Sleep:     (&recordingSleep{}).Sleep,
+		}, discardLogger())
+	loop.Run(ctx)
+
+	_, batches := rec.snapshot()
+	require.Equal(t, []int{burst}, batches, "the burst is written once, as the channel empties")
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Equal(t, []error{nil}, rec.ctxErrs, "with a context the stop did not cancel")
 }

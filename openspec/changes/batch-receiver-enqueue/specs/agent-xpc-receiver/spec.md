@@ -2,7 +2,7 @@
 
 ### Requirement: A burst is written in batches
 
-The agent SHALL write the events a receiver delivers to its queue in batches, one transaction for the events waiting together in the receiver's channel up to a bound, rather than one transaction per event. A batch SHALL be written as soon as the channel is empty, SHALL be durable when its write returns, and SHALL fail as a whole on a storage error, which the agent logs. What was gathered SHALL be written when the connection ends.
+The agent SHALL write the events a receiver delivers to its queue in batches, one transaction for the events waiting together in the receiver's channel up to a bound, rather than one transaction per event. A batch SHALL be written as soon as the channel is empty, SHALL be durable when its write returns, and SHALL fail as a whole on a storage error, which the agent logs. What was gathered SHALL be written when the connection ends or the agent stops, before the queue closes.
 
 #### Scenario: A burst of events is written in batches
 

@@ -232,7 +232,7 @@ func run() error {
 	// registers its own health components before starting (so the first status check-in already reports a not-yet-active sensor, the
 	// fresh-install gap issue #359 surfaces) and drives its loop(s) through the shared receiver.Loop machinery. See
 	// sensors_notwindows.go / sensors_windows.go.
-	startTelemetrySensors(ctx, telemetryDeps{
+	waitSensors := startTelemetrySensors(ctx, telemetryDeps{
 		logger:        logger,
 		cfg:           cfg,
 		enqueue:       coalescer.Handle,
@@ -303,6 +303,9 @@ func run() error {
 	startProcessReconciler(ctx, cfg, pidTable, q, tokenProvider, logger)
 
 	<-ctx.Done()
+	// Let the receiver loops write what they gathered before anything below flushes or closes the queue (issue #1584): a loop writes
+	// its last batch as it stops, and a batch arriving after the queue closed would be lost on a clean stop.
+	waitWithin(waitSensors, sensorStopTimeout, logger)
 	// Drain buffered network/DNS representatives into the queue before the uploader drains the queue and the queue closes, so a
 	// clean shutdown loses no coalesced telemetry. No-op when coalescing is disabled.
 	coalescer.Flush(context.WithoutCancel(ctx))
@@ -431,6 +434,24 @@ func newAgentHTTPClient(cfg *config.Config, dial dialFunc, logger *slog.Logger) 
 func runUploader(ctx context.Context, up *uploader.Uploader, logger *slog.Logger) {
 	if err := up.Run(ctx); err != nil && ctx.Err() == nil {
 		logger.ErrorContext(ctx, "uploader", "err", err)
+	}
+}
+
+// sensorStopTimeout bounds how long shutdown waits for the receiver loops to stop and write what they gathered. A loop's last write
+// is one batch to the local queue, so this is generous, and a loop stuck tearing down its connection cannot hold the stop open.
+const sensorStopTimeout = 5 * time.Second
+
+// waitWithin calls wait and returns once it does, or once d has passed, which it logs, so shutdown always proceeds.
+func waitWithin(wait func(), d time.Duration, logger *slog.Logger) {
+	done := make(chan struct{})
+	go func() {
+		wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		logger.WarnContext(context.Background(), "receiver loops did not stop in time; what they gathered may not be written", "after", d)
 	}
 }
 

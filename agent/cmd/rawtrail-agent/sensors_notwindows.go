@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/rawtrail/rawtrail/agent/agenttranscript"
@@ -19,7 +20,8 @@ import (
 // #359). Components are registered before the loops start so the first status check-in already reports a not-yet-activated extension,
 // which is exactly the fresh-install gap that feature surfaces. On Linux (the compile-only / headless build) the XPC receiver is the
 // non-darwin stub, so these loops connect to nothing; that is unchanged from before the Windows split.
-func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
+func startTelemetrySensors(ctx context.Context, d telemetryDeps) (wait func()) {
+	var loops sync.WaitGroup
 	d.health.Register(health.ComponentEndpointSecurityExtension, "Security extension")
 	if d.cfg.NetXPCService != "" {
 		d.health.Register(health.ComponentNetworkExtension, "Network extension")
@@ -27,16 +29,18 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 	// Full Disk Access, the agent's own and the extension's (issue #1436), so a missing grant is reported as itself.
 	go watchFullDiskAccess(ctx, d.health)
 
-	go startReceiverLoop(ctx, receiverLoopParams{
-		logger:       d.logger,
-		serviceLabel: d.cfg.XPCService,
-		enqueueBatch: d.enqueueBatch,
-		pt:           d.pidTable,
-		updateTable:  true,
-		dispatcher:   d.esfDispatcher,
-		health:       d.health,
-		component:    health.ComponentEndpointSecurityExtension,
-		onDrop:       d.dropReporter(ctx, health.ComponentEndpointSecurityExtension),
+	loops.Go(func() {
+		startReceiverLoop(ctx, receiverLoopParams{
+			logger:       d.logger,
+			serviceLabel: d.cfg.XPCService,
+			enqueueBatch: d.enqueueBatch,
+			pt:           d.pidTable,
+			updateTable:  true,
+			dispatcher:   d.esfDispatcher,
+			health:       d.health,
+			component:    health.ComponentEndpointSecurityExtension,
+			onDrop:       d.dropReporter(ctx, health.ComponentEndpointSecurityExtension),
+		})
 	})
 	// The tool calls AI agents record in their session transcripts (issue #1288), read from every home directory, so the server can
 	// label each tool call's processes with the call that started them, and the prompts their users typed unless prompt capture is off
@@ -48,50 +52,53 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 		// One emitter shared by both durable sensor records: the provider transitions and the repair-gave-up event go
 		// through the same queue on the same host.
 		emitter := sensorevent.NewEnqueueEmitter(d.hostIDFn, d.enqueue, func() int64 { return time.Now().UnixNano() })
-		go startReceiverLoop(ctx, receiverLoopParams{
-			logger:       d.logger,
-			serviceLabel: d.cfg.NetXPCService,
-			enqueueBatch: d.enqueueBatch,
-			pt:           d.pidTable,
-			upgradeProbe: func() bool { return receiver.NEUpgradePending(ctx) },
-			dispatcher:   d.neDispatcher,
-			containment:  d.containment,
-			health:       d.health,
-			component:    health.ComponentNetworkExtension,
-			onDrop:       d.dropReporter(ctx, health.ComponentNetworkExtension),
-			// Only this loop: the network extension's XPC listener starts before its providers, so health here must key on
-			// which providers report themselves running (issue #649).
-			providerLiveness: true,
-			// A provider that stops takes its telemetry stream with it and, before this, stayed stopped until a human ran
-			// the host app's activate by hand (issue #632). The controller re-enables it from the same report health grades,
-			// so a pkg upgrade or a settings toggle recovers on its own.
-			// Health forgets a stop as soon as the self-heal repairs it, so the transition is written down separately as
-			// durable tamper evidence (issue #684).
-			transitions: sensorevent.New(emitter, d.logger),
-			selfHeal: selfheal.New(selfheal.Options{
-				Remediator: selfheal.NewRemediator(""),
-				Health:     d.health,
-				Component:  health.ComponentNetworkExtension,
-				Logger:     d.logger,
-				// A contained host's filter is what isolates it, so the repair does not give up while it is contained (#1228).
-				Contained: containedFunc(d.containment),
-				// The repair giving up is recorded durably as well as in health (issues #691, #778). Health says what
-				// is true now, so once an operator fixes the host by hand it reads healthy again and nothing records
-				// that the host went uncaptured for however long it took them to notice. The durable account is a host
-				// health EPISODE on the server: it opens from this event and closes when the component reports healthy
-				// again, so the interval is the outage. It used to be an alert, which recorded the start and never the
-				// end; the component is reported here because the server closes the episode against it.
-				OnEscalation: func(e selfheal.Escalation) {
-					if err := sensorevent.EmitRecoveryFailed(ctx, emitter, e.Provider, e.Component, e.Outcome, e.Attempts); err != nil {
-						// Best effort by design: the health state is already published and the agent must keep
-						// running. Logged at WARN so a queue that is rejecting writes is visible.
-						d.logger.WarnContext(ctx, "could not record that automatic capture recovery gave up",
-							"provider", e.Provider, "outcome", e.Outcome, "err", err)
-					}
-				},
-			}),
+		loops.Go(func() {
+			startReceiverLoop(ctx, receiverLoopParams{
+				logger:       d.logger,
+				serviceLabel: d.cfg.NetXPCService,
+				enqueueBatch: d.enqueueBatch,
+				pt:           d.pidTable,
+				upgradeProbe: func() bool { return receiver.NEUpgradePending(ctx) },
+				dispatcher:   d.neDispatcher,
+				containment:  d.containment,
+				health:       d.health,
+				component:    health.ComponentNetworkExtension,
+				onDrop:       d.dropReporter(ctx, health.ComponentNetworkExtension),
+				// Only this loop: the network extension's XPC listener starts before its providers, so health here must key on
+				// which providers report themselves running (issue #649).
+				providerLiveness: true,
+				// A provider that stops takes its telemetry stream with it and, before this, stayed stopped until a human ran
+				// the host app's activate by hand (issue #632). The controller re-enables it from the same report health grades,
+				// so a pkg upgrade or a settings toggle recovers on its own.
+				// Health forgets a stop as soon as the self-heal repairs it, so the transition is written down separately as
+				// durable tamper evidence (issue #684).
+				transitions: sensorevent.New(emitter, d.logger),
+				selfHeal: selfheal.New(selfheal.Options{
+					Remediator: selfheal.NewRemediator(""),
+					Health:     d.health,
+					Component:  health.ComponentNetworkExtension,
+					Logger:     d.logger,
+					// A contained host's filter is what isolates it, so the repair does not give up while it is contained (#1228).
+					Contained: containedFunc(d.containment),
+					// The repair giving up is recorded durably as well as in health (issues #691, #778). Health says what
+					// is true now, so once an operator fixes the host by hand it reads healthy again and nothing records
+					// that the host went uncaptured for however long it took them to notice. The durable account is a host
+					// health EPISODE on the server: it opens from this event and closes when the component reports healthy
+					// again, so the interval is the outage. It used to be an alert, which recorded the start and never the
+					// end; the component is reported here because the server closes the episode against it.
+					OnEscalation: func(e selfheal.Escalation) {
+						if err := sensorevent.EmitRecoveryFailed(ctx, emitter, e.Provider, e.Component, e.Outcome, e.Attempts); err != nil {
+							// Best effort by design: the health state is already published and the agent must keep
+							// running. Logged at WARN so a queue that is rejecting writes is visible.
+							d.logger.WarnContext(ctx, "could not record that automatic capture recovery gave up",
+								"provider", e.Provider, "outcome", e.Outcome, "err", err)
+						}
+					},
+				}),
+			})
 		})
 	}
+	return loops.Wait
 }
 
 // containedFunc reports a host's containment to the self-heal. There is no manager when the server URL yields no lifeline target, and

@@ -269,10 +269,13 @@ func (l *Loop) pipeEvents(ctx context.Context, conn Connector) bool {
 	// undrained counts the events handed to OnEvent since OnDrained last fired. Whatever OnEvent gathered is written when the
 	// connection ends too, so a reconnect loses none of it.
 	undrained := 0
+	// drainCtx is what OnDrained writes with: not cancelled by the stop, since a stop is exactly when what was gathered must still
+	// be written. The write is to the local queue, so it is bounded without a deadline of its own.
+	drainCtx := context.WithoutCancel(ctx)
 	if l.hooks.OnDrained != nil {
 		defer func() {
 			if undrained > 0 {
-				l.hooks.OnDrained(context.WithoutCancel(ctx))
+				l.hooks.OnDrained(drainCtx)
 			}
 		}()
 	}
@@ -296,7 +299,7 @@ func (l *Loop) pipeEvents(ctx context.Context, conn Connector) bool {
 			}
 			undrained++
 			if l.hooks.OnDrained != nil && (len(eventsCh) == 0 || undrained >= maxDrainBatch) {
-				l.hooks.OnDrained(ctx)
+				l.hooks.OnDrained(drainCtx)
 				undrained = 0
 			}
 		case errCode, ok := <-errorsCh:

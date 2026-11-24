@@ -3,6 +3,7 @@ package coalesce
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -389,4 +390,13 @@ func TestCoalescer_HandleBatchWritesPassedEventsTogether(t *testing.T) {
 	assert.Empty(t, single.events(), "nothing is written one at a time")
 	c.Flush(t.Context())
 	assert.Equal(t, [][]byte{connect}, single.events(), "the network event was buffered and comes out at the flush")
+}
+
+// A network event HandleBatch cannot read is written as Handle writes it, one at a time, and a failure to write it is returned.
+func TestCoalescer_HandleBatchReturnsAFailedWrite(t *testing.T) {
+	t.Parallel()
+	failed := errors.New("queue full")
+	c := New(time.Hour, func(context.Context, []byte) error { return failed }, nil).WithBatchSink((&batchSink{}).enqueueBatch)
+	malformed := []byte(`{"event_id":"n1","event_type":"network_connect","payload":"not an object"}`)
+	assert.ErrorIs(t, c.HandleBatch(t.Context(), [][]byte{malformed}), failed)
 }

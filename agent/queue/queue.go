@@ -255,14 +255,9 @@ func (q *Queue) EnqueueBatch(ctx context.Context, events [][]byte) error {
 		return fmt.Errorf("begin enqueue batch: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // Rollback after commit is a no-op.
-	stmt, err := tx.PrepareContext(ctx, "INSERT INTO events (event_json, created_at) VALUES (?, ?)")
-	if err != nil {
-		return fmt.Errorf("prepare enqueue batch: %w", err)
-	}
-	defer stmt.Close()
 	now := time.Now().UnixNano()
 	for _, event := range events {
-		if _, err := stmt.ExecContext(ctx, string(event), now); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO events (event_json, created_at) VALUES (?, ?)", string(event), now); err != nil {
 			return fmt.Errorf("enqueue batch: %w", err)
 		}
 	}

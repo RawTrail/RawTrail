@@ -7,7 +7,8 @@
 ## 2. Tests
 
 - [x] 2.1 A burst is written in batches of at most 512, the last as soon as the channel empties; what was gathered is written when the connection ends.
-- [x] 2.2 Each drain is written once; the batch sink gets the passed events in order; a batch is ordered, readable on return, and fails whole on a full disk.
+- [x] 2.2 Each drain is written once; the batch sink gets the passed events in order; a batch is ordered, readable on return, fails whole on a full disk, respects the cap, and is refused by a closed queue.
+- [x] 2.3 A stop mid-burst or at its end still writes what was gathered, with a context the stop does not cancel, and shutdown waits for the receiver loops, bounded, before it flushes and closes the queue.
 
 ## 3. Verify
 
