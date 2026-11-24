@@ -230,3 +230,105 @@ func TestReceiverLoop_ChecksAContainedHostsFilterConfig(t *testing.T) {
 		t.Fatal("startReceiverLoop did not return after its context ended")
 	}
 }
+
+// networkExtensionComponent is the network extension's own component in the registry.
+func networkExtensionComponent(t *testing.T, registry *health.Registry) health.Component {
+	t.Helper()
+	for _, c := range registry.Snapshot() {
+		if c.Type == health.ComponentNetworkExtension {
+			return c
+		}
+	}
+	t.Fatal("no network extension component")
+	return health.Component{}
+}
+
+// A reading taken before the session's first report is kept, not dropped: it applies to that report.
+func TestProviderObserver_AReadingBeforeTheFirstReportAppliesToIt(t *testing.T) {
+	t.Parallel()
+	registry := health.NewRegistry()
+	registry.Register(health.ComponentNetworkExtension, "Network extension")
+	obs := &providerObserver{params: receiverLoopParams{health: registry, component: health.ComponentNetworkExtension,
+		contained: func() bool { return true }}}
+
+	obs.filterConfigRead(t.Context(), false)
+	assert.Empty(t, contentFilterStatus(registry), "with no report there is no provider map to grade")
+
+	obs.report(t.Context(), providerStatus{Providers: bothRunning, Decoded: true})
+	assert.Equal(t, health.StatusUnhealthy, contentFilterStatus(registry), "the first report is read with the reading")
+}
+
+// After the session ends, a reading does not replay the ended session's running providers over the disconnect health recorded.
+func TestProviderObserver_AReadingAfterTheSessionEndsReplaysNothing(t *testing.T) {
+	t.Parallel()
+	registry := health.NewRegistry()
+	registry.Register(health.ComponentNetworkExtension, "Network extension")
+	obs := &providerObserver{params: receiverLoopParams{health: registry, component: health.ComponentNetworkExtension,
+		contained: func() bool { return true }}}
+	obs.report(t.Context(), providerStatus{Providers: bothRunning, Decoded: true})
+	obs.filterConfigRead(t.Context(), false)
+
+	obs.sessionEnded()
+	registry.MarkDisconnected(health.ComponentNetworkExtension)
+	obs.filterConfigRead(t.Context(), true)
+
+	ne := networkExtensionComponent(t, registry)
+	assert.Equal(t, health.StatusUnhealthy, ne.Status)
+	assert.Equal(t, "connection_lost", ne.Reason, "the disconnect stands")
+}
+
+// refusingConnector never connects, so the loop stays disconnected after the first session.
+type refusingConnector struct{ eventConnector }
+
+func (refusingConnector) Connect() error { return errors.New("extension unavailable") }
+
+// The wiring: the loop tells the observer when its session ends, so a reading after a disconnect cannot mark the network extension
+// healthy. Deleting the observer from the loop's OnDisconnected fails here.
+func TestReceiverLoop_AReadingAfterADisconnectReplaysNothing(t *testing.T) {
+	t.Parallel()
+	registry := health.NewRegistry()
+	registry.Register(health.ComponentNetworkExtension, "Network extension")
+	status := []byte(`{"event_type":"ne_provider_status","payload":{"providers":{"content_filter":"running","dns_proxy":"running"}}}`)
+	first := newEventConnector(status)
+	var built atomic.Int32
+	reader := &filterConfigStub{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		startReceiverLoop(ctx, receiverLoopParams{
+			logger:            slog.Default(),
+			serviceLabel:      "test-ne",
+			health:            registry,
+			component:         health.ComponentNetworkExtension,
+			providerLiveness:  true,
+			contained:         func() bool { return true },
+			filterConfig:      reader,
+			filterConfigEvery: 5 * time.Millisecond,
+			connectorFactory: func() receiver.Connector {
+				if built.Add(1) == 1 {
+					return first
+				}
+				return &refusingConnector{}
+			},
+			enqueueBatch: func(context.Context, [][]byte) error { return nil },
+		})
+	}()
+	require.Eventually(t, func() bool { return contentFilterStatus(registry) == health.StatusUnhealthy }, 2*time.Second,
+		5*time.Millisecond)
+
+	first.errs <- 1
+	require.Eventually(t, func() bool { return networkExtensionComponent(t, registry).Reason == "connection_lost" }, 2*time.Second,
+		5*time.Millisecond)
+	reader.set(true, nil)
+	assert.Never(t, func() bool { return networkExtensionComponent(t, registry).Status == health.StatusHealthy }, 200*time.Millisecond,
+		10*time.Millisecond, "a reading after the disconnect does not replay the ended session's report")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("startReceiverLoop did not return after its context ended")
+	}
+}

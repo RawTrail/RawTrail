@@ -37,21 +37,22 @@ type hostAppRemediator struct {
 	evaluate func(string) (*codesign.Result, bool)
 }
 
-// NewRemediator returns the darwin remediator. The host-app path is overridable for tests.
-func NewRemediator(path string) Remediator {
+// newHostAppRemediator runs the host app at path, or at HostAppPath when path is empty, which only tests override.
+func newHostAppRemediator(path string) *hostAppRemediator {
 	if path == "" {
 		path = HostAppPath
 	}
 	return &hostAppRemediator{path: path, logger: slog.Default(), evaluate: codesign.Evaluate}
 }
 
-// NewFilterConfigReader returns the darwin reader of the content filter's configuration, which asks the host app. The host-app path
-// is overridable for tests.
+// NewRemediator returns the darwin remediator.
+func NewRemediator(path string) Remediator {
+	return newHostAppRemediator(path)
+}
+
+// NewFilterConfigReader returns the darwin reader of the content filter's configuration, which asks the host app.
 func NewFilterConfigReader(path string) FilterConfigReader {
-	if path == "" {
-		path = HostAppPath
-	}
-	return &hostAppRemediator{path: path, logger: slog.Default(), evaluate: codesign.Evaluate}
+	return newHostAppRemediator(path)
 }
 
 // verifyHostApp rejects a host app whose code-signing identity does not match the agent's own before the agent, running as

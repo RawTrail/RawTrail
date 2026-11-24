@@ -25,6 +25,15 @@ type providerObserver struct {
 	filterOff bool
 }
 
+// sessionEnded forgets the last report, which described a session that has ended, so a later reading cannot replay its running
+// providers over the disconnect health records. A reading still applies to the next session's first report, which the extension
+// sends on every connect.
+func (o *providerObserver) sessionEnded() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.seen = false
+}
+
 // report observes a provider report from the extension.
 func (o *providerObserver) report(ctx context.Context, status providerStatus) {
 	o.mu.Lock()
@@ -36,6 +45,9 @@ func (o *providerObserver) report(ctx context.Context, status providerStatus) {
 // filterConfigRead records a reading of the filter configuration and returns whether it changed. A reading that changed is observed
 // with the latest report, and so is every reading of a configuration switched off: an orphaned provider sends no further reports, and
 // the self-heal repairs on the report after its grace window, so while the configuration reads off each reading stands in for one.
+//
+// With no report from the current session nothing is observed, and the reading applies to the first report. Health reads that window
+// as awaiting providers or disconnected, never healthy, and a provider map made up here would overwrite it.
 func (o *providerObserver) filterConfigRead(ctx context.Context, enabled bool) bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()

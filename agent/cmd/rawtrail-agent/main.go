@@ -847,6 +847,14 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 		hooks.OnDisconnected = p.dispatcher.Clear
 	}
 	hooks = withHealthHooks(hooks, p)
+	// The observer forgets the session's report before health records the disconnect, so no reading can replay it in between.
+	recordDisconnect := hooks.OnDisconnected
+	hooks.OnDisconnected = func() {
+		obs.sessionEnded()
+		if recordDisconnect != nil {
+			recordDisconnect()
+		}
+	}
 	// Only the network-extension loop wires UpgradeProbe (nil for ESF): after a staged upgrade the NE's nesessionmanager-owned
 	// Mach service stays bound to the terminated old version until reboot, so a sustained NE connect failure paired with a
 	// pending-uninstall old version and an enabled new one means "reboot required", not "needs approval" (#399, #1598).
