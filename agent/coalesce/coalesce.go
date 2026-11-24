@@ -12,6 +12,7 @@ package coalesce
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sort"
 	"sync"
@@ -20,6 +21,9 @@ import (
 
 // EnqueueFunc is the sink a coalesced (or passed-through) event is written to. It matches queue.Queue.Enqueue.
 type EnqueueFunc func(ctx context.Context, eventJSON []byte) error
+
+// EnqueueBatchFunc is the sink HandleBatch writes the events it passes through to, together. It matches queue.Queue.EnqueueBatch.
+type EnqueueBatchFunc func(ctx context.Context, events [][]byte) error
 
 const (
 	typeNetworkConnect = "network_connect"
@@ -33,7 +37,9 @@ type Coalescer struct {
 	window     time.Duration
 	maxEntries int
 	enqueue    EnqueueFunc
-	logger     *slog.Logger
+	// enqueueBatch is where HandleBatch writes what it passes through, set by WithBatchSink.
+	enqueueBatch EnqueueBatchFunc
+	logger       *slog.Logger
 
 	mu  sync.Mutex
 	buf map[string]*entry
@@ -72,6 +78,39 @@ func New(window time.Duration, enqueue EnqueueFunc, logger *slog.Logger) *Coales
 		logger:     logger,
 		buf:        make(map[string]*entry),
 	}
+}
+
+// WithBatchSink sets where HandleBatch writes the events it passes through, together, and returns c. Call before the first event.
+func (c *Coalescer) WithBatchSink(enqueueBatch EnqueueBatchFunc) *Coalescer {
+	c.enqueueBatch = enqueueBatch
+	return c
+}
+
+// HandleBatch is Handle for a run of events, for a Coalescer given a batch sink (issue #1584): network_connect and dns_query are buffered and merged as Handle does them,
+// and every other event is written to the batch sink in one call, so a burst costs one commit rather than one per event.
+func (c *Coalescer) HandleBatch(ctx context.Context, events [][]byte) error {
+	// A network event that fails does not stop the rest: the others are still written, and the first failure is returned with the
+	// batch's own.
+	passed := make([][]byte, 0, len(events))
+	var handleErr error
+	for _, data := range events {
+		if c.Enabled() && coalescable(data) {
+			if err := c.Handle(ctx, data); err != nil && handleErr == nil {
+				handleErr = err
+			}
+			continue
+		}
+		passed = append(passed, data)
+	}
+	return errors.Join(handleErr, c.enqueueBatch(ctx, passed))
+}
+
+// coalescable reports whether data is an event Handle buffers: a network_connect or dns_query, read from its envelope alone.
+func coalescable(data []byte) bool {
+	var hdr struct {
+		EventType string `json:"event_type"`
+	}
+	return json.Unmarshal(data, &hdr) == nil && (hdr.EventType == typeNetworkConnect || hdr.EventType == typeDNSQuery)
 }
 
 // Enabled reports whether coalescing is active (a positive window). When false, Handle is a direct passthrough and Run is a no-op

@@ -3,6 +3,7 @@ package coalesce
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -355,4 +356,63 @@ func mkEnvelope(t require.TestingT, id string, ts int64, typ string, payload map
 	})
 	require.NoError(t, err)
 	return ej
+}
+
+// batchSink records each batch HandleBatch writes.
+type batchSink struct {
+	mu      sync.Mutex
+	batches [][][]byte
+}
+
+func (s *batchSink) enqueueBatch(_ context.Context, events [][]byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.batches = append(s.batches, append([][]byte(nil), events...))
+	return nil
+}
+
+// spec:agent-xpc-receiver/a-burst-is-written-in-batches/a-burst-of-events-is-written-in-batches
+//
+// HandleBatch writes the events it passes through in one call, in order, and buffers network and DNS events as Handle does (issue
+// #1584).
+func TestCoalescer_HandleBatchWritesPassedEventsTogether(t *testing.T) {
+	t.Parallel()
+	single := &sink{}
+	batched := &batchSink{}
+	c := New(time.Hour, single.enqueue, nil).WithBatchSink(batched.enqueueBatch)
+	exec := []byte(`{"event_id":"e1","event_type":"exec","payload":{"pid":1}}`)
+	connect := []byte(`{"event_id":"n1","event_type":"network_connect","timestamp_ns":1,"payload":{"pid":1,"remote_address":"1.2.3.4","remote_port":443,"protocol":"tcp"}}`)
+	exit := []byte(`{"event_id":"e2","event_type":"exit","payload":{"pid":1}}`)
+
+	require.NoError(t, c.HandleBatch(t.Context(), [][]byte{exec, connect, exit}))
+
+	assert.Equal(t, [][][]byte{{exec, exit}}, batched.batches, "the passed events go together, in order, in one call")
+	assert.Empty(t, single.events(), "nothing is written one at a time")
+	c.Flush(t.Context())
+	assert.Equal(t, [][]byte{connect}, single.events(), "the network event was buffered and comes out at the flush")
+}
+
+// A network event HandleBatch cannot read is written as Handle writes it, one at a time, and a failure to write it is returned.
+func TestCoalescer_HandleBatchReturnsAFailedWrite(t *testing.T) {
+	t.Parallel()
+	failed := errors.New("queue full")
+	c := New(time.Hour, func(context.Context, []byte) error { return failed }, nil).WithBatchSink((&batchSink{}).enqueueBatch)
+	malformed := []byte(`{"event_id":"n1","event_type":"network_connect","payload":"not an object"}`)
+	assert.ErrorIs(t, c.HandleBatch(t.Context(), [][]byte{malformed}), failed)
+}
+
+// A network event whose write fails does not cost the rest of the batch: the other events are still written together.
+func TestCoalescer_HandleBatchWritesTheRestPastAFailure(t *testing.T) {
+	t.Parallel()
+	failed := errors.New("queue full")
+	batched := &batchSink{}
+	c := New(time.Hour, func(context.Context, []byte) error { return failed }, nil).WithBatchSink(batched.enqueueBatch)
+	exec := []byte(`{"event_id":"e1","event_type":"exec","payload":{"pid":1}}`)
+	malformed := []byte(`{"event_id":"n1","event_type":"network_connect","payload":"not an object"}`)
+	exit := []byte(`{"event_id":"e2","event_type":"exit","payload":{"pid":1}}`)
+
+	err := c.HandleBatch(t.Context(), [][]byte{exec, malformed, exit})
+
+	require.ErrorIs(t, err, failed, "the failure is still reported")
+	assert.Equal(t, [][][]byte{{exec, exit}}, batched.batches, "and the events around it are written")
 }

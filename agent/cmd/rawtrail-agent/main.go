@@ -213,7 +213,7 @@ func run() error {
 
 	// coalescer collapses repetitive network_connect / dns_query telemetry within a window before enqueue (issue #408). A zero
 	// window disables it (Handle is a direct passthrough, Run just waits on ctx), so it can be wired unconditionally.
-	coalescer := coalesce.New(config.DefaultNetworkCoalesceWindow, q.Enqueue, logger)
+	coalescer := coalesce.New(config.DefaultNetworkCoalesceWindow, q.Enqueue, logger).WithBatchSink(q.EnqueueBatch)
 	go coalescer.Run(ctx)
 
 	// healthRegistry tracks each telemetry sensor's connectivity as an agent-health condition (issue #359); the poster below reports it.
@@ -232,10 +232,11 @@ func run() error {
 	// registers its own health components before starting (so the first status check-in already reports a not-yet-active sensor, the
 	// fresh-install gap issue #359 surfaces) and drives its loop(s) through the shared receiver.Loop machinery. See
 	// sensors_notwindows.go / sensors_windows.go.
-	startTelemetrySensors(ctx, telemetryDeps{
+	waitSensors := startTelemetrySensors(ctx, telemetryDeps{
 		logger:        logger,
 		cfg:           cfg,
 		enqueue:       coalescer.Handle,
+		enqueueBatch:  coalescer.HandleBatch,
 		pidTable:      pidTable,
 		health:        healthRegistry,
 		esfDispatcher: esfDispatcher,
@@ -294,14 +295,20 @@ func run() error {
 	startCommander(ctx, hostID, cfg.ServerURL, agentTransport, cmdDeps)
 	if err := startControlClient(ctx, cfg, hostID, cmdDeps); err != nil {
 		// Cancel first so the goroutines started above (receiver loops, uploader, commander, coalescer) wind down before the
-		// deferred queue close runs; otherwise the LIFO defers would close the queue while those goroutines still write to it.
+		// deferred queue close runs; otherwise the LIFO defers would close the queue while those goroutines still write to it. The
+		// receiver loops then write what they gathered, and the coalescer what it buffered, as on a normal stop (issue #1584).
 		cancel()
+		waitWithin(waitSensors, sensorStopTimeout, logger)
+		coalescer.Flush(context.WithoutCancel(ctx))
 		return err
 	}
 	go pruneLoop(ctx, q, commandLedger, config.DefaultPruneAge, logger)
 	startProcessReconciler(ctx, cfg, pidTable, q, tokenProvider, logger)
 
 	<-ctx.Done()
+	// Let the receiver loops write what they gathered before anything below flushes or closes the queue (issue #1584): a loop writes
+	// its last batch as it stops, and a batch arriving after the queue closed would be lost on a clean stop.
+	waitWithin(waitSensors, sensorStopTimeout, logger)
 	// Drain buffered network/DNS representatives into the queue before the uploader drains the queue and the queue closes, so a
 	// clean shutdown loses no coalesced telemetry. No-op when coalescing is disabled.
 	coalescer.Flush(context.WithoutCancel(ctx))
@@ -430,6 +437,24 @@ func newAgentHTTPClient(cfg *config.Config, dial dialFunc, logger *slog.Logger) 
 func runUploader(ctx context.Context, up *uploader.Uploader, logger *slog.Logger) {
 	if err := up.Run(ctx); err != nil && ctx.Err() == nil {
 		logger.ErrorContext(ctx, "uploader", "err", err)
+	}
+}
+
+// sensorStopTimeout bounds how long shutdown waits for the receiver loops to stop and write what they gathered. A loop's last write
+// is one batch to the local queue, so this is generous, and a loop stuck tearing down its connection cannot hold the stop open.
+const sensorStopTimeout = 5 * time.Second
+
+// waitWithin calls wait and returns once it does, or once d has passed, which it logs, so shutdown always proceeds.
+func waitWithin(wait func(), d time.Duration, logger *slog.Logger) {
+	done := make(chan struct{})
+	go func() {
+		wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		logger.WarnContext(context.Background(), "receiver loops did not stop in time; what they gathered may not be written", "after", d)
 	}
 }
 
@@ -671,7 +696,8 @@ type receiverLoopParams struct {
 	// serviceLabel scopes this loop's log lines (the "service" field) and, for the default macOS factory, is the XPC Mach service
 	// name passed to receiver.New. When connectorFactory is set (the Windows ETW sensor) it is only a log/heartbeat label.
 	serviceLabel string
-	enqueue      func(context.Context, []byte) error
+	// enqueueBatch writes the events gathered from one drain of the receiver channel together (issue #1584).
+	enqueueBatch func(context.Context, [][]byte) error
 	pt           *proctable.Table
 	updateTable  bool
 	dispatcher   *receiver.Dispatcher
@@ -746,6 +772,9 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 	// Reading a launchctl exec's plists touches the user's files, which can block (a stalled mount, a pipe), so the event loop waits
 	// for it only so long, one read at a time (issue #1341).
 	launchdJobs := enrich.BoundedReader(enrich.ReadLaunchdJobs, launchdReadWait)
+	// pending is what OnEvent gathered since the channel was last drained, written together by OnDrained (issue #1584). Both run on
+	// the loop's goroutine, so it needs no lock.
+	var pending [][]byte
 	hooks := receiver.LoopHooks{
 		OnEvent: func(ctx context.Context, evt receiver.Event) {
 			// The network extension's control messages ride the event channel because the XPC bridge only surfaces messages carrying a
@@ -778,9 +807,16 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 			if p.updateTable {
 				updateProcTable(p.pt, data)
 			}
-			if err := p.enqueue(ctx, data); err != nil {
-				p.logger.WarnContext(ctx, "enqueue", "err", err)
+			pending = append(pending, data)
+		},
+		OnDrained: func(ctx context.Context) {
+			if len(pending) == 0 {
+				return
 			}
+			if err := p.enqueueBatch(ctx, pending); err != nil {
+				p.logger.WarnContext(ctx, "enqueue", "events", len(pending), "err", err)
+			}
+			pending = pending[:0]
 		},
 	}
 	if p.dispatcher != nil {

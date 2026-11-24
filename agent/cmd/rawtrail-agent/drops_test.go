@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,4 +49,24 @@ func TestTelemetryDeps_DropReporterCountsInHealthAndMetric(t *testing.T) {
 		}
 	}
 	assert.Equal(t, int64(1), counted, "and in the metric")
+}
+
+// Shutdown waits for the receiver loops to write what they gathered, and gives up after its bound so a stuck loop cannot hold the
+// stop open (issue #1584).
+func TestWaitWithin(t *testing.T) {
+	t.Parallel()
+	t.Run("returns once the loops stop", func(t *testing.T) {
+		t.Parallel()
+		stopped := false
+		waitWithin(func() { stopped = true }, time.Minute, slog.New(slog.DiscardHandler))
+		assert.True(t, stopped)
+	})
+	t.Run("gives up at its bound", func(t *testing.T) {
+		t.Parallel()
+		stuck := make(chan struct{})
+		defer close(stuck)
+		start := time.Now()
+		waitWithin(func() { <-stuck }, 50*time.Millisecond, slog.New(slog.DiscardHandler))
+		assert.Less(t, time.Since(start), 5*time.Second, "shutdown proceeds without the stuck loop")
+	})
 }

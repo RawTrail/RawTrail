@@ -202,10 +202,10 @@ func TestReceiverLoop_ContainmentStatusIsConsumedNotUploaded(t *testing.T) {
 		containment:      mgr,
 		providerLiveness: true,
 		connectorFactory: func() receiver.Connector { return newEventConnector(status, telemetry) },
-		enqueue: func(_ context.Context, data []byte) error {
+		enqueueBatch: func(_ context.Context, events [][]byte) error {
 			mu.Lock()
 			defer mu.Unlock()
-			uploaded = append(uploaded, data)
+			uploaded = append(uploaded, events...)
 			return nil
 		},
 	})
@@ -245,10 +245,10 @@ func TestReceiverLoop_ContainmentStatusIsDroppedWithoutAManager(t *testing.T) {
 		serviceLabel:     "test-ne",
 		providerLiveness: true,
 		connectorFactory: func() receiver.Connector { return newEventConnector(status, telemetry) },
-		enqueue: func(_ context.Context, data []byte) error {
+		enqueueBatch: func(_ context.Context, events [][]byte) error {
 			mu.Lock()
 			defer mu.Unlock()
-			uploaded = append(uploaded, data)
+			uploaded = append(uploaded, events...)
 			return nil
 		},
 	})
@@ -302,7 +302,7 @@ func TestReceiverLoop_AReconnectSendsTheLifelineAgain(t *testing.T) {
 			connectors <- c
 			return c
 		},
-		enqueue: func(context.Context, []byte) error { return nil },
+		enqueueBatch: func(context.Context, [][]byte) error { return nil },
 	})
 	first := <-connectors
 	require.Eventually(t, func() bool { return sent() == 1 }, 2*time.Second, 10*time.Millisecond)
@@ -329,10 +329,10 @@ func TestReceiverLoop_ProviderStatusIsRecordedNotUploaded(t *testing.T) {
 		component:        health.ComponentNetworkExtension,
 		providerLiveness: true,
 		connectorFactory: func() receiver.Connector { return newEventConnector(status, telemetry) },
-		enqueue: func(_ context.Context, data []byte) error {
+		enqueueBatch: func(_ context.Context, events [][]byte) error {
 			mu.Lock()
 			defer mu.Unlock()
-			uploaded = append(uploaded, data)
+			uploaded = append(uploaded, events...)
 			return nil
 		},
 	})
@@ -372,4 +372,39 @@ func TestNewContainment_SeedsFromTheExtensionsPersistedState(t *testing.T) {
 	_, _ = dial(t.Context(), "tcp", "edr.example.com:8443")
 
 	assert.Equal(t, []string{"203.0.113.7:8443"}, dialed, "the enroll dials the lifeline rather than resolving the name")
+}
+
+// Each drain of the receiver channel writes only what arrived since the last, so a batch never carries an event already written
+// (issue #1584).
+func TestReceiverLoop_WritesEachDrainOnce(t *testing.T) {
+	t.Parallel()
+	first := []byte(`{"event_type":"exec","payload":{"pid":1}}`)
+	second := []byte(`{"event_type":"exit","payload":{"pid":1}}`)
+	conn := newEventConnector(first)
+	var mu sync.Mutex
+	var batches [][][]byte
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go startReceiverLoop(ctx, receiverLoopParams{
+		logger:           slog.Default(),
+		serviceLabel:     "test-sys",
+		connectorFactory: func() receiver.Connector { return conn },
+		enqueueBatch: func(_ context.Context, events [][]byte) error {
+			mu.Lock()
+			defer mu.Unlock()
+			batches = append(batches, append([][]byte(nil), events...))
+			return nil
+		},
+	})
+	written := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(batches)
+	}
+	require.Eventually(t, func() bool { return written() == 1 }, 2*time.Second, 5*time.Millisecond)
+	conn.events <- receiver.Event{Data: second}
+	require.Eventually(t, func() bool { return written() == 2 }, 2*time.Second, 5*time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, [][][]byte{{first}, {second}}, batches, "the second drain writes only the event that arrived after the first")
 }

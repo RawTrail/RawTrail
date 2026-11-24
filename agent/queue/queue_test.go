@@ -736,3 +736,132 @@ func TestQueue_RecordClientError_ThresholdDisabled(t *testing.T) {
 		t.Fatalf("threshold-disabled row MUST stay visible to DequeueBatch; got %d rows", len(again))
 	}
 }
+
+// spec:agent-xpc-receiver/a-burst-is-written-in-batches/a-burst-of-events-is-written-in-batches
+//
+// EnqueueBatch inserts a batch in one transaction, in order, readable as soon as it returns (issue #1584).
+func TestQueue_EnqueueBatch(t *testing.T) {
+	t.Parallel()
+	q := openTestQueue(t)
+	ctx := t.Context()
+	if err := q.EnqueueBatch(ctx, nil); err != nil {
+		t.Fatalf("an empty batch: %v", err)
+	}
+	if err := q.EnqueueBatch(ctx, [][]byte{[]byte(`{"seq":1}`), []byte(`{"seq":2}`), []byte(`{"seq":3}`)}); err != nil {
+		t.Fatalf("enqueue batch: %v", err)
+	}
+	batch, err := q.DequeueBatch(ctx, 10)
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+	var got []string
+	for _, e := range batch {
+		got = append(got, string(e.EventJSON))
+	}
+	if want := []string{`{"seq":1}`, `{"seq":2}`, `{"seq":3}`}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// spec:agent-event-queue/storage-i-o-errors-surface-to-the-caller/disk-is-full-during-enqueue
+//
+// A batch that cannot be written fails as a whole and says so, as one Enqueue does for its event: no part of it is kept.
+func TestQueue_EnqueueBatchOnAFullDiskFailsWhole(t *testing.T) {
+	t.Parallel()
+	q := openTestQueue(t)
+	ctx := t.Context()
+	var pages int64
+	if err := q.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages); err != nil {
+		t.Fatalf("read page_count: %v", err)
+	}
+	if _, err := q.db.ExecContext(ctx, fmt.Sprintf("PRAGMA max_page_count = %d", pages)); err != nil {
+		t.Fatalf("cap page_count: %v", err)
+	}
+	big := []byte(strings.Repeat("x", 64*1024))
+	err := q.EnqueueBatch(ctx, [][]byte{[]byte(`{"seq":1}`), big})
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) || sqliteErr.Code()&0xff != 13 {
+		t.Fatalf("expected SQLITE_FULL from the batch, got %v", err)
+	}
+	depth, err := q.Depth(ctx)
+	if err != nil {
+		t.Fatalf("depth: %v", err)
+	}
+	if depth != 0 {
+		t.Fatalf("a failed batch keeps none of its events, found %d", depth)
+	}
+}
+
+// EnqueueBatch enforces the cap once per batch, as Enqueue does per event, and a closed queue refuses a batch rather than losing it
+// silently.
+func TestQueue_EnqueueBatchCapAndClosed(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	q, err := Open(ctx, filepath.Join(t.TempDir(), "capped.db"), Options{MaxBytes: 1 << 30})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := q.EnqueueBatch(ctx, [][]byte{[]byte(`{"seq":1}`), []byte(`{"seq":2}`)}); err != nil {
+		t.Fatalf("a capped queue takes a batch under its cap: %v", err)
+	}
+	depth, err := q.Depth(ctx)
+	if err != nil || depth != 2 {
+		t.Fatalf("depth = %d, %v; want 2", depth, err)
+	}
+	if err := q.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if err := q.EnqueueBatch(ctx, [][]byte{[]byte(`{"seq":3}`)}); err == nil {
+		t.Fatalf("a closed queue must refuse a batch")
+	}
+}
+
+// spec:agent-event-queue/bounded-storage-with-operator-visible-lossy-fallback/cap-is-reached-but-uploaded-rows-can-absorb-the-pressure
+//
+// EnqueueBatch keeps the queue under its cap the way Enqueue does, enforcing it before each batch and dropping uploaded rows first.
+func TestEnqueueBatch_CapDropsUploadedFirst(t *testing.T) {
+	t.Parallel()
+	payload := []byte(strings.Repeat("x", 1024))
+	q := openCappedQueue(t, 64*1024)
+	ctx := t.Context()
+	batchOf := func(n int) [][]byte {
+		out := make([][]byte, n)
+		for i := range out {
+			out[i] = payload
+		}
+		return out
+	}
+	for range 20 {
+		if err := q.EnqueueBatch(ctx, batchOf(10)); err != nil {
+			t.Fatalf("enqueue batch: %v", err)
+		}
+	}
+	uploaded, err := q.DequeueBatch(ctx, 100)
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+	ids := make([]int64, 0, len(uploaded))
+	for _, e := range uploaded {
+		ids = append(ids, e.ID)
+	}
+	if err := q.MarkUploaded(ctx, ids); err != nil {
+		t.Fatalf("mark uploaded: %v", err)
+	}
+	for range 20 {
+		if err := q.EnqueueBatch(ctx, batchOf(10)); err != nil {
+			t.Fatalf("enqueue batch over cap: %v", err)
+		}
+	}
+	size, err := q.dbSizeBytes(ctx)
+	if err != nil {
+		t.Fatalf("dbSizeBytes: %v", err)
+	}
+	// One batch can land past the cap before the next one trims, so the slack is a batch's worth of rows on top of the per-event test's.
+	if size > 64*1024+8192+16*1024 {
+		t.Fatalf("DB size %d is past the cap plus a batch; cap enforcement failed", size)
+	}
+	depth, err := q.Depth(ctx)
+	if err != nil || depth == 0 {
+		t.Fatalf("depth = %d, %v: the uploaded rows should have gone first", depth, err)
+	}
+}

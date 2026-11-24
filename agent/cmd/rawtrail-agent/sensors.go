@@ -16,9 +16,11 @@ import (
 // telemetryDeps bundles what a platform's telemetry sensor(s) need to start. It is shared by the platform-specific
 // startTelemetrySensors implementations (sensors_notwindows.go / sensors_windows.go).
 type telemetryDeps struct {
-	logger        *slog.Logger
-	cfg           *config.Config
-	enqueue       func(context.Context, []byte) error
+	logger  *slog.Logger
+	cfg     *config.Config
+	enqueue func(context.Context, []byte) error
+	// enqueueBatch writes a receiver loop's events together, one batch per drain of its channel (issue #1584).
+	enqueueBatch  func(context.Context, [][]byte) error
 	pidTable      *proctable.Table
 	health        *health.Registry
 	esfDispatcher *receiver.Dispatcher
