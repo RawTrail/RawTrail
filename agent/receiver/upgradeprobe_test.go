@@ -1,6 +1,9 @@
 package receiver
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestParseNEUpgradePending pins the systemextensionsctl-output parsing that distinguishes a staged upgrade (a previous NE
 // version "waiting to uninstall on reboot" beside an enabled new one) from every other state, so the agent only emits the
@@ -84,5 +87,28 @@ func TestParseNEUpgradePending(t *testing.T) {
 				t.Fatalf("parseNEUpgradePending = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// productLines keeps the lines naming this product's extensions, jobs and Mach services, so the reboot hint logs what decides a
+// cutover and not the whole of launchd (issue #1542).
+func TestProductLines(t *testing.T) {
+	t.Parallel()
+	systemextensions := "3 extension(s)\n" +
+		"--- com.apple.system_extension.network_extension\n" +
+		"*\t*\tFDG8Q7N4CC\tio.rawtrail.networkextension (v0.9.0/1)\tRawTrail Network Extension\t[activated enabled]\n" +
+		"\t*\tOTHERTEAM\tcom.othervendor.networkextension (1.0/1)\tOther\t[activated enabled]\n"
+	launchd := "system = {\n" +
+		"\t\t     279      - \tendpoint-security.io.rawtrail.securityextension\n" +
+		"\t\t 0x1a763    M   A   group.io.rawtrail.networkextension\n" +
+		"\t\t 0x1b000    M   A   com.apple.something\n"
+	got := productLines(systemextensions + launchd)
+	want := []string{
+		"* * FDG8Q7N4CC io.rawtrail.networkextension (v0.9.0/1) RawTrail Network Extension [activated enabled]",
+		"279 - endpoint-security.io.rawtrail.securityextension", // dash-lint:ignore launchctl prints a hyphen column here
+		"0x1a763 M A group.io.rawtrail.networkextension",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("productLines =\n%q\nwant\n%q", got, want)
 	}
 }

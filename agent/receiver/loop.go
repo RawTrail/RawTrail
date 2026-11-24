@@ -113,6 +113,10 @@ type LoopHooks struct {
 	// outlasted the grace threshold and UpgradeProbe reported a previous version pending removal. Production marks the component's
 	// health reboot_required, so the console says what the log says (issue #985).
 	OnUpgradeStale func()
+	// UpgradeDiagnostics, when non-nil, returns what the host shows about the extensions as the reboot-required hint is logged, once
+	// per stale episode, and the hint carries it (issue #1542). An in-place upgrade on one Mac needed the reboot while a clean Mac
+	// cut over without one, and the reboot cleared the state before anyone recorded it, so the next occurrence leaves it in the log.
+	UpgradeDiagnostics func() []string
 }
 
 // Loop runs a single connector's connect/reconnect/event-pump cycle. Build one with NewLoop and call Run(ctx) in its own goroutine.
@@ -234,9 +238,12 @@ const maxDrainBatch = 512
 func (l *Loop) logConnectFailure(ctx context.Context, err error) {
 	if l.hooks.UpgradeProbe != nil && l.consecutiveFailures >= staleProbeAfterFailures && !l.staleHintLogged && l.hooks.UpgradeProbe() {
 		l.staleHintLogged = true
+		attrs := []any{"service", l.cfg.ServiceName, "err", err, "hint", "reboot_required_after_upgrade"}
+		if l.hooks.UpgradeDiagnostics != nil {
+			attrs = append(attrs, "diagnostics", l.hooks.UpgradeDiagnostics())
+		}
 		l.logger.WarnContext(ctx,
-			"network extension XPC registration is stale after an upgrade; reboot to complete the extension cutover",
-			"service", l.cfg.ServiceName, "err", err, "hint", "reboot_required_after_upgrade")
+			"network extension XPC registration is stale after an upgrade; reboot to complete the extension cutover", attrs...)
 		if l.hooks.OnUpgradeStale != nil {
 			l.hooks.OnUpgradeStale()
 		}

@@ -2,6 +2,7 @@ package receiver
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -26,6 +27,13 @@ const activatedEnabledMarker = "[activated enabled]"
 // and silently suppress the reboot hint.
 const systemextensionsctlPath = "/usr/bin/systemextensionsctl"
 
+// launchctlPath is the absolute path to launchctl, for the same reasons as systemextensionsctlPath.
+const launchctlPath = "/bin/launchctl"
+
+// diagnosticsMarker is what names this product's extensions, their launchd jobs and their Mach services in the output
+// NEUpgradeDiagnostics reads: io.rawtrail.networkextension, group.io.rawtrail.networkextension, and the security extension's.
+const diagnosticsMarker = "io.rawtrail."
+
 // neUpgradeProbeTimeout bounds the probe so a hung systemextensionsctl cannot stall the receiver's connect loop: the probe is
 // called synchronously from the loop goroutine, so an unbounded exec would freeze reconnect/heartbeat for that service.
 const neUpgradeProbeTimeout = 5 * time.Second
@@ -44,6 +52,34 @@ func NEUpgradePending(ctx context.Context) bool {
 		return false
 	}
 	return parseNEUpgradePending(string(out), neExtensionBundleID)
+}
+
+// NEUpgradeDiagnostics returns what the host shows about this product's extensions as a stale upgrade is reported (issue #1542):
+// their systemextensionsctl lines, with each version's state, and the launchd lines naming them, which say whether the network
+// extension's Mach service is registered. On the Mac that needed a reboot the service was missing while both extensions read
+// activated enabled. Best-effort: a tool that fails or times out contributes a line saying so rather than nothing.
+func NEUpgradeDiagnostics(ctx context.Context) []string {
+	run := func(name string, args ...string) []string {
+		ctx, cancel := context.WithTimeout(ctx, neUpgradeProbeTimeout)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, name, args...).CombinedOutput() // #nosec G204 -- absolute paths and constant arguments
+		if err != nil {
+			return []string{fmt.Sprintf("%s %s: %v", name, strings.Join(args, " "), err)}
+		}
+		return productLines(string(out))
+	}
+	return append(run(systemextensionsctlPath, "list"), run(launchctlPath, "print", "system")...)
+}
+
+// productLines returns the lines of output that name this product, trimmed, in order.
+func productLines(output string) []string {
+	var lines []string
+	for line := range strings.SplitSeq(output, "\n") {
+		if strings.Contains(line, diagnosticsMarker) {
+			lines = append(lines, strings.Join(strings.Fields(line), " "))
+		}
+	}
+	return lines
 }
 
 // parseNEUpgradePending is the pure core: true when one line names the network-extension bundle with the

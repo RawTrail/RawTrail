@@ -54,18 +54,19 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) (wait func()) {
 		emitter := sensorevent.NewEnqueueEmitter(d.hostIDFn, d.enqueue, func() int64 { return time.Now().UnixNano() })
 		loops.Go(func() {
 			startReceiverLoop(ctx, receiverLoopParams{
-				logger:       d.logger,
-				serviceLabel: d.cfg.NetXPCService,
-				enqueueBatch: d.enqueueBatch,
-				pt:           d.pidTable,
-				upgradeProbe: func() bool { return receiver.NEUpgradePending(ctx) },
-				dispatcher:   d.neDispatcher,
-				containment:  d.containment,
-				contained:    containedFunc(d.containment),
-				filterConfig: selfheal.NewFilterConfigReader(""),
-				health:       d.health,
-				component:    health.ComponentNetworkExtension,
-				onDrop:       d.dropReporter(ctx, health.ComponentNetworkExtension),
+				logger:             d.logger,
+				serviceLabel:       d.cfg.NetXPCService,
+				enqueueBatch:       d.enqueueBatch,
+				pt:                 d.pidTable,
+				upgradeProbe:       func() bool { return receiver.NEUpgradePending(ctx) },
+				upgradeDiagnostics: func() []string { return receiver.NEUpgradeDiagnostics(ctx) },
+				dispatcher:         d.neDispatcher,
+				containment:        d.containment,
+				contained:          containedFunc(d.containment),
+				filterConfig:       selfheal.NewFilterConfigReader(""),
+				health:             d.health,
+				component:          health.ComponentNetworkExtension,
+				onDrop:             d.dropReporter(ctx, health.ComponentNetworkExtension),
 				// Only this loop: the network extension's XPC listener starts before its providers, so health here must key on
 				// which providers report themselves running (issue #649).
 				providerLiveness: true,
