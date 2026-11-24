@@ -95,7 +95,7 @@ final class PreferenceToggleBoundTests: XCTestCase {
         XCTAssertTrue(message.hasPrefix("ERROR:"), "must read as a failure: \(message)")
 
         // The subcommand name is interpolated, not hardcoded, so every toggle names itself.
-        for action in [HostAppAction.enableDNSProxy, .enableFilter, .disableFilter] {
+        for action in [HostAppAction.enableDNSProxy, .enableFilter, .disableFilter, .filterStatus] {
             XCTAssertTrue(
                 preferencesTimeoutMessage(for: action, timeout: defaultPreferencesTimeout).contains(action.rawValue),
                 "\(action.rawValue) must name itself"

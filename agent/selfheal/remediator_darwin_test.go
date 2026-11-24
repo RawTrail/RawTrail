@@ -159,3 +159,66 @@ func TestEnableRefusesWhenTheHostAppSigningCannotBeRead(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not read code signing")
 }
+
+// stubFilterStatus writes a host-app stand-in that records its argv, prints answer, and exits with exitCode.
+func stubFilterStatus(t *testing.T, answer string, exitCode int) (path, argvFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	path = filepath.Join(dir, "edr")
+	argvFile = filepath.Join(dir, "argv")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argvFile + "\necho '" + answer + "'\nexit " + strconv.Itoa(exitCode) + "\n"
+	// #nosec G306 -- the stub stands in for an executable, so it has to carry the execute bit.
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+	return path, argvFile
+}
+
+// FilterEnabled runs exactly the host app's filter-status and reads its answer (issue #1540).
+func TestFilterEnabledRunsFilterStatus(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		answer string
+		want   bool
+	}{{"enabled", true}, {"disabled", false}} {
+		t.Run(tc.answer, func(t *testing.T) {
+			t.Parallel()
+			path, argvFile := stubFilterStatus(t, tc.answer, 0)
+			got, err := NewFilterConfigReader(path).FilterEnabled(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+			// #nosec G304 -- path is this test's own t.TempDir output, not external input.
+			raw, err := os.ReadFile(argvFile)
+			require.NoError(t, err)
+			assert.Equal(t, []string{FilterStatusSubcommand}, strings.Fields(string(raw)))
+		})
+	}
+}
+
+func TestFilterEnabledSurfacesTheHostAppOutputOnFailure(t *testing.T) {
+	t.Parallel()
+	path, _ := stubFilterStatus(t, "ERROR: Failed to load filter preferences", 1)
+	_, err := NewFilterConfigReader(path).FilterEnabled(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Failed to load filter preferences")
+}
+
+// The read runs the host app as root too, so a host app signed by another team is refused before it runs.
+func TestFilterEnabledRefusesAHostAppSignedByAnotherTeam(t *testing.T) {
+	t.Parallel()
+	path, argvFile := stubFilterStatus(t, "enabled", 0)
+	r := signingFixture(t, path, map[string]*codesign.Result{
+		"self": {TeamID: "FDG8Q7N4CC"},
+		path:   {TeamID: "ATTACKER99"},
+	})
+	_, err := r.FilterEnabled(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing to run")
+	_, statErr := os.Stat(argvFile)
+	assert.True(t, os.IsNotExist(statErr), "the foreign-signed host app must never be exec'd")
+}
+
+func TestNewFilterConfigReaderDefaultsToTheInstalledHostApp(t *testing.T) {
+	t.Parallel()
+	r, ok := NewFilterConfigReader("").(*hostAppRemediator)
+	require.True(t, ok)
+	assert.Equal(t, HostAppPath, r.path)
+}

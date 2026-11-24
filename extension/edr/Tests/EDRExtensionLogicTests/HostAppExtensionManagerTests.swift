@@ -140,6 +140,19 @@ final class HostAppExtensionManagerTests: XCTestCase {
         XCTAssertEqual(plan, [.setContentFilterEnabled(true)])
     }
 
+    // MARK: Requirement: Filter status subcommand
+
+    // spec:host-app-extension-manager/filter-status-subcommand/the-filter-status-reads-the-configuration-only
+    func testFilterStatusReadsTheConfigurationAndChangesNothing() {
+        // The agent runs filter-status every 30 seconds on a contained host (issue #1540), so it must never write a
+        // configuration or submit an extension request: its whole plan is the read.
+        XCTAssertEqual(parseHostAppAction("filter-status"), .filterStatus)
+        XCTAssertEqual(intents(for: .filterStatus), [.readContentFilterEnabled])
+        // The agent parses exactly these two words.
+        XCTAssertEqual(filterStatusLine(isEnabled: true), "enabled")
+        XCTAssertEqual(filterStatusLine(isEnabled: false), "disabled")
+    }
+
     // MARK: Requirement: DNS proxy enable and disable subcommands
 
     // spec:host-app-extension-manager/dns-proxy-enable-and-disable-subcommands/enable-dns-proxy-on-top-of-an-active-filter

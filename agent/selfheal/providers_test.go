@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRemediable pins the eligibility filter. This is the safety-critical half of the feature: everything the filter lets
@@ -107,4 +108,33 @@ func TestSubcommandMapsEveryRemediableProvider(t *testing.T) {
 	}
 	_, ok := Subcommand("nope")
 	assert.False(t, ok)
+}
+
+// The host app's filter-status answer is read from its last line, and anything else is an error rather than a guess.
+func TestParseFilterStatus(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		out     string
+		want    bool
+		wantErr bool
+	}{
+		{"enabled", "enabled\n", true, false},
+		{"disabled", "disabled\n", false, false},
+		{"the answer after other output", "Loaded filter preferences\ndisabled\n", false, false},
+		{"surrounding whitespace", "  enabled  \n\n", true, false},
+		{"an unknown answer", "maybe\n", false, true},
+		{"no output", "", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseFilterStatus([]byte(tc.out))
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }

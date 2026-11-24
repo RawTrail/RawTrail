@@ -34,6 +34,7 @@ enum HostAppAction: String, Equatable, CaseIterable, Sendable {
     case disableFilter = "disable-filter"
     case enableDNSProxy = "enable-dns-proxy"
     case disableDNSProxy = "disable-dns-proxy"
+    case filterStatus = "filter-status"
     case notify
 }
 
@@ -191,6 +192,7 @@ enum SubcommandIntent: Equatable, Sendable {
     case submitDeactivationRequest(extensionID: String)
     case setContentFilterEnabled(Bool)
     case setDNSProxyEnabled(Bool)
+    case readContentFilterEnabled
     case runNotifyMode
 }
 
@@ -216,9 +218,18 @@ func intents(for action: HostAppAction) -> [SubcommandIntent] {
         return [.setDNSProxyEnabled(true)]
     case .disableDNSProxy:
         return [.setDNSProxyEnabled(false)]
+    case .filterStatus:
+        return [.readContentFilterEnabled]
     case .notify:
         return [.runNotifyMode]
     }
+}
+
+/// filterStatusLine is the one line `filter-status` prints: whether the content filter's NetworkExtension configuration is enabled.
+/// The agent reads it while the host is contained (issue #1540), because a filter provider macOS stopped routing flows to can go on
+/// reporting itself running, and the configuration is the only account of it that does not come from the provider.
+func filterStatusLine(isEnabled: Bool) -> String {
+    isEnabled ? "enabled" : "disabled"
 }
 
 /// FilterConfigIntent is the contract main.swift's `enableContentFilter` saves into NEFilterManager's

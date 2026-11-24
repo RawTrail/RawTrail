@@ -261,6 +261,16 @@ private func disableContentFilter() {
     }
 }
 
+/// printContentFilterStatus prints whether the content filter's configuration is enabled, changing nothing.
+private func printContentFilterStatus() {
+    NEFilterManager.shared().loadFromPreferences { error in
+        if let error {
+            finishToggle(EXIT_FAILURE) { reporter.failure("ERROR: Failed to load filter preferences: \(error.localizedDescription)") }
+        }
+        finishToggle(EXIT_SUCCESS) { print(filterStatusLine(isEnabled: NEFilterManager.shared().isEnabled)) }
+    }
+}
+
 private func disableDNSProxy() {
     NEDNSProxyManager.shared().loadFromPreferences { error in
         if let error {
@@ -337,6 +347,10 @@ case .disableDNSProxy:
     print("Disabling DNS proxy...")
     armPreferencesWatchdog(for: .disableDNSProxy)
     disableDNSProxy()
+    dispatchMain()
+case .filterStatus:
+    armPreferencesWatchdog(for: .filterStatus)
+    printContentFilterStatus()
     dispatchMain()
 case .notify:
     print("Starting RawTrail notification surface...")

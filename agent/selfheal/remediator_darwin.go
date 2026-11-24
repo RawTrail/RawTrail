@@ -45,6 +45,15 @@ func NewRemediator(path string) Remediator {
 	return &hostAppRemediator{path: path, logger: slog.Default(), evaluate: codesign.Evaluate}
 }
 
+// NewFilterConfigReader returns the darwin reader of the content filter's configuration, which asks the host app. The host-app path
+// is overridable for tests.
+func NewFilterConfigReader(path string) FilterConfigReader {
+	if path == "" {
+		path = HostAppPath
+	}
+	return &hostAppRemediator{path: path, logger: slog.Default(), evaluate: codesign.Evaluate}
+}
+
 // verifyHostApp rejects a host app whose code-signing identity does not match the agent's own before the agent, running as
 // root, executes it.
 //
@@ -108,4 +117,20 @@ func (r *hostAppRemediator) Enable(ctx context.Context, provider string) error {
 		return fmt.Errorf("%s %s: %w: %s", r.path, sub, err, out)
 	}
 	return nil
+}
+
+// FilterEnabled runs the host app's `filter-status`, after the same identity check an enable gets, since it runs as root too.
+func (r *hostAppRemediator) FilterEnabled(ctx context.Context) (bool, error) {
+	if err := r.verifyHostApp(ctx); err != nil {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, enableTimeout)
+	defer cancel()
+	// #nosec G204 -- neither argument is caller-controlled: r.path is a build-time constant (overridden only by tests) and the
+	// subcommand is a constant.
+	out, err := exec.CommandContext(ctx, r.path, FilterStatusSubcommand).CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("%s %s: %w: %s", r.path, FilterStatusSubcommand, err, out)
+	}
+	return parseFilterStatus(out)
 }

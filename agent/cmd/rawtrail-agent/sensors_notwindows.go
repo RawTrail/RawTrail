@@ -62,6 +62,7 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) (wait func()) {
 				dispatcher:   d.neDispatcher,
 				containment:  d.containment,
 				contained:    containedFunc(d.containment),
+				filterConfig: selfheal.NewFilterConfigReader(""),
 				health:       d.health,
 				component:    health.ComponentNetworkExtension,
 				onDrop:       d.dropReporter(ctx, health.ComponentNetworkExtension),

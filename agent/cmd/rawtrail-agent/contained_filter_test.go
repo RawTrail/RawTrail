@@ -38,7 +38,7 @@ func TestRequiredProviders(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			before := maps.Clone(tc.providers)
-			assert.Equal(t, tc.want, requiredProviders(tc.providers, tc.contained))
+			assert.Equal(t, tc.want, requiredProviders(tc.providers, tc.contained, false))
 			assert.Equal(t, before, tc.providers, "the report itself is not changed")
 		})
 	}
