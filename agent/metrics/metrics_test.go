@@ -237,3 +237,36 @@ func TestQueueDepthGauge_NilSourceSkipsRegistration(t *testing.T) {
 		}
 	}
 }
+
+// spec:agent-status-reporting/dropped-events-are-reported-in-health/a-burst-the-agent-could-not-keep-up-with-is-reported
+func TestRecorder_ReceiverDropped(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
+	r := NewWithMeter(nil, mp.Meter("test"))
+
+	ctx := context.Background()
+	r.ReceiverDropped(ctx, "endpoint_security_extension")
+	r.ReceiverDropped(ctx, "endpoint_security_extension")
+	r.ReceiverDropped(ctx, "network_extension")
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &rm))
+	byService := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, im := range sm.Metrics {
+			if im.Name != "edr.agent.receiver.dropped" {
+				continue
+			}
+			sum, ok := im.Data.(metricdata.Sum[int64])
+			require.True(t, ok, "counter must be exported as a Sum")
+			for _, dp := range sum.DataPoints {
+				service, _ := dp.Attributes.Value("service")
+				byService[service.AsString()] += dp.Value
+			}
+		}
+	}
+	assert.Equal(t, map[string]int64{"endpoint_security_extension": 2, "network_extension": 1}, byService)
+	assert.NotPanics(t, func() { (*Recorder)(nil).ReceiverDropped(ctx, "network_extension") }, "nil-safe like every other instrument")
+}

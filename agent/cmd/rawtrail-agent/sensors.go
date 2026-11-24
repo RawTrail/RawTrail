@@ -8,6 +8,7 @@ import (
 	"github.com/rawtrail/rawtrail/agent/config"
 	"github.com/rawtrail/rawtrail/agent/containment"
 	"github.com/rawtrail/rawtrail/agent/health"
+	"github.com/rawtrail/rawtrail/agent/metrics"
 	"github.com/rawtrail/rawtrail/agent/proctable"
 	"github.com/rawtrail/rawtrail/agent/receiver"
 )
@@ -34,4 +35,15 @@ type telemetryDeps struct {
 	// the superseded value is attributed to a host that may no longer exist. agent/reconcile takes the same provider
 	// function for the same reason.
 	hostIDFn func() string
+	// metrics counts the events a receiver drops (issue #1584).
+	metrics *metrics.Recorder
+}
+
+// dropReporter returns the function a receiver tells of each event it drops because the agent fell behind (issue #1584): the drop
+// is counted in the agent's health, against the source's component, and as a metric.
+func (d telemetryDeps) dropReporter(ctx context.Context, component string) func() {
+	return func() {
+		d.health.RecordDrop(component)
+		d.metrics.ReceiverDropped(ctx, component)
+	}
 }

@@ -63,6 +63,12 @@ func New(serviceName string, eventBuf int) *Receiver {
 	}
 }
 
+// OnDrop sets a function told of each event the receiver drops because its channel is full (issue #1584). Called before the receiver
+// connects.
+func (r *Receiver) OnDrop(sink func()) {
+	r.drops.sink = sink
+}
+
 // Events returns the channel on which received events are delivered.
 func (r *Receiver) Events() <-chan Event {
 	return r.events

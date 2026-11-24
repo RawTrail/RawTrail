@@ -18,7 +18,7 @@ type Status string
 
 const (
 	StatusHealthy   Status = "healthy"
-	StatusDegraded  Status = "degraded" // reserved for future signals; unused by the first two extensions
+	StatusDegraded  Status = "degraded"
 	StatusUnhealthy Status = "unhealthy"
 	StatusUnknown   Status = "unknown"
 )
@@ -132,8 +132,10 @@ type Registry struct {
 	// deliberately switched off asserting "running" forever, and a stale positive claim is worse than silence: the server
 	// contradicts that claim against arriving telemetry, so it would report a wedge on a provider that is simply off.
 	providers map[string]map[string]providerHealth
-	nowNs     func() int64
-	changed   chan struct{}
+	// drops is the events the sources dropped because the agent fell behind (issue #1584), nil until the first.
+	drops   *dropState
+	nowNs   func() int64
+	changed chan struct{}
 }
 
 // NewRegistry returns an empty registry using the wall clock. Tests inject a clock via newRegistryWithClock.
@@ -410,6 +412,9 @@ func (r *Registry) Snapshot() []Component {
 		})
 		// Each parent's providers follow it, so the list reads as a hierarchy even though the wire is flat.
 		out = append(out, r.providerComponents(t)...)
+	}
+	if c, ok := r.dropComponent(); ok {
+		out = append(out, c)
 	}
 	return out
 }

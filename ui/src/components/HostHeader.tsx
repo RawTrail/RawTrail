@@ -30,6 +30,8 @@ const COMPONENT_LABELS: Record<string, string> = {
   // that is what the operator is being told: the extension says it is fine, but this capture is not reaching us.
   content_filter_delivery: "Connection capture",
   dns_proxy_delivery: "DNS capture",
+  // Whether the agent kept up with the events its extensions delivered, or dropped some (issue #1584).
+  event_capture: "Event capture",
 };
 
 // healthDotClass maps the rollup to the attention dot on the Details trigger: none when healthy (green is "no news") or unknown (no

@@ -162,3 +162,17 @@ func (m *mutexWriter) Write(p []byte) (int, error) {
 	defer m.mu.Unlock()
 	return m.w.Write(p)
 }
+
+// The drop sink is told of every dropped event, which the coalesced warning is not, so the agent's health and metric count all of
+// them (issue #1584).
+func TestTryDeliverEvent_TellsTheSinkOfEveryDrop(t *testing.T) {
+	t.Parallel()
+	var told int
+	dr := NewDropReporter()
+	dr.sink = func() { told++ }
+	ch := make(chan Event, 1)
+	for range 5 {
+		TryDeliverEvent(ch, Event{}, "svc-xpc", dr)
+	}
+	assert.Equal(t, 4, told, "the first event fits the channel; the four after it are dropped and each is told")
+}

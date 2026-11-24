@@ -253,6 +253,8 @@ sudo launchctl kickstart -k system/io.rawtrail.agent
 
 **`receiver connect` / `xpc_bridge_connect failed` warnings repeat while `systemextensionsctl list` shows `activated enabled`.** The Endpoint Security extension is exiting on launch for lack of Full Disk Access. Confirm with `log show --last 10m --predicate 'subsystem == "io.rawtrail.securityextension"' | grep "ES client"`: `Failed to create ES client: 4` is `ERR_NOT_PERMITTED`. Enable the **"RawTrail Security Extension"** entry in Privacy & Security > Full Disk Access (Step 6). The extension is a different TCC identity from `/Applications/RawTrail.app`, so granting the app alone doesn't fix it.
 
+**The host page shows Event capture as Degraded.** The agent fell behind the events its extensions delivered and dropped some, such as during a burst of process activity at install or restart, or a large build. The condition's message says how many each extension dropped since the agent started and when the last was, and the agent log has a `receiver event channel full` warning for each burst. It reads Healthy again an hour after the last drop. The extensions keep running, but the dropped events are not recorded. With OpenTelemetry enabled, `edr.agent.receiver.dropped` counts the same drops.
+
 ## Enable OpenTelemetry (optional, dev/debug)
 
 The agent ships OpenTelemetry instrumentation but keeps it off by default: with no OTLP endpoint configured it installs no-op providers and emits nothing, which is the right posture for production endpoints (we do not want every host streaming telemetry to a shared collector). See [ADR-0006](adr/0006-otel-only-metrics.md). Turn it on when you are debugging a single host and want its metrics (queue depth, dropped events) and logs in a collector such as SigNoz.
