@@ -99,6 +99,8 @@ type position struct {
 	turn string
 	// mode is the permission mode the last entry that names one put in force (issue #1427).
 	mode string
+	// caveat is the id of the last local-command caveat entry read, which a slash command passed to claude -p follows (issue #1543).
+	caveat string
 	// messages are the assistant messages whose usage this transcript sent most recently, oldest first, at most maxSentMessages
 	// (issue #1427). Claude Code writes a streamed message as several entries, each with the whole message's usage and its own time,
 	// so only the first is sent: the archive keeps one row for an event only when its time matches too, which the first entry's
@@ -429,6 +431,13 @@ func (r *Reader) handleLine(ctx context.Context, hostID string, src source, pos 
 	}
 	if line.Mode != "" && line.ModeSession == src.session {
 		pos.mode = line.Mode
+	}
+	if line.Caveat != "" && line.TurnSession == src.session {
+		pos.caveat = line.Caveat
+	}
+	// A slash command passed to claude -p is the person's only when Claude Code wrote its caveat just before it.
+	if line.Command != nil && line.Prompt == nil && pos.caveat != "" && line.CommandParent == pos.caveat {
+		line.Prompt = line.Command
 	}
 	if usage := line.Usage; usage != nil && usage.SessionID == src.session && !pos.sent(usage.MessageID) {
 		usage.OwnerUID, usage.PromptID, usage.PermissionMode, usage.ForkedFromSessionID = src.ownerUID, pos.turn, pos.mode, src.forkedFrom
