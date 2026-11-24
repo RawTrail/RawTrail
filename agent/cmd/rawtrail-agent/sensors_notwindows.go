@@ -61,6 +61,7 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) (wait func()) {
 				upgradeProbe: func() bool { return receiver.NEUpgradePending(ctx) },
 				dispatcher:   d.neDispatcher,
 				containment:  d.containment,
+				contained:    containedFunc(d.containment),
 				health:       d.health,
 				component:    health.ComponentNetworkExtension,
 				onDrop:       d.dropReporter(ctx, health.ComponentNetworkExtension),
