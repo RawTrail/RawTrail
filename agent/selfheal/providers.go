@@ -11,7 +11,12 @@
 // policy: what counts as eligible, when to wait, when to give up. That is all testable without touching the host app.
 package selfheal
 
-import "sort"
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"sort"
+)
 
 // ProviderStopped is the state the network extension reports for a provider that stopped through a fault. It mirrors the
 // wire value defined by the extension's ProviderLiveness (issue #649); a provider the operator deliberately disabled
@@ -68,4 +73,27 @@ func Remediable(providers map[string]string) []string {
 func Subcommand(provider string) (string, bool) {
 	cmd, ok := subcommand[provider]
 	return cmd, ok
+}
+
+// FilterStatusSubcommand is the host-app subcommand that prints whether the content filter's configuration is enabled.
+const FilterStatusSubcommand = "filter-status"
+
+// FilterConfigReader reads whether the content filter's NetworkExtension configuration is enabled (issue #1540). It is the one
+// account of the filter that does not come from its provider: macOS can stop routing flows to a provider without telling it, which
+// then goes on reporting itself running.
+type FilterConfigReader interface {
+	FilterEnabled(ctx context.Context) (bool, error)
+}
+
+// parseFilterStatus reads the host app's `filter-status` output, which is `enabled` or `disabled` on its last line.
+func parseFilterStatus(out []byte) (bool, error) {
+	lines := bytes.Split(bytes.TrimSpace(out), []byte("\n"))
+	switch last := string(bytes.TrimSpace(lines[len(lines)-1])); last {
+	case "enabled":
+		return true, nil
+	case "disabled":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unrecognized %s output %q", FilterStatusSubcommand, last)
+	}
 }

@@ -108,6 +108,7 @@ edr enable-filter      # enable content filter only
 edr disable-filter     # disable content filter
 edr enable-dns-proxy   # enable DNS proxy
 edr disable-dns-proxy  # disable DNS proxy
+edr filter-status      # print whether the content filter is enabled
 ```
 
 ### Go agent (`agent/`)

@@ -9,3 +9,8 @@ package selfheal
 func NewRemediator(string) Remediator {
 	return nil
 }
+
+// NewFilterConfigReader returns nil on platforms with no content filter, so nothing is read.
+func NewFilterConfigReader(string) FilterConfigReader {
+	return nil
+}

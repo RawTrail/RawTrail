@@ -3,6 +3,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -729,6 +731,11 @@ type receiverLoopParams struct {
 	// contained reports whether the host is network contained, which makes the content filter required (issue #1540). Nil, as on
 	// every loop but the network extension's, never requires it.
 	contained func() bool
+	// filterConfig reads the content filter's configuration, checked while the host is contained (issue #1540). Nil, as on the
+	// security extension's loop and off darwin, checks nothing.
+	filterConfig selfheal.FilterConfigReader
+	// filterConfigEvery is how often filterConfig is read while contained. Zero is filterConfigInterval; tests set it shorter.
+	filterConfigEvery time.Duration
 	// onDrop is told of each event the default receiver drops because its channel is full (issue #1584). Nil reports nothing.
 	onDrop func()
 }
@@ -782,6 +789,9 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 	// pending is what OnEvent gathered since the channel was last drained, written together by OnDrained (issue #1584). Both run on
 	// the loop's goroutine, so it needs no lock.
 	var pending [][]byte
+	// The extension's reports and the filter configuration watch both reach observeProviderStatus through obs, so health, the
+	// self-heal and the transition record see them in one sequence.
+	obs := &providerObserver{params: p}
 	hooks := receiver.LoopHooks{
 		OnEvent: func(ctx context.Context, evt receiver.Event) {
 			// The network extension's control messages ride the event channel because the XPC bridge only surfaces messages carrying a
@@ -796,7 +806,7 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 					}
 					return
 				case providerStatusEventType:
-					observeProviderStatus(ctx, p, decodeProviderStatus(evt.Data))
+					obs.report(ctx, decodeProviderStatus(evt.Data))
 					return
 				}
 			}
@@ -837,6 +847,14 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 		hooks.OnDisconnected = p.dispatcher.Clear
 	}
 	hooks = withHealthHooks(hooks, p)
+	// The observer forgets the session's report before health records the disconnect, so no reading can replay it in between.
+	recordDisconnect := hooks.OnDisconnected
+	hooks.OnDisconnected = func() {
+		obs.sessionEnded()
+		if recordDisconnect != nil {
+			recordDisconnect()
+		}
+	}
 	// Only the network-extension loop wires UpgradeProbe (nil for ESF): after a staged upgrade the NE's nesessionmanager-owned
 	// Mach service stays bound to the terminated old version until reboot, so a sustained NE connect failure paired with a
 	// pending-uninstall old version and an enabled new one means "reboot required", not "needs approval" (#399, #1598).
@@ -847,7 +865,13 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 		HeartbeatInterval: xpcHeartbeatInterval,
 		HeartbeatTimeout:  xpcHeartbeatPingTimeout,
 	}, hooks, p.logger)
+	var watch sync.WaitGroup
+	if p.filterConfig != nil && p.contained != nil {
+		every := cmp.Or(p.filterConfigEvery, filterConfigInterval)
+		watch.Go(func() { watchFilterConfig(ctx, obs, p.contained, p.filterConfig, every, p.logger) })
+	}
 	loop.Run(ctx)
+	watch.Wait()
 }
 
 // providerStatusEventType is the control event_type the network extension broadcasts its provider liveness under. Wire contract
@@ -865,6 +889,9 @@ type providerStatus struct {
 	// recording must not: feeding an undecodable report to the recorder would drop every provider from its baseline and
 	// make the next valid report look like a fresh set of transitions, manufacturing tamper evidence out of a parse error.
 	Decoded bool
+	// FilterConfigOff is the agent's own reading, not the extension's: the content filter's configuration was last read as switched
+	// off (see watchFilterConfig).
+	FilterConfigOff bool
 }
 
 // peekEventType reads event_type ALONE. It runs on every network-extension event and ordinary telemetry (a network_connect per flow)
@@ -908,7 +935,7 @@ func decodeProviderStatus(data []byte) providerStatus {
 // telemetry: the caller drops the control message either way, so each nil check guards only its recording.
 func observeProviderStatus(ctx context.Context, p receiverLoopParams, status providerStatus) {
 	if status.Decoded {
-		status.Providers = requiredProviders(status.Providers, p.contained != nil && p.contained())
+		status.Providers = requiredProviders(status.Providers, p.contained != nil && p.contained(), status.FilterConfigOff)
 	}
 	if p.health != nil {
 		p.health.MarkProviders(p.component, status.Providers, status.Decoded)
@@ -927,7 +954,7 @@ func observeProviderStatus(ctx context.Context, p receiverLoopParams, status pro
 }
 
 // requiredProviders returns the providers a liveness report names, with the content filter reported stopped when the host is
-// contained and the report does not name it (issue #1540).
+// contained and either the report does not name it (issue #1540) or its configuration was read as switched off.
 //
 // A contained host's content filter is what isolates it, so it is not optional there. A filter whose NetworkExtension configuration
 // was switched off never starts, so the extension never reports it at all, neither running nor stopped, and health, the self-heal
@@ -935,12 +962,15 @@ func observeProviderStatus(ctx context.Context, p receiverLoopParams, status pro
 // reading healthy, until the filter was enabled by hand. Reporting it stopped puts it through the same three paths as any stopped
 // filter: health shows it unhealthy, the self-heal re-enables it, and its stop is recorded.
 //
+// A configuration switched off while the filter was starting can leave the provider reporting itself running with no flows reaching
+// it (see watchFilterConfig), so filterConfigOff overrides whatever the report says.
+//
 // Only a report that decoded is changed, since an undecodable one arrives empty and would read as every provider missing.
-func requiredProviders(providers map[string]string, contained bool) map[string]string {
+func requiredProviders(providers map[string]string, contained, filterConfigOff bool) map[string]string {
 	if !contained {
 		return providers
 	}
-	if _, ok := providers[health.ProviderContentFilter]; ok {
+	if _, ok := providers[health.ProviderContentFilter]; ok && !filterConfigOff {
 		return providers
 	}
 	out := make(map[string]string, len(providers)+1)
