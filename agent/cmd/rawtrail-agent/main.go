@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -725,6 +726,9 @@ type receiverLoopParams struct {
 	// upgradeDiagnostics returns what the host shows about the extensions, logged with the reboot-required hint (issue #1542). Nil
 	// on every loop but the network extension's.
 	upgradeDiagnostics func() []string
+	// contained reports whether the host is network contained, which makes the content filter required (issue #1540). Nil, as on
+	// every loop but the network extension's, never requires it.
+	contained func() bool
 	// onDrop is told of each event the default receiver drops because its channel is full (issue #1584). Nil reports nothing.
 	onDrop func()
 }
@@ -903,6 +907,9 @@ func decodeProviderStatus(data []byte) providerStatus {
 // observeProviderStatus records a provider-liveness report. Whether we can RECORD the status is a separate question from whether it is
 // telemetry: the caller drops the control message either way, so each nil check guards only its recording.
 func observeProviderStatus(ctx context.Context, p receiverLoopParams, status providerStatus) {
+	if status.Decoded {
+		status.Providers = requiredProviders(status.Providers, p.contained != nil && p.contained())
+	}
 	if p.health != nil {
 		p.health.MarkProviders(p.component, status.Providers, status.Decoded)
 	}
@@ -917,6 +924,29 @@ func observeProviderStatus(ctx context.Context, p receiverLoopParams, status pro
 	if p.transitions != nil && status.Decoded {
 		p.transitions.Observe(ctx, status.Providers, status.StopReasons)
 	}
+}
+
+// requiredProviders returns the providers a liveness report names, with the content filter reported stopped when the host is
+// contained and the report does not name it (issue #1540).
+//
+// A contained host's content filter is what isolates it, so it is not optional there. A filter whose NetworkExtension configuration
+// was switched off never starts, so the extension never reports it at all, neither running nor stopped, and health, the self-heal
+// and the tamper record all read the absence as "nothing to say". On edr-qa a contained host sat uncontained like that, health
+// reading healthy, until the filter was enabled by hand. Reporting it stopped puts it through the same three paths as any stopped
+// filter: health shows it unhealthy, the self-heal re-enables it, and its stop is recorded.
+//
+// Only a report that decoded is changed, since an undecodable one arrives empty and would read as every provider missing.
+func requiredProviders(providers map[string]string, contained bool) map[string]string {
+	if !contained {
+		return providers
+	}
+	if _, ok := providers[health.ProviderContentFilter]; ok {
+		return providers
+	}
+	out := make(map[string]string, len(providers)+1)
+	maps.Copy(out, providers)
+	out[health.ProviderContentFilter] = health.ProviderStopped
+	return out
 }
 
 // eventHeader is a minimal struct for peeking at event_type, pid, path, and uid.
