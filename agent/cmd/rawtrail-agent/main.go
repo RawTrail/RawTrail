@@ -244,6 +244,7 @@ func run() error {
 		settings:      settings,
 		hostID:        hostID,
 		hostIDFn:      tokenProvider.HostID,
+		metrics:       rec,
 	})
 	go runUploader(ctx, up, logger)
 
@@ -695,6 +696,8 @@ type receiverLoopParams struct {
 	// connectorFactory overrides how the loop builds its Connector. Nil uses the default XPC receiver (macOS); the Windows sensor seam
 	// sets it to build an ETW-backed Connector instead, so both platforms share the same reconnect/backoff/heartbeat + health machinery.
 	connectorFactory func() receiver.Connector
+	// onDrop is told of each event the default receiver drops because its channel is full (issue #1584). Nil reports nothing.
+	onDrop func()
 }
 
 // withHealthHooks composes the agent-health transitions on top of any dispatcher wiring: a successful connect marks the component
@@ -733,7 +736,11 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 	factory := p.connectorFactory
 	if factory == nil {
 		factory = func() receiver.Connector {
-			return receiver.New(p.serviceLabel, receiverEventBuffer)
+			recv := receiver.New(p.serviceLabel, receiverEventBuffer)
+			if p.onDrop != nil {
+				recv.OnDrop(p.onDrop)
+			}
+			return recv
 		}
 	}
 	// Reading a launchctl exec's plists touches the user's files, which can block (a stalled mount, a pipe), so the event loop waits

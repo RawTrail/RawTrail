@@ -107,6 +107,9 @@ const dropWarnInterval = 5 * time.Second
 // and when that warning fired. It is exported so non-receiver event sources (e.g. agent/wintel's ETW sensor) reuse the same
 // coalescing rather than reimplementing per-drop logging.
 type DropReporter struct {
+	// sink, when set, is told of every drop, as the warnings are not (issue #1584): the agent reports the count in its health and
+	// as a metric. Set before the source starts delivering, and not changed after.
+	sink     func()
 	mu       sync.Mutex
 	pending  int64            // drops accumulated since the last emitted warning, not yet reflected in any log line
 	lastEmit time.Time        // when the last warning fired; zero until the first drop is reported
@@ -135,6 +138,9 @@ func (r *DropReporter) record() (int64, bool) {
 	// has a nil clock; default it here so record never nil-panics on the drop path.
 	if r.now == nil {
 		r.now = time.Now
+	}
+	if r.sink != nil {
+		r.sink()
 	}
 	r.pending++
 	now := r.now()

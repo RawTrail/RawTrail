@@ -36,6 +36,7 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 		dispatcher:   d.esfDispatcher,
 		health:       d.health,
 		component:    health.ComponentEndpointSecurityExtension,
+		onDrop:       d.dropReporter(ctx, health.ComponentEndpointSecurityExtension),
 	})
 	// The tool calls AI agents record in their session transcripts (issue #1288), read from every home directory, so the server can
 	// label each tool call's processes with the call that started them, and the prompts their users typed unless prompt capture is off
@@ -57,6 +58,7 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 			containment:  d.containment,
 			health:       d.health,
 			component:    health.ComponentNetworkExtension,
+			onDrop:       d.dropReporter(ctx, health.ComponentNetworkExtension),
 			// Only this loop: the network extension's XPC listener starts before its providers, so health here must key on
 			// which providers report themselves running (issue #649).
 			providerLiveness: true,

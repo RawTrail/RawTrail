@@ -40,6 +40,9 @@ func New(serviceName string, eventBuf int) *Receiver {
 
 // Events returns the channel on which events would be delivered. The stub
 // never produces any, so any receive on this channel blocks forever.
+// OnDrop does nothing here: this receiver never delivers an event, so it never drops one (issue #1584).
+func (r *Receiver) OnDrop(func()) {}
+
 func (r *Receiver) Events() <-chan Event { return r.events }
 
 // Errors returns the channel on which connection errors would be

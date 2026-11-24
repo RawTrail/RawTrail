@@ -218,6 +218,25 @@ describe("HostHeader agent health", () => {
     expect(screen.getByText("Network extension")).toBeInTheDocument();
   });
 
+  // spec:web-ui/the-host-detail-shows-the-events-the-agent-dropped/dropped-events-are-shown-with-their-count
+  it("shows the events the agent dropped, with their count, as a degraded condition", async () => {
+    const detail = detailFixture();
+    vi.spyOn(api, "getHostDetail").mockResolvedValue(detail);
+    const nowNs = Date.now() * NANOSECONDS_PER_MILLISECOND;
+    vi.spyOn(api, "getHostHealth").mockResolvedValue(healthFixture({
+      overall_status: "degraded",
+      components: [
+        { type: "event_capture", status: "degraded", reason: "events_dropped", last_transition_ns: nowNs,
+          message: "Dropped 1971 events from the Security extension since the agent started, the last at 2026-11-14T17:07:03Z, " +
+            "because the agent fell behind" },
+      ],
+    }));
+    renderHeader(detail.host_id);
+    fireEvent.click(await screen.findByRole("button", { name: /Details/ }));
+    expect(screen.getByText("Event capture")).toBeVisible();
+    expect(screen.getByText(/^Dropped 1971 events from the Security extension/)).toBeVisible();
+  });
+
   it("names a missing Full Disk Access grant on the extension and on the agent", async () => {
     const detail = detailFixture();
     vi.spyOn(api, "getHostDetail").mockResolvedValue(detail);

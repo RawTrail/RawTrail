@@ -42,6 +42,7 @@ type Recorder struct {
 	queueDropped          metric.Int64Counter
 	eventsDroppedTooLarge metric.Int64Counter
 	endpointRejected      metric.Int64Counter
+	receiverDropped       metric.Int64Counter
 	queueDepth            metric.Int64ObservableGauge
 }
 
@@ -70,6 +71,11 @@ func NewWithMeter(depthSrc QueueDepthSource, m metric.Meter) *Recorder {
 		"edr.agent.uploader.endpoint_rejected",
 		metric.WithDescription("Drain ticks on which the ingest endpoint returned a blanket rejection (a 4xx the EDR server never emits itself, e.g. 403/404/429), by `status_code`. Non-zero means the agent is queueing telemetry it cannot deliver: the endpoint URL is wrong, the origin is unhealthy, or an edge/WAF is blocking. The batch is kept queued, not dropped."),
 		metric.WithUnit("{rejection}"),
+	)
+	r.receiverDropped, _ = m.Int64Counter(
+		"edr.agent.receiver.dropped",
+		metric.WithDescription("Events a security or network extension delivered that the agent dropped because its receiver channel was full, by `service`. Non-zero means the agent fell behind its sources and lost that telemetry."),
+		metric.WithUnit(unitEvent),
 	)
 	if depthSrc != nil {
 		r.queueDepth, _ = m.Int64ObservableGauge(
@@ -111,6 +117,15 @@ func (r *Recorder) EventsDroppedTooLarge(ctx context.Context, n int64) {
 		return
 	}
 	r.eventsDroppedTooLarge.Add(ctx, n)
+}
+
+// ReceiverDropped counts one event that service's extension delivered and the agent dropped because its receiver channel was full
+// (issue #1584). Nil-safe.
+func (r *Recorder) ReceiverDropped(ctx context.Context, service string) {
+	if r == nil || r.receiverDropped == nil {
+		return
+	}
+	r.receiverDropped.Add(ctx, 1, metric.WithAttributes(attribute.String("service", service)))
 }
 
 // UploadRejected increments the endpoint-rejected counter once per drain tick on which the ingest endpoint returned a blanket
