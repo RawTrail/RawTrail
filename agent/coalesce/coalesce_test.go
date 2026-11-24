@@ -400,3 +400,19 @@ func TestCoalescer_HandleBatchReturnsAFailedWrite(t *testing.T) {
 	malformed := []byte(`{"event_id":"n1","event_type":"network_connect","payload":"not an object"}`)
 	assert.ErrorIs(t, c.HandleBatch(t.Context(), [][]byte{malformed}), failed)
 }
+
+// A network event whose write fails does not cost the rest of the batch: the other events are still written together.
+func TestCoalescer_HandleBatchWritesTheRestPastAFailure(t *testing.T) {
+	t.Parallel()
+	failed := errors.New("queue full")
+	batched := &batchSink{}
+	c := New(time.Hour, func(context.Context, []byte) error { return failed }, nil).WithBatchSink(batched.enqueueBatch)
+	exec := []byte(`{"event_id":"e1","event_type":"exec","payload":{"pid":1}}`)
+	malformed := []byte(`{"event_id":"n1","event_type":"network_connect","payload":"not an object"}`)
+	exit := []byte(`{"event_id":"e2","event_type":"exit","payload":{"pid":1}}`)
+
+	err := c.HandleBatch(t.Context(), [][]byte{exec, malformed, exit})
+
+	require.ErrorIs(t, err, failed, "the failure is still reported")
+	assert.Equal(t, [][][]byte{{exec, exit}}, batched.batches, "and the events around it are written")
+}

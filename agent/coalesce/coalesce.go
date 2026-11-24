@@ -12,6 +12,7 @@ package coalesce
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sort"
 	"sync"
@@ -88,17 +89,20 @@ func (c *Coalescer) WithBatchSink(enqueueBatch EnqueueBatchFunc) *Coalescer {
 // HandleBatch is Handle for a run of events, for a Coalescer given a batch sink (issue #1584): network_connect and dns_query are buffered and merged as Handle does them,
 // and every other event is written to the batch sink in one call, so a burst costs one commit rather than one per event.
 func (c *Coalescer) HandleBatch(ctx context.Context, events [][]byte) error {
+	// A network event that fails does not stop the rest: the others are still written, and the first failure is returned with the
+	// batch's own.
 	passed := make([][]byte, 0, len(events))
+	var handleErr error
 	for _, data := range events {
 		if c.Enabled() && coalescable(data) {
-			if err := c.Handle(ctx, data); err != nil {
-				return err
+			if err := c.Handle(ctx, data); err != nil && handleErr == nil {
+				handleErr = err
 			}
 			continue
 		}
 		passed = append(passed, data)
 	}
-	return c.enqueueBatch(ctx, passed)
+	return errors.Join(handleErr, c.enqueueBatch(ctx, passed))
 }
 
 // coalescable reports whether data is an event Handle buffers: a network_connect or dns_query, read from its envelope alone.

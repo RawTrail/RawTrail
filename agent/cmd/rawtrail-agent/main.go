@@ -295,8 +295,11 @@ func run() error {
 	startCommander(ctx, hostID, cfg.ServerURL, agentTransport, cmdDeps)
 	if err := startControlClient(ctx, cfg, hostID, cmdDeps); err != nil {
 		// Cancel first so the goroutines started above (receiver loops, uploader, commander, coalescer) wind down before the
-		// deferred queue close runs; otherwise the LIFO defers would close the queue while those goroutines still write to it.
+		// deferred queue close runs; otherwise the LIFO defers would close the queue while those goroutines still write to it. The
+		// receiver loops then write what they gathered, and the coalescer what it buffered, as on a normal stop (issue #1584).
 		cancel()
+		waitWithin(waitSensors, sensorStopTimeout, logger)
+		coalescer.Flush(context.WithoutCancel(ctx))
 		return err
 	}
 	go pruneLoop(ctx, q, commandLedger, config.DefaultPruneAge, logger)
