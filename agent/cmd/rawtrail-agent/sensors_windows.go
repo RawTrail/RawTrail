@@ -21,7 +21,7 @@ func startTelemetrySensors(ctx context.Context, d telemetryDeps) {
 		// serviceLabel is only a log/heartbeat label on Windows (no Mach service); wintel.SensorLabel is the single source of truth so
 		// the loop's "service" matches the sensor's drop-warning "service".
 		serviceLabel: wintel.SensorLabel,
-		enqueue:      d.enqueue,
+		enqueueBatch: d.enqueueBatch,
 		pt:           d.pidTable,
 		updateTable:  true,
 		health:       d.health,

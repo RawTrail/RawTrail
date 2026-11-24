@@ -736,3 +736,58 @@ func TestQueue_RecordClientError_ThresholdDisabled(t *testing.T) {
 		t.Fatalf("threshold-disabled row MUST stay visible to DequeueBatch; got %d rows", len(again))
 	}
 }
+
+// spec:agent-xpc-receiver/a-burst-is-written-in-batches/a-burst-of-events-is-written-in-batches
+//
+// EnqueueBatch inserts a batch in one transaction, in order, readable as soon as it returns (issue #1584).
+func TestQueue_EnqueueBatch(t *testing.T) {
+	t.Parallel()
+	q := openTestQueue(t)
+	ctx := t.Context()
+	if err := q.EnqueueBatch(ctx, nil); err != nil {
+		t.Fatalf("an empty batch: %v", err)
+	}
+	if err := q.EnqueueBatch(ctx, [][]byte{[]byte(`{"seq":1}`), []byte(`{"seq":2}`), []byte(`{"seq":3}`)}); err != nil {
+		t.Fatalf("enqueue batch: %v", err)
+	}
+	batch, err := q.DequeueBatch(ctx, 10)
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+	var got []string
+	for _, e := range batch {
+		got = append(got, string(e.EventJSON))
+	}
+	if want := []string{`{"seq":1}`, `{"seq":2}`, `{"seq":3}`}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// spec:agent-event-queue/storage-i-o-errors-surface-to-the-caller/disk-is-full-during-enqueue
+//
+// A batch that cannot be written fails as a whole and says so, as one Enqueue does for its event: no part of it is kept.
+func TestQueue_EnqueueBatchOnAFullDiskFailsWhole(t *testing.T) {
+	t.Parallel()
+	q := openTestQueue(t)
+	ctx := t.Context()
+	var pages int64
+	if err := q.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages); err != nil {
+		t.Fatalf("read page_count: %v", err)
+	}
+	if _, err := q.db.ExecContext(ctx, fmt.Sprintf("PRAGMA max_page_count = %d", pages)); err != nil {
+		t.Fatalf("cap page_count: %v", err)
+	}
+	big := []byte(strings.Repeat("x", 64*1024))
+	err := q.EnqueueBatch(ctx, [][]byte{[]byte(`{"seq":1}`), big})
+	var sqliteErr *sqlite.Error
+	if !errors.As(err, &sqliteErr) || sqliteErr.Code()&0xff != 13 {
+		t.Fatalf("expected SQLITE_FULL from the batch, got %v", err)
+	}
+	depth, err := q.Depth(ctx)
+	if err != nil {
+		t.Fatalf("depth: %v", err)
+	}
+	if depth != 0 {
+		t.Fatalf("a failed batch keeps none of its events, found %d", depth)
+	}
+}

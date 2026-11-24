@@ -83,6 +83,12 @@ type LoopHooks struct {
 	// queued so the loop keeps reading the Connector's Events channel without blocking.
 	OnEvent func(ctx context.Context, evt Event)
 
+	// OnDrained, when non-nil, fires from the Loop goroutine once the events delivered so far have each been through OnEvent and none
+	// is waiting, or after maxDrainBatch of them without a pause, and once more as the connection ends (issue #1584). OnEvent can then
+	// gather a burst and OnDrained write it together: one commit for the burst rather than one per event, which is what let a burst
+	// of process activity outrun the agent. In steady traffic the channel is empty after almost every event, so it fires after each.
+	OnDrained func(ctx context.Context)
+
 	// OnConnected fires after each successful Connect, before any events are dispatched. Production wires this to Dispatcher.Set
 	// so outbound senders route to the live connection.
 	OnConnected func(c Connector)
@@ -215,6 +221,10 @@ func (l *Loop) runOnce(ctx context.Context) (reconnect, connected bool) {
 	return reconnect, true
 }
 
+// maxDrainBatch bounds how many events OnEvent gathers before OnDrained fires even though more are waiting, so a sustained burst
+// is written in batches rather than held until it ends (issue #1584).
+const maxDrainBatch = 512
+
 // logConnectFailure emits the per-attempt connect-failure log. Once the failure has persisted past staleProbeAfterFailures
 // consecutive attempts AND an UpgradeProbe is wired (the network-extension loop) AND it reports a previous version pending
 // removal on reboot while the new one is enabled, it emits a distinct, actionable reboot-required hint once per stale episode (#399)
@@ -256,6 +266,16 @@ func (l *Loop) pipeEvents(ctx context.Context, conn Connector) bool {
 	// zero-value Event (Events closed) or treating a synthetic 0 as a real XPC error code (Errors closed).
 	eventsCh := conn.Events()
 	errorsCh := conn.Errors()
+	// undrained counts the events handed to OnEvent since OnDrained last fired. Whatever OnEvent gathered is written when the
+	// connection ends too, so a reconnect loses none of it.
+	undrained := 0
+	if l.hooks.OnDrained != nil {
+		defer func() {
+			if undrained > 0 {
+				l.hooks.OnDrained(context.WithoutCancel(ctx))
+			}
+		}()
+	}
 
 	for {
 		select {
@@ -273,6 +293,11 @@ func (l *Loop) pipeEvents(ctx context.Context, conn Connector) bool {
 			}
 			if l.hooks.OnEvent != nil {
 				l.hooks.OnEvent(ctx, evt)
+			}
+			undrained++
+			if l.hooks.OnDrained != nil && (len(eventsCh) == 0 || undrained >= maxDrainBatch) {
+				l.hooks.OnDrained(ctx)
+				undrained = 0
 			}
 		case errCode, ok := <-errorsCh:
 			if !ok {

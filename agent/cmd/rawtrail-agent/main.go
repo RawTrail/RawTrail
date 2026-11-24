@@ -213,7 +213,7 @@ func run() error {
 
 	// coalescer collapses repetitive network_connect / dns_query telemetry within a window before enqueue (issue #408). A zero
 	// window disables it (Handle is a direct passthrough, Run just waits on ctx), so it can be wired unconditionally.
-	coalescer := coalesce.New(config.DefaultNetworkCoalesceWindow, q.Enqueue, logger)
+	coalescer := coalesce.New(config.DefaultNetworkCoalesceWindow, q.Enqueue, logger).WithBatchSink(q.EnqueueBatch)
 	go coalescer.Run(ctx)
 
 	// healthRegistry tracks each telemetry sensor's connectivity as an agent-health condition (issue #359); the poster below reports it.
@@ -236,6 +236,7 @@ func run() error {
 		logger:        logger,
 		cfg:           cfg,
 		enqueue:       coalescer.Handle,
+		enqueueBatch:  coalescer.HandleBatch,
 		pidTable:      pidTable,
 		health:        healthRegistry,
 		esfDispatcher: esfDispatcher,
@@ -671,7 +672,8 @@ type receiverLoopParams struct {
 	// serviceLabel scopes this loop's log lines (the "service" field) and, for the default macOS factory, is the XPC Mach service
 	// name passed to receiver.New. When connectorFactory is set (the Windows ETW sensor) it is only a log/heartbeat label.
 	serviceLabel string
-	enqueue      func(context.Context, []byte) error
+	// enqueueBatch writes the events gathered from one drain of the receiver channel together (issue #1584).
+	enqueueBatch func(context.Context, [][]byte) error
 	pt           *proctable.Table
 	updateTable  bool
 	dispatcher   *receiver.Dispatcher
@@ -746,6 +748,9 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 	// Reading a launchctl exec's plists touches the user's files, which can block (a stalled mount, a pipe), so the event loop waits
 	// for it only so long, one read at a time (issue #1341).
 	launchdJobs := enrich.BoundedReader(enrich.ReadLaunchdJobs, launchdReadWait)
+	// pending is what OnEvent gathered since the channel was last drained, written together by OnDrained (issue #1584). Both run on
+	// the loop's goroutine, so it needs no lock.
+	var pending [][]byte
 	hooks := receiver.LoopHooks{
 		OnEvent: func(ctx context.Context, evt receiver.Event) {
 			// The network extension's control messages ride the event channel because the XPC bridge only surfaces messages carrying a
@@ -778,9 +783,16 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 			if p.updateTable {
 				updateProcTable(p.pt, data)
 			}
-			if err := p.enqueue(ctx, data); err != nil {
-				p.logger.WarnContext(ctx, "enqueue", "err", err)
+			pending = append(pending, data)
+		},
+		OnDrained: func(ctx context.Context) {
+			if len(pending) == 0 {
+				return
 			}
+			if err := p.enqueueBatch(ctx, pending); err != nil {
+				p.logger.WarnContext(ctx, "enqueue", "events", len(pending), "err", err)
+			}
+			pending = pending[:0]
 		},
 	}
 	if p.dispatcher != nil {
