@@ -855,6 +855,26 @@ func TestLoop_ConnectFailureLog(t *testing.T) {
 		assert.Equal(t, 1, staleCalls, "OnUpgradeStale fires with the hint, once per stale episode")
 	})
 
+	// spec:agent-xpc-receiver/the-reboot-hint-carries-the-host-s-extension-state/the-reboot-hint-carries-what-the-host-showed
+	t.Run("the hint carries the host's extension state, gathered once", func(t *testing.T) {
+		t.Parallel()
+		logger, buf := bufferLogger()
+		var gathered int
+		l := NewLoop(nilFactory, LoopConfig{ServiceName: "net"}, LoopHooks{
+			UpgradeProbe: func() bool { return true },
+			UpgradeDiagnostics: func() []string {
+				gathered++
+				return []string{"io.rawtrail.networkextension (v0.9.0/1) [activated enabled]"}
+			},
+		}, logger)
+		l.consecutiveFailures = staleProbeAfterFailures
+		l.logConnectFailure(context.Background(), connErr)
+		l.consecutiveFailures++
+		l.logConnectFailure(context.Background(), connErr)
+		assert.Contains(t, buf.String(), "io.rawtrail.networkextension (v0.9.0/1) [activated enabled]")
+		assert.Equal(t, 1, gathered, "gathered with the hint, once per stale episode")
+	})
+
 	t.Run("OnUpgradeStale does not fire for the bare warning", func(t *testing.T) {
 		t.Parallel()
 		var staleCalls int

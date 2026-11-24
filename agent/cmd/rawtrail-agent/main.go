@@ -723,6 +723,9 @@ type receiverLoopParams struct {
 	// connectorFactory overrides how the loop builds its Connector. Nil uses the default XPC receiver (macOS); the Windows sensor seam
 	// sets it to build an ETW-backed Connector instead, so both platforms share the same reconnect/backoff/heartbeat + health machinery.
 	connectorFactory func() receiver.Connector
+	// upgradeDiagnostics returns what the host shows about the extensions, logged with the reboot-required hint (issue #1542). Nil
+	// on every loop but the network extension's.
+	upgradeDiagnostics func() []string
 	// contained reports whether the host is network contained, which makes the content filter required (issue #1540). Nil, as on
 	// every loop but the network extension's, never requires it.
 	contained func() bool
@@ -838,6 +841,7 @@ func startReceiverLoop(ctx context.Context, p receiverLoopParams) {
 	// Mach service stays bound to the terminated old version until reboot, so a sustained NE connect failure paired with a
 	// pending-uninstall old version and an enabled new one means "reboot required", not "needs approval" (#399, #1598).
 	hooks.UpgradeProbe = p.upgradeProbe
+	hooks.UpgradeDiagnostics = p.upgradeDiagnostics
 	loop := receiver.NewLoop(factory, receiver.LoopConfig{
 		ServiceName:       p.serviceLabel,
 		HeartbeatInterval: xpcHeartbeatInterval,
