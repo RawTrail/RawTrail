@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -36,10 +37,11 @@ func TestRequiredProviders(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			before := maps.Clone(tc.providers)
 			assert.Equal(t, tc.want, requiredProviders(tc.providers, tc.contained))
+			assert.Equal(t, before, tc.providers, "the report itself is not changed")
 		})
 	}
-	assert.Equal(t, map[string]string{health.ProviderDNSProxy: health.ProviderRunning}, dnsOnly, "the report itself is not changed")
 }
 
 // spec:agent-status-reporting/a-contained-host-s-content-filter-is-required/a-contained-host-whose-filter-never-starts-reads-unhealthy
