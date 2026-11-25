@@ -223,6 +223,26 @@ export async function breakglassFinishLogin(
   );
 }
 
+// breakglassBeginPasskeyLogin issues the challenge for a laptop owner's passkey-only sign-in, which requires the authenticator to verify
+// the person (Touch ID), and runs navigator.credentials.get(). Returns the signed assertion for breakglassFinishPasskeyLogin. The server
+// offers it only on a laptop install.
+export async function breakglassBeginPasskeyLogin(email: string): Promise<unknown> {
+  const body = await requestJSON<{ publicKey: PublicKeyCredentialRequestOptionsJSON }>("/admin/break-glass/passkey/challenge", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  return startAuthentication({ optionsJSON: body.publicKey });
+}
+
+// breakglassFinishPasskeyLogin posts the email and assertion, with no password, to finish a passkey-only sign-in. Returns the redirect
+// target on success; throws BreakglassError on any non-2xx.
+export async function breakglassFinishPasskeyLogin(email: string, assertion: unknown): Promise<{ redirect: string }> {
+  return requestJSON<{ redirect: string }>("/admin/break-glass/passkey", {
+    method: "POST",
+    body: JSON.stringify({ email, assertion }),
+  });
+}
+
 // reauthBreakglass runs the break-glass reauth ceremony
 // against the operator's CURRENT session: WebAuthn assertion against
 // /api/auth/reauth/challenge → password + assertion submitted to

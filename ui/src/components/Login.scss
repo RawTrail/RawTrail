@@ -82,6 +82,15 @@
     justify-content: center;
   }
 
+  // A footer action that is a button, not a link, styled as the footer link: the laptop page's switch to the email and password form.
+  &__link-button {
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
   &__break-glass {
     color: $ui-black-75;
     font-size: $xx-small;

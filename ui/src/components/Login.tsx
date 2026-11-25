@@ -1,6 +1,6 @@
 // Login page. A server install shows a "Continue with single sign-on" call-to-action and a small "Break-glass login" footer link: real
-// users authenticate via OIDC, and only the recovery account uses break-glass. A laptop install has no single sign-on, so its page shows
-// only the passkey form its owner signs in with. The page reads the profile from GET /api/auth/options, which needs no session, and shows
+// users authenticate via OIDC, and only the recovery account uses break-glass. A laptop install has no single sign-on, so its page offers
+// its owner one "Sign in with Touch ID" button (LaptopSignIn). The page reads the profile from GET /api/auth/options, which needs no session, and shows
 // no sign-in control until it knows which page it is.
 //
 // Error rendering: when the OIDC callback handler fails (state mismatch, unknown subject, exchange failure, etc.) it 302s back to
@@ -13,7 +13,7 @@ import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
 import { fetchSignInProfile, oidcLoginUrl } from "../auth";
 import type { Profile } from "../profile-core";
-import { PasskeySignInForm } from "./PasskeySignInForm";
+import { LaptopSignIn } from "./LaptopSignIn";
 import "./Login.scss";
 
 interface LoginProps {
@@ -94,12 +94,12 @@ export function Login({ next }: LoginProps) {
           </h1>
           {profile && (
             <p className="login-card__subtitle">
-              {profile === "laptop" ? "Sign in with your email, password and passkey." : "Sign in with your identity provider."}
+              {profile === "laptop" ? "Sign in with your passkey." : "Sign in with your identity provider."}
             </p>
           )}
         </div>
 
-        {profile === "laptop" && <PasskeySignInForm submitLabel="Sign in with your passkey" />}
+        {profile === "laptop" && <LaptopSignIn />}
 
         {profile === "server" && (
           <>
