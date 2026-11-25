@@ -436,6 +436,7 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		// spec:server-configuration/a-laptop-s-break-glass-sessions-last-days/a-laptop-s-owner-stays-signed-in
+		// spec:ui-authentication-session/sessions-expire-on-idle-and-absolute-timeouts-per-class/break-glass-sessions-use-the-strict-timeout-pair
 		{
 			name: "a laptop's break-glass sessions last a week idle and a month at most",
 			env:  withExtra(minEnv, map[string]string{"EDR_PROFILE": "laptop"}),
