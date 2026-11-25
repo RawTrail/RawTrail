@@ -75,7 +75,13 @@ export function LaptopSignIn() {
         Sign in with Touch ID
       </Button>
       <div className="login-card__footer">
-        <button type="button" className="login-card__break-glass login-card__link-button" onClick={() => { setShowForm(true); }}>
+        {/* Disabled while Touch ID is pending: the form's ceremony would replace the pending one's challenge cookie. */}
+        <button
+          type="button"
+          className="login-card__break-glass login-card__link-button"
+          disabled={busy}
+          onClick={() => { setShowForm(true); }}
+        >
           Use your email and password
         </button>
       </div>

@@ -73,6 +73,13 @@ describe("LaptopSignIn", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Security-key sign-in was cancelled or timed out. Please try again.");
   });
 
+  it("offers no switch to the form while a Touch ID sign-in is pending", async () => {
+    vi.spyOn(auth, "breakglassBeginPasskeyLogin").mockReturnValue(new Promise(() => undefined));
+    renderSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Touch ID" }));
+    expect(await screen.findByRole("button", { name: "Use your email and password" })).toBeDisabled();
+  });
+
   it("uses the admin account when browser storage is blocked", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new DOMException("blocked", "SecurityError");

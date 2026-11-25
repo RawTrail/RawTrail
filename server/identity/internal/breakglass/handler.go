@@ -37,7 +37,7 @@ const reauthChallengeCookieName = "edr_reauth_challenge"
 
 // challengeCookieMaxAge is the per-flow cookie lifetime in seconds.
 // Matches the WebAuthn challenge timeout the browser enforces.
-const challengeCookieMaxAge = 300
+const challengeCookieMaxAge = int(ChallengeLifetime / time.Second)
 
 // Cache-Control header semantics applied uniformly to break-glass auth responses. Success paths set signed challenge / session
 // cookies; error paths are throwaway. Either way the response should not land in any shared cache.

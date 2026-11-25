@@ -26,7 +26,7 @@ The system SHALL serve the break-glass login at `/admin/break-glass`. It MUST re
 
 ### Requirement: A laptop's owner signs in with their passkey alone
 
-On a laptop install, the server SHALL offer a passkey-only break-glass sign-in whose challenge requires user verification, and SHALL mint a session for a valid assertion that proved it, with no password, auditing the sign-in as passkey-only. It SHALL refuse a challenge that did not require user verification. A server install SHALL NOT offer it.
+On a laptop install, the server SHALL offer a passkey-only break-glass sign-in whose challenge requires user verification, and SHALL mint a session for a valid assertion that proved it, with no password, auditing the sign-in as passkey-only. It SHALL refuse a challenge that did not require user verification, and any break-glass challenge more than five minutes old. A server install SHALL NOT offer it.
 
 #### Scenario: A verified passkey signs the owner in
 
@@ -45,3 +45,9 @@ On a laptop install, the server SHALL offer a passkey-only break-glass sign-in w
 - **GIVEN** a server install
 - **WHEN** a requester posts to the passkey-only challenge or sign-in
 - **THEN** neither route is mounted, so each is answered as any unknown path, and no challenge or session is issued
+
+#### Scenario: A challenge expires after five minutes
+
+- **GIVEN** a break-glass challenge, passkey-only or not
+- **WHEN** it is validated more than five minutes after it was issued
+- **THEN** it is refused as expired, whatever the assertion, since the challenge rides a signed cookie with no server-side row
