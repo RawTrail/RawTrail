@@ -53,13 +53,30 @@ struct CredentialOwner: Equatable, Sendable, Decodable {
     }
 }
 
+/// CredentialMatch is how a credential's path covers files. The raw values are the server's spelling.
+enum CredentialMatch: String, Sendable {
+    /// literal covers exactly the file at the path.
+    case literal
+    /// prefix covers every name in the path's directory that starts with its last segment, public keys excepted.
+    case prefix
+    /// directory covers every file directly in the directory at the path, and none in its subdirectories: a cache whose file names
+    /// are hashes, such as the AWS CLI's.
+    case directory
+
+    /// muteMatch is how the guard mutes such a credential: a file literally, and a prefix or a directory as a prefix, which Endpoint
+    /// Security delivers at any depth, so `covers` narrows it.
+    var muteMatch: WatchedPathMatch {
+        self == .literal ? .literal : .prefix
+    }
+}
+
 /// ProtectedCredential is one credential file the guard watches in every home, and the tools allowed to read it.
 struct ProtectedCredential: Equatable, Sendable {
     let kind: CredentialKind
-    /// homePath is the file below a home directory, without a leading "/". A prefix entry covers every name in its directory starting
-    /// with it, the name itself included.
+    /// homePath is the file below a home directory, without a leading "/", or for a directory credential the directory, without a
+    /// trailing "/". A prefix entry covers every name in its directory starting with it, the name itself included.
     let homePath: String
-    let match: WatchedPathMatch
+    let match: CredentialMatch
     let owners: [CredentialOwner]
 }
 
@@ -92,7 +109,10 @@ struct CredentialGuardPolicy: Equatable, Sendable {
             for credential in credentials {
                 for spelling in WatchedPaths.spellings(of: home + "/" + credential.homePath)
                 where WatchedPaths.isAcceptable(spelling, .literal) {
-                    out.append(CredentialTarget(watched: WatchedPath(path: spelling, match: credential.match), credential: credential))
+                    // A directory is muted with its trailing "/", so a sibling sharing its name (`cache.bak`) is not delivered.
+                    let muted = credential.match == .directory ? spelling + "/" : spelling
+                    let watched = WatchedPath(path: muted, match: credential.match.muteMatch)
+                    out.append(CredentialTarget(watched: watched, credential: credential))
                 }
             }
         }
@@ -110,19 +130,22 @@ struct CredentialTarget: Equatable, Sendable {
     let watched: WatchedPath
     let credential: ProtectedCredential
 
-    /// covers reports whether an opened path is this target's: the file itself, or for a prefix a name in its directory that starts
-    /// with it and is not a public key, which `id_ed25519.pub` and `id_rsa-cert.pub` are. A directory that happens to start with it
-    /// is not covered.
+    /// covers reports whether an opened path is this target's: the file itself; for a prefix a name in its directory that starts
+    /// with it and is not a public key, which `id_ed25519.pub` and `id_rsa-cert.pub` are, while a directory that happens to start
+    /// with it is not covered; and for a directory a file directly in it, not one in a subdirectory.
     func covers(_ path: String) -> Bool {
-        switch watched.match {
+        switch credential.match {
         case .literal:
             return path == watched.path
-        case .prefix:
+        case .prefix, .directory:
             guard path.hasPrefix(watched.path) else {
                 return false
             }
             let rest = path.dropFirst(watched.path.count)
-            return !rest.contains("/") && !rest.hasSuffix(".pub")
+            guard !rest.contains("/") else {
+                return false
+            }
+            return credential.match == .directory ? !rest.isEmpty : !rest.hasSuffix(".pub")
         }
     }
 }
@@ -163,7 +186,8 @@ struct CredentialGuardEnforcement: Sendable {
 /// extension applies, and how many credentials it skipped.
 struct CredentialGuardUpdate: Equatable, Sendable {
     let version: Int64
-    /// epoch is the policy's server update time in Unix microseconds, 0 for the policy no operator has changed.
+    /// epoch is the policy's server update time in Unix microseconds. For the policy no operator has changed it is the server's
+    /// revision of its default list, which it raises when the list changes, so a host holding an older default takes the new one.
     let epoch: Int64
     let policy: CredentialGuardPolicy
     let skipped: Int
@@ -194,7 +218,7 @@ struct CredentialGuardUpdate: Equatable, Sendable {
         }
         var credentials: [ProtectedCredential] = []
         for entry in document.credentials {
-            guard let kind = CredentialKind(rawValue: entry.kind), let match = WatchedPathMatch(rawValue: entry.match),
+            guard let kind = CredentialKind(rawValue: entry.kind), let match = CredentialMatch(rawValue: entry.match),
                   isAcceptable(homePath: entry.path, match: match) else {
                 continue
             }
@@ -210,11 +234,12 @@ struct CredentialGuardUpdate: Equatable, Sendable {
     /// isAcceptable is the server's rule for a path below a home (validateHomePath in server/rules/api), held again here for the reason
     /// WatchedPaths.isAcceptable gives: relative, and judged as the file it names in a home at the top of the filesystem, so it has no
     /// empty, `.` or `..` segment, no control character, and does not end in "/". A prefix credential names the start of a file name,
-    /// not a directory, so it is judged the same way.
+    /// and a directory credential its directory without the "/", so both are judged the same way.
     ///
-    /// A prefix must lie below a directory in the home, not at its top: Endpoint Security delivers every open under a muted prefix at
-    /// any depth, so a prefix such as `.c` would put every open in `~/.config` and `~/.cache` through the guard.
-    static func isAcceptable(homePath: String, match: WatchedPathMatch) -> Bool {
+    /// A prefix or a directory must lie below a directory in the home, not at its top: Endpoint Security delivers every open under a
+    /// muted prefix at any depth, so a prefix such as `.c` would put every open in `~/.config` and `~/.cache` through the guard, and the
+    /// directory `.config` every open below it.
+    static func isAcceptable(homePath: String, match: CredentialMatch) -> Bool {
         !homePath.hasPrefix("/") && (match == .literal || homePath.contains("/"))
             && WatchedPaths.isAcceptable(WatchedPaths.homePrefix + homePath, .literal)
     }
@@ -265,6 +290,9 @@ enum CredentialGuard {
         .platform("com.apple.ssh"), .platform("com.apple.ssh-agent"), .platform("com.apple.ssh-add"), .platform("com.apple.ssh-keygen")
     ]
 
+    /// awsCLITeam signs the AWS CLI as its installer ships it.
+    static let awsCLITeam = "94KV3E626L"
+
     /// dockerTeam signs the Docker CLI, its credential helpers and the `kubectl` Docker Desktop installs.
     static let dockerTeam = "9BNSXJN65R"
 
@@ -272,7 +300,11 @@ enum CredentialGuard {
     /// installer, GitHub's release of `gh`, Docker Desktop, and Apple's `curl` and Xcode `git`, whose HTTP transport reads `.netrc`.
     static let builtIn: [ProtectedCredential] = [
         ProtectedCredential(kind: .sshPrivateKey, homePath: ".ssh/id_", match: .prefix, owners: sshKeyOwners),
-        ProtectedCredential(kind: .awsCredentials, homePath: ".aws/credentials", match: .literal, owners: [.team("94KV3E626L")]),
+        ProtectedCredential(kind: .awsCredentials, homePath: ".aws/credentials", match: .literal, owners: [.team(awsCLITeam)]),
+        // The IAM Identity Center access token (`aws sso login`) and the temporary STS credentials of assume-role and SSO profiles,
+        // cached under hashed file names.
+        ProtectedCredential(kind: .awsCredentials, homePath: ".aws/sso/cache", match: .directory, owners: [.team(awsCLITeam)]),
+        ProtectedCredential(kind: .awsCredentials, homePath: ".aws/cli/cache", match: .directory, owners: [.team(awsCLITeam)]),
         ProtectedCredential(kind: .githubCLIToken, homePath: ".config/gh/hosts.yml", match: .literal, owners: [.team("VEKTX9H2N7")]),
         ProtectedCredential(
             kind: .netrc, homePath: ".netrc", match: .literal,

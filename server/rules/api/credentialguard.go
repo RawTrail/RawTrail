@@ -34,9 +34,21 @@ type CredentialOwner struct {
 	SigningID string `json:"signing_id,omitempty"`
 }
 
+// Credential match modes: how a ProtectedCredential's Path covers files.
+const (
+	// CredentialMatchLiteral covers exactly the file at Path.
+	CredentialMatchLiteral = "literal"
+	// CredentialMatchPrefix covers every file in Path's directory whose name starts with its last segment, a public key (".pub")
+	// excepted.
+	CredentialMatchPrefix = "prefix"
+	// CredentialMatchDirectory covers every file directly in the directory at Path, and none in its subdirectories, for credentials
+	// cached under names a person cannot predict, such as the AWS CLI's hashed cache files.
+	CredentialMatchDirectory = "directory"
+)
+
 // ProtectedCredential is one credential file the guard watches in every home, and the tools allowed to read it. Path is the file
-// below a home, without a leading "/"; with Match "prefix" it covers every file in its directory whose name starts with it, a
-// public key (".pub") excepted. Default marks the built-in entries the server seeds, which an operator can edit or remove.
+// below a home, without a leading "/", or for a directory match the directory, without a trailing "/". Match is one of the
+// CredentialMatch modes. Default marks the built-in entries the server seeds, which an operator can edit or remove.
 type ProtectedCredential struct {
 	Kind    string            `json:"kind"`
 	Path    string            `json:"path"`
@@ -58,7 +70,8 @@ type CredentialGuardPolicy struct {
 }
 
 // SetCredentialGuardPayload is the set_credential_guard payload. Commands can arrive out of order, so the extension applies one only
-// when its (Epoch, Version) is ahead of the last it applied; Epoch is the policy's update time in microseconds, 0 with Version 0.
+// when its (Epoch, Version) is ahead of the last it applied; Epoch is the policy's update time in microseconds, or with Version 0
+// DefaultCredentialGuardRevision.
 type SetCredentialGuardPayload struct {
 	Version     int64                 `json:"version"`
 	Epoch       int64                 `json:"epoch"`
@@ -71,6 +84,9 @@ var sshKeyOwners = []CredentialOwner{
 	{SigningID: "com.apple.ssh"}, {SigningID: "com.apple.ssh-agent"}, {SigningID: "com.apple.ssh-add"}, {SigningID: "com.apple.ssh-keygen"},
 }
 
+// awsCLITeam signs the AWS CLI as its installer ships it.
+const awsCLITeam = "94KV3E626L"
+
 // dockerTeam signs the Docker CLI, its credential helpers and the kubectl Docker Desktop installs.
 const dockerTeam = "9BNSXJN65R"
 
@@ -79,7 +95,11 @@ const dockerTeam = "9BNSXJN65R"
 func DefaultCredentialGuard() CredentialGuardPolicy {
 	return CredentialGuardPolicy{Mode: CredentialGuardDetect, Credentials: []ProtectedCredential{
 		{Kind: "ssh_private_key", Path: ".ssh/id_", Match: "prefix", Owners: slices.Clone(sshKeyOwners), Default: true},
-		{Kind: "aws_credentials", Path: ".aws/credentials", Match: "literal", Owners: []CredentialOwner{{TeamID: "94KV3E626L"}}, Default: true},
+		{Kind: "aws_credentials", Path: ".aws/credentials", Match: "literal", Owners: []CredentialOwner{{TeamID: awsCLITeam}}, Default: true},
+		// The IAM Identity Center access token (aws sso login) and the temporary STS credentials of assume-role and SSO profiles, cached
+		// under hashed file names.
+		{Kind: "aws_credentials", Path: ".aws/sso/cache", Match: "directory", Owners: []CredentialOwner{{TeamID: awsCLITeam}}, Default: true},
+		{Kind: "aws_credentials", Path: ".aws/cli/cache", Match: "directory", Owners: []CredentialOwner{{TeamID: awsCLITeam}}, Default: true},
 		{Kind: "github_cli_token", Path: ".config/gh/hosts.yml", Match: "literal", Owners: []CredentialOwner{{TeamID: "VEKTX9H2N7"}},
 			Default: true},
 		{Kind: "netrc", Path: ".netrc", Match: "literal", Owners: []CredentialOwner{
@@ -89,6 +109,12 @@ func DefaultCredentialGuard() CredentialGuardPolicy {
 		{Kind: "kube_config", Path: ".kube/config", Match: "literal", Owners: []CredentialOwner{{TeamID: dockerTeam}}, Default: true},
 	}}
 }
+
+// DefaultCredentialGuardRevision is the epoch the unchanged default policy (version 0) is pushed with. Raise it whenever
+// DefaultCredentialGuard's credentials change: a host holding an older default then reads as missing the policy, the catch-up pushes it
+// again, and the extension takes it as newer, since it orders policies by (epoch, version). An operator's change carries its update time
+// in microseconds, far above any revision, so it still supersedes every default. Revision 0 was the first list; 1 added the AWS caches.
+const DefaultCredentialGuardRevision int64 = 1
 
 // Bounds on a policy, so one fits a command row and the extension's mute set stays small.
 const (
@@ -136,15 +162,19 @@ func validateProtectedCredential(c ProtectedCredential) error {
 	if !slices.Contains(CredentialKinds, c.Kind) {
 		return fmt.Errorf("kind must be one of %s", strings.Join(CredentialKinds, ", "))
 	}
-	if c.Match != "literal" && c.Match != "prefix" {
-		return errors.New(`match must be "literal" or "prefix"`)
+	if !slices.Contains([]string{CredentialMatchLiteral, CredentialMatchPrefix, CredentialMatchDirectory}, c.Match) {
+		return fmt.Errorf("match must be %q, %q or %q", CredentialMatchLiteral, CredentialMatchPrefix, CredentialMatchDirectory)
 	}
 	if err := validateHomePath(c.Path); err != nil {
 		return err
 	}
-	if c.Match == "prefix" && !strings.Contains(c.Path, "/") {
-		// Endpoint Security delivers every open under a muted prefix, at any depth: ".c" would send all of ~/.config and ~/.cache.
+	// Endpoint Security delivers every open under a muted prefix, at any depth, and a directory is muted as one: ".c" would send all of
+	// ~/.config and ~/.cache, and ".config" every file below it.
+	switch {
+	case c.Match == CredentialMatchPrefix && !strings.Contains(c.Path, "/"):
 		return errors.New("a prefix must lie in a directory below the home, as .ssh/id_ does")
+	case c.Match == CredentialMatchDirectory && !strings.Contains(c.Path, "/"):
+		return errors.New("a directory must lie below a directory in the home, as .aws/sso/cache does")
 	}
 	if len(c.Owners) > maxCredentialOwners {
 		return fmt.Errorf("at most %d owners", maxCredentialOwners)

@@ -1954,12 +1954,13 @@ export type CredentialKind =
 
 export type CredentialGuardMode = "detect" | "protect" | "off";
 
-// ProtectedCredential is one credential file the guard protects in every home: its path below the home, whether it is that file or
-// every file in its directory whose name starts with it, and the tools allowed to read it. default marks a built-in entry.
+// ProtectedCredential is one credential file the guard protects in every home: its path below the home, whether it is that file,
+// every file in its directory whose name starts with it, or every file directly in the directory it names, and the tools allowed to read
+// it. default marks a built-in entry.
 export interface ProtectedCredential {
   kind: CredentialKind;
   path: string;
-  match: "literal" | "prefix";
+  match: "literal" | "prefix" | "directory";
   owners: CredentialOwner[];
   default?: boolean;
 }
