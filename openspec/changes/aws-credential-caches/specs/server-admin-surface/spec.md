@@ -34,3 +34,19 @@
 - **GIVEN** an operator without detection_config.read or detection_config.write
 - **WHEN** they read or change the policy
 - **THEN** both are refused with 403 and nothing is changed
+
+### Requirement: Hosts that miss the credential guard push get it
+
+A periodic catch-up SHALL queue the current credential guard policy, the unchanged default included, for every enrolled host whose latest set_credential_guard does not carry its version and epoch, and SHALL leave a host whose copy is pending alone. The unchanged default SHALL carry the revision of the built-in list as its epoch, so a host holding an older default list is sent the new one.
+
+#### Scenario: A host is sent the policy it missed
+
+- **GIVEN** a host enrolled before any change and one enrolled after a change it missed
+- **WHEN** the catch-up runs before and after the change
+- **THEN** both are sent the default first, and after the change only the late host is sent the policy, epoch included, as the push sent it
+
+#### Scenario: A host holding an older default list is sent the new one
+
+- **GIVEN** a fleet on the unchanged default, and a host whose latest set_credential_guard is the six-credential default at epoch 0
+- **WHEN** the catch-up runs
+- **THEN** the host is sent the eight-credential default at epoch 1, which its extension takes as newer, while a later operator change still supersedes it

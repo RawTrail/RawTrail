@@ -70,7 +70,8 @@ type CredentialGuardPolicy struct {
 }
 
 // SetCredentialGuardPayload is the set_credential_guard payload. Commands can arrive out of order, so the extension applies one only
-// when its (Epoch, Version) is ahead of the last it applied; Epoch is the policy's update time in microseconds, 0 with Version 0.
+// when its (Epoch, Version) is ahead of the last it applied; Epoch is the policy's update time in microseconds, or with Version 0
+// DefaultCredentialGuardRevision.
 type SetCredentialGuardPayload struct {
 	Version     int64                 `json:"version"`
 	Epoch       int64                 `json:"epoch"`
@@ -108,6 +109,12 @@ func DefaultCredentialGuard() CredentialGuardPolicy {
 		{Kind: "kube_config", Path: ".kube/config", Match: "literal", Owners: []CredentialOwner{{TeamID: dockerTeam}}, Default: true},
 	}}
 }
+
+// DefaultCredentialGuardRevision is the epoch the unchanged default policy (version 0) is pushed with. Raise it whenever
+// DefaultCredentialGuard's credentials change: a host holding an older default then reads as missing the policy, the catch-up pushes it
+// again, and the extension takes it as newer, since it orders policies by (epoch, version). An operator's change carries its update time
+// in microseconds, far above any revision, so it still supersedes every default. Revision 0 was the first list; 1 added the AWS caches.
+const DefaultCredentialGuardRevision int64 = 1
 
 // Bounds on a policy, so one fits a command row and the extension's mute set stays small.
 const (

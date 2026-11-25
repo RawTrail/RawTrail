@@ -387,4 +387,27 @@ extension CredentialGuardTests {
             XCTAssertEqual(protect.decide(path: path, opener: awsCLI, inAgentProcessSet: true), .allow, path)
         }
     }
+
+    // spec:server-admin-surface/hosts-that-miss-the-credential-guard-push-get-it/a-host-holding-an-older-default-list-is-sent-the-new-one
+    //
+    // A host that persisted the first default list (version 0, epoch 0) takes the revised default the server pushes at epoch 1, and an
+    // operator's later change, whose epoch is its update time in microseconds, still supersedes it.
+    func testARevisedDefaultReplacesThePersistedOne() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = CredentialGuardStore(storagePath: directory.appendingPathComponent("credential-guard.json").path)
+
+        let firstDefault = #"{"version":0,"epoch":0,"mode":"detect","credentials":[]}"#
+        let cache = #"{"kind":"aws_credentials","path":".aws/sso/cache","match":"directory","owners":[]}"#
+        let revisedDefault = #"{"version":0,"epoch":1,"mode":"detect","credentials":["# + cache + "]}"
+        let operatorChange = #"{"version":1,"epoch":1795622400000000,"mode":"protect","credentials":[]}"#
+        XCTAssertNotNil(store.accept(Data(firstDefault.utf8)))
+        let restarted = CredentialGuardStore(storagePath: store.storagePath)
+        XCTAssertEqual(restarted.accept(Data(revisedDefault.utf8))?.policy.credentials.count, 1,
+                       "a restarted extension holding the first default takes the revised one")
+        XCTAssertEqual(store.accept(Data(revisedDefault.utf8))?.epoch, 1)
+        XCTAssertEqual(store.accept(Data(operatorChange.utf8))?.policy.mode, .protect)
+        XCTAssertNil(store.accept(Data(revisedDefault.utf8)), "the default does not replace an operator's change")
+    }
 }

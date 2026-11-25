@@ -425,7 +425,8 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
             value={form.match}
             disabled={saving}
             onChange={(e) => {
-              setForm({ ...form, match: isMatch(e.target.value) ? e.target.value : "literal" });
+              // The options are exactly the match modes, so the value is one.
+              setForm({ ...form, match: e.target.value as ProtectedCredential["match"] });
             }}
           >
             <option value="literal">{MATCH_LABEL.literal}</option>

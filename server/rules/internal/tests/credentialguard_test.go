@@ -213,6 +213,31 @@ func TestCredentialGuardREST_RefusesAChangeToAPolicyThatMovedOn(t *testing.T) {
 	assert.Len(t, r.inserter.snapshot(), 1, "the refused change queued nothing")
 }
 
+// spec:server-admin-surface/hosts-that-miss-the-credential-guard-push-get-it/a-host-holding-an-older-default-list-is-sent-the-new-one
+//
+// A host that applied the first default list (six credentials, epoch 0) before the AWS caches were added is sent the revised default,
+// though the fleet's policy is still version 0.
+func TestCredentialGuardConverge_SendsTheRevisedDefaultToAHostHoldingTheOldOne(t *testing.T) {
+	t.Parallel()
+	r := newAppControlRig(t, []string{"host-a"})
+	oldDefault := `{"version":0,"epoch":0,"mode":"detect","credentials":[]}`
+	history := &fakeCommandHistory{latest: map[string]rulesapi.HostCommand{
+		"host-a": {Payload: []byte(oldDefault), Status: catchup.StatusCompleted, CreatedAt: time.Now().Add(-time.Hour)},
+	}}
+	enrolled := []rulesapi.HostEnrollment{{HostID: "host-a", EnrolledAt: time.Now().Add(-48 * time.Hour)}}
+	converger := credentialguard.NewConverger(credentialguard.NewStore(r.db), history.insert,
+		func(context.Context) ([]rulesapi.HostEnrollment, error) { return enrolled, nil }, history.list, slog.Default())
+
+	queued, err := converger.Converge(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, queued)
+	var revised rulesapi.SetCredentialGuardPayload
+	require.NoError(t, json.Unmarshal(history.latest["host-a"].Payload, &revised))
+	assert.Equal(t, int64(0), revised.Version)
+	assert.Equal(t, int64(1), revised.Epoch)
+	assert.Len(t, revised.Credentials, 8)
+}
+
 // spec:server-admin-surface/hosts-that-miss-the-credential-guard-push-get-it/a-host-is-sent-the-policy-it-missed
 func TestCredentialGuardConverge_QueuesThePolicyForHostsThatMissedIt(t *testing.T) {
 	t.Parallel()

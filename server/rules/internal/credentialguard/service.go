@@ -95,10 +95,11 @@ func commandPayload(policy api.CredentialGuardPolicy) []byte {
 	return payload
 }
 
-// epoch is the policy's update time in Unix microseconds, or 0 for the policy no operator has changed, which has none.
+// epoch is the policy's update time in Unix microseconds, or for the policy no operator has changed, which has none, the default's
+// revision.
 func epoch(policy api.CredentialGuardPolicy) int64 {
 	if policy.UpdatedAt == nil {
-		return 0
+		return api.DefaultCredentialGuardRevision
 	}
 	return policy.UpdatedAt.UnixMicro()
 }

@@ -1,11 +1,13 @@
 package credentialguard
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/rawtrail/rawtrail/server/rules/api"
 )
@@ -36,5 +38,14 @@ func TestCarries(t *testing.T) {
 	t.Run("the default policy, which has no update time", func(t *testing.T) {
 		t.Parallel()
 		assert.True(t, carries(commandPayload(api.DefaultCredentialGuard()), api.DefaultCredentialGuard()))
+	})
+	// spec:server-admin-surface/hosts-that-miss-the-credential-guard-push-get-it/a-host-holding-an-older-default-list-is-sent-the-new-one
+	t.Run("the first default list, from before the AWS caches", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, carries([]byte(`{"version":0,"epoch":0,"mode":"detect","credentials":[]}`), api.DefaultCredentialGuard()),
+			"a host holding the first default list is sent the revised one")
+		var pushed api.SetCredentialGuardPayload
+		require.NoError(t, json.Unmarshal(commandPayload(api.DefaultCredentialGuard()), &pushed))
+		assert.Equal(t, int64(1), pushed.Epoch, "the default is pushed with its list's revision")
 	})
 }

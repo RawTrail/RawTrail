@@ -186,7 +186,8 @@ struct CredentialGuardEnforcement: Sendable {
 /// extension applies, and how many credentials it skipped.
 struct CredentialGuardUpdate: Equatable, Sendable {
     let version: Int64
-    /// epoch is the policy's server update time in Unix microseconds, 0 for the policy no operator has changed.
+    /// epoch is the policy's server update time in Unix microseconds. For the policy no operator has changed it is the server's
+    /// revision of its default list, which it raises when the list changes, so a host holding an older default takes the new one.
     let epoch: Int64
     let policy: CredentialGuardPolicy
     let skipped: Int

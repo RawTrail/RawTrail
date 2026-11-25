@@ -285,6 +285,19 @@ describe("CredentialGuard across a reauthentication", () => {
     });
   });
 
+  it("puts back a directory credential, in the list and in the form", async () => {
+    await renderLoaded();
+    fillForm("aws_credentials", ".aws/sso/cache", "directory", "94KV3E626L");
+    fireEvent.click(screen.getByRole("button", { name: "Add credential" }));
+    fillForm("aws_credentials", ".aws/cli/cache", "directory", "94KV3E626L");
+    expect(persistReauthDrafts()).toBe(true);
+    cleanup();
+
+    await renderLoaded();
+    expect(rows()[2]).toContain("~/.aws/sso/cacheFiles directly in this directory");
+    expect(screen.getByLabelText("Covers")).toHaveValue("directory");
+  });
+
   it("restores nothing when the section was clean", async () => {
     await renderLoaded();
     persistReauthDrafts();
