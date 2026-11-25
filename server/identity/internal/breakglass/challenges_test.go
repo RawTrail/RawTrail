@@ -78,21 +78,10 @@ func TestService_VerifyLogin_RefusesARepeatedChallenge(t *testing.T) {
 // spec:server-identity-authentication/break-glass-webauthn-challenges-are-single-use/expired-challenge-records-are-swept
 func TestService_CleanupConsumedChallenges_RemovesOnlyExpiredRows(t *testing.T) {
 	t.Parallel()
-	svc, db, _, uid, fake := newFakeService(t)
-	user := registerFakeCredential(t, svc, db, uid, fake)
-	zeroCounter(t, db, fake)
-	for challenge, expires := range map[string]time.Time{
-		"expired": time.Now().Add(-time.Minute), "live": time.Now().Add(time.Minute),
-	} {
-		// FinishPasskeyLogin consumes before validating expiry only through the fake engine, which ignores Expires; the real engine
-		// refuses an expired challenge before it is consumed. Here it seeds one row of each.
-		_, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
-			User:      user,
-			Session:   webauthn.SessionData{Challenge: challenge, UserVerification: protocol.VerificationRequired, Expires: expires},
-			Assertion: fakeAssertion(),
-		})
-		require.NoError(t, err, challenge)
-	}
+	svc, db, _, _, _ := newFakeService(t)
+	_, err := db.ExecContext(t.Context(), `INSERT INTO breakglass_consumed_challenges (challenge_hash, expires_at)
+		VALUES (UNHEX(SHA2('expired', 256)), DATE_SUB(NOW(6), INTERVAL 1 MINUTE)), (UNHEX(SHA2('live', 256)), NOW(6) + INTERVAL 1 MINUTE)`)
+	require.NoError(t, err)
 	removed, err := svc.CleanupConsumedChallenges(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), removed)
@@ -100,4 +89,31 @@ func TestService_CleanupConsumedChallenges_RemovesOnlyExpiredRows(t *testing.T) 
 	require.NoError(t, db.GetContext(t.Context(), &left,
 		`SELECT COUNT(*) FROM breakglass_consumed_challenges WHERE challenge_hash = UNHEX(SHA2('live', 256))`))
 	assert.Equal(t, 1, left, "the live challenge's record is the one that stays")
+}
+
+// spec:server-identity-authentication/break-glass-webauthn-challenges-are-single-use/an-expired-or-unexpiring-challenge-is-refused
+//
+// A challenge with no expiry, as a cookie from before the server enforced timeouts carries, or one already past it, is refused and not
+// recorded. The second is the race a sweep opens: a replay that validated just before expiry and reaches the insert after the sweep
+// removed the original record is refused, not recorded afresh.
+func TestService_FinishPasskeyLogin_RefusesAnExpiredOrUnexpiringChallenge(t *testing.T) {
+	t.Parallel()
+	for name, expires := range map[string]time.Time{"no expiry": {}, "already expired": time.Now().Add(-time.Second)} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc, db, _, uid, fake := newFakeService(t)
+			user := registerFakeCredential(t, svc, db, uid, fake)
+			zeroCounter(t, db, fake)
+			sess, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
+				User:      user,
+				Session:   webauthn.SessionData{Challenge: "late", UserVerification: protocol.VerificationRequired, Expires: expires},
+				Assertion: fakeAssertion(),
+			})
+			require.ErrorIs(t, err, breakglass.ErrChallengeExpired)
+			assert.Nil(t, sess)
+			var recorded int
+			require.NoError(t, db.GetContext(t.Context(), &recorded, `SELECT COUNT(*) FROM breakglass_consumed_challenges`))
+			assert.Zero(t, recorded, "a refused challenge is not recorded")
+		})
+	}
 }

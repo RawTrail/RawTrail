@@ -72,7 +72,7 @@ func TestService_FinishPasskeyLogin_MintsASessionWithoutAPassword(t *testing.T) 
 
 	sess, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
 		User:      user,
-		Session:   webauthn.SessionData{Challenge: "fake-challenge", UserVerification: protocol.VerificationRequired},
+		Session:   webauthn.SessionData{Challenge: "fake-challenge", UserVerification: protocol.VerificationRequired, Expires: time.Now().Add(time.Minute)},
 		Assertion: fakeAssertion(),
 	})
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestService_FinishPasskeyLogin_RefusesABadAssertion(t *testing.T) {
 	fake.validateLoginErr = protocol.ErrVerification
 	_, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
 		User:      user,
-		Session:   webauthn.SessionData{Challenge: "fake-challenge", UserVerification: protocol.VerificationRequired},
+		Session:   webauthn.SessionData{Challenge: "fake-challenge", UserVerification: protocol.VerificationRequired, Expires: time.Now().Add(time.Minute)},
 		Assertion: fakeAssertion(),
 	})
 	require.ErrorIs(t, err, protocol.ErrVerification)

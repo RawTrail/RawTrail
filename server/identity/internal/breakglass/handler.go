@@ -780,6 +780,8 @@ func reasonForLoginErr(err error) string {
 		return "webauthn.user_verification_required"
 	case errors.Is(err, ErrChallengeReused):
 		return "webauthn.challenge_reused"
+	case errors.Is(err, ErrChallengeExpired):
+		return "webauthn.challenge_expired"
 	default:
 		return "login.error"
 	}

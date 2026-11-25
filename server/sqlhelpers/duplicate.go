@@ -13,5 +13,8 @@ const mysqlErrDupEntry = 1062
 // returns when the row is already there.
 func IsDuplicateKeyErr(err error) bool {
 	var mysqlErr *mysql.MySQLError
-	return errors.As(err, &mysqlErr) && mysqlErr.Number == mysqlErrDupEntry
+	if !errors.As(err, &mysqlErr) {
+		return false
+	}
+	return mysqlErr.Number == mysqlErrDupEntry
 }
