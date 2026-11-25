@@ -349,14 +349,14 @@ func (h *Handler) beginLogin(
 ) {
 	w.Header().Set(headerCacheControl, cacheControlNoStore)
 	if !h.rates.AllowIP(httpserver.ClientIP(r)) {
-		h.tooMany(r.Context(), w, "rate_limited")
+		h.refuse(w, r, "", "rate_limited", h.tooMany)
 		return
 	}
 	var body struct {
 		Email string `json:"email"`
 	}
 	if err := decodeJSONBody(w, r, &body, emailBodyMaxBytes); err != nil {
-		h.badRequest(r.Context(), w, "body_invalid")
+		h.refuse(w, r, "", "body_invalid", h.badRequest)
 		return
 	}
 	challenge, _, err := begin(r.Context(), body.Email)
@@ -364,7 +364,7 @@ func (h *Handler) beginLogin(
 		// Email enumeration: collapse all not-found / no-credentials
 		// to the same wire response so an attacker cannot probe.
 		if errors.Is(err, ErrNoCredentials) {
-			h.badRequest(r.Context(), w, "no_credentials")
+			h.refuse(w, r, body.Email, "no_credentials", h.badRequest)
 			return
 		}
 		h.logger.ErrorContext(r.Context(), "breakglass begin login", "err", err)
@@ -403,17 +403,17 @@ func (h *Handler) finishLogin(
 ) {
 	w.Header().Set(headerCacheControl, cacheControlNoStore)
 	if !h.rates.AllowIP(httpserver.ClientIP(r)) {
-		h.tooMany(r.Context(), w, "rate_limited")
+		h.refuse(w, r, "", "rate_limited", h.tooMany)
 		return
 	}
 	cookie, err := r.Cookie(ChallengeStateCookieName)
 	if err != nil {
-		h.badRequest(r.Context(), w, "challenge_missing")
+		h.refuse(w, r, "", "challenge_missing", h.badRequest)
 		return
 	}
 	sd, err := DecodeChallengeState(h.signingKey, cookie.Value)
 	if err != nil {
-		h.badRequest(r.Context(), w, "challenge_invalid")
+		h.refuse(w, r, "", "challenge_invalid", h.badRequest)
 		return
 	}
 	var body struct {
@@ -422,7 +422,7 @@ func (h *Handler) finishLogin(
 		Assertion json.RawMessage `json:"assertion"`
 	}
 	if err := decodeJSONBody(w, r, &body, loginBodyMaxBytes); err != nil {
-		h.badRequest(r.Context(), w, "body_invalid")
+		h.refuse(w, r, "", "body_invalid", h.badRequest)
 		return
 	}
 	// Per-email budget: token-bucket Allow() is consume-or-reject; no non-consuming peek is exposed by the IPLimiter primitive. Consume
@@ -431,12 +431,12 @@ func (h *Handler) finishLogin(
 	// slot is harmless. Spec nuance: this is the failed-login budget, but practical constraint of consume-only limiters means it gates
 	// EVERY attempt; the documentation in ratelimit.go has been updated to reflect this.
 	if !h.rates.AllowEmailFail(body.Email) {
-		h.tooMany(r.Context(), w, "email_rate_limited")
+		h.refuse(w, r, body.Email, "email_rate_limited", h.tooMany)
 		return
 	}
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(body.Assertion)
 	if err != nil {
-		h.badRequest(r.Context(), w, "assertion_parse_failed")
+		h.refuse(w, r, body.Email, "assertion_parse_failed", h.badRequest)
 		return
 	}
 	user, err := h.svc.users.GetByEmail(r.Context(), body.Email)
@@ -492,6 +492,16 @@ func (h *Handler) writeJSON(ctx context.Context, w http.ResponseWriter, status i
 	if err := json.NewEncoder(w).Encode(body); err != nil {
 		h.logger.WarnContext(ctx, "breakglass write json", "err", err)
 	}
+}
+
+// refuse records a sign-in refusal as auth.breakglass.failure with reason, for email when the request has given one, and answers with
+// respond. Every exit of the sign-in routes that turns a request away goes through it or through AuditFailure, so the audit log holds
+// each refusal, rate limits included.
+func (h *Handler) refuse(
+	w http.ResponseWriter, r *http.Request, email, reason string, respond func(context.Context, http.ResponseWriter, string),
+) {
+	h.svc.AuditFailure(r.Context(), email, reason, httpserver.ClientIP(r), r.UserAgent())
+	respond(r.Context(), w, reason)
 }
 
 func (h *Handler) badRequest(ctx context.Context, w http.ResponseWriter, reason string) {

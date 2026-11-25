@@ -225,3 +225,38 @@ func TestHandle_PasskeyLogin_IsAbsentOnAServer(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, postJSON(t, srv, path, `{"email":"admin@rawtrail.local"}`, nil).StatusCode, path)
 	}
 }
+
+// Every early refusal on the sign-in routes writes auth.breakglass.failure with the refusal's reason, before the service is reached:
+// the routes share the password sign-in's code, so this holds for it too.
+func TestHandle_PasskeyLogin_AuditsEveryEarlyRefusal(t *testing.T) {
+	t.Parallel()
+	srv, svc, db, rec, uid, fake := newPasskeyServer(t, true)
+	registerFakeCredential(t, svc, db, uid, fake)
+	challenge := postJSON(t, srv, "/admin/break-glass/passkey/challenge", `{"email":"admin@rawtrail.local"}`, nil)
+	require.Equal(t, http.StatusOK, challenge.StatusCode)
+	state := cookieNamed(challenge, breakglass.ChallengeStateCookieName)
+
+	cases := []struct {
+		name, path, body string
+		cookie           *http.Cookie
+		want             string
+	}{
+		{"no challenge cookie", "/admin/break-glass/passkey", parseableAssertion(t), nil, "challenge_missing"},
+		{"a forged challenge cookie", "/admin/break-glass/passkey", parseableAssertion(t),
+			&http.Cookie{Name: breakglass.ChallengeStateCookieName, Value: "forged.value"}, "challenge_invalid"},
+		{"a body that is not JSON", "/admin/break-glass/passkey", `{`, state, "body_invalid"},
+		{"an assertion that does not parse", "/admin/break-glass/passkey", `{"email":"admin@rawtrail.local","assertion":{}}`, state,
+			"assertion_parse_failed"},
+		{"an unknown email at the challenge", "/admin/break-glass/passkey/challenge", `{"email":"nobody@example.com"}`, nil,
+			"no_credentials"},
+	}
+	for _, tc := range cases {
+		before := len(rec.events)
+		resp := postJSON(t, srv, tc.path, tc.body, tc.cookie)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, tc.name)
+		require.Len(t, rec.events, before+1, tc.name)
+		last := rec.events[len(rec.events)-1]
+		assert.Equal(t, api.AuditAuthBreakglassFailure, last.Action, tc.name)
+		assert.Equal(t, tc.want, last.Payload["reason"], tc.name)
+	}
+}
