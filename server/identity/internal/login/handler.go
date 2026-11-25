@@ -82,10 +82,12 @@ func New(svc api.Service, opts Options) *Handler {
 	}
 }
 
-// RegisterPublicRoutes wires DELETE /api/session on the given mux. Logout is public (and permissive) by design: a stale cookie still
-// needs a clearing Set-Cookie regardless of session validity.
+// RegisterPublicRoutes wires DELETE /api/session and GET /api/auth/options on the given mux. Logout is public (and permissive) by
+// design: a stale cookie still needs a clearing Set-Cookie regardless of session validity. The sign-in options are public because the
+// login page reads them before anyone has signed in.
 func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/session", h.handleLogout)
+	mux.HandleFunc("GET /api/auth/options", h.handleSignInOptions)
 }
 
 // RegisterAuthedRoutes wires GET /api/session on the given mux. Caller wraps the mux in the API auth middleware (cookie session + CSRF,
@@ -114,6 +116,12 @@ type sessionResponse struct {
 	Profile string `json:"profile"`
 }
 
+// signInOptionsResponse is what the login page needs before sign-in: the deployment profile, from which it chooses its sign-in controls
+// (a laptop has no single sign-on). It reveals nothing a visitor cannot already tell from the page.
+type signInOptionsResponse struct {
+	Profile string `json:"profile"`
+}
+
 type errBody struct {
 	Error string `json:"error"`
 }
@@ -139,6 +147,10 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeSessionJSON(ctx, w, u, sess.CSRFToken)
+}
+
+func (h *Handler) handleSignInOptions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(r.Context(), h.logger, w, http.StatusOK, signInOptionsResponse{Profile: h.profile})
 }
 
 // handleLogout is public (not behind Session middleware). It does its own cookie lookup so a stale / expired / unknown cookie still

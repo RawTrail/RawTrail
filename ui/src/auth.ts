@@ -23,6 +23,7 @@ import {
 } from "@simplewebauthn/browser";
 import { attachCsrfHeader, notifyUnauthorized } from "./api";
 import { HTTP_STATUS_UNAUTHORIZED } from "./constants";
+import { toProfile, type Profile } from "./profile-core";
 
 // HTTP status threshold above which the response is an error.
 const HTTP_BAD_REQUEST = 400;
@@ -41,6 +42,17 @@ const MAX_NEXT_PARAM = 256;
 // path only. Same restriction the server's safeRedirect enforces;
 // duplicating it here means the UI does not produce malformed URLs.
 const NEXT_PATH_RE = /^\/(?!\/)[A-Za-z0-9/?=&%:_.@~#-]*$/;
+
+// fetchSignInProfile reads the deployment profile from GET /api/auth/options, which answers without a session, so the login page can
+// choose its sign-in controls before anyone has signed in. Throws on a failed request; the caller decides what to show.
+export async function fetchSignInProfile(): Promise<Profile> {
+  const res = await fetch("/api/auth/options", { credentials: "include" });
+  if (!res.ok) {
+    throw new Error(`sign-in options: status ${String(res.status)}`);
+  }
+  const body = (await res.json()) as { profile?: string };
+  return toProfile(body.profile);
+}
 
 // BreakglassError surfaces the server's reason header so callers can
 // render a directed message. The status code rides along so callers

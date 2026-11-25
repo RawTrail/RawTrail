@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  fetchSignInProfile,
   BreakglassError,
   oidcLoginUrl,
   breakglassBeginSetup,
@@ -406,5 +407,27 @@ describe("requestJSON behaviour via the wrappers", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fake));
     const result = await breakglassFinishSetup("t", "p", "n", {});
     expect(result).toBeUndefined();
+  });
+});
+
+describe("fetchSignInProfile", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    [{ profile: "laptop" }, "laptop"],
+    [{ profile: "server" }, "server"],
+    [{}, "server"],
+  ])("reads %j from GET /api/auth/options as %s", async (body, want) => {
+    const fetchSpy = stubFetch(body);
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(fetchSignInProfile()).resolves.toBe(want);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe("/api/auth/options");
+  });
+
+  it("throws on a failed request", async () => {
+    vi.stubGlobal("fetch", stubFetch({}, 500));
+    await expect(fetchSignInProfile()).rejects.toThrow(/status 500/);
   });
 });

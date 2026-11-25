@@ -2,6 +2,7 @@ package login_test
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -73,6 +74,7 @@ func setupServerWithProfile(t *testing.T, profile string) (*httptest.Server, *us
 	root := http.NewServeMux()
 	root.Handle("DELETE /api/session", publicMux) // logout: public (reads cookie itself)
 	root.Handle("GET /api/session", authedWrap)
+	root.Handle("GET /api/auth/options", publicMux) // sign-in options: public, read by the login page before sign-in
 
 	srv := httptest.NewServer(root)
 	t.Cleanup(srv.Close)
@@ -141,6 +143,29 @@ func TestGet_ReportsTheDeploymentProfile(t *testing.T) {
 			var body sessionResponse
 			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 			assert.Equal(t, tc.want, body.Profile)
+		})
+	}
+}
+
+// spec:server-configuration/the-sign-in-options-report-the-profile/the-login-page-reads-the-profile-before-sign-in
+func TestSignInOptions_ReportTheProfileWithoutASession(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, profile, want string }{
+		{"unset reads as a server deployment", "", "server"},
+		{"laptop", "laptop", "laptop"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, _, _ := setupServerWithProfile(t, tc.profile)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/api/auth/options", nil)
+			require.NoError(t, err)
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode, "the login page reads the options with no session cookie")
+			raw, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.JSONEq(t, `{"profile":"`+tc.want+`"}`, string(raw), "the options carry the profile and nothing else")
 		})
 	}
 }
