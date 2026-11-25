@@ -4809,14 +4809,15 @@ components:
           type: string
           maxLength: 512
           description: >-
-            The file below every home, without a leading slash or `~`, such as `.aws/credentials`. No empty, `.` or `..` segments,
-            and no control characters.
+            The file below every home, without a leading slash or `~`, such as `.aws/credentials`, or for a directory match the
+            directory, without a trailing slash, such as `.aws/sso/cache`. No empty, `.` or `..` segments, and no control characters.
         match:
           type: string
-          enum: [literal, prefix]
+          enum: [literal, prefix, directory]
           description: >-
-            prefix covers every file in the path's directory whose name starts with its last segment, public keys (`.pub`) excepted. A
-            prefix lies in a directory below the home, as `.ssh/id_` does.
+            literal covers exactly the file. prefix covers every file in the path's directory whose name starts with its last segment,
+            public keys (`.pub`) excepted. directory covers every file directly in the directory, and none in its subdirectories. A
+            prefix or a directory lies below a directory in the home, as `.ssh/id_` and `.aws/sso/cache` do.
         owners:
           type: array
           maxItems: 32

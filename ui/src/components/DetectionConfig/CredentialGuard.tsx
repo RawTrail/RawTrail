@@ -30,7 +30,12 @@ const MODE_LABEL: Record<CredentialGuardMode, string> = {
 const MATCH_LABEL: Record<ProtectedCredential["match"], string> = {
   literal: "This file",
   prefix: "Files whose names start with it",
+  directory: "Files directly in this directory",
 };
+
+function isMatch(v: unknown): v is ProtectedCredential["match"] {
+  return v === "literal" || v === "prefix" || v === "directory";
+}
 
 const KINDS = [...CREDENTIAL_KINDS.keys()];
 
@@ -70,7 +75,7 @@ interface CredentialGuardUnsaved {
 function parseCredential(raw: unknown): ProtectedCredential | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const { kind, path, match, owners, default: builtIn } = raw as Record<string, unknown>;
-  if (!isKind(kind) || typeof path !== "string" || (match !== "literal" && match !== "prefix") || !Array.isArray(owners)) {
+  if (!isKind(kind) || typeof path !== "string" || !isMatch(match) || !Array.isArray(owners)) {
     return undefined;
   }
   const parsed: ProtectedCredential["owners"] = [];
@@ -96,7 +101,7 @@ function parseCredentialGuardUnsaved(raw: unknown): CredentialGuardUnsaved | und
   if (!isMode(mode) || !Array.isArray(credentials) || typeof baseVersion !== "number") return undefined;
   if (typeof form !== "object" || form === null) return undefined;
   const { kind, path, match, owners } = form as Record<string, unknown>;
-  if (!isKind(kind) || typeof path !== "string" || (match !== "literal" && match !== "prefix") || typeof owners !== "string") {
+  if (!isKind(kind) || typeof path !== "string" || !isMatch(match) || typeof owners !== "string") {
     return undefined;
   }
   const list: ProtectedCredential[] = [];
@@ -420,11 +425,12 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
             value={form.match}
             disabled={saving}
             onChange={(e) => {
-              setForm({ ...form, match: e.target.value === "prefix" ? "prefix" : "literal" });
+              setForm({ ...form, match: isMatch(e.target.value) ? e.target.value : "literal" });
             }}
           >
             <option value="literal">{MATCH_LABEL.literal}</option>
             <option value="prefix">{MATCH_LABEL.prefix}</option>
+            <option value="directory">{MATCH_LABEL.directory}</option>
           </Select>
           <div className="detection-config__form-field--full">
             <Input

@@ -125,12 +125,12 @@ final class CredentialGuardTests: XCTestCase {
     // spec:extension-credential-guard/credential-files-are-guarded-in-every-home/every-home-s-credential-files-are-guarded
     func testTargetsAreEveryCredentialInEveryHome() {
         let targets = CredentialGuardPolicy.builtIn.targets(homes: Self.homes).map(\.watched)
-        let homePaths = [".ssh/id_", ".aws/credentials", ".config/gh/hosts.yml", ".netrc", ".docker/config.json", ".kube/config"]
+        let literals = [".aws/credentials", ".config/gh/hosts.yml", ".netrc", ".docker/config.json", ".kube/config"]
         var expected: [WatchedPath] = []
         for home in ["/Users/alice", "/private/var/root", "/var/root"] {
-            for homePath in homePaths {
-                expected.append(WatchedPath(path: home + "/" + homePath, match: homePath == ".ssh/id_" ? .prefix : .literal))
-            }
+            expected += literals.map { WatchedPath(path: home + "/" + $0, match: .literal) }
+            // The SSH key prefix, and the AWS caches as directories, muted with their "/".
+            expected += [".ssh/id_", ".aws/sso/cache/", ".aws/cli/cache/"].map { WatchedPath(path: home + "/" + $0, match: .prefix) }
         }
         XCTAssertEqual(Set(targets), Set(expected))
         XCTAssertEqual(targets.count, expected.count)
@@ -262,7 +262,9 @@ final class CredentialGuardTests: XCTestCase {
             #"{"kind":"netrc","path":".ssh/","match":"prefix","owners":[]}"#,
             #"{"kind":"netrc","path":".net\u0000rc","match":"literal","owners":[]}"#,
             #"{"kind":"netrc","path":"a//b","match":"literal","owners":[]}"#,
-            #"{"kind":"netrc","path":".n","match":"prefix","owners":[]}"#
+            #"{"kind":"netrc","path":".n","match":"prefix","owners":[]}"#,
+            #"{"kind":"aws_credentials","path":".aws","match":"directory","owners":[]}"#,
+            #"{"kind":"aws_credentials","path":".aws/sso/cache/","match":"directory","owners":[]}"#
         ]
         let payload = #"{"version":1,"epoch":7,"mode":"detect","credentials":["# + entries.joined(separator: ",") + "]}"
         let update = try XCTUnwrap(CredentialGuardUpdate.decode(Data(payload.utf8)))
@@ -354,5 +356,35 @@ final class CredentialGuardTests: XCTestCase {
         XCTAssertEqual(CredentialKind.allCases.map(\.rawValue), [
             "ssh_private_key", "aws_credentials", "github_cli_token", "netrc", "docker_config", "kube_config"
         ])
+    }
+}
+
+// MARK: Directory credentials
+
+extension CredentialGuardTests {
+    // spec:extension-credential-guard/a-directory-credential-covers-the-files-directly-in-it/a-directory-covers-the-files-directly-in-it
+    //
+    // A directory credential covers each file directly in it, whatever its name, and nothing in a subdirectory, nor a sibling that
+    // shares its name, nor the directory itself.
+    func testADirectoryCoversTheFilesDirectlyInIt() {
+        let cache = ProtectedCredential(kind: .awsCredentials, homePath: ".aws/sso/cache", match: .directory, owners: [])
+        let detect = Self.enforcing(CredentialGuardPolicy(mode: .detect, credentials: [cache]))
+        for (path, want) in [("/Users/alice/.aws/sso/cache/0a1b2c3d4e5f.json", true), ("/Users/alice/.aws/sso/cache/token.pub", true),
+                             ("/Users/alice/.aws/sso/cache/nested/x.json", false), ("/Users/alice/.aws/sso/cache.bak", false),
+                             ("/Users/alice/.aws/sso/cache", false), ("/Users/alice/.aws/sso/cache/", false)] {
+            XCTAssertEqual(detect.decide(path: path, opener: Self.cat, inAgentProcessSet: true) != .allow, want, path)
+        }
+    }
+
+    // spec:extension-credential-guard/credential-files-are-guarded-in-every-home/the-aws-credential-caches-are-guarded
+    //
+    // In protect mode an agent's `cat` of an SSO token or a cached STS credential is refused, while the AWS CLI reading it is not.
+    func testTheAWSCachesAreGuardedForTheAWSCLI() {
+        let protect = Self.enforcing(CredentialGuardPolicy(mode: .protect, credentials: CredentialGuard.builtIn))
+        let awsCLI = Self.developerID("94KV3E626L", "aws")
+        for path in ["/Users/alice/.aws/sso/cache/9f86d081884c7d65.json", "/Users/alice/.aws/cli/cache/2c26b46b68ffc68f.json"] {
+            XCTAssertEqual(protect.decide(path: path, opener: Self.cat, inAgentProcessSet: true), .block(.awsCredentials), path)
+            XCTAssertEqual(protect.decide(path: path, opener: awsCLI, inAgentProcessSet: true), .allow, path)
+        }
     }
 }

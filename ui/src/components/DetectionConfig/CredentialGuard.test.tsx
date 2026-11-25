@@ -62,7 +62,7 @@ function rows(): string[] {
     .map((r) => r.textContent);
 }
 
-function fillForm(kind: string, path: string, match: "literal" | "prefix", owners: string) {
+function fillForm(kind: string, path: string, match: ProtectedCredential["match"], owners: string) {
   fireEvent.change(screen.getByLabelText("Credential"), { target: { value: kind } });
   fireEvent.change(screen.getByLabelText("Path in each home"), { target: { value: path } });
   fireEvent.change(screen.getByLabelText("Covers"), { target: { value: match } });
@@ -87,6 +87,22 @@ describe("CredentialGuard", () => {
     ]);
     expect(screen.getByText(/Last saved .* by alice@example\.com\./)).toBeVisible();
     expect(screen.getByRole("button", { name: "Save and push to hosts" })).toBeDisabled();
+  });
+
+  it("adds a directory credential, shown as the files directly in it, and saves it as a directory", async () => {
+    await renderLoaded();
+    fillForm("aws_credentials", ".aws/sso/cache", "directory", "94KV3E626L");
+    fireEvent.click(screen.getByRole("button", { name: "Add credential" }));
+    expect(rows()[2]).toBe("AWS credentials~/.aws/sso/cacheFiles directly in this directoryAny tool signed by team 94KV3E626LEditRemove");
+
+    const cache: ProtectedCredential = { kind: "aws_credentials", path: ".aws/sso/cache", match: "directory", owners: [{ team_id: "94KV3E626L" }] };
+    const replace = vi
+      .spyOn(api, "replaceCredentialGuard")
+      .mockResolvedValue(makeResult(makePolicy({ version: 3, credentials: [SSH, GH, cache] })));
+    await saveWithReason("guard the SSO token cache");
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("detect", [SSH, GH, cache], "guard the SSO token cache", 2);
+    });
   });
 
   it("offers no editing to an operator without write permission, and says when the guard protects nothing", async () => {

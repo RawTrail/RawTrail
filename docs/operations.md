@@ -284,7 +284,7 @@ Every host records writes, renames, truncations and deletions of `/etc/sudoers` 
 
 ### Guarding credentials from AI agents
 
-Each host's security extension watches the credential files an AI coding agent could be told to read: SSH private keys (`~/.ssh/id_*`), `~/.aws/credentials`, the GitHub CLI's `~/.config/gh/hosts.yml`, `~/.netrc`, `~/.docker/config.json` and `~/.kube/config`, in every user's home folder. When a process in a Claude Code session opens one with anything but that file's own tools, the `agent_credential_read` rule raises an alert. `ssh` reading a key for `git push` is not reported, and reads outside an agent session are never refused.
+Each host's security extension watches the credential files an AI coding agent could be told to read: SSH private keys (`~/.ssh/id_*`), `~/.aws/credentials`, the AWS CLI's SSO token and STS credential caches (every file directly in `~/.aws/sso/cache/` and `~/.aws/cli/cache/`), the GitHub CLI's `~/.config/gh/hosts.yml`, `~/.netrc`, `~/.docker/config.json` and `~/.kube/config`, in every user's home folder. When a process in a Claude Code session opens one with anything but that file's own tools, the `agent_credential_read` rule raises an alert. `ssh` reading a key for `git push` is not reported, and reads outside an agent session are never refused.
 
 To change it, open **Detection tuning** and edit **AI agent credential guard** (needs `detection_config.write`), then **Save and push to hosts** with a reason for the audit log. The same policy is available as `GET` and `PUT /api/v1/detection-config/credential-guard`.
 

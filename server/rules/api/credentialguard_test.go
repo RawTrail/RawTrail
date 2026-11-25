@@ -25,6 +25,25 @@ func TestDefaultCredentialGuard_IsValidAndDetects(t *testing.T) {
 	assert.Equal(t, "com.apple.ssh", DefaultCredentialGuard().Credentials[0].Owners[0].SigningID)
 }
 
+// spec:extension-credential-guard/credential-files-are-guarded-in-every-home/the-aws-credential-caches-are-guarded
+//
+// The AWS CLI's SSO token cache and its STS credential cache are guarded by default as directories, owned by the AWS CLI's team, as
+// the extension's built-in list has them.
+func TestDefaultCredentialGuard_GuardsTheAWSCaches(t *testing.T) {
+	t.Parallel()
+	var caches []ProtectedCredential
+	for _, c := range DefaultCredentialGuard().Credentials {
+		if c.Match == "directory" {
+			caches = append(caches, c)
+		}
+	}
+	awsCLI := []CredentialOwner{{TeamID: "94KV3E626L"}}
+	assert.Equal(t, []ProtectedCredential{
+		{Kind: "aws_credentials", Path: ".aws/sso/cache", Match: "directory", Owners: awsCLI, Default: true},
+		{Kind: "aws_credentials", Path: ".aws/cli/cache", Match: "directory", Owners: awsCLI, Default: true},
+	}, caches)
+}
+
 func TestValidateCredentialGuard(t *testing.T) {
 	t.Parallel()
 	ok := ProtectedCredential{Kind: "netrc", Path: ".netrc", Match: "literal", Owners: []CredentialOwner{{SigningID: "com.apple.curl"}}}
@@ -85,6 +104,15 @@ func TestValidateCredentialGuard(t *testing.T) {
 		{"a prefix at the top of the home", CredentialGuardDetect, with(func(c *ProtectedCredential) {
 			c.Path, c.Match = ".n", "prefix"
 		}), "a prefix must lie in a directory"},
+		{"a directory below a directory in the home", CredentialGuardDetect, with(func(c *ProtectedCredential) {
+			c.Path, c.Match = ".aws/sso/cache", "directory"
+		}), ""},
+		{"a directory at the top of the home", CredentialGuardDetect, with(func(c *ProtectedCredential) {
+			c.Path, c.Match = ".config", "directory"
+		}), "a directory must lie below a directory"},
+		{"a directory written with a trailing slash", CredentialGuardDetect, with(func(c *ProtectedCredential) {
+			c.Path, c.Match = ".aws/sso/cache/", "directory"
+		}), "segments"},
 		{"a NUL in the path", CredentialGuardDetect, with(func(c *ProtectedCredential) { c.Path = ".aws/credentials\x00suffix" }),
 			"control characters"},
 		{"a DEL in the path", CredentialGuardDetect, with(func(c *ProtectedCredential) { c.Path = ".net\x7frc" }), "control characters"},
