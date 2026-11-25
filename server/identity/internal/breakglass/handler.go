@@ -37,7 +37,7 @@ const reauthChallengeCookieName = "edr_reauth_challenge"
 
 // challengeCookieMaxAge is the per-flow cookie lifetime in seconds.
 // Matches the WebAuthn challenge timeout the browser enforces.
-const challengeCookieMaxAge = 300
+const challengeCookieMaxAge = int(ChallengeLifetime / time.Second)
 
 // Cache-Control header semantics applied uniformly to break-glass auth responses. Success paths set signed challenge / session
 // cookies; error paths are throwaway. Either way the response should not land in any shared cache.
@@ -67,6 +67,8 @@ type Handler struct {
 	rates      *RateLimits
 	allowlist  *Allowlist
 	logger     *slog.Logger
+	// passkeyOnly offers the passkey-only sign-in routes, which a laptop install's owner uses instead of a password.
+	passkeyOnly bool
 }
 
 // HandlerOptions bundles the per-deployment knobs.
@@ -77,6 +79,9 @@ type HandlerOptions struct {
 	RateLimits *RateLimits
 	Allowlist  *Allowlist
 	Logger     *slog.Logger
+	// PasskeyOnly mounts the passkey-only sign-in (POST /admin/break-glass/passkey and its challenge). Set on a laptop install, where
+	// break-glass is the owner's only sign-in; a server install leaves it off, so those paths do not exist there.
+	PasskeyOnly bool
 }
 
 // NewHandler validates dependencies and returns the handler.
@@ -96,12 +101,13 @@ func NewHandler(opts HandlerOptions) *Handler {
 		rates = NewRateLimits(0, 0, 0)
 	}
 	return &Handler{
-		svc:        opts.Service,
-		identity:   opts.Identity,
-		signingKey: opts.SigningKey,
-		rates:      rates,
-		allowlist:  opts.Allowlist,
-		logger:     logger,
+		svc:         opts.Service,
+		identity:    opts.Identity,
+		signingKey:  opts.SigningKey,
+		rates:       rates,
+		allowlist:   opts.Allowlist,
+		logger:      logger,
+		passkeyOnly: opts.PasskeyOnly,
 	}
 }
 
@@ -123,6 +129,8 @@ func (h *Handler) AllowlistMiddleware(next http.Handler) http.Handler {
 //	POST /admin/break-glass/setup/challenge → JSON: registration challenge
 //	POST /admin/break-glass                  → JSON: finish login
 //	POST /admin/break-glass/setup            → JSON: atomic redemption
+//	POST /admin/break-glass/passkey/challenge → JSON: assertion challenge requiring user verification (laptop only)
+//	POST /admin/break-glass/passkey           → JSON: finish a passkey-only login (laptop only)
 //
 // All paths are pre-auth; the IP allowlist middleware + per-IP rate
 // limit gate access at request time. The GET redirects do NOT consume
@@ -145,6 +153,10 @@ func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /admin/break-glass/setup", wrap(h.handleFinishSetup))
 	mux.Handle("POST /admin/break-glass/challenge", wrap(h.handleBeginLogin))
 	mux.Handle("POST /admin/break-glass", wrap(h.handleFinishLogin))
+	if h.passkeyOnly {
+		mux.Handle("POST /admin/break-glass/passkey/challenge", wrap(h.handleBeginPasskeyLogin))
+		mux.Handle("POST /admin/break-glass/passkey", wrap(h.handleFinishPasskeyLogin))
+	}
 }
 
 // RegisterAuthedRoutes mounts the break-glass reauth surface.
@@ -322,24 +334,37 @@ func (h *Handler) handleFinishSetup(w http.ResponseWriter, r *http.Request) {
 // handleBeginLogin issues the WebAuthn assertion challenge for the
 // presented email. JSON body: {"email": "..."}.
 func (h *Handler) handleBeginLogin(w http.ResponseWriter, r *http.Request) {
+	h.beginLogin(w, r, h.svc.BeginLogin)
+}
+
+// handleBeginPasskeyLogin issues the challenge for a passkey-only login, which requires the authenticator to verify the person.
+// JSON body: {"email": "..."}.
+func (h *Handler) handleBeginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
+	h.beginLogin(w, r, h.svc.BeginPasskeyLogin)
+}
+
+// beginLogin issues an assertion challenge from begin, under the per-IP budget, and sets it in the signed challenge cookie.
+func (h *Handler) beginLogin(
+	w http.ResponseWriter, r *http.Request, begin func(context.Context, string) (*LoginChallenge, *users.User, error),
+) {
 	w.Header().Set(headerCacheControl, cacheControlNoStore)
 	if !h.rates.AllowIP(httpserver.ClientIP(r)) {
-		h.tooMany(r.Context(), w, "rate_limited")
+		h.refuse(w, r, "", "rate_limited", h.tooMany)
 		return
 	}
 	var body struct {
 		Email string `json:"email"`
 	}
 	if err := decodeJSONBody(w, r, &body, emailBodyMaxBytes); err != nil {
-		h.badRequest(r.Context(), w, "body_invalid")
+		h.refuse(w, r, "", "body_invalid", h.badRequest)
 		return
 	}
-	challenge, _, err := h.svc.BeginLogin(r.Context(), body.Email)
+	challenge, _, err := begin(r.Context(), body.Email)
 	if err != nil {
 		// Email enumeration: collapse all not-found / no-credentials
 		// to the same wire response so an attacker cannot probe.
 		if errors.Is(err, ErrNoCredentials) {
-			h.badRequest(r.Context(), w, "no_credentials")
+			h.refuse(w, r, body.Email, "no_credentials", h.badRequest)
 			return
 		}
 		h.logger.ErrorContext(r.Context(), "breakglass begin login", "err", err)
@@ -361,19 +386,34 @@ func (h *Handler) handleBeginLogin(w http.ResponseWriter, r *http.Request) {
 // handleFinishLogin verifies password + assertion and mints a
 // session. JSON body: {"email": "...", "password": "...", "assertion": <CredentialAssertionResponse JSON>}.
 func (h *Handler) handleFinishLogin(w http.ResponseWriter, r *http.Request) {
+	h.finishLogin(w, r, h.svc.FinishLogin, h.svc.AuditSuccess)
+}
+
+// handleFinishPasskeyLogin verifies a passkey-only assertion, with no password, and mints a session. JSON body:
+// {"email": "...", "assertion": <CredentialAssertionResponse JSON>}. A password in the body is ignored.
+func (h *Handler) handleFinishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
+	h.finishLogin(w, r, h.svc.FinishPasskeyLogin, h.svc.AuditPasskeySuccess)
+}
+
+// finishLogin runs a login's finish under the per-IP and per-email budgets: it decodes the challenge cookie and the body, resolves the
+// break-glass user, and on success sets the session cookie. Every failure is one wire 401 with the precise reason in the audit row.
+func (h *Handler) finishLogin(
+	w http.ResponseWriter, r *http.Request, finish func(context.Context, FinishLoginRequest) (*sessions.Session, error),
+	auditSuccess func(context.Context, *users.User, string, string),
+) {
 	w.Header().Set(headerCacheControl, cacheControlNoStore)
 	if !h.rates.AllowIP(httpserver.ClientIP(r)) {
-		h.tooMany(r.Context(), w, "rate_limited")
+		h.refuse(w, r, "", "rate_limited", h.tooMany)
 		return
 	}
 	cookie, err := r.Cookie(ChallengeStateCookieName)
 	if err != nil {
-		h.badRequest(r.Context(), w, "challenge_missing")
+		h.refuse(w, r, "", "challenge_missing", h.badRequest)
 		return
 	}
 	sd, err := DecodeChallengeState(h.signingKey, cookie.Value)
 	if err != nil {
-		h.badRequest(r.Context(), w, "challenge_invalid")
+		h.refuse(w, r, "", "challenge_invalid", h.badRequest)
 		return
 	}
 	var body struct {
@@ -382,7 +422,7 @@ func (h *Handler) handleFinishLogin(w http.ResponseWriter, r *http.Request) {
 		Assertion json.RawMessage `json:"assertion"`
 	}
 	if err := decodeJSONBody(w, r, &body, loginBodyMaxBytes); err != nil {
-		h.badRequest(r.Context(), w, "body_invalid")
+		h.refuse(w, r, "", "body_invalid", h.badRequest)
 		return
 	}
 	// Per-email budget: token-bucket Allow() is consume-or-reject; no non-consuming peek is exposed by the IPLimiter primitive. Consume
@@ -391,12 +431,12 @@ func (h *Handler) handleFinishLogin(w http.ResponseWriter, r *http.Request) {
 	// slot is harmless. Spec nuance: this is the failed-login budget, but practical constraint of consume-only limiters means it gates
 	// EVERY attempt; the documentation in ratelimit.go has been updated to reflect this.
 	if !h.rates.AllowEmailFail(body.Email) {
-		h.tooMany(r.Context(), w, "email_rate_limited")
+		h.refuse(w, r, body.Email, "email_rate_limited", h.tooMany)
 		return
 	}
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(body.Assertion)
 	if err != nil {
-		h.badRequest(r.Context(), w, "assertion_parse_failed")
+		h.refuse(w, r, body.Email, "assertion_parse_failed", h.badRequest)
 		return
 	}
 	user, err := h.svc.users.GetByEmail(r.Context(), body.Email)
@@ -412,7 +452,7 @@ func (h *Handler) handleFinishLogin(w http.ResponseWriter, r *http.Request) {
 		h.unauthorized(r.Context(), w)
 		return
 	}
-	sess, err := h.svc.FinishLogin(r.Context(), FinishLoginRequest{
+	sess, err := finish(r.Context(), FinishLoginRequest{
 		User:      user,
 		Session:   sd,
 		Password:  body.Password,
@@ -438,7 +478,7 @@ func (h *Handler) handleFinishLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	h.clearChallengeCookie(w)
 	h.setSessionCookie(w, sess)
-	h.svc.AuditSuccess(r.Context(), user, httpserver.ClientIP(r), r.UserAgent())
+	auditSuccess(r.Context(), user, httpserver.ClientIP(r), r.UserAgent())
 	h.writeJSON(r.Context(), w, http.StatusOK, map[string]any{
 		"redirect": "/ui/",
 	})
@@ -452,6 +492,16 @@ func (h *Handler) writeJSON(ctx context.Context, w http.ResponseWriter, status i
 	if err := json.NewEncoder(w).Encode(body); err != nil {
 		h.logger.WarnContext(ctx, "breakglass write json", "err", err)
 	}
+}
+
+// refuse records a sign-in refusal as auth.breakglass.failure with reason, for email when the request has given one, and answers with
+// respond. Every exit of the sign-in routes that turns a request away goes through it or through AuditFailure, so the audit log holds
+// each refusal, rate limits included.
+func (h *Handler) refuse(
+	w http.ResponseWriter, r *http.Request, email, reason string, respond func(context.Context, http.ResponseWriter, string),
+) {
+	h.svc.AuditFailure(r.Context(), email, reason, httpserver.ClientIP(r), r.UserAgent())
+	respond(r.Context(), w, reason)
 }
 
 func (h *Handler) badRequest(ctx context.Context, w http.ResponseWriter, reason string) {
@@ -726,6 +776,8 @@ func reasonForLoginErr(err error) string {
 		return "webauthn.unknown_credential"
 	case errors.Is(err, ErrNoCredentials):
 		return "webauthn.no_credentials"
+	case errors.Is(err, ErrUserVerificationRequired):
+		return "webauthn.user_verification_required"
 	default:
 		return "login.error"
 	}

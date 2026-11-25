@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -21,6 +22,9 @@ type WebAuthnOptions struct {
 	RPDisplayName string
 	RPOrigins     []string
 }
+
+// ChallengeLifetime is how long a WebAuthn challenge stays valid, enforced by the server and matched by the challenge cookie's lifetime.
+const ChallengeLifetime = 5 * time.Minute
 
 // NewWebAuthn constructs the go-webauthn engine. Errors when any required field is empty so a misconfigured deployment refuses to
 // start rather than silently issuing challenges that no browser will accept.
@@ -60,6 +64,15 @@ func NewWebAuthn(opts WebAuthnOptions) (*webauthn.WebAuthn, error) {
 		AttestationPreference: protocol.PreferIndirectAttestation,
 		// AuthenticatorSelection: a cross-platform authenticator (USB security key) is the spec-aligned default but the
 		// platform authenticator (TouchID) is also acceptable. Empty means no constraint; the browser+OS pick.
+		//
+		// Timeouts are enforced at the server, not only offered to the browser: the challenge rides a signed cookie, not a server-side
+		// row, so without an expiry in the signed session data a captured challenge and assertion would verify for as long as the
+		// signing key lasts. Enforcing stamps the expiry at begin, and validation refuses a session past it. The five minutes match the
+		// challenge cookie's lifetime.
+		Timeouts: webauthn.TimeoutsConfig{
+			Login:        webauthn.TimeoutConfig{Enforce: true, Timeout: ChallengeLifetime, TimeoutUVD: ChallengeLifetime},
+			Registration: webauthn.TimeoutConfig{Enforce: true, Timeout: ChallengeLifetime, TimeoutUVD: ChallengeLifetime},
+		},
 	}
 	w, err := webauthn.New(cfg)
 	if err != nil {

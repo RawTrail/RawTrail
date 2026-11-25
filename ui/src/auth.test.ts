@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   fetchSignInProfile,
+  breakglassBeginPasskeyLogin,
+  breakglassFinishPasskeyLogin,
   BreakglassError,
   oidcLoginUrl,
   breakglassBeginSetup,
@@ -213,6 +215,35 @@ describe("breakglassBeginLogin", () => {
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain("/admin/break-glass/challenge");
     expect(mockedStartAuthentication).toHaveBeenCalledWith({ optionsJSON: publicKey });
     expect(result).toEqual({ id: "assert" });
+  });
+});
+
+describe("breakglassBeginPasskeyLogin", () => {
+  it("POSTs the email to the passkey-only challenge and forwards the publicKey to startAuthentication", async () => {
+    const publicKey = { challenge: "c", userVerification: "required" };
+    const fetchSpy = stubFetch({ publicKey });
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.mocked(mockedStartAuthentication).mockResolvedValue({ id: "assert" } as unknown as never);
+
+    const result = await breakglassBeginPasskeyLogin("owner@example.com");
+
+    const req = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(req.body as string)).toEqual({ email: "owner@example.com" });
+    expect(new URL(String(fetchSpy.mock.calls[0]?.[0])).pathname).toBe("/admin/break-glass/passkey/challenge");
+    expect(mockedStartAuthentication).toHaveBeenCalledWith({ optionsJSON: publicKey });
+    expect(result).toEqual({ id: "assert" });
+  });
+});
+
+describe("breakglassFinishPasskeyLogin", () => {
+  it("POSTs the email and assertion, and no password, and returns the redirect", async () => {
+    const fetchSpy = stubFetch({ redirect: "/ui/" });
+    vi.stubGlobal("fetch", fetchSpy);
+    const assertion = { id: "asrt" };
+    await expect(breakglassFinishPasskeyLogin("owner@example.com", assertion)).resolves.toEqual({ redirect: "/ui/" });
+    expect(new URL(String(fetchSpy.mock.calls[0]?.[0])).pathname).toBe("/admin/break-glass/passkey");
+    const req = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(req.body as string)).toEqual({ email: "owner@example.com", assertion });
   });
 });
 

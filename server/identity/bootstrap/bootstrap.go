@@ -43,7 +43,8 @@ type Deps struct {
 	DB           *sqlx.DB
 	Logger       *slog.Logger
 	CookieSecure bool
-	// Profile is the deployment profile (EDR_PROFILE) the session probe reports, so the console can choose its defaults.
+	// Profile is the deployment profile (EDR_PROFILE) the session probe reports, so the console can choose its defaults. On "laptop" the
+	// break-glass handler also offers the passkey-only sign-in.
 	Profile string
 	// Session timeouts: per-class idle + absolute caps. Zero means use the sessions package defaults: normal 8h idle / 24h absolute,
 	// break-glass 15m / 1h.
@@ -465,6 +466,8 @@ func buildBreakglass(in breakglassDeps) (*breakglass.Service, *breakglass.Handle
 		SigningKey: in.deps.SessionSigningKey,
 		Allowlist:  allowlist,
 		Logger:     in.logger,
+		// A laptop's owner signs in with their passkey alone; a server keeps the password as well.
+		PasskeyOnly: in.deps.Profile == "laptop",
 	})
 	return svc, h, nil
 }

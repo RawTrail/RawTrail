@@ -96,7 +96,7 @@ func (f *fakeWebAuthnEngine) CreateCredential(
 }
 
 func (f *fakeWebAuthnEngine) BeginLogin(
-	_ webauthn.User, _ ...webauthn.LoginOption,
+	_ webauthn.User, opts ...webauthn.LoginOption,
 ) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	if f.beginLoginErr != nil {
 		return nil, nil, f.beginLoginErr
@@ -106,10 +106,18 @@ func (f *fakeWebAuthnEngine) BeginLogin(
 			Challenge: []byte("fake-challenge"),
 		},
 	}
+	// The options shape the request as the real engine's do, and its user verification carries into the session data, as go-webauthn
+	// carries it.
+	for _, opt := range opts {
+		if err := opt(&ca.Response); err != nil {
+			return nil, nil, err
+		}
+	}
 	sd := &webauthn.SessionData{
-		Challenge:      "fake-challenge",
-		RelyingPartyID: "localhost",
-		Expires:        time.Now().Add(5 * time.Minute),
+		Challenge:        "fake-challenge",
+		RelyingPartyID:   "localhost",
+		UserVerification: ca.Response.UserVerification,
+		Expires:          time.Now().Add(5 * time.Minute),
 	}
 	return ca, sd, nil
 }

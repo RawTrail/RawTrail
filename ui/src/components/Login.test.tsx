@@ -20,11 +20,12 @@ async function renderAt(searchParams: Record<string, string>, props: { next?: st
       <Login {...props} />
     </MemoryRouter>,
   );
-  await screen.findByRole("button");
+  await screen.findAllByRole("button");
   return view;
 }
 
 afterEach(() => {
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -146,20 +147,21 @@ describe("Login brand", () => {
 
 describe("Login by deployment profile", () => {
   // spec:web-ui/a-laptop-install-signs-in-with-the-owner-s-passkey/the-laptop-login-page-shows-one-passkey-button
-  it("on a laptop shows one button, which signs in with the passkey, and no single sign-on", async () => {
+  it("on a laptop offers one sign-in button, Touch ID, and no single sign-on or break-glass link", async () => {
     await renderAt({}, {}, "laptop");
-    expect(screen.getAllByRole("button")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Sign in with your passkey" })).toBeVisible();
-    expect(screen.getByLabelText(/email/i)).toBeVisible();
-    expect(screen.getByLabelText(/password/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Sign in with Touch ID" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Use your email and password" })).toBeVisible();
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(screen.queryByLabelText(/password/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /single sign-on/i })).toBeNull();
     expect(screen.queryByRole("link", { name: /break-glass/i })).toBeNull();
+    expect(screen.getByText("Sign in with your passkey.")).toBeVisible();
   });
 
   // spec:web-ui/a-laptop-install-signs-in-with-the-owner-s-passkey/the-laptop-login-page-shows-one-passkey-button
-  it("on a laptop the button runs the passkey ceremony and lands on the console", async () => {
-    const begin = vi.spyOn(auth, "breakglassBeginLogin").mockResolvedValue({ id: "asrt" });
-    const finish = vi.spyOn(auth, "breakglassFinishLogin").mockResolvedValue({ redirect: "/ui/" });
+  it("on a laptop the Touch ID button signs the admin account in with no password and lands on the console", async () => {
+    const begin = vi.spyOn(auth, "breakglassBeginPasskeyLogin").mockResolvedValue({ id: "asrt" });
+    const finish = vi.spyOn(auth, "breakglassFinishPasskeyLogin").mockResolvedValue({ redirect: "/ui/" });
     vi.spyOn(auth, "fetchSignInProfile").mockResolvedValue("laptop");
     render(
       <MemoryRouter initialEntries={["/login"]}>
@@ -169,12 +171,10 @@ describe("Login by deployment profile", () => {
         </Routes>
       </MemoryRouter>,
     );
-    fireEvent.change(await screen.findByLabelText(/email/i), { target: { value: "owner@example.com" } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "pw" } });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in with your passkey" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in with Touch ID" }));
     expect(await screen.findByText("HOME")).toBeVisible();
-    expect(begin).toHaveBeenCalledWith("owner@example.com");
-    expect(finish).toHaveBeenCalledWith("owner@example.com", "pw", { id: "asrt" });
+    expect(begin).toHaveBeenCalledWith("admin@rawtrail.local");
+    expect(finish).toHaveBeenCalledWith("admin@rawtrail.local", { id: "asrt" });
   });
 
   // spec:web-ui/a-laptop-install-signs-in-with-the-owner-s-passkey/the-server-login-page-is-unchanged

@@ -45,6 +45,16 @@ The login flow is the same shape as redemption minus the registration step:
 3. Click "Sign in with security key" → the browser prompts the authenticator → server validates the signed assertion + the password.
 4. On success, the page navigates to `/ui/`.
 
+### On a laptop install
+
+On a laptop install (`EDR_PROFILE=laptop`), break-glass is the owner's only sign-in, so `/ui/login` offers one "Sign in with Touch ID" button instead:
+
+1. Click "Sign in with Touch ID". It signs in the email of the last sign-in in that browser, `admin@rawtrail.local` by default.
+2. The browser asks for Touch ID. The server requires the authenticator to verify you, and checks no password: a passkey that verified its owner is already two factors.
+3. On success, the page navigates to `/ui/`. The audit row is `auth.breakglass.success` with `payload.method` `passkey_only`.
+
+"Use your email and password" opens the form above with the email filled in, and a failed Touch ID sign-in opens it too. The passkey-only sign-in is at `POST /admin/break-glass/passkey`, with its challenge at `POST /admin/break-glass/passkey/challenge`. A server install does not serve them. A sensitive action still asks for your password and passkey.
+
 Failure modes (unknown email / wrong password / wrong assertion / no credentials / sign-count regression) collapse to a single `invalid_credentials` 401 on the wire so an attacker cannot enumerate accounts. The audit row records the precise reason (`auth.breakglass.failure` with `payload.reason`).
 
 ## Registering a second security key

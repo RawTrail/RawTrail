@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strconv"
 	"time"
 
@@ -272,6 +273,17 @@ type LoginChallenge struct {
 // registered credential (the spec scenario "operator who lost every authenticator": admin must reissue a token). User enumeration:
 // a non-existent email also surfaces ErrNoCredentials so an attacker cannot probe for valid emails via response shape.
 func (s *Service) BeginLogin(ctx context.Context, email string) (*LoginChallenge, *users.User, error) {
+	return s.beginLogin(ctx, email)
+}
+
+// BeginPasskeyLogin issues the challenge for a laptop owner's passkey-only sign-in: as BeginLogin, but the authenticator must verify the
+// person (Touch ID or the device passcode), since the passkey then stands in for the password too. FinishPasskeyLogin refuses any
+// challenge that did not require it.
+func (s *Service) BeginPasskeyLogin(ctx context.Context, email string) (*LoginChallenge, *users.User, error) {
+	return s.beginLogin(ctx, email, webauthn.WithUserVerification(protocol.VerificationRequired))
+}
+
+func (s *Service) beginLogin(ctx context.Context, email string, opts ...webauthn.LoginOption) (*LoginChallenge, *users.User, error) {
 	u, err := s.users.GetByEmail(ctx, email)
 	if errors.Is(err, users.ErrNotFound) {
 		return nil, nil, ErrNoCredentials
@@ -296,7 +308,7 @@ func (s *Service) BeginLogin(ctx context.Context, email string) (*LoginChallenge
 		Email:       u.Email,
 		Credentials: ToWebauthnCredentials(rows),
 	}
-	options, sd, err := s.webauthn.BeginLogin(wuser)
+	options, sd, err := s.webauthn.BeginLogin(wuser, opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("breakglass: begin login: %w", err)
 	}
@@ -335,10 +347,36 @@ func (s *Service) FinishLogin(ctx context.Context, req FinishLoginRequest) (*ses
 	if err := s.VerifyLogin(ctx, req); err != nil {
 		return nil, err
 	}
+	return s.mintSession(ctx, req.User)
+}
+
+// ErrUserVerificationRequired is returned by FinishPasskeyLogin for a challenge that did not require user verification, such as one
+// BeginLogin issued for the password sign-in.
+var ErrUserVerificationRequired = errors.New("breakglass: passkey sign-in needs a challenge that requires user verification")
+
+// FinishPasskeyLogin verifies a laptop owner's passkey-only sign-in and mints a session, with no password. The challenge must have
+// required user verification, and ValidateLogin then refuses an assertion whose authenticator did not verify the person, so the
+// passkey proves both the device and its owner. The handler offers it only on a laptop install.
+func (s *Service) FinishPasskeyLogin(ctx context.Context, req FinishLoginRequest) (*sessions.Session, error) {
+	if req.Session.UserVerification != protocol.VerificationRequired {
+		return nil, ErrUserVerificationRequired
+	}
+	cred, err := s.validateAssertion(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.credentials.RecordAssertion(ctx, cred.ID, cred.Authenticator.SignCount, cred.Flags.BackupState); err != nil {
+		return nil, err
+	}
+	return s.mintSession(ctx, req.User)
+}
+
+// mintSession creates the break-glass session for a verified user, bound to their local_password identity when one exists.
+func (s *Service) mintSession(ctx context.Context, user *users.User) (*sessions.Session, error) {
 	// Resolve the local_password identity for session.identity_id.
 	identityID := int64(0)
 	id, err := s.identities.FindByProviderSubject(ctx,
-		identities.ProviderLocalPassword, req.User.Email)
+		identities.ProviderLocalPassword, user.Email)
 	if err == nil {
 		identityID = id.ID
 	}
@@ -346,7 +384,7 @@ func (s *Service) FinishLogin(ctx context.Context, req FinishLoginRequest) (*ses
 	if identityID > 0 {
 		createOpts.IdentityID = &identityID
 	}
-	sess, err := s.sessions.Create(ctx, req.User.ID, createOpts)
+	sess, err := s.sessions.Create(ctx, user.ID, createOpts)
 	if err != nil {
 		return nil, fmt.Errorf("breakglass: mint session: %w", err)
 	}
@@ -366,18 +404,9 @@ func (s *Service) FinishLogin(ctx context.Context, req FinishLoginRequest) (*ses
 // req.Assertion must be the parsed CredentialAssertionResponse, and
 // the per-email rate-limit budget is the caller's to consume.
 func (s *Service) VerifyLogin(ctx context.Context, req FinishLoginRequest) error {
-	rows, err := s.credentials.ListByUserID(ctx, req.User.ID)
+	cred, err := s.validateAssertion(ctx, req)
 	if err != nil {
-		return fmt.Errorf("breakglass: list credentials: %w", err)
-	}
-	wuser := User{
-		ID:          req.User.ID,
-		Email:       req.User.Email,
-		Credentials: ToWebauthnCredentials(rows),
-	}
-	cred, err := s.webauthn.ValidateLogin(wuser, req.Session, req.Assertion)
-	if err != nil {
-		return fmt.Errorf("breakglass: validate login: %w", err)
+		return err
 	}
 	if _, err := s.users.VerifyPassword(ctx, req.User.Email, req.Password); err != nil {
 		return err
@@ -386,6 +415,25 @@ func (s *Service) VerifyLogin(ctx context.Context, req FinishLoginRequest) error
 		return err
 	}
 	return nil
+}
+
+// validateAssertion checks the signed assertion against the user's registered credentials and the challenge, and returns the credential
+// it used. It records nothing: the caller persists the sign count once every other check has passed.
+func (s *Service) validateAssertion(ctx context.Context, req FinishLoginRequest) (*webauthn.Credential, error) {
+	rows, err := s.credentials.ListByUserID(ctx, req.User.ID)
+	if err != nil {
+		return nil, fmt.Errorf("breakglass: list credentials: %w", err)
+	}
+	wuser := User{
+		ID:          req.User.ID,
+		Email:       req.User.Email,
+		Credentials: ToWebauthnCredentials(rows),
+	}
+	cred, err := s.webauthn.ValidateLogin(wuser, req.Session, req.Assertion)
+	if err != nil {
+		return nil, fmt.Errorf("breakglass: validate login: %w", err)
+	}
+	return cred, nil
 }
 
 // IssueSetupToken mints a fresh bootstrap token bound to userID and returns the plaintext (caller prints once to the operator banner)
@@ -439,16 +487,25 @@ func (s *Service) AuditFailure(ctx context.Context, email, reason, remoteAddr, u
 
 // AuditSuccess is the auth.breakglass.success helper.
 func (s *Service) AuditSuccess(ctx context.Context, user *users.User, remoteAddr, userAgent string) {
+	s.auditSuccess(ctx, user, remoteAddr, userAgent, nil)
+}
+
+// AuditPasskeySuccess is the auth.breakglass.success row for a laptop owner's passkey-only sign-in. Its payload says no password was
+// given, so the audit log tells it apart from the password and passkey sign-in.
+func (s *Service) AuditPasskeySuccess(ctx context.Context, user *users.User, remoteAddr, userAgent string) {
+	s.auditSuccess(ctx, user, remoteAddr, userAgent, map[string]any{"method": "passkey_only"})
+}
+
+func (s *Service) auditSuccess(ctx context.Context, user *users.User, remoteAddr, userAgent string, extra map[string]any) {
+	payload := map[string]any{"decision": "allow", "user_agent": userAgent}
+	maps.Copy(payload, extra)
 	s.recordAudit(ctx, api.AuditEvent{
 		Actor:      api.UserPrincipal(user.ID, user.Email),
 		Action:     api.AuditAuthBreakglassSuccess,
 		TargetType: "user",
 		TargetID:   formatID(user.ID),
 		RemoteAddr: remoteAddr,
-		Payload: map[string]any{
-			"decision":   "allow",
-			"user_agent": userAgent,
-		},
+		Payload:    payload,
 	})
 }
 

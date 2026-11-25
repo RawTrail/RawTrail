@@ -2,6 +2,10 @@ package bootstrap
 
 import (
 	"bytes"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -10,8 +14,12 @@ import (
 
 	"github.com/rawtrail/rawtrail/server/identity/api"
 	"github.com/rawtrail/rawtrail/server/identity/internal/appconfig"
+	"github.com/rawtrail/rawtrail/server/identity/internal/audit"
+	"github.com/rawtrail/rawtrail/server/identity/internal/identities"
 	"github.com/rawtrail/rawtrail/server/identity/internal/oidc"
+	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
 	"github.com/rawtrail/rawtrail/server/identity/internal/ssoconfig"
+	"github.com/rawtrail/rawtrail/server/identity/internal/users"
 	"github.com/rawtrail/rawtrail/server/testdb"
 )
 
@@ -392,4 +400,37 @@ func TestNewOIDCProviderConfigFn_carriesTheSignInPolicy(t *testing.T) {
 		GroupRoles: map[string]string{"edr-admins": "admin", "edr-senior": "senior_analyst"},
 	}, cfg.Policy)
 	assert.Equal(t, "cid", cfg.ClientID, "and the connection settings it was read with")
+}
+
+// spec:server-identity-authentication/a-laptop-s-owner-signs-in-with-their-passkey-alone/a-server-install-offers-no-passkey-only-sign-in
+//
+// The deployment profile decides whether the break-glass handler mounts the passkey-only sign-in: a laptop answers its challenge route
+// (here 400, for an empty body), and a server does not serve it.
+func TestBuildBreakglass_MountsThePasskeySignInOnlyOnALaptop(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		profile string
+		want    int
+	}{
+		{"laptop", http.StatusBadRequest},
+		{"server", http.StatusNotFound},
+	} {
+		t.Run(tc.profile, func(t *testing.T) {
+			t.Parallel()
+			db := testdb.Open(t)
+			require.NoError(t, ApplySchema(t.Context(), db))
+			_, h, err := buildBreakglass(breakglassDeps{
+				deps:   Deps{DB: db, Profile: tc.profile, SessionSigningKey: bytes.Repeat([]byte{0x11}, 32)},
+				logger: slog.Default(), sessions: sessions.New(db, sessions.Options{}), users: users.New(db),
+				identities: identities.New(db), audit: audit.New(db, slog.Default()),
+			})
+			require.NoError(t, err)
+			mux := http.NewServeMux()
+			h.RegisterPublicRoutes(mux)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/admin/break-glass/passkey/challenge",
+				strings.NewReader("")))
+			assert.Equal(t, tc.want, rec.Code)
+		})
+	}
 }
