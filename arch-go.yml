@@ -27,6 +27,7 @@ dependenciesRules:
         - "**.secretseal"  # shared AES-256-GCM sealer: ssoconfig seals the OIDC client secret with it (issue #496 extracted it)
         - "**.hmactoken"  # shared v1 HMAC token envelope: satoken builds its service-account access token on it (ADR-0013 generalizes the host-token machinery; shared via internal/ so identity does not import endpoint)
         - "**.revocationset"  # shared per-replica revocation snapshot: service-account tokens check it as host tokens do (issue #1226)
+        - "**.sqlhelpers"  # shared DB platform code: break-glass's consumed-challenge store detects a repeat by its duplicate key (issue #1618)
         - "**.testdb"
 
   # endpoint context internals.

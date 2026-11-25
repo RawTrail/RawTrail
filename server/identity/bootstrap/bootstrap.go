@@ -893,6 +893,17 @@ func (i *Identity) AuthZ() api.AuthZ { return i.authzEngine }
 // path: every read-allow audit row routes through it; the loop's
 // graceful drain on ctx cancel is the durability bridge to slog when
 // the queue empties cleanly.
+// cleanupConsumedChallenges deletes the record of break-glass WebAuthn challenges past their expiry (issue #1618).
+func (i *Identity) cleanupConsumedChallenges(ctx context.Context) {
+	n, err := i.breakglassService.CleanupConsumedChallenges(ctx)
+	switch {
+	case err != nil:
+		i.logger.WarnContext(ctx, "break-glass challenge cleanup", "err", err)
+	case n > 0:
+		i.logger.InfoContext(ctx, "break-glass challenge cleanup removed rows", "count", n)
+	}
+}
+
 func (i *Identity) Run(ctx context.Context) error {
 	asyncDone := make(chan error, 1)
 	go func() { asyncDone <- i.auditAsync.Run(ctx) }()
@@ -913,6 +924,7 @@ func (i *Identity) Run(ctx context.Context) error {
 			case n > 0:
 				i.logger.InfoContext(ctx, "session cleanup removed rows", "count", n)
 			}
+			i.cleanupConsumedChallenges(ctx)
 		}
 	}
 }

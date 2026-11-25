@@ -72,7 +72,7 @@ func TestService_FinishPasskeyLogin_MintsASessionWithoutAPassword(t *testing.T) 
 
 	sess, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
 		User:      user,
-		Session:   webauthn.SessionData{Challenge: "fake-challenge", UserVerification: protocol.VerificationRequired},
+		Session:   webauthn.SessionData{Challenge: "fake-challenge", UserVerification: protocol.VerificationRequired, Expires: time.Now().Add(time.Minute)},
 		Assertion: fakeAssertion(),
 	})
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestService_FinishPasskeyLogin_RefusesABadAssertion(t *testing.T) {
 	fake.validateLoginErr = protocol.ErrVerification
 	_, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
 		User:      user,
-		Session:   webauthn.SessionData{Challenge: "fake-challenge", UserVerification: protocol.VerificationRequired},
+		Session:   webauthn.SessionData{Challenge: "fake-challenge", UserVerification: protocol.VerificationRequired, Expires: time.Now().Add(time.Minute)},
 		Assertion: fakeAssertion(),
 	})
 	require.ErrorIs(t, err, protocol.ErrVerification)
@@ -259,4 +259,27 @@ func TestHandle_PasskeyLogin_AuditsEveryEarlyRefusal(t *testing.T) {
 		assert.Equal(t, api.AuditAuthBreakglassFailure, last.Action, tc.name)
 		assert.Equal(t, tc.want, last.Payload["reason"], tc.name)
 	}
+}
+
+// spec:server-identity-authentication/break-glass-webauthn-challenges-are-single-use/a-repeated-challenge-is-refused
+//
+// Through the routes: the same challenge cookie and assertion, sent twice, sign in once. The repeat is a 401 audited as a reused
+// challenge.
+func TestHandle_PasskeyLogin_RefusesAReplay(t *testing.T) {
+	t.Parallel()
+	srv, svc, db, rec, uid, fake := newPasskeyServer(t, true)
+	registerFakeCredential(t, svc, db, uid, fake)
+	zeroCounter(t, db, fake)
+	challenge := postJSON(t, srv, "/admin/break-glass/passkey/challenge", `{"email":"admin@rawtrail.local"}`, nil)
+	state := cookieNamed(challenge, breakglass.ChallengeStateCookieName)
+	body := parseableAssertion(t)
+
+	first := postJSON(t, srv, "/admin/break-glass/passkey", body, state)
+	require.Equal(t, http.StatusOK, first.StatusCode, "reason=%s", first.Header.Get("X-Edr-Auth-Reason"))
+	replay := postJSON(t, srv, "/admin/break-glass/passkey", body, state)
+	assert.Equal(t, http.StatusUnauthorized, replay.StatusCode)
+	assert.Nil(t, cookieNamed(replay, api.SessionCookieName))
+	last := rec.events[len(rec.events)-1]
+	assert.Equal(t, api.AuditAuthBreakglassFailure, last.Action)
+	assert.Equal(t, "webauthn.challenge_reused", last.Payload["reason"])
 }

@@ -28,6 +28,7 @@ type Service struct {
 	identities  *identities.Store
 	tokens      *TokenStore
 	credentials *CredentialStore
+	consumed    *consumedChallenges
 	sessions    *sessions.Store
 	webauthn    WebAuthnEngine
 	audit       api.AuditRecorder
@@ -97,6 +98,7 @@ func NewService(opts ServiceOptions) *Service {
 		identities:  opts.Identities,
 		tokens:      opts.Tokens,
 		credentials: opts.Credentials,
+		consumed:    newConsumedChallenges(opts.DB),
 		sessions:    opts.Sessions,
 		webauthn:    opts.WebAuthn,
 		audit:       opts.Audit,
@@ -365,6 +367,10 @@ func (s *Service) FinishPasskeyLogin(ctx context.Context, req FinishLoginRequest
 	if err != nil {
 		return nil, err
 	}
+	// The passkey is the only factor here, so a repeat of a captured challenge and assertion must not mint a second session.
+	if err := s.consumed.consume(ctx, req.Session); err != nil {
+		return nil, err
+	}
 	if err := s.credentials.RecordAssertion(ctx, cred.ID, cred.Authenticator.SignCount, cred.Flags.BackupState); err != nil {
 		return nil, err
 	}
@@ -408,6 +414,11 @@ func (s *Service) VerifyLogin(ctx context.Context, req FinishLoginRequest) error
 	if err != nil {
 		return err
 	}
+	// Consumed before the password check, so a challenge is spent by any attempt that got this far: the form begins a fresh ceremony on
+	// every submission.
+	if err := s.consumed.consume(ctx, req.Session); err != nil {
+		return err
+	}
 	if _, err := s.users.VerifyPassword(ctx, req.User.Email, req.Password); err != nil {
 		return err
 	}
@@ -434,6 +445,12 @@ func (s *Service) validateAssertion(ctx context.Context, req FinishLoginRequest)
 		return nil, fmt.Errorf("breakglass: validate login: %w", err)
 	}
 	return cred, nil
+}
+
+// CleanupConsumedChallenges deletes the record of challenges past their expiry, which the engine refuses as expired anyway. Called on
+// the identity cleanup timer. Returns the number of rows removed.
+func (s *Service) CleanupConsumedChallenges(ctx context.Context) (int64, error) {
+	return s.consumed.cleanupExpired(ctx)
 }
 
 // IssueSetupToken mints a fresh bootstrap token bound to userID and returns the plaintext (caller prints once to the operator banner)

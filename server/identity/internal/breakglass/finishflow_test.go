@@ -194,7 +194,7 @@ func TestService_FinishSetup_HappyPath(t *testing.T) {
 	res, err := svc.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token:          tok,
 		User:           user,
-		Session:        webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:        webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:       "long-enough-password",
 		CredentialName: "yk-test",
 		Attestation:    fakeAttestation(),
@@ -258,7 +258,7 @@ func TestService_FinishSetup_PreexistingIdentityResolves(t *testing.T) {
 	setup, err := svc.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token:          tok,
 		User:           user,
-		Session:        webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:        webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:       "long-enough-password",
 		CredentialName: "yk-test",
 		Attestation:    fakeAttestation(),
@@ -288,7 +288,7 @@ func TestService_FinishSetup_PasswordTooShort(t *testing.T) {
 	_, err = svc.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token:       tok,
 		User:        user,
-		Session:     webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:     webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:    "short",
 		Attestation: fakeAttestation(),
 	})
@@ -310,7 +310,7 @@ func TestService_FinishSetup_CreateCredentialFails(t *testing.T) {
 	_, err = svc.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token:       tok,
 		User:        user,
-		Session:     webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:     webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:    "long-enough-password",
 		Attestation: fakeAttestation(),
 	})
@@ -337,7 +337,7 @@ func TestService_FinishLogin_HappyPath(t *testing.T) {
 	_, err = svc.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token:       tok,
 		User:        user,
-		Session:     webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:     webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:    "long-enough-password",
 		Attestation: fakeAttestation(),
 	})
@@ -360,7 +360,7 @@ func TestService_FinishLogin_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	sess, err := svc.FinishLogin(t.Context(), breakglass.FinishLoginRequest{
 		User:      freshUser,
-		Session:   webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:   webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:  "long-enough-password",
 		Assertion: fakeAssertion(),
 	})
@@ -381,7 +381,7 @@ func TestService_FinishLogin_WrongPassword(t *testing.T) {
 	_, err = svc.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token:       tok,
 		User:        user,
-		Session:     webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:     webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:    "long-enough-password",
 		Attestation: fakeAttestation(),
 	})
@@ -391,7 +391,7 @@ func TestService_FinishLogin_WrongPassword(t *testing.T) {
 
 	_, err = svc.FinishLogin(t.Context(), breakglass.FinishLoginRequest{
 		User:      freshUser,
-		Session:   webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:   webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:  "wrong-password",
 		Assertion: fakeAssertion(),
 	})
@@ -411,7 +411,7 @@ func TestService_FinishLogin_BadAssertion(t *testing.T) {
 	_, err = svc.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token:       tok,
 		User:        user,
-		Session:     webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:     webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:    "long-enough-password",
 		Attestation: fakeAttestation(),
 	})
@@ -422,7 +422,7 @@ func TestService_FinishLogin_BadAssertion(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.FinishLogin(t.Context(), breakglass.FinishLoginRequest{
 		User:      freshUser,
-		Session:   webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:   webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:  "any-password",
 		Assertion: fakeAssertion(),
 	})
@@ -442,7 +442,7 @@ func TestService_FinishLogin_SignCountRegression(t *testing.T) {
 	res, err := svc.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token:       tok,
 		User:        user,
-		Session:     webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:     webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:    "long-enough-password",
 		Attestation: fakeAttestation(),
 	})
@@ -466,7 +466,7 @@ func TestService_FinishLogin_SignCountRegression(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.FinishLogin(t.Context(), breakglass.FinishLoginRequest{
 		User:      freshUser,
-		Session:   webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:   webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:  "long-enough-password",
 		Assertion: fakeAssertion(),
 	})
@@ -592,7 +592,7 @@ func TestHandle_FullLogin_Success(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svcs.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token: tok, User: user,
-		Session:     webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:     webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:    "long-enough-password",
 		Attestation: fakeAttestation(),
 	})
@@ -690,7 +690,7 @@ func TestHandle_FullLogin_GenericError_LogsAtWarn(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svcs.FinishSetup(t.Context(), breakglass.FinishSetupRequest{
 		Token: tok, User: user,
-		Session:     webauthn.SessionData{Challenge: "fake-challenge"},
+		Session:     webauthn.SessionData{Challenge: "fake-challenge", Expires: time.Now().Add(time.Minute)},
 		Password:    "long-enough-password",
 		Attestation: fakeAttestation(),
 	})
