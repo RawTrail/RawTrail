@@ -333,3 +333,39 @@ func TestRun_StopsOnContextCancel(t *testing.T) {
 		t.Fatal("Run did not return within 2s of ctx cancel")
 	}
 }
+
+// spec:server-identity-authentication/break-glass-webauthn-challenges-are-single-use/expired-challenge-records-are-swept
+//
+// The identity cleanup loop sweeps expired break-glass challenge records (issue #1618), as it does expired sessions.
+func TestRun_SweepsExpiredChallengeRecords(t *testing.T) {
+	t.Parallel()
+	s := full.Open(t)
+	signingKey := make([]byte, 32)
+	for i := range signingKey {
+		signingKey[i] = byte(i + 1)
+	}
+	id, err := bootstrap.New(t.Context(), bootstrap.Deps{
+		DB: s, Logger: slog.Default(), CleanupInterval: 25 * time.Millisecond, SessionSigningKey: signingKey,
+	})
+	require.NoError(t, err)
+	require.NoError(t, id.ApplySchema(t.Context()))
+	_, err = s.ExecContext(t.Context(), `INSERT INTO breakglass_consumed_challenges (challenge_hash, expires_at)
+		VALUES (UNHEX(SHA2('expired', 256)), DATE_SUB(NOW(6), INTERVAL 1 MINUTE)), (UNHEX(SHA2('live', 256)), NOW(6) + INTERVAL 5 MINUTE)`)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- id.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	require.Eventually(t, func() bool {
+		var n int
+		return s.GetContext(t.Context(), &n, `SELECT COUNT(*) FROM breakglass_consumed_challenges`) == nil && n == 1
+	}, 5*time.Second, 25*time.Millisecond, "the expired record is swept")
+	var live int
+	require.NoError(t, s.GetContext(t.Context(), &live,
+		`SELECT COUNT(*) FROM breakglass_consumed_challenges WHERE challenge_hash = UNHEX(SHA2('live', 256))`))
+	assert.Equal(t, 1, live, "the live record stays")
+}
