@@ -5,6 +5,7 @@
 package config
 
 import (
+	"cmp"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -210,10 +211,11 @@ type Config struct {
 	// activity, forcing a periodic re-authentication.
 	SessionAbsoluteTimeout time.Duration
 	// BreakglassSessionIdleTimeout is the strict idle cap for the recovery surface. Recovery sessions are short-lived by design; a stolen
-	// cookie has at most this much time to be abused before idle expiry kicks in.
+	// cookie has at most this much time to be abused before idle expiry kicks in. A laptop install, where break-glass is the owner's
+	// only sign-in, defaults it to LaptopBreakglassSessionIdleTimeout.
 	BreakglassSessionIdleTimeout time.Duration
 	// BreakglassSessionAbsoluteTimeout is the absolute cap for recovery sessions. Tighter than the OIDC cap because the recovery account
-	// carries elevated privilege.
+	// carries elevated privilege. A laptop install defaults it to LaptopBreakglassSessionAbsoluteTimeout.
 	BreakglassSessionAbsoluteTimeout time.Duration
 	// ReauthWindow is the freshness gate the chokepoint reads via Actor.SessionFresh. Destructive actions (host.isolate,
 	// host.kill_process, host.run_script, alert.resolve when severity=critical) deny with reason="reauth_required" when last_auth_at is
@@ -476,8 +478,17 @@ func loadBreakglassConfig(c *Config, getenv func(string) string, errs *[]error) 
 	}
 }
 
+// Laptop break-glass session lifetimes. On a laptop install the break-glass ceremony is its owner's only sign-in, not an emergency
+// path, and the console is reached from the same machine, so its sessions last days. Sensitive writes still need a fresh sign-in within
+// the reauth window.
+const (
+	LaptopBreakglassSessionIdleTimeout     = 7 * 24 * time.Hour
+	LaptopBreakglassSessionAbsoluteTimeout = 30 * 24 * time.Hour
+)
+
 // loadSessionTimeouts reads the session-timeout knobs. Every field is optional; bootstrap passes zero values through to the
-// sessions package which substitutes its documented defaults (8h/24h normal, 15m/1h break-glass, 30m reauth window).
+// sessions package which substitutes its documented defaults (8h/24h normal, 15m/1h break-glass, 30m reauth window). On a laptop
+// install an unset break-glass lifetime takes the laptop's instead. It runs after the profile is read.
 func loadSessionTimeouts(c *Config, getenv func(string) string, errs *[]error) {
 	envparse.PositiveDuration(getenv,
 		"EDR_SESSION_IDLE_TIMEOUT", &c.SessionIdleTimeout, errs)
@@ -489,4 +500,8 @@ func loadSessionTimeouts(c *Config, getenv func(string) string, errs *[]error) {
 		"EDR_BREAKGLASS_SESSION_ABSOLUTE_TIMEOUT", &c.BreakglassSessionAbsoluteTimeout, errs)
 	envparse.PositiveDuration(getenv,
 		"EDR_REAUTH_WINDOW", &c.ReauthWindow, errs)
+	if c.Profile == ProfileLaptop {
+		c.BreakglassSessionIdleTimeout = cmp.Or(c.BreakglassSessionIdleTimeout, LaptopBreakglassSessionIdleTimeout)
+		c.BreakglassSessionAbsoluteTimeout = cmp.Or(c.BreakglassSessionAbsoluteTimeout, LaptopBreakglassSessionAbsoluteTimeout)
+	}
 }

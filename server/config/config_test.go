@@ -435,6 +435,39 @@ func TestLoad(t *testing.T) {
 				assert.Equal(t, ProfileLaptop, c.Profile)
 			},
 		},
+		// spec:server-configuration/a-laptop-s-break-glass-sessions-last-days/a-laptop-s-owner-stays-signed-in
+		// spec:ui-authentication-session/sessions-expire-on-idle-and-absolute-timeouts-per-class/break-glass-sessions-use-the-strict-timeout-pair
+		{
+			name: "a laptop's break-glass sessions last a week idle and a month at most",
+			env:  withExtra(minEnv, map[string]string{"EDR_PROFILE": "laptop"}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, 7*24*time.Hour, c.BreakglassSessionIdleTimeout)
+				assert.Equal(t, 30*24*time.Hour, c.BreakglassSessionAbsoluteTimeout)
+			},
+		},
+		// spec:server-configuration/a-laptop-s-break-glass-sessions-last-days/a-set-lifetime-and-a-server-keep-theirs
+		{
+			name: "a laptop keeps the break-glass lifetimes an operator set",
+			env: withExtra(minEnv, map[string]string{
+				"EDR_PROFILE": "laptop", "EDR_BREAKGLASS_SESSION_IDLE_TIMEOUT": "2h", "EDR_BREAKGLASS_SESSION_ABSOLUTE_TIMEOUT": "12h",
+			}),
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Equal(t, 2*time.Hour, c.BreakglassSessionIdleTimeout)
+				assert.Equal(t, 12*time.Hour, c.BreakglassSessionAbsoluteTimeout)
+			},
+		},
+		// spec:server-configuration/a-laptop-s-break-glass-sessions-last-days/a-set-lifetime-and-a-server-keep-theirs
+		{
+			name: "a server leaves the break-glass lifetimes to the sessions defaults",
+			env:  minEnv,
+			validate: func(t *testing.T, c *Config) {
+				t.Helper()
+				assert.Zero(t, c.BreakglassSessionIdleTimeout, "zero falls through to the sessions package's 15 minutes")
+				assert.Zero(t, c.BreakglassSessionAbsoluteTimeout, "zero falls through to the sessions package's hour")
+			},
+		},
 		{
 			name:    "unknown profile refused",
 			env:     withExtra(minEnv, map[string]string{"EDR_PROFILE": "desktop"}),
