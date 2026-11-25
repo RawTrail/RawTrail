@@ -241,6 +241,29 @@ paths:
         "204":
           description: Logged out
 
+  /api/auth/options:
+    get:
+      tags: [Session]
+      summary: Sign-in options
+      description: |
+        What the login page needs before anyone has signed in: the
+        deployment profile, from which it chooses its sign-in controls.
+        A laptop install has no single sign-on and signs its owner in
+        with their passkey. Needs no session.
+      security: []
+      responses:
+        "200":
+          description: Sign-in options
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [profile]
+                properties:
+                  profile:
+                    type: string
+                    enum: [server, laptop]
+
   /api/hosts:
     get:
       tags: [Hosts]

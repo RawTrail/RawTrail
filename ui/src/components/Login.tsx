@@ -1,18 +1,19 @@
-// Login page: a single "Continue with Okta" call-to-action + a small
-// "Break-glass login" footer link. Real users authenticate via OIDC;
-// only the recovery account uses break-glass.
+// Login page. A server install shows a "Continue with single sign-on" call-to-action and a small "Break-glass login" footer link: real
+// users authenticate via OIDC, and only the recovery account uses break-glass. A laptop install has no single sign-on, so its page shows
+// only the passkey form its owner signs in with. The page reads the profile from GET /api/auth/options, which needs no session, and shows
+// no sign-in control until it knows which page it is.
 //
-// Error rendering: when the OIDC callback handler fails (state
-// mismatch, unknown subject, exchange failure, etc.) it 302s back
-// to /ui/login?error=<reason>. We pull the reason off the URL and
-// surface a directed message so the operator sees something more
-// actionable than a generic 500.
+// Error rendering: when the OIDC callback handler fails (state mismatch, unknown subject, exchange failure, etc.) it 302s back to
+// /ui/login?error=<reason>. We pull the reason off the URL and surface a directed message so the operator sees something more actionable
+// than a generic 500.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Button } from "./ui/Button";
 import { Card } from "./ui/Card";
-import { oidcLoginUrl } from "../auth";
+import { fetchSignInProfile, oidcLoginUrl } from "../auth";
+import type { Profile } from "../profile-core";
+import { PasskeySignInForm } from "./PasskeySignInForm";
 import "./Login.scss";
 
 interface LoginProps {
@@ -39,7 +40,23 @@ const errorMessages = new Map<string, string>([
   ["session_create_failed", "We couldn't start your session. Please try again."],
 ]);
 
+// useSignInProfile reads the deployment profile for the login page. Undefined until it answers. A failed read shows the server page, the
+// page every install had before laptops: its break-glass link still reaches the passkey form.
+function useSignInProfile(): Profile | undefined {
+  const [profile, setProfile] = useState<Profile | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    fetchSignInProfile().then(
+      (p) => { if (live) setProfile(p); },
+      () => { if (live) setProfile("server"); },
+    );
+    return () => { live = false; };
+  }, []);
+  return profile;
+}
+
 export function Login({ next }: LoginProps) {
+  const profile = useSignInProfile();
   const [params] = useSearchParams();
   const errorReason = params.get("error");
   // Prefer the explicit prop, then the URL-borne ?next= AuthedApp
@@ -75,32 +92,42 @@ export function Login({ next }: LoginProps) {
           <h1 className="login-card__title">
             Raw<span className="login-card__accent">Trail</span>
           </h1>
-          <p className="login-card__subtitle">Sign in with your identity provider.</p>
+          {profile && (
+            <p className="login-card__subtitle">
+              {profile === "laptop" ? "Sign in with your email, password and passkey." : "Sign in with your identity provider."}
+            </p>
+          )}
         </div>
 
-        {errorHint && (
-          <div className="login-card__error" role="alert">
-            {errorHint}
-          </div>
+        {profile === "laptop" && <PasskeySignInForm submitLabel="Sign in with your passkey" />}
+
+        {profile === "server" && (
+          <>
+            {errorHint && (
+              <div className="login-card__error" role="alert">
+                {errorHint}
+              </div>
+            )}
+
+            <Button
+              type="button"
+              fullWidth
+              isLoading={navigating}
+              onClick={() => {
+                setNavigating(true);
+                globalThis.location.assign(continueHref);
+              }}
+            >
+              Continue with single sign-on
+            </Button>
+
+            <div className="login-card__footer">
+              <Link to="/admin/break-glass" className="login-card__break-glass">
+                Break-glass login
+              </Link>
+            </div>
+          </>
         )}
-
-        <Button
-          type="button"
-          fullWidth
-          isLoading={navigating}
-          onClick={() => {
-            setNavigating(true);
-            globalThis.location.assign(continueHref);
-          }}
-        >
-          Continue with single sign-on
-        </Button>
-
-        <div className="login-card__footer">
-          <Link to="/admin/break-glass" className="login-card__break-glass">
-            Break-glass login
-          </Link>
-        </div>
       </Card>
     </div>
   );
