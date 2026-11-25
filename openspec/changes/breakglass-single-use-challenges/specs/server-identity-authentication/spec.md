@@ -2,7 +2,7 @@
 
 ### Requirement: Break-glass WebAuthn challenges are single-use
 
-The server SHALL accept each break-glass WebAuthn sign-in or reauth challenge once: finishing a ceremony SHALL record the challenge in MySQL, and a challenge already recorded SHALL be refused with 401 and the audit reason `webauthn.challenge_reused`, on every replica. A challenge with no expiry, or past it by the database's clock, SHALL be refused and not recorded, and a record SHALL be deleted once its challenge has expired by that clock.
+The server SHALL accept each break-glass WebAuthn sign-in or reauth challenge once: finishing a ceremony SHALL record the challenge in MySQL, and a challenge already recorded SHALL be refused with 401 and the audit reason `webauthn.challenge_reused`, on every replica. A challenge with no expiry, or past it by the database's UTC clock, SHALL be refused and not recorded, and a record SHALL be deleted an hour after its challenge expired.
 
 #### Scenario: A repeated challenge is refused
 
@@ -12,9 +12,9 @@ The server SHALL accept each break-glass WebAuthn sign-in or reauth challenge on
 
 #### Scenario: Expired challenge records are swept
 
-- **GIVEN** recorded challenges, one past its expiry and one not
+- **GIVEN** recorded challenges expired two hours ago, expired a minute ago, and not yet expired
 - **WHEN** the identity cleanup runs
-- **THEN** only the expired record is deleted
+- **THEN** only the record expired two hours ago is deleted: the hour's grace outlasts any consume still in flight for a challenge it judged unexpired
 
 #### Scenario: An expired or unexpiring challenge is refused
 

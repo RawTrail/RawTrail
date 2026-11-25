@@ -55,7 +55,7 @@ On a laptop install (`EDR_PROFILE=laptop`), break-glass is the owner's only sign
 
 "Use your email and password" opens the form above with the email filled in, and a failed Touch ID sign-in opens it too. The passkey-only sign-in is at `POST /admin/break-glass/passkey`, with its challenge at `POST /admin/break-glass/passkey/challenge`. A server install does not serve them. A sensitive action still asks for your password and passkey.
 
-Each sign-in challenge is good for one attempt and five minutes: the browser starts a fresh one on every submission. The server records each challenge that finishes a sign-in or reauth in `breakglass_consumed_challenges` and refuses it if it comes back (`webauthn.challenge_reused` in the audit row), even from a passkey that reports a sign count of 0. Records are deleted once their challenge expires.
+Each sign-in challenge is good for one attempt and five minutes: the browser starts a fresh one on every submission. The server records each challenge that finishes a sign-in or reauth in `breakglass_consumed_challenges` and refuses it if it comes back (`webauthn.challenge_reused` in the audit row), even from a passkey that reports a sign count of 0. Records are deleted an hour after their challenge expires.
 
 Failure modes (unknown email / wrong password / wrong assertion / no credentials / sign-count regression) collapse to a single `invalid_credentials` 401 on the wire so an attacker cannot enumerate accounts. The audit row records the precise reason (`auth.breakglass.failure` with `payload.reason`).
 

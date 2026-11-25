@@ -350,7 +350,8 @@ func TestRun_SweepsExpiredChallengeRecords(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, id.ApplySchema(t.Context()))
 	_, err = s.ExecContext(t.Context(), `INSERT INTO breakglass_consumed_challenges (challenge_hash, expires_at)
-		VALUES (UNHEX(SHA2('expired', 256)), DATE_SUB(NOW(6), INTERVAL 1 MINUTE)), (UNHEX(SHA2('live', 256)), NOW(6) + INTERVAL 5 MINUTE)`)
+		VALUES (UNHEX(SHA2('expired', 256)), DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 2 HOUR)),
+		(UNHEX(SHA2('live', 256)), DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 5 MINUTE))`)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
