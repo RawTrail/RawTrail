@@ -312,18 +312,16 @@ func (s *Store) ActivityHistogram(ctx context.Context, hostID string, fromNs, to
 	return out, nil
 }
 
-// CountOfflineHosts returns how many rows in `hosts` have `last_seen_ns` at or before the cutoff (now minus threshold). Used by the OTel
-// `edr.offline.hosts` gauge. The `<=` boundary matches HostList.tsx's predicate so the UI pill and gauge agree on hosts seen exactly
-// at the cutoff. A host with last_seen_ns == 0 (never seen) counts as offline.
-func (s *Store) CountOfflineHosts(ctx context.Context, threshold time.Duration) (int, error) {
+// OnlineHostIDs returns the host_id of every row in `hosts` seen after the cutoff (now minus threshold). The `edr.offline.hosts` gauge
+// counts the active enrollments not among them. A host seen exactly at the cutoff is offline, matching HostList.tsx's predicate so the
+// UI pill and the gauge agree.
+func (s *Store) OnlineHostIDs(ctx context.Context, threshold time.Duration) ([]string, error) {
 	cutoff := time.Now().Add(-threshold).UnixNano()
-	var n int
-	if err := s.db.GetContext(ctx, &n, `
-		SELECT COUNT(*) FROM hosts WHERE last_seen_ns <= ?
-	`, cutoff); err != nil {
-		return 0, fmt.Errorf("count offline hosts: %w", err)
+	var ids []string
+	if err := s.db.SelectContext(ctx, &ids, `SELECT host_id FROM hosts WHERE last_seen_ns > ?`, cutoff); err != nil {
+		return nil, fmt.Errorf("list online hosts: %w", err)
 	}
-	return n, nil
+	return ids, nil
 }
 
 // UpdateHostLastSeen bumps `hosts.last_seen_ns` and `hosts.last_checkin_ns` to `now.UnixNano()`

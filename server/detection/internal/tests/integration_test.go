@@ -1843,7 +1843,7 @@ func TestListHosts_DecoratesWithHealth(t *testing.T) {
 	assert.Nil(t, []byte(silentDetail.Components), "no snapshot yields null components")
 }
 
-func TestService_CountOfflineHosts(t *testing.T) {
+func TestService_OnlineHostIDs(t *testing.T) {
 	t.Parallel()
 	d := newDetection(t, detectionOpts{mode: bootstrap.ModeFull})
 	ctx := t.Context()
@@ -1852,9 +1852,9 @@ func TestService_CountOfflineHosts(t *testing.T) {
 	require.NoError(t, d.Service().RecordHostSeen(ctx, "fresh", now))
 	require.NoError(t, d.Service().RecordHostSeen(ctx, "stale", now.Add(-1*time.Hour)))
 
-	count, err := d.Service().CountOfflineHosts(ctx, 5*time.Minute)
+	online, err := d.Service().OnlineHostIDs(ctx, 5*time.Minute)
 	require.NoError(t, err)
-	assert.Equal(t, 1, count, "only 'stale' should count as offline at the 5m threshold")
+	assert.Equal(t, []string{"fresh"}, online, "only 'fresh' was seen within the 5m threshold")
 }
 
 func TestService_CountUnprocessed(t *testing.T) {

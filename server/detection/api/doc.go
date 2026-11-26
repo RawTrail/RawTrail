@@ -9,7 +9,7 @@
 //
 //   - Service: operator-facing reads (ListHosts, BuildTree,
 //     GetProcessDetail, ListAlerts, GetAlert, UpdateAlertStatus),
-//     metrics gauges (CountOfflineHosts, CountUnprocessed),
+//     metrics gauges (OnlineHostIDs, CountUnprocessed),
 //     Heartbeat-style RecordHostSeen for response/internal/service,
 //     and IngestHandler for cmd/main to mount POST /api/events.
 //   - GraphReader: narrow read interface rules consume during

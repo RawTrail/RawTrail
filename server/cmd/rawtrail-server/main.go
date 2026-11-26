@@ -55,8 +55,29 @@ func (g serverGaugeSource) EnrolledHosts(ctx context.Context) (int, error) {
 	return g.endpointSvc.CountActive(ctx)
 }
 
+// OfflineHosts counts the non-revoked enrollments not seen within threshold, so offline hosts are a subset of enrolled ones. A revoked
+// host stops checking in, and counting it held "EDR hosts offline" above 100% and could silence "EDR event ingest stopped" (#1624).
+// Detection holds no revocation state, so the two contexts' answers are intersected here. An enrollment never seen is offline.
 func (g serverGaugeSource) OfflineHosts(ctx context.Context, threshold time.Duration) (int, error) {
-	return g.detectionSvc.CountOfflineHosts(ctx, threshold)
+	active, err := g.endpointSvc.ActiveHostIDs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	online, err := g.detectionSvc.OnlineHostIDs(ctx, threshold)
+	if err != nil {
+		return 0, err
+	}
+	seen := make(map[string]struct{}, len(online))
+	for _, id := range online {
+		seen[id] = struct{}{}
+	}
+	offline := 0
+	for _, id := range active {
+		if _, ok := seen[id]; !ok {
+			offline++
+		}
+	}
+	return offline, nil
 }
 
 func (g serverGaugeSource) ExpiringServiceAccounts(ctx context.Context, within time.Duration) (int, error) {

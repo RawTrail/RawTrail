@@ -267,7 +267,7 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 		)
 		r.offlineGauge, _ = meter.Int64ObservableGauge(
 			"edr.offline.hosts",
-			metric.WithDescription("Hosts whose last_seen_ns is older than the offline threshold."),
+			metric.WithDescription("Non-revoked host enrollments not seen within the offline threshold, so never more than edr.enrolled.hosts."),
 			metric.WithInt64Callback(func(ctx context.Context, obs metric.Int64Observer) error {
 				gaugeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 				defer cancel()

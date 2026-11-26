@@ -251,7 +251,7 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector (SigNoz, Tempo, Datadog OTel
   - `edr.events.ingested` (counter, by `host_id` and `event_type`): events accepted by `POST /api/events`. `event_type` is one of the types in `schema/events.json`, or `other` for anything else. Group by it to see which event types a host sends.
   - `edr.alerts.created` (counter, by `rule_id` + `severity`): alerts raised by detection.
   - `edr.enrolled.hosts` (gauge): current non-revoked enrollments.
-  - `edr.offline.hosts` (gauge): hosts unseen longer than the offline threshold (5 min).
+  - `edr.offline.hosts` (gauge): enrolled hosts unseen longer than the offline threshold (5 min). Revoked hosts are not counted.
   - `edr.detection.lag` (histogram, seconds): time from the server receiving an event to detection finishing with it, per event. Its p95 is how late alerts arrive.
   - `edr.service_accounts.expiring` (gauge): active service accounts whose credential expires within 14 days. Reported by `rawtrail-server` only.
   - `edr.events.pending` (gauge): events queued for detection, reading 1,000,000 at and above that. Reported by `rawtrail-server` only.
