@@ -3475,13 +3475,22 @@ func TestProcessTree_WindowOverlapSemantics(t *testing.T) {
 	}
 
 	window := api.TimeRange{FromNs: winFrom, ToNs: winTo}
-	pids := map[int]bool{}
-	require.Eventually(t, func() bool {
+	// latest is the last poll's tree, published whole under mu: assert.Eventually does not wait for a poll still running when it times
+	// out, so the subtests read a snapshot rather than a map that poll could still be writing.
+	var (
+		mu     sync.Mutex
+		latest map[int]bool
+	)
+	// The poll waits for every case to settle, the absent ones too. Each process's fork can materialise before its exit does, and a
+	// process seen forked but not yet exited is still running, so it overlaps the window: stopping at the first poll that shows every
+	// overlapping process could catch "ended before the window opened" in that moment. assert, not require, so a real regression still
+	// reaches the subtests, which name the process that is wrong.
+	assert.Eventually(t, func() bool {
 		res, err := d.Service().BuildTree(ctx, host, window, 1000, true, 0)
 		if err != nil {
 			return false
 		}
-		clear(pids)
+		pids := map[int]bool{}
 		var walk func(nodes []api.ProcessNode)
 		walk = func(nodes []api.ProcessNode) {
 			for _, n := range nodes {
@@ -3490,15 +3499,20 @@ func TestProcessTree_WindowOverlapSemantics(t *testing.T) {
 			}
 		}
 		walk(res.Roots)
+		mu.Lock()
+		latest = pids
+		mu.Unlock()
 		for _, tc := range cases {
-			if tc.overlap && !pids[tc.pid] {
+			if pids[tc.pid] != tc.overlap {
 				return false
 			}
 		}
 		return true
-	}, 10*time.Second, 100*time.Millisecond, "every overlapping process must materialise and appear in the window")
+	}, 10*time.Second, 100*time.Millisecond, "every process must materialise, and appear in the window exactly when it overlaps it")
 
-	// pids is fully populated by the poll above and never written again, so the subtests below only read it.
+	mu.Lock()
+	pids := latest
+	mu.Unlock()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

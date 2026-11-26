@@ -1,5 +1,4 @@
 import Foundation
-import IOKit
 import os.log
 
 private let logger = Logger(subsystem: "io.rawtrail.networkextension", category: "Serializer")
@@ -14,8 +13,7 @@ struct EventEnvelope<P: Codable & Sendable>: Codable, Sendable {
     let hostID: String
     let timestampNs: UInt64
     let eventType: String
-    // platform is the operating system that produced the event, always "darwin" here (the server's PlatformDarwin constant). Part of
-    // the platform-aware event contract (ADR-0018); a Windows or Linux agent stamps its own value.
+    // platform is the operating system that produced the event, always EventPlatform.macOS here.
     let platform: String
     let payload: P
 
@@ -41,7 +39,7 @@ final class NetworkEventSerializer: Sendable {
     private let hostID: String
 
     init() {
-        if let uuid = Self.getHardwareUUID() {
+        if let uuid = HostIdentity.hardwareUUID() {
             self.hostID = uuid
         } else {
             logger.warning("Hardware UUID not available, events will have empty host_id")
@@ -55,7 +53,7 @@ final class NetworkEventSerializer: Sendable {
             hostID: hostID,
             timestampNs: UInt64(clock_gettime_nsec_np(CLOCK_REALTIME)),
             eventType: eventType,
-            platform: "darwin",
+            platform: EventPlatform.macOS,
             payload: payload
         )
 
@@ -65,22 +63,5 @@ final class NetworkEventSerializer: Sendable {
             logger.error("Failed to encode \(eventType) event: \(error.localizedDescription)")
             return nil
         }
-    }
-
-    private static func getHardwareUUID() -> String? {
-        let platformExpert = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPlatformExpertDevice")
-        )
-        guard platformExpert != 0 else { return nil }
-        defer { IOObjectRelease(platformExpert) }
-
-        let uuidCF = IORegistryEntryCreateCFProperty(
-            platformExpert,
-            kIOPlatformUUIDKey as CFString,
-            kCFAllocatorDefault,
-            0
-        )
-        return uuidCF?.takeRetainedValue() as? String
     }
 }

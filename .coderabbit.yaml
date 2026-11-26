@@ -183,9 +183,10 @@ reviews:
     title:
       mode: warning
       requirements: |
-        Lowercase + topic prefix matching repo convention (e.g.
-        `breakglass:`, `ci:`, `test/e2e:`, `ui:`, `agent:`,
-        `review fixes:`). Keep under 70 chars; detail in the body.
+        Sentence case, starting with an imperative verb that says what
+        changes for the user or operator (e.g. "Make break-glass
+        WebAuthn challenges single-use"), with no topic prefix and no
+        trailing period. Keep under 70 chars; detail in the body.
     description:
       mode: warning
     # We don't use Linear/Jira IDs consistently; turning this off

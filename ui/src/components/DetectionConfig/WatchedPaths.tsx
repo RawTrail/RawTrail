@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  DetectionConfigApiError,
   getWatchedPaths,
   replaceWatchedPaths,
   type ReplaceWatchedPathsResult,
@@ -13,10 +12,15 @@ import { Input, Select } from "../ui/Input";
 import { Table, EmptyState } from "../ui/Table";
 import { PushNotice } from "./PushNotice";
 import { ReasonModal } from "./ReasonModal";
+import { showSaveRefusal } from "./saveRefusal";
 import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
 import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
+
+// PATHS_CONFLICT is the message for a save refused because someone saved after this page loaded.
+const PATHS_CONFLICT =
+  "Not saved: someone changed the watched paths after this page loaded them. Load the latest set to see their change, then make yours again.";
 
 const MATCH_LABEL: Record<WatchedPath["match"], string> = {
   literal: "This file",
@@ -182,14 +186,7 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
         setSaved(result);
       })
       .catch((err: unknown) => {
-        if (err instanceof DetectionConfigApiError && err.code === "detection_config.conflict") {
-          setConflict(true);
-          setSaveError(
-            "Not saved: someone changed the watched paths after this page loaded them. Load the latest set to see their change, then make yours again.",
-          );
-          return;
-        }
-        setSaveError(`Not saved: ${err instanceof Error ? err.message : String(err)}`);
+        showSaveRefusal(err, PATHS_CONFLICT, setConflict, setSaveError);
       })
       .finally(() => {
         setSaving(false);

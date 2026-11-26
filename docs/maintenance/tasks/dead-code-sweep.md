@@ -8,7 +8,7 @@ Dead code (unused exports, orphan packages, dead UI components, abandoned migrat
 
 ## Scope
 
-- Go: unused exports across `server/`, `agent/`, `internal/`. Use `staticcheck -checks=U1000` (pinned to `@2026.2.1`, see the step below) or `go-deadcode`.
+- Go: unused exports across `server/`, `agent/`, `internal/`. Use `staticcheck -checks=U1000` (pinned to `@v0.8.2`, release 2026.2.2, see the step below) or `go-deadcode`.
 - TypeScript: dead components, dead exports, orphan files in `ui/src/`. Use `ts-prune` or `knip`.
 - Swift: rarely used but worth a pass for orphan files in `extension/edr/`.
 - SQL: migrations that reference columns / tables nobody reads any more.
@@ -21,10 +21,11 @@ Dead code (unused exports, orphan packages, dead UI components, abandoned migrat
 1. Run the appropriate dead-code tools per language:
 
    ```bash
-   # Pin the version. A staticcheck older than 2026.2 fails without findings (2026.1 rejects Go 1.27 export data; v0.4.7, a
-   # common leftover on PATH, segfaults), so the sweep reports nothing and looks clean. Prefer `go run` over a PATH binary.
+   # Pin the version. A staticcheck too old for the toolchain fails without findings (2026.2.1 rejects Go 1.27.4's export data
+   # version 5, 2026.1 any Go 1.27; v0.4.7, a common leftover on PATH, segfaults), so the sweep reports nothing and looks clean.
+   # Prefer `go run` over a PATH binary, and after a Go bump check that a planted unused function is still reported.
    # -tags integration: without it, symbols only integration-tagged files use (or that only they define) are invisible.
-   go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 -tags integration -checks=U1000 ./server/... ./agent/... ./internal/...
+   go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -tags integration -checks=U1000 ./server/... ./agent/... ./internal/...
    # U1000 never reports an unused EXPORTED symbol; deadcode does. Known false positives: the cgo //export callbacks in
    # agent/receiver.
    go run golang.org/x/tools/cmd/deadcode@latest -test -tags integration ./server/... ./agent/... ./internal/... ./test/... ./tools/...
@@ -47,10 +48,10 @@ One PR per language ecosystem (don't bundle Go + TS + Swift; review effort diffe
 ```text
 Run the dead-code sweep defined in docs/maintenance/tasks/dead-code-sweep.md.
 
-Step 1 - Go: run `go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 -tags integration -checks=U1000
+Step 1 - Go: run `go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 -tags integration -checks=U1000
 ./server/... ./agent/... ./internal/...`, then `go run golang.org/x/tools/cmd/deadcode@latest -test -tags integration
 ./server/... ./agent/... ./internal/... ./test/... ./tools/...` for unused exported symbols. Use the pinned `go run` form,
-NOT a `staticcheck` binary from PATH: anything older than 2026.2 (2026.1 fails on Go 1.27 export data; v0.4.7 segfaults)
+NOT a `staticcheck` binary from PATH: one too old for the toolchain (2026.2.1 fails on Go 1.27.4 export data; v0.4.7 segfaults)
 reports nothing and looks clean. For each unused symbol, confirm with `grep -r '<Symbol>'
 --include='*.go'`. If genuinely unused, delete; if used via reflection / handler registration /
 linkname, keep with a one-line comment explaining how.

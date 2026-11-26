@@ -1,6 +1,6 @@
 # 0011. High-availability architecture: multi-replica app tier with rolling upgrade
 
-- Status: Accepted
+- Status: Accepted (amended 2026-10-10: audited changes commit their audit entry with the change; see the amendment below)
 - Date: 2026-06-01
 - Deciders: getvictor
 

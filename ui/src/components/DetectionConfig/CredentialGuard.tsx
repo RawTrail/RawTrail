@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  DetectionConfigApiError,
   getCredentialGuard,
   replaceCredentialGuard,
   type CredentialGuardMode,
@@ -15,11 +14,16 @@ import { Input, Select } from "../ui/Input";
 import { Table, EmptyState } from "../ui/Table";
 import { PushNotice } from "./PushNotice";
 import { ReasonModal } from "./ReasonModal";
+import { showSaveRefusal } from "./saveRefusal";
 import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
 import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
 import { CREDENTIAL_KINDS, credentialKey, describeOwner, formatOwners, ownersProblem, parseOwners } from "./credentialOwners";
+
+// GUARD_CONFLICT is the message for a save refused because someone saved after this page loaded.
+const GUARD_CONFLICT =
+  "Not saved: someone changed the credential guard after this page loaded it. Load the latest policy to see their change, then make yours again.";
 
 const MODE_LABEL: Record<CredentialGuardMode, string> = {
   detect: "Detect: report an agent's read",
@@ -261,14 +265,7 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
         setSaved(result);
       })
       .catch((err: unknown) => {
-        if (err instanceof DetectionConfigApiError && err.code === "detection_config.conflict") {
-          setConflict(true);
-          setSaveError(
-            "Not saved: someone changed the credential guard after this page loaded it. Load the latest policy to see their change, then make yours again.",
-          );
-          return;
-        }
-        setSaveError(`Not saved: ${err instanceof Error ? err.message : String(err)}`);
+        showSaveRefusal(err, GUARD_CONFLICT, setConflict, setSaveError);
       })
       .finally(() => {
         setSaving(false);

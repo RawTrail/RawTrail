@@ -274,7 +274,9 @@ func TestControlClient(t *testing.T) {
 		}}
 		settings := agentsettings.Open(t.Context(), t.TempDir(), true, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		_, _ = startClientWithClock(t, fake, &recordingSender{}, 0, nil, func(c *controlclient.Config) { c.AgentSettings = settings })
-		require.Eventually(t, func() bool { return len(fake.recorded()) >= 2 }, 2*time.Second, 10*time.Millisecond)
+		// Ten seconds, not the two its siblings take: applying the settings syncs them to disk, Go's Sync on macOS is F_FULLFSYNC, and
+		// this wait once ran past two seconds on a loaded macOS CI runner.
+		require.Eventually(t, func() bool { return len(fake.recorded()) >= 2 }, 10*time.Second, 10*time.Millisecond)
 		assert.False(t, settings.CapturePrompts())
 		assert.Equal(t, "completed", fake.recorded()[1].GetStatus())
 	})

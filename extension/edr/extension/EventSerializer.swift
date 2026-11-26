@@ -1,5 +1,4 @@
 import Foundation
-import IOKit
 import os.log
 
 private let logger = Logger(subsystem: "io.rawtrail.securityextension", category: "EventSerializer")
@@ -351,12 +350,6 @@ struct EventEnvelope<P: Codable & Sendable>: Codable, Sendable {
     }
 }
 
-/// The platform value stamped on every event envelope this macOS extension produces. Matches the server's PlatformDarwin constant and
-/// Go's runtime.GOOS on macOS.
-enum EventPlatform {
-    static let macOS = "darwin"
-}
-
 // MARK: Serializer
 
 /// Serializes ESF event payloads into the canonical JSON event envelope.
@@ -370,7 +363,7 @@ final class EventSerializer: Sendable {
     private let hostID: String
 
     init() {
-        self.hostID = Self.getHardwareUUID() ?? "unknown"
+        self.hostID = HostIdentity.hardwareUUID() ?? "unknown"
     }
 
     /// serialize wraps a payload in the wire envelope.
@@ -401,23 +394,6 @@ final class EventSerializer: Sendable {
             logger.error("Failed to encode \(eventType) event: \(error.localizedDescription)")
             return nil
         }
-    }
-
-    private static func getHardwareUUID() -> String? {
-        let platformExpert = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPlatformExpertDevice")
-        )
-        guard platformExpert != 0 else { return nil }
-        defer { IOObjectRelease(platformExpert) }
-
-        let uuidCF = IORegistryEntryCreateCFProperty(
-            platformExpert,
-            kIOPlatformUUIDKey as CFString,
-            kCFAllocatorDefault,
-            0
-        )
-        return uuidCF?.takeRetainedValue() as? String
     }
 }
 
