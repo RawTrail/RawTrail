@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  DetectionConfigApiError,
   getCredentialGuard,
   replaceCredentialGuard,
   type CredentialGuardMode,
@@ -15,6 +14,7 @@ import { Input, Select } from "../ui/Input";
 import { Table, EmptyState } from "../ui/Table";
 import { PushNotice } from "./PushNotice";
 import { ReasonModal } from "./ReasonModal";
+import { saveRefusal } from "./saveRefusal";
 import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
 import { ReauthDraftNotice } from "../ReauthDraftNotice";
@@ -261,14 +261,12 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
         setSaved(result);
       })
       .catch((err: unknown) => {
-        if (err instanceof DetectionConfigApiError && err.code === "detection_config.conflict") {
-          setConflict(true);
-          setSaveError(
-            "Not saved: someone changed the credential guard after this page loaded it. Load the latest policy to see their change, then make yours again.",
-          );
-          return;
-        }
-        setSaveError(`Not saved: ${err instanceof Error ? err.message : String(err)}`);
+        const refusal = saveRefusal(
+          err,
+          "Not saved: someone changed the credential guard after this page loaded it. Load the latest policy to see their change, then make yours again.",
+        );
+        if (refusal.conflict) setConflict(true);
+        setSaveError(refusal.message);
       })
       .finally(() => {
         setSaving(false);

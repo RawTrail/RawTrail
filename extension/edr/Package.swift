@@ -113,6 +113,8 @@ let package = Package(
                 // legitimately carry no cdhash, and that branch had no test.
                 "extension/CDHashHex.swift",
                 "shared/BlockNotificationContract.swift",
+                // HostIdentity.swift is the host_id and platform both extensions stamp on their events. EventSerializer.swift uses it.
+                "shared/HostIdentity.swift",
                 // TokenString.swift reads an ES string token's bytes by their length (#1293). Pure Swift; esTokenString applies it.
                 "extension/TokenString.swift",
                 "extension/EventSerializer.swift",
