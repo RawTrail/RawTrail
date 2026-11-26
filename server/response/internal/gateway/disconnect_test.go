@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -133,12 +134,12 @@ func TestConnectReportsWhyTheServerToreTheConnectionDown(t *testing.T) {
 		// prepare runs before the connection is made, for a teardown whose cause has to already be in place.
 		prepare func(stream *fakeStream)
 		// tearDown runs once the connection is registered.
-		tearDown func(t *testing.T, g *Gateway)
+		tearDown func(t *testing.T, g *Gateway, stream *fakeStream)
 		want     closeReason
 	}{
 		{
 			desc: "replaced by a reconnect from the same host",
-			tearDown: func(t *testing.T, g *Gateway) {
+			tearDown: func(t *testing.T, g *Gateway, _ *fakeStream) {
 				t.Helper()
 				second := newFakeStream(t.Context(), "host-a", "tok-a")
 				go func() { _ = g.Connect(second) }()
@@ -147,20 +148,26 @@ func TestConnectReportsWhyTheServerToreTheConnectionDown(t *testing.T) {
 		},
 		{
 			desc:     "the host token is no longer valid",
-			tearDown: func(_ *testing.T, g *Gateway) { g.verifier.(*fakeVerifier).revoke("tok-a") },
+			tearDown: func(_ *testing.T, g *Gateway, _ *fakeStream) { g.verifier.(*fakeVerifier).revoke("tok-a") },
 			want:     reasonTokenInvalid,
 		},
 		{
 			desc:     "the gateway is shutting down",
-			tearDown: func(_ *testing.T, g *Gateway) { g.Stop() },
+			tearDown: func(_ *testing.T, g *Gateway, _ *fakeStream) { g.Stop() },
 			want:     reasonShuttingDown,
 		},
 		{
 			// Set before connecting, so the first heartbeat the maintenance loop pushes fails the send and tears it down unprompted.
-			desc:     "the outbound can no longer carry frames",
-			prepare:  func(stream *fakeStream) { stream.sendErr = errors.New("broken pipe") },
-			tearDown: func(*testing.T, *Gateway) {},
-			want:     reasonSendFailed,
+			// A send fails only on an ended stream, so the receive then fails too, once the teardown is recorded.
+			desc:    "the outbound can no longer carry frames",
+			prepare: func(stream *fakeStream) { stream.sendErr = errors.New("broken pipe") },
+			tearDown: func(t *testing.T, g *Gateway, stream *fakeStream) {
+				t.Helper()
+				conn := g.reg.get("host-a")
+				require.Eventually(t, func() bool { return conn.closedBecause() == reasonSendFailed }, 2*time.Second, 5*time.Millisecond)
+				stream.recvErr <- errors.New("transport is closing")
+			},
+			want: reasonSendFailed,
 		},
 	}
 	for _, tc := range cases {
@@ -172,7 +179,7 @@ func TestConnectReportsWhyTheServerToreTheConnectionDown(t *testing.T) {
 			}
 			g, returned := connectedGateway(t, stream)
 
-			tc.tearDown(t, g)
+			tc.tearDown(t, g, stream)
 
 			requireTornDownBecause(t, returned, tc.want)
 		})
@@ -271,6 +278,7 @@ func TestEndAfterReceive(t *testing.T) {
 	unreadable := status.Error(codes.Internal, "grpc: error unmarshalling request")
 	// The transport ending under the stream: a bare error carrying no status, which is what grpc-go's ErrConnClosing is.
 	transportDied := errors.New("transport is closing")
+	oversized := status.Error(codes.ResourceExhausted, "grpc: received message larger than max")
 
 	cases := []struct {
 		desc       string
@@ -325,6 +333,20 @@ func TestEndAfterReceive(t *testing.T) {
 			desc:            "and so does a clean end of stream landing at the same moment",
 			tornDownBecause: reasonReplaced,
 			wantReason:      reasonReplaced,
+		},
+		{
+			// gRPC has already sent the rejection to the client, and a heartbeat on the rejected stream fails behind it (#1626).
+			desc:            "a rejected frame outranks the outbound failure it caused",
+			clientGone:      true,
+			tornDownBecause: reasonSendFailed,
+			recvErr:         oversized,
+			wantErr:         oversized,
+		},
+		{
+			desc:            "and a teardown the server recorded at the same moment",
+			tornDownBecause: reasonTokenInvalid,
+			recvErr:         unreadable,
+			wantErr:         unreadable,
 		},
 	}
 	for _, tc := range cases {
@@ -398,6 +420,147 @@ func TestConnectWaitsForTheReceiveResultOnceTheStreamHasEnded(t *testing.T) {
 			err := returnedFrom(t, returned)
 			if tc.wantErr == nil {
 				assert.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+// rejectedMidSendStream holds the first send in flight until the client's frame is rejected, then fails it, as a send on a stream gRPC
+// has already ended does. The rejection reaches the receive loop only after the failed send has torn the connection down.
+type rejectedMidSendStream struct {
+	*fakeStream
+	sending    chan struct{} // closed once a send is in flight
+	rejected   chan struct{} // closed when gRPC rejects the client's frame
+	sendFailed chan struct{} // closed once the in-flight send has failed
+	once       sync.Once
+	// tornDown reports whether the failed send's teardown is recorded. Set before rejected is closed, so Recv reads it safely.
+	tornDown func() bool
+}
+
+func (s *rejectedMidSendStream) Send(*control.ServerFrame) error {
+	s.once.Do(func() { close(s.sending) })
+	<-s.rejected
+	defer func() {
+		select {
+		case <-s.sendFailed:
+		default:
+			close(s.sendFailed)
+		}
+	}()
+	return errors.New("transport: the stream is done")
+}
+
+func (s *rejectedMidSendStream) Recv() (*control.AgentFrame, error) {
+	<-s.sendFailed
+	// The rejection must not exist until the failed send's teardown is recorded. Unrecorded by the deadline, the receive fails with
+	// something other than a rejection, so the test fails rather than passing on the wrong order.
+	deadline := time.Now().Add(2 * time.Second)
+	for !s.tornDown() {
+		if time.Now().After(deadline) {
+			return nil, errors.New("the failed send never recorded its teardown")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// Connect also has to have taken the connection-context branch, which nothing observable marks.
+	time.Sleep(100 * time.Millisecond)
+	return nil, status.Error(codes.ResourceExhausted, "grpc: received message larger than max")
+}
+
+// gRPC writes an oversized frame's rejection to the client itself, and a heartbeat already being sent then fails on the ended stream,
+// which tears the connection down as an outbound failure. The RPC must still end with the rejection the client received, or the span
+// names a status nobody was sent (issue #1626).
+//
+// spec:agent-control-channel/a-rejected-frame-outranks-the-failures-it-causes/a-heartbeat-in-flight-does-not-replace-the-rejection
+func TestARejectedFrameOutranksTheHeartbeatItBreaks(t *testing.T) {
+	t.Parallel()
+	stream := &rejectedMidSendStream{
+		fakeStream: newFakeStream(t.Context(), "host-a", "tok-a"),
+		sending:    make(chan struct{}), rejected: make(chan struct{}), sendFailed: make(chan struct{}),
+	}
+	g, returned := connectedGateway(t, stream)
+	conn := g.reg.get("host-a")
+	require.NotNil(t, conn)
+	stream.tornDown = func() bool { return conn.closedBecause() == reasonSendFailed }
+
+	<-stream.sending // a heartbeat is in flight
+	close(stream.rejected)
+
+	err := returnedFrom(t, returned)
+	assert.Equal(t, codes.ResourceExhausted, status.Code(err), "the RPC ends with the status the client was sent")
+}
+
+// Connect waits for the receive result whenever the stream is over under it. A teardown recorded in the same instant gRPC rejected a
+// frame and cancelled the RPC context is one of those: returning on it would end the RPC cleanly and drop the rejection the client
+// was sent. Only a teardown under a live RPC context, which the client can still receive, is reported without waiting.
+//
+// spec:agent-control-channel/a-rejected-frame-outranks-the-failures-it-causes/a-heartbeat-in-flight-does-not-replace-the-rejection
+func TestStreamEnded(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		desc   string
+		rpcEnd bool
+		reason closeReason
+		want   bool
+	}{
+		{"the client went away", true, "", true},
+		{"a revocation recorded as the RPC ended", true, reasonTokenInvalid, true},
+		{"a replacement recorded as the RPC ended", true, reasonReplaced, true},
+		{"the outbound failed under a live RPC", false, reasonSendFailed, true},
+		{"a revocation the client can still receive", false, reasonTokenInvalid, false},
+		{"a shutdown the client can still receive", false, reasonShuttingDown, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			if tc.rpcEnd {
+				ctx = doneCtx(t)
+			}
+			assert.Equal(t, tc.want, streamEnded(ctx, tc.reason))
+		})
+	}
+}
+
+// Once the connection's context is done, a receive result that is already there decides the verdict, whatever teardown was recorded
+// beside it. select picks between ready cases at random, so without this a revocation recorded as gRPC rejected a frame named the
+// revocation half the time, a status the client was never sent.
+//
+// spec:agent-control-channel/a-rejected-frame-outranks-the-failures-it-causes/a-revocation-recorded-with-the-rejection-does-not-replace-it
+func TestEndAfterConnClosedReadsAReceiveResultAlreadyThere(t *testing.T) {
+	t.Parallel()
+	oversized := status.Error(codes.ResourceExhausted, "grpc: received message larger than max")
+	cases := []struct {
+		desc       string
+		received   bool  // the receive loop's result is already on the channel
+		recvErr    error // what it carries
+		wantErr    error
+		wantReason closeReason
+	}{
+		{desc: "a rejection already received outranks a revocation", received: true, recvErr: oversized, wantErr: oversized},
+		{desc: "a disconnect already received still reports the revocation", received: true, recvErr: errors.New("transport is closing"),
+			wantReason: reasonTokenInvalid},
+		{desc: "with nothing received a revocation the client can receive does not wait", wantReason: reasonTokenInvalid},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+			recvErr := make(chan error, 1)
+			if tc.received {
+				recvErr <- tc.recvErr
+			}
+			returned := make(chan error, 1)
+			go func() { returned <- endAfterConnClosed(t.Context(), closedConn(t, reasonTokenInvalid), recvErr) }()
+
+			var err error
+			select {
+			case err = <-returned:
+			case <-time.After(recvSettleTimeout / 2):
+				require.FailNow(t, "waited on the receive loop for a teardown the client can still receive")
+			}
+			if tc.wantReason != "" {
+				requireUnavailableBecause(t, err, tc.wantReason)
 				return
 			}
 			require.ErrorIs(t, err, tc.wantErr)

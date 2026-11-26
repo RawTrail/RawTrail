@@ -288,26 +288,47 @@ func (g *Gateway) connect(stream control.ControlChannel_ConnectServer) error {
 	// status, so each case decides it from whether the client is still there to receive one (issue #1124).
 	select {
 	case <-connCtx.Done():
-		if ctx.Err() != nil && c.closedBecause() == "" {
-			// The stream is over and this server did not end it. gRPC cancels the stream context moments after it rejects a frame,
-			// so this can win the race against the receive result that says why, and returning on it alone would clear a rejection.
-			// The receive returns promptly now that the stream has ended, so its result is waited for, bounded in case it does not.
-			select {
-			case err := <-recvErr:
-				return endAfterReceive(ctx, c, err)
-			case <-time.After(recvSettleTimeout):
-			}
-		}
-		// Returning ends the RPC, which closes the stream and unblocks recvLoop.
-		return endAfterTeardown(ctx, c)
+		return endAfterConnClosed(ctx, c, recvErr)
 	case err := <-recvErr:
 		return endAfterReceive(ctx, c, err)
 	}
 }
 
+// endAfterConnClosed is the status the RPC ends with once the connection's context is done, given the channel the receive loop's
+// result arrives on.
+func endAfterConnClosed(ctx context.Context, c *conn, recvErr <-chan error) error {
+	// The receive loop may have ended too, and select picks between ready cases at random. Its result decides when it is there: a
+	// rejection it carries is what the client was sent, and anything else reads the same teardown endAfterTeardown would.
+	select {
+	case err := <-recvErr:
+		return endAfterReceive(ctx, c, err)
+	default:
+	}
+	if streamEnded(ctx, c.closedBecause()) {
+		// The stream is over under this server. gRPC cancels the stream context moments after it rejects a frame, and a send on the
+		// rejected stream fails, so either can win the race against the receive result that says why, and returning on it alone
+		// would replace a rejection the client has already been sent. The receive returns promptly now that the stream has ended,
+		// so its result is waited for, bounded in case it does not.
+		select {
+		case err := <-recvErr:
+			return endAfterReceive(ctx, c, err)
+		case <-time.After(recvSettleTimeout):
+		}
+	}
+	// Returning ends the RPC, which closes the stream and unblocks recvLoop.
+	return endAfterTeardown(ctx, c)
+}
+
 // recvSettleTimeout bounds how long Connect waits for the receive loop's result after the stream has ended under it. A receive on an
 // ended stream returns at once, so this only keeps a misbehaving transport from holding the handler.
 const recvSettleTimeout = 5 * time.Second
+
+// streamEnded reports whether the stream is over under this connection, so the receive loop's result is the better account of why
+// it ended: the RPC context is done, whatever teardown was recorded alongside, or the outbound failed, which is what a send on a
+// stream gRPC has already ended does. A teardown recorded while the RPC context is done can be racing a frame gRPC rejected.
+func streamEnded(ctx context.Context, reason closeReason) bool {
+	return ctx.Err() != nil || reason == reasonSendFailed
+}
 
 // endAfterTeardown is the status the RPC ends with when the connection's context was cancelled.
 //
@@ -350,8 +371,13 @@ func teardownStatus(reason closeReason) error {
 // malformed frame through the gateway served as production serves it, so a grpc-go release that changed either shape fails them
 // rather than quietly recolouring every disconnect on a fleet.
 func endAfterReceive(ctx context.Context, c *conn, recvErr error) error {
-	rejected := rejectedFrame(recvErr)
-	if ctx.Err() != nil && !rejected {
+	// gRPC writes a rejection to the client itself, before the handler returns, so it is the status the RPC ended with whatever
+	// else was in flight. A heartbeat sent on the rejected stream fails and records a teardown, and reporting that instead left the
+	// span naming a status the client never received (issue #1626).
+	if rejectedFrame(recvErr) {
+		return recvErr
+	}
+	if ctx.Err() != nil {
 		return nil
 	}
 	// A teardown this server started is the more specific answer, and it can be in flight while the receive loop ends for its own
@@ -360,9 +386,6 @@ func endAfterReceive(ctx context.Context, c *conn, recvErr error) error {
 	// of the two the select happened to pick.
 	if reason := c.closedBecause(); reason != "" {
 		return teardownStatus(reason)
-	}
-	if rejected {
-		return recvErr
 	}
 	return nil
 }
