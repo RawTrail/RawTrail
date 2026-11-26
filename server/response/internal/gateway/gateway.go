@@ -310,11 +310,11 @@ func (g *Gateway) connect(stream control.ControlChannel_ConnectServer) error {
 // ended stream returns at once, so this only keeps a misbehaving transport from holding the handler.
 const recvSettleTimeout = 5 * time.Second
 
-// streamEnded reports whether the connection's context ended because the stream did, rather than because this server decided to end
-// it: the client went away with no teardown recorded, or the outbound failed, which is what a send on a stream gRPC has already ended
-// does. Either way the receive loop's result is the better account of why.
+// streamEnded reports whether the stream is over under this connection, so the receive loop's result is the better account of why
+// it ended: the RPC context is done, whatever teardown was recorded alongside, or the outbound failed, which is what a send on a
+// stream gRPC has already ended does. A teardown recorded while the RPC context is done can be racing a frame gRPC rejected.
 func streamEnded(ctx context.Context, reason closeReason) bool {
-	return reason == reasonSendFailed || (ctx.Err() != nil && reason == "")
+	return ctx.Err() != nil || reason == reasonSendFailed
 }
 
 // endAfterTeardown is the status the RPC ends with when the connection's context was cancelled.

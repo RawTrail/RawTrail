@@ -43,14 +43,9 @@ func newFakeStream(ctx context.Context, hostID, token string) *fakeStream {
 func (s *fakeStream) Context() context.Context { return s.ctx }
 
 // Send drops a frame nothing is reading rather than blocking the writer: heartbeats tick on their own here and are not what any of
-// these tests assert. A send fails only on a stream that has ended, so a failing send also ends the pending receive, as the
-// transport's bare error.
+// these tests assert.
 func (s *fakeStream) Send(frame *control.ServerFrame) error {
 	if s.sendErr != nil {
-		select {
-		case s.recvErr <- errors.New("transport is closing"):
-		default:
-		}
 		return s.sendErr
 	}
 	select {
@@ -139,12 +134,12 @@ func TestConnectReportsWhyTheServerToreTheConnectionDown(t *testing.T) {
 		// prepare runs before the connection is made, for a teardown whose cause has to already be in place.
 		prepare func(stream *fakeStream)
 		// tearDown runs once the connection is registered.
-		tearDown func(t *testing.T, g *Gateway)
+		tearDown func(t *testing.T, g *Gateway, stream *fakeStream)
 		want     closeReason
 	}{
 		{
 			desc: "replaced by a reconnect from the same host",
-			tearDown: func(t *testing.T, g *Gateway) {
+			tearDown: func(t *testing.T, g *Gateway, _ *fakeStream) {
 				t.Helper()
 				second := newFakeStream(t.Context(), "host-a", "tok-a")
 				go func() { _ = g.Connect(second) }()
@@ -153,20 +148,26 @@ func TestConnectReportsWhyTheServerToreTheConnectionDown(t *testing.T) {
 		},
 		{
 			desc:     "the host token is no longer valid",
-			tearDown: func(_ *testing.T, g *Gateway) { g.verifier.(*fakeVerifier).revoke("tok-a") },
+			tearDown: func(_ *testing.T, g *Gateway, _ *fakeStream) { g.verifier.(*fakeVerifier).revoke("tok-a") },
 			want:     reasonTokenInvalid,
 		},
 		{
 			desc:     "the gateway is shutting down",
-			tearDown: func(_ *testing.T, g *Gateway) { g.Stop() },
+			tearDown: func(_ *testing.T, g *Gateway, _ *fakeStream) { g.Stop() },
 			want:     reasonShuttingDown,
 		},
 		{
 			// Set before connecting, so the first heartbeat the maintenance loop pushes fails the send and tears it down unprompted.
-			desc:     "the outbound can no longer carry frames",
-			prepare:  func(stream *fakeStream) { stream.sendErr = errors.New("broken pipe") },
-			tearDown: func(*testing.T, *Gateway) {},
-			want:     reasonSendFailed,
+			// A send fails only on an ended stream, so the receive then fails too, once the teardown is recorded.
+			desc:    "the outbound can no longer carry frames",
+			prepare: func(stream *fakeStream) { stream.sendErr = errors.New("broken pipe") },
+			tearDown: func(t *testing.T, g *Gateway, stream *fakeStream) {
+				t.Helper()
+				conn := g.reg.get("host-a")
+				require.Eventually(t, func() bool { return conn.closedBecause() == reasonSendFailed }, 2*time.Second, 5*time.Millisecond)
+				stream.recvErr <- errors.New("transport is closing")
+			},
+			want: reasonSendFailed,
 		},
 	}
 	for _, tc := range cases {
@@ -178,7 +179,7 @@ func TestConnectReportsWhyTheServerToreTheConnectionDown(t *testing.T) {
 			}
 			g, returned := connectedGateway(t, stream)
 
-			tc.tearDown(t, g)
+			tc.tearDown(t, g, stream)
 
 			requireTornDownBecause(t, returned, tc.want)
 		})
@@ -476,4 +477,36 @@ func TestARejectedFrameOutranksTheHeartbeatItBreaks(t *testing.T) {
 	err := returnedFrom(t, returned)
 	assert.Equal(t, codes.ResourceExhausted, status.Code(err), "the RPC ends with the status the client was sent")
 	assert.Equal(t, reasonSendFailed, conn.closedBecause(), "the failed heartbeat really did tear the connection down first")
+}
+
+// Connect waits for the receive result whenever the stream is over under it. A teardown recorded in the same instant gRPC rejected a
+// frame and cancelled the RPC context is one of those: returning on it would end the RPC cleanly and drop the rejection the client
+// was sent. Only a teardown under a live RPC context, which the client can still receive, is reported without waiting.
+//
+// spec:agent-control-channel/a-rejected-frame-outranks-the-failures-it-causes/a-heartbeat-in-flight-does-not-replace-the-rejection
+func TestStreamEnded(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		desc   string
+		rpcEnd bool
+		reason closeReason
+		want   bool
+	}{
+		{"the client went away", true, "", true},
+		{"a revocation recorded as the RPC ended", true, reasonTokenInvalid, true},
+		{"a replacement recorded as the RPC ended", true, reasonReplaced, true},
+		{"the outbound failed under a live RPC", false, reasonSendFailed, true},
+		{"a revocation the client can still receive", false, reasonTokenInvalid, false},
+		{"a shutdown the client can still receive", false, reasonShuttingDown, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			if tc.rpcEnd {
+				ctx = doneCtx(t)
+			}
+			assert.Equal(t, tc.want, streamEnded(ctx, tc.reason))
+		})
+	}
 }
