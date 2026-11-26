@@ -9,13 +9,13 @@ On a laptop install, the login page SHALL offer one sign-in button, "Sign in wit
 - **GIVEN** a laptop install and a browser with no session
 - **WHEN** the owner opens the login page and clicks the one button, "Sign in with Touch ID"
 - **THEN** the page shows no single sign-on button and no break-glass link
-- **AND** the button runs the passkey-only ceremony for the email of the last sign-in in that browser, or `admin@rawtrail.local`, and signs the owner in to the console with no email or password typed
+- **AND** the button runs the passkey-only ceremony for the email of the last sign-in in that browser, or with none for any passkey the browser holds for the site, and signs the owner in to the console with no email or password typed
 
 #### Scenario: The email and password form is a click away
 
 - **GIVEN** a laptop install's login page
 - **WHEN** the owner chooses "Use your email and password", or a Touch ID sign-in fails
-- **THEN** the email, password and passkey form is shown with the email filled in, and a failure says why
+- **THEN** the email, password and passkey form is shown with the email filled in, `admin@rawtrail.local` when the browser remembers none, and a failure says why
 - **AND** a sign-in through it is remembered as the email the next Touch ID sign-in uses
 
 #### Scenario: The server login page is unchanged

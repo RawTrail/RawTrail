@@ -159,7 +159,7 @@ describe("Login by deployment profile", () => {
   });
 
   // spec:web-ui/a-laptop-install-signs-in-with-the-owner-s-passkey/the-laptop-login-page-shows-one-passkey-button
-  it("on a laptop the Touch ID button signs the admin account in with no password and lands on the console", async () => {
+  it("on a laptop the Touch ID button signs the passkey's owner in with no email or password and lands on the console", async () => {
     const begin = vi.spyOn(auth, "breakglassBeginPasskeyLogin").mockResolvedValue({ id: "asrt" });
     const finish = vi.spyOn(auth, "breakglassFinishPasskeyLogin").mockResolvedValue({ redirect: "/ui/" });
     vi.spyOn(auth, "fetchSignInProfile").mockResolvedValue("laptop");
@@ -173,8 +173,8 @@ describe("Login by deployment profile", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Sign in with Touch ID" }));
     expect(await screen.findByText("HOME")).toBeVisible();
-    expect(begin).toHaveBeenCalledWith("admin@rawtrail.local");
-    expect(finish).toHaveBeenCalledWith("admin@rawtrail.local", { id: "asrt" });
+    expect(begin).toHaveBeenCalledWith(undefined);
+    expect(finish).toHaveBeenCalledWith(undefined, { id: "asrt" });
   });
 
   // spec:web-ui/a-laptop-install-signs-in-with-the-owner-s-passkey/the-server-login-page-is-unchanged

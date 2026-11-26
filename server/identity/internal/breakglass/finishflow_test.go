@@ -3,6 +3,7 @@
 package breakglass_test
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -55,10 +56,12 @@ type fakeWebAuthnEngine struct {
 	beginLoginErr        error
 	validateLoginErr     error
 	loginCredential      *webauthn.Credential
+	// discoverableValidations counts the assertions validated against a challenge that named no account.
+	discoverableValidations int
 }
 
 func (f *fakeWebAuthnEngine) BeginRegistration(
-	_ webauthn.User, _ ...webauthn.RegistrationOption,
+	_ webauthn.User, opts ...webauthn.RegistrationOption,
 ) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
 	if f.beginRegistrationErr != nil {
 		return nil, nil, f.beginRegistrationErr
@@ -67,6 +70,11 @@ func (f *fakeWebAuthnEngine) BeginRegistration(
 		Response: protocol.PublicKeyCredentialCreationOptions{
 			Challenge: []byte("fake-challenge"),
 		},
+	}
+	for _, opt := range opts {
+		if err := opt(&cc.Response); err != nil {
+			return nil, nil, err
+		}
 	}
 	sd := &webauthn.SessionData{
 		Challenge:        "fake-challenge",
@@ -96,8 +104,18 @@ func (f *fakeWebAuthnEngine) CreateCredential(
 }
 
 func (f *fakeWebAuthnEngine) BeginLogin(
-	_ webauthn.User, opts ...webauthn.LoginOption,
+	user webauthn.User, opts ...webauthn.LoginOption,
 ) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+	ca, sd, err := f.BeginDiscoverableLogin(opts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The challenge names its account, as go-webauthn's does.
+	sd.UserID = user.WebAuthnID()
+	return ca, sd, nil
+}
+
+func (f *fakeWebAuthnEngine) BeginDiscoverableLogin(opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	if f.beginLoginErr != nil {
 		return nil, nil, f.beginLoginErr
 	}
@@ -135,6 +153,29 @@ func (f *fakeWebAuthnEngine) ValidateLogin(
 	return &webauthn.Credential{
 		Authenticator: webauthn.Authenticator{SignCount: 1},
 	}, nil
+}
+
+// ValidateDiscoverableLogin refuses as go-webauthn does a challenge that named an account and an assertion with no user handle, asks the
+// handler for the handle's account, and refuses a handle that is not that account's. It then answers as ValidateLogin.
+func (f *fakeWebAuthnEngine) ValidateDiscoverableLogin(
+	handler webauthn.DiscoverableUserHandler, session webauthn.SessionData, assertion *protocol.ParsedCredentialAssertionData,
+) (*webauthn.Credential, error) {
+	f.discoverableValidations++
+	if len(session.UserID) != 0 {
+		return nil, errors.New("fake: session was not initiated as a discoverable login")
+	}
+	handle := assertion.Response.UserHandle
+	if len(handle) == 0 {
+		return nil, errors.New("fake: discoverable assertion with a blank user handle")
+	}
+	user, err := handler(assertion.RawID, handle)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(handle, user.WebAuthnID()) {
+		return nil, errors.New("fake: user handle and user id do not match")
+	}
+	return f.ValidateLogin(user, session, assertion)
 }
 
 // newFakeService is the service-with-fake-webauthn fixture. Returns the service, the underlying DB, the audit recorder, the seeded

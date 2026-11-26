@@ -4,8 +4,8 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { LaptopSignIn, SIGN_IN_EMAIL_KEY } from "./LaptopSignIn";
 import * as auth from "../auth";
 
-// LaptopSignIn is a laptop install's sign-in: one Touch ID button for the remembered email, and the email, password and passkey form a
-// click away. The Touch ID ceremony and the password ceremony are mocked at the auth layer.
+// LaptopSignIn is a laptop install's sign-in: one Touch ID button for the remembered email, or for any passkey when none is remembered,
+// and the email, password and passkey form a click away. The Touch ID ceremony and the password ceremony are mocked at the auth layer.
 
 function renderSignIn() {
   return render(
@@ -34,6 +34,17 @@ describe("LaptopSignIn", () => {
     expect(await screen.findByText("HOME")).toBeVisible();
     expect(begin).toHaveBeenCalledWith("owner@example.com");
     expect(finish).toHaveBeenCalledWith("owner@example.com", { id: "asrt" });
+  });
+
+  // spec:web-ui/a-laptop-install-signs-in-with-the-owner-s-passkey/the-laptop-login-page-shows-one-passkey-button
+  it("asks for any passkey, naming no account, when no sign-in is remembered", async () => {
+    const begin = vi.spyOn(auth, "breakglassBeginPasskeyLogin").mockResolvedValue({ id: "asrt" });
+    const finish = vi.spyOn(auth, "breakglassFinishPasskeyLogin").mockResolvedValue({ redirect: "/ui/" });
+    renderSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Touch ID" }));
+    expect(await screen.findByText("HOME")).toBeVisible();
+    expect(begin).toHaveBeenCalledWith(undefined);
+    expect(finish).toHaveBeenCalledWith(undefined, { id: "asrt" });
   });
 
   // spec:web-ui/a-laptop-install-signs-in-with-the-owner-s-passkey/the-email-and-password-form-is-a-click-away
@@ -80,18 +91,18 @@ describe("LaptopSignIn", () => {
     expect(await screen.findByRole("button", { name: "Use your email and password" })).toBeDisabled();
   });
 
-  it("uses the admin account when browser storage is blocked", async () => {
+  it("asks for any passkey when browser storage is blocked, and fills the form in with the admin account", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new DOMException("blocked", "SecurityError");
     });
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("blocked", "SecurityError");
     });
-    const begin = vi.spyOn(auth, "breakglassBeginPasskeyLogin").mockResolvedValue({ id: "asrt" });
-    vi.spyOn(auth, "breakglassFinishPasskeyLogin").mockResolvedValue({ redirect: "/ui/" });
+    const begin = vi.spyOn(auth, "breakglassBeginPasskeyLogin").mockRejectedValue(new auth.BreakglassError(401, "invalid_credentials"));
     renderSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Sign in with Touch ID" }));
-    expect(await screen.findByText("HOME")).toBeVisible();
-    expect(begin).toHaveBeenCalledWith("admin@rawtrail.local");
+    expect(await screen.findByRole("alert")).toBeVisible();
+    expect(begin).toHaveBeenCalledWith(undefined);
+    expect(screen.getByLabelText(/email/i)).toHaveValue("admin@rawtrail.local");
   });
 });

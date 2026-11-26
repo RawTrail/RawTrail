@@ -233,6 +233,14 @@ describe("breakglassBeginPasskeyLogin", () => {
     expect(mockedStartAuthentication).toHaveBeenCalledWith({ optionsJSON: publicKey });
     expect(result).toEqual({ id: "assert" });
   });
+
+  it("POSTs no email when none is given, so the challenge names no account", async () => {
+    const fetchSpy = stubFetch({ publicKey: { challenge: "c" } });
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.mocked(mockedStartAuthentication).mockResolvedValue({ id: "assert" } as unknown as never);
+    await breakglassBeginPasskeyLogin();
+    expect(JSON.parse((fetchSpy.mock.calls[0]?.[1] as RequestInit).body as string)).toEqual({});
+  });
 });
 
 describe("breakglassFinishPasskeyLogin", () => {
@@ -244,6 +252,13 @@ describe("breakglassFinishPasskeyLogin", () => {
     expect(new URL(String(fetchSpy.mock.calls[0]?.[0])).pathname).toBe("/admin/break-glass/passkey");
     const req = fetchSpy.mock.calls[0]?.[1] as RequestInit;
     expect(JSON.parse(req.body as string)).toEqual({ email: "owner@example.com", assertion });
+  });
+
+  it("POSTs the assertion alone when no email is given", async () => {
+    const fetchSpy = stubFetch({ redirect: "/ui/" });
+    vi.stubGlobal("fetch", fetchSpy);
+    await breakglassFinishPasskeyLogin(undefined, { id: "asrt" });
+    expect(JSON.parse((fetchSpy.mock.calls[0]?.[1] as RequestInit).body as string)).toEqual({ assertion: { id: "asrt" } });
   });
 });
 

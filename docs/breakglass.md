@@ -49,11 +49,13 @@ The login flow is the same shape as redemption minus the registration step:
 
 On a laptop install (`EDR_PROFILE=laptop`), break-glass is the owner's only sign-in, so `/ui/login` offers one "Sign in with Touch ID" button instead:
 
-1. Click "Sign in with Touch ID". It signs in the email of the last sign-in in that browser, `admin@rawtrail.local` by default.
+1. Click "Sign in with Touch ID". It signs in the email of the last sign-in in that browser. With none, in a fresh browser or after clearing site data, the browser offers the passkeys it holds for this site, and you are signed in to the account of the one you choose.
 2. The browser asks for Touch ID. The server requires the authenticator to verify you, and checks no password: a passkey that verified its owner is already two factors.
 3. On success, the page navigates to `/ui/`. The audit row is `auth.breakglass.success` with `payload.method` `passkey_only`.
 
-"Use your email and password" opens the form above with the email filled in, and a failed Touch ID sign-in opens it too. The passkey-only sign-in is at `POST /admin/break-glass/passkey`, with its challenge at `POST /admin/break-glass/passkey/challenge`. A server install does not serve them. A sensitive action still asks for your password and passkey.
+Setup on a laptop asks the authenticator to store the passkey on the device (a discoverable credential), which is what lets the browser find it with no email. An authenticator that cannot, such as an older security key, still registers. A passkey stored that way, or registered before laptop setup asked for it, signs in through its email: the remembered one, or the form. A passkey with no email names its account by its user handle, and the server refuses one whose account is not a break-glass account (`not_breakglass` in the audit row).
+
+"Use your email and password" opens the form above with the email filled in, `admin@rawtrail.local` when the browser remembers none, and a failed Touch ID sign-in opens it too. The passkey-only sign-in is at `POST /admin/break-glass/passkey`, with its challenge at `POST /admin/break-glass/passkey/challenge`; a challenge requested with no email names no account. A server install does not serve them. A sensitive action still asks for your password and passkey.
 
 Each sign-in challenge is good for one attempt and five minutes: the browser starts a fresh one on every submission. The server records each challenge that finishes a sign-in or reauth in `breakglass_consumed_challenges` and refuses it if it comes back (`webauthn.challenge_reused` in the audit row), even from a passkey that reports a sign count of 0. Records are deleted an hour after their challenge expires.
 

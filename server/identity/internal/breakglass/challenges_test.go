@@ -35,7 +35,8 @@ func TestService_FinishPasskeyLogin_RefusesARepeatedChallenge(t *testing.T) {
 	req := breakglass.FinishLoginRequest{
 		User: user,
 		Session: webauthn.SessionData{
-			Challenge: "replayed-challenge", UserVerification: protocol.VerificationRequired, Expires: time.Now().Add(time.Minute),
+			Challenge: "replayed-challenge", UserID: userHandle(uid), UserVerification: protocol.VerificationRequired,
+			Expires: time.Now().Add(time.Minute),
 		},
 		Assertion: fakeAssertion(),
 	}
@@ -113,8 +114,10 @@ func TestService_FinishPasskeyLogin_RefusesAnExpiredOrUnexpiringChallenge(t *tes
 			user := registerFakeCredential(t, svc, db, uid, fake)
 			zeroCounter(t, db, fake)
 			sess, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
-				User:      user,
-				Session:   webauthn.SessionData{Challenge: "late", UserVerification: protocol.VerificationRequired, Expires: expires},
+				User: user,
+				Session: webauthn.SessionData{
+					Challenge: "late", UserID: userHandle(uid), UserVerification: protocol.VerificationRequired, Expires: expires,
+				},
 				Assertion: fakeAssertion(),
 			})
 			require.ErrorIs(t, err, breakglass.ErrChallengeExpired)
@@ -153,7 +156,8 @@ func TestService_FinishPasskeyLogin_JudgesExpiryInUTCWhateverTheSessionZone(t *t
 			_, err = svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
 				User: user,
 				Session: webauthn.SessionData{
-					Challenge: "zoned", UserVerification: protocol.VerificationRequired, Expires: time.Now().Add(tc.expires),
+					Challenge: "zoned", UserID: userHandle(uid), UserVerification: protocol.VerificationRequired,
+					Expires: time.Now().Add(tc.expires),
 				},
 				Assertion: fakeAssertion(),
 			})

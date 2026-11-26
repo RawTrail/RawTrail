@@ -338,7 +338,7 @@ func (h *Handler) handleBeginLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleBeginPasskeyLogin issues the challenge for a passkey-only login, which requires the authenticator to verify the person.
-// JSON body: {"email": "..."}.
+// JSON body: {"email": "..."}. With no email, the challenge names no account, for a discoverable passkey.
 func (h *Handler) handleBeginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 	h.beginLogin(w, r, h.svc.BeginPasskeyLogin)
 }
@@ -386,21 +386,28 @@ func (h *Handler) beginLogin(
 // handleFinishLogin verifies password + assertion and mints a
 // session. JSON body: {"email": "...", "password": "...", "assertion": <CredentialAssertionResponse JSON>}.
 func (h *Handler) handleFinishLogin(w http.ResponseWriter, r *http.Request) {
-	h.finishLogin(w, r, h.svc.FinishLogin, h.svc.AuditSuccess)
+	h.finishLogin(w, r, loginFinish{finish: h.svc.FinishLogin, auditSuccess: h.svc.AuditSuccess})
 }
 
 // handleFinishPasskeyLogin verifies a passkey-only assertion, with no password, and mints a session. JSON body:
-// {"email": "...", "assertion": <CredentialAssertionResponse JSON>}. A password in the body is ignored.
+// {"email": "...", "assertion": <CredentialAssertionResponse JSON>}. A password in the body is ignored, and so is the email when the
+// challenge named no account.
 func (h *Handler) handleFinishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
-	h.finishLogin(w, r, h.svc.FinishPasskeyLogin, h.svc.AuditPasskeySuccess)
+	h.finishLogin(w, r, loginFinish{finish: h.svc.FinishPasskeyLogin, auditSuccess: h.svc.AuditPasskeySuccess, discoverable: true})
+}
+
+// loginFinish is what tells one login's finish from another's.
+type loginFinish struct {
+	finish       func(context.Context, FinishLoginRequest) (*sessions.Session, error)
+	auditSuccess func(context.Context, *users.User, string, string)
+	// discoverable accepts a challenge that named no account, signing in the account the passkey's user handle names. Only the
+	// passkey-only sign-in sets it: the password sign-in names its account by email.
+	discoverable bool
 }
 
 // finishLogin runs a login's finish under the per-IP and per-email budgets: it decodes the challenge cookie and the body, resolves the
 // break-glass user, and on success sets the session cookie. Every failure is one wire 401 with the precise reason in the audit row.
-func (h *Handler) finishLogin(
-	w http.ResponseWriter, r *http.Request, finish func(context.Context, FinishLoginRequest) (*sessions.Session, error),
-	auditSuccess func(context.Context, *users.User, string, string),
-) {
+func (h *Handler) finishLogin(w http.ResponseWriter, r *http.Request, flow loginFinish) {
 	w.Header().Set(headerCacheControl, cacheControlNoStore)
 	if !h.rates.AllowIP(httpserver.ClientIP(r)) {
 		h.refuse(w, r, "", "rate_limited", h.tooMany)
@@ -425,34 +432,15 @@ func (h *Handler) finishLogin(
 		h.refuse(w, r, "", "body_invalid", h.badRequest)
 		return
 	}
-	// Per-email budget: token-bucket Allow() is consume-or-reject; no non-consuming peek is exposed by the IPLimiter primitive. Consume
-	// one token at the START of the attempt so a brute-forcer who exhausted the budget on prior failures cannot trigger another argon2 +
-	// WebAuthn round-trip. Successful logins burn one slot too, but break-glass logins are rare by design (incident-only) so the wasted
-	// slot is harmless. Spec nuance: this is the failed-login budget, but practical constraint of consume-only limiters means it gates
-	// EVERY attempt; the documentation in ratelimit.go has been updated to reflect this.
-	if !h.rates.AllowEmailFail(body.Email) {
-		h.refuse(w, r, body.Email, "email_rate_limited", h.tooMany)
+	subject := h.emailSubject
+	if flow.discoverable && NamesNoAccount(sd) {
+		subject = h.userHandleSubject
+	}
+	user, parsed, ok := subject(w, r, body.Email, body.Assertion)
+	if !ok {
 		return
 	}
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(body.Assertion)
-	if err != nil {
-		h.refuse(w, r, body.Email, "assertion_parse_failed", h.badRequest)
-		return
-	}
-	user, err := h.svc.users.GetByEmail(r.Context(), body.Email)
-	if err != nil {
-		h.svc.AuditFailure(r.Context(), body.Email, "user_not_found",
-			httpserver.ClientIP(r), r.UserAgent())
-		h.unauthorized(r.Context(), w)
-		return
-	}
-	if !user.IsBreakglass {
-		h.svc.AuditFailure(r.Context(), body.Email, "not_breakglass",
-			httpserver.ClientIP(r), r.UserAgent())
-		h.unauthorized(r.Context(), w)
-		return
-	}
-	sess, err := finish(r.Context(), FinishLoginRequest{
+	sess, err := flow.finish(r.Context(), FinishLoginRequest{
 		User:      user,
 		Session:   sd,
 		Password:  body.Password,
@@ -478,10 +466,68 @@ func (h *Handler) finishLogin(
 	}
 	h.clearChallengeCookie(w)
 	h.setSessionCookie(w, sess)
-	auditSuccess(r.Context(), user, httpserver.ClientIP(r), r.UserAgent())
+	flow.auditSuccess(r.Context(), user, httpserver.ClientIP(r), r.UserAgent())
 	h.writeJSON(r.Context(), w, http.StatusOK, map[string]any{
 		"redirect": "/ui/",
 	})
+}
+
+// emailSubject resolves the break-glass account a login names by email, and parses its assertion. It answers every refusal itself and
+// then reports false.
+func (h *Handler) emailSubject(
+	w http.ResponseWriter, r *http.Request, email string, assertion json.RawMessage,
+) (*users.User, *protocol.ParsedCredentialAssertionData, bool) {
+	// Per-email budget: token-bucket Allow() is consume-or-reject; no non-consuming peek is exposed by the IPLimiter primitive. Consume
+	// one token at the START of the attempt so a brute-forcer who exhausted the budget on prior failures cannot trigger another argon2 +
+	// WebAuthn round-trip. Successful logins burn one slot too, but break-glass logins are rare by design (incident-only) so the wasted
+	// slot is harmless. Spec nuance: this is the failed-login budget, but practical constraint of consume-only limiters means it gates
+	// EVERY attempt; the documentation in ratelimit.go has been updated to reflect this.
+	if !h.rates.AllowEmailFail(email) {
+		h.refuse(w, r, email, "email_rate_limited", h.tooMany)
+		return nil, nil, false
+	}
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(assertion)
+	if err != nil {
+		h.refuse(w, r, email, "assertion_parse_failed", h.badRequest)
+		return nil, nil, false
+	}
+	user, err := h.svc.users.GetByEmail(r.Context(), email)
+	if err != nil {
+		h.svc.AuditFailure(r.Context(), email, "user_not_found",
+			httpserver.ClientIP(r), r.UserAgent())
+		h.unauthorized(r.Context(), w)
+		return nil, nil, false
+	}
+	if !user.IsBreakglass {
+		h.svc.AuditFailure(r.Context(), email, "not_breakglass",
+			httpserver.ClientIP(r), r.UserAgent())
+		h.unauthorized(r.Context(), w)
+		return nil, nil, false
+	}
+	return user, parsed, true
+}
+
+// userHandleSubject resolves the break-glass account a discoverable passkey's user handle names, for a challenge that named no account,
+// and spends that account's per-email budget. The body's email is ignored. It answers every refusal itself and then reports false.
+func (h *Handler) userHandleSubject(
+	w http.ResponseWriter, r *http.Request, _ string, assertion json.RawMessage,
+) (*users.User, *protocol.ParsedCredentialAssertionData, bool) {
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(assertion)
+	if err != nil {
+		h.refuse(w, r, "", "assertion_parse_failed", h.badRequest)
+		return nil, nil, false
+	}
+	user, err := h.svc.PasskeyUser(r.Context(), parsed.Response.UserHandle)
+	if err != nil {
+		h.svc.AuditFailure(r.Context(), "", reasonForLoginErr(err), httpserver.ClientIP(r), r.UserAgent())
+		h.unauthorized(r.Context(), w)
+		return nil, nil, false
+	}
+	if !h.rates.AllowEmailFail(user.Email) {
+		h.refuse(w, r, user.Email, "email_rate_limited", h.tooMany)
+		return nil, nil, false
+	}
+	return user, parsed, true
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -770,6 +816,8 @@ func reasonForLoginErr(err error) string {
 		return "password.mismatch"
 	case errors.Is(err, users.ErrNotFound):
 		return "user_not_found"
+	case errors.Is(err, ErrNotBreakglass):
+		return "not_breakglass"
 	case errors.Is(err, ErrCredentialClonedDetected):
 		return "webauthn.cloned"
 	case errors.Is(err, ErrCredentialNotFound):

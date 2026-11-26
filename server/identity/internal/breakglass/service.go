@@ -33,6 +33,7 @@ type Service struct {
 	webauthn    WebAuthnEngine
 	audit       api.AuditRecorder
 	logger      *slog.Logger
+	passkeyOnly bool
 }
 
 // WebAuthnEngine is the slice of *webauthn.WebAuthn the service consumes. Exposed as an interface so test code can swap in a fake
@@ -53,6 +54,11 @@ type WebAuthnEngine interface {
 		user webauthn.User, session webauthn.SessionData,
 		parsedResponse *protocol.ParsedCredentialAssertionData,
 	) (*webauthn.Credential, error)
+	BeginDiscoverableLogin(opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
+	ValidateDiscoverableLogin(
+		handler webauthn.DiscoverableUserHandler, session webauthn.SessionData,
+		parsedResponse *protocol.ParsedCredentialAssertionData,
+	) (*webauthn.Credential, error)
 }
 
 // ServiceOptions carries every dependency Service needs at construction time. Empty values trip a panic in NewService: every
@@ -67,6 +73,9 @@ type ServiceOptions struct {
 	WebAuthn    WebAuthnEngine
 	Audit       api.AuditRecorder
 	Logger      *slog.Logger
+	// PasskeyOnly is set on a laptop install, which offers the passkey-only sign-in: setup then asks the authenticator for a discoverable
+	// credential, which that sign-in can find with no email.
+	PasskeyOnly bool
 }
 
 // NewService validates each dependency and returns the composed Service. A nil dependency panics rather than nil-checking on every
@@ -103,6 +112,7 @@ func NewService(opts ServiceOptions) *Service {
 		webauthn:    opts.WebAuthn,
 		audit:       opts.Audit,
 		logger:      logger,
+		passkeyOnly: opts.PasskeyOnly,
 	}
 }
 
@@ -132,9 +142,13 @@ func (s *Service) BeginSetup(ctx context.Context, plaintextToken string) (*Setup
 		ID:    u.ID,
 		Email: u.Email,
 	}
-	options, sd, err := s.webauthn.BeginRegistration(wuser,
-		webauthn.WithExclusions(nil), // no existing credentials yet
-	)
+	opts := []webauthn.RegistrationOption{webauthn.WithExclusions(nil)} // no existing credentials yet
+	if s.passkeyOnly {
+		// Preferred rather than required: a security key that cannot store a discoverable credential still registers, and signs in with
+		// its email. A server install asks for none, which would spend a security key's few discoverable slots and make it set a PIN.
+		opts = append(opts, webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementPreferred))
+	}
+	options, sd, err := s.webauthn.BeginRegistration(wuser, opts...)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("breakglass: begin registration: %w", err)
 	}
@@ -280,9 +294,43 @@ func (s *Service) BeginLogin(ctx context.Context, email string) (*LoginChallenge
 
 // BeginPasskeyLogin issues the challenge for a laptop owner's passkey-only sign-in: as BeginLogin, but the authenticator must verify the
 // person (Touch ID or the device passcode), since the passkey then stands in for the password too. FinishPasskeyLogin refuses any
-// challenge that did not require it.
+// challenge that did not require it. With no email the challenge names no account and lists no credentials, so the browser offers any
+// discoverable passkey for this site; the finish then signs in the account its user handle names.
 func (s *Service) BeginPasskeyLogin(ctx context.Context, email string) (*LoginChallenge, *users.User, error) {
-	return s.beginLogin(ctx, email, webauthn.WithUserVerification(protocol.VerificationRequired))
+	verified := webauthn.WithUserVerification(protocol.VerificationRequired)
+	if email != "" {
+		return s.beginLogin(ctx, email, verified)
+	}
+	options, sd, err := s.webauthn.BeginDiscoverableLogin(verified)
+	if err != nil {
+		return nil, nil, fmt.Errorf("breakglass: begin discoverable login: %w", err)
+	}
+	return &LoginChallenge{Options: options, SessionData: *sd}, nil, nil
+}
+
+// ErrNotBreakglass is returned by PasskeyUser for a user handle that names an account outside break-glass, which signs in through
+// single sign-on.
+var ErrNotBreakglass = errors.New("breakglass: account is not a break-glass account")
+
+// NamesNoAccount reports whether a login challenge was issued with no account, for a discoverable passkey: the assertion's user handle
+// then names the account.
+func NamesNoAccount(sd webauthn.SessionData) bool { return len(sd.UserID) == 0 }
+
+// PasskeyUser returns the break-glass account a discoverable passkey's user handle names. A handle that names no account is
+// users.ErrNotFound, and one that names an account outside break-glass is ErrNotBreakglass.
+func (s *Service) PasskeyUser(ctx context.Context, userHandle []byte) (*users.User, error) {
+	id, ok := userIDFromHandle(userHandle)
+	if !ok {
+		return nil, users.ErrNotFound
+	}
+	u, err := s.users.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !u.IsBreakglass {
+		return nil, ErrNotBreakglass
+	}
+	return u, nil
 }
 
 func (s *Service) beginLogin(ctx context.Context, email string, opts ...webauthn.LoginOption) (*LoginChallenge, *users.User, error) {
@@ -363,7 +411,11 @@ func (s *Service) FinishPasskeyLogin(ctx context.Context, req FinishLoginRequest
 	if req.Session.UserVerification != protocol.VerificationRequired {
 		return nil, ErrUserVerificationRequired
 	}
-	cred, err := s.validateAssertion(ctx, req)
+	validate := s.validateAssertion
+	if NamesNoAccount(req.Session) {
+		validate = s.validateDiscoverableAssertion
+	}
+	cred, err := validate(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -431,20 +483,39 @@ func (s *Service) VerifyLogin(ctx context.Context, req FinishLoginRequest) error
 // validateAssertion checks the signed assertion against the user's registered credentials and the challenge, and returns the credential
 // it used. It records nothing: the caller persists the sign count once every other check has passed.
 func (s *Service) validateAssertion(ctx context.Context, req FinishLoginRequest) (*webauthn.Credential, error) {
-	rows, err := s.credentials.ListByUserID(ctx, req.User.ID)
+	wuser, err := s.webauthnUser(ctx, req.User)
 	if err != nil {
-		return nil, fmt.Errorf("breakglass: list credentials: %w", err)
-	}
-	wuser := User{
-		ID:          req.User.ID,
-		Email:       req.User.Email,
-		Credentials: ToWebauthnCredentials(rows),
+		return nil, err
 	}
 	cred, err := s.webauthn.ValidateLogin(wuser, req.Session, req.Assertion)
 	if err != nil {
 		return nil, fmt.Errorf("breakglass: validate login: %w", err)
 	}
 	return cred, nil
+}
+
+// validateDiscoverableAssertion is validateAssertion for a challenge that named no account. req.User is the account the assertion's user
+// handle names, and the engine checks that the handle is that account's and the credential one of theirs.
+func (s *Service) validateDiscoverableAssertion(ctx context.Context, req FinishLoginRequest) (*webauthn.Credential, error) {
+	wuser, err := s.webauthnUser(ctx, req.User)
+	if err != nil {
+		return nil, err
+	}
+	owner := func(_, _ []byte) (webauthn.User, error) { return wuser, nil }
+	cred, err := s.webauthn.ValidateDiscoverableLogin(owner, req.Session, req.Assertion)
+	if err != nil {
+		return nil, fmt.Errorf("breakglass: validate discoverable login: %w", err)
+	}
+	return cred, nil
+}
+
+// webauthnUser is the account with its registered credentials, as the engine validates an assertion against them.
+func (s *Service) webauthnUser(ctx context.Context, u *users.User) (User, error) {
+	rows, err := s.credentials.ListByUserID(ctx, u.ID)
+	if err != nil {
+		return User{}, fmt.Errorf("breakglass: list credentials: %w", err)
+	}
+	return User{ID: u.ID, Email: u.Email, Credentials: ToWebauthnCredentials(rows)}, nil
 }
 
 // CleanupConsumedChallenges deletes the record of challenges past their expiry, which the engine refuses as expired anyway. Called on
