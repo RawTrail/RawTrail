@@ -288,22 +288,35 @@ func (g *Gateway) connect(stream control.ControlChannel_ConnectServer) error {
 	// status, so each case decides it from whether the client is still there to receive one (issue #1124).
 	select {
 	case <-connCtx.Done():
-		if streamEnded(ctx, c.closedBecause()) {
-			// The stream is over under this server. gRPC cancels the stream context moments after it rejects a frame, and a send
-			// on the rejected stream fails, so either can win the race against the receive result that says why, and returning on
-			// it alone would replace a rejection the client has already been sent. The receive returns promptly now that the
-			// stream has ended, so its result is waited for, bounded in case it does not.
-			select {
-			case err := <-recvErr:
-				return endAfterReceive(ctx, c, err)
-			case <-time.After(recvSettleTimeout):
-			}
-		}
-		// Returning ends the RPC, which closes the stream and unblocks recvLoop.
-		return endAfterTeardown(ctx, c)
+		return endAfterConnClosed(ctx, c, recvErr)
 	case err := <-recvErr:
 		return endAfterReceive(ctx, c, err)
 	}
+}
+
+// endAfterConnClosed is the status the RPC ends with once the connection's context is done, given the channel the receive loop's
+// result arrives on.
+func endAfterConnClosed(ctx context.Context, c *conn, recvErr <-chan error) error {
+	// The receive loop may have ended too, and select picks between ready cases at random. Its result decides when it is there: a
+	// rejection it carries is what the client was sent, and anything else reads the same teardown endAfterTeardown would.
+	select {
+	case err := <-recvErr:
+		return endAfterReceive(ctx, c, err)
+	default:
+	}
+	if streamEnded(ctx, c.closedBecause()) {
+		// The stream is over under this server. gRPC cancels the stream context moments after it rejects a frame, and a send on the
+		// rejected stream fails, so either can win the race against the receive result that says why, and returning on it alone
+		// would replace a rejection the client has already been sent. The receive returns promptly now that the stream has ended,
+		// so its result is waited for, bounded in case it does not.
+		select {
+		case err := <-recvErr:
+			return endAfterReceive(ctx, c, err)
+		case <-time.After(recvSettleTimeout):
+		}
+	}
+	// Returning ends the RPC, which closes the stream and unblocks recvLoop.
+	return endAfterTeardown(ctx, c)
 }
 
 // recvSettleTimeout bounds how long Connect waits for the receive loop's result after the stream has ended under it. A receive on an
