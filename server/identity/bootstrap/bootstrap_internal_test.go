@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +17,7 @@ import (
 	"github.com/rawtrail/rawtrail/server/identity/api"
 	"github.com/rawtrail/rawtrail/server/identity/internal/appconfig"
 	"github.com/rawtrail/rawtrail/server/identity/internal/audit"
+	"github.com/rawtrail/rawtrail/server/identity/internal/breakglass"
 	"github.com/rawtrail/rawtrail/server/identity/internal/identities"
 	"github.com/rawtrail/rawtrail/server/identity/internal/oidc"
 	"github.com/rawtrail/rawtrail/server/identity/internal/sessions"
@@ -402,6 +405,48 @@ func TestNewOIDCProviderConfigFn_carriesTheSignInPolicy(t *testing.T) {
 	assert.Equal(t, "cid", cfg.ClientID, "and the connection settings it was read with")
 }
 
+// buildProfileBreakglass builds break-glass on an install of profile, with go-webauthn's real engine, over a fresh schema.
+func buildProfileBreakglass(t *testing.T, profile string) (*breakglass.Service, *breakglass.Handler, *sqlx.DB) {
+	t.Helper()
+	db := testdb.Open(t)
+	require.NoError(t, ApplySchema(t.Context(), db))
+	svc, h, err := buildBreakglass(breakglassDeps{
+		deps:   Deps{DB: db, Profile: profile, SessionSigningKey: bytes.Repeat([]byte{0x11}, 32)},
+		logger: slog.Default(), sessions: sessions.New(db, sessions.Options{}), users: users.New(db),
+		identities: identities.New(db), audit: audit.New(db, slog.Default()),
+	})
+	require.NoError(t, err)
+	return svc, h, db
+}
+
+// spec:server-identity-authentication/a-laptop-s-passkey-sign-in-can-name-no-account/laptop-setup-asks-for-a-discoverable-credential
+//
+// With go-webauthn's real engine: a laptop's setup asks the authenticator for a discoverable credential and a server's does not, and a
+// laptop's passkey challenge with no email lists no credentials and names no account, so the browser offers any passkey for the site.
+func TestBuildBreakglass_AsksALaptopForADiscoverablePasskey(t *testing.T) {
+	t.Parallel()
+	for profile, want := range map[string]protocol.ResidentKeyRequirement{"laptop": protocol.ResidentKeyRequirementPreferred, "server": ""} {
+		t.Run(profile, func(t *testing.T) {
+			t.Parallel()
+			svc, _, db := buildProfileBreakglass(t, profile)
+			owner, err := users.New(db).CreateBreakglass(t.Context(), users.CreateBreakglassRequest{Email: "owner@example.com"})
+			require.NoError(t, err)
+			token, _, err := svc.IssueSetupToken(t.Context(), owner.ID, time.Hour)
+			require.NoError(t, err)
+			setup, _, _, err := svc.BeginSetup(t.Context(), token)
+			require.NoError(t, err)
+			assert.Equal(t, want, setup.Options.Response.AuthenticatorSelection.ResidentKey)
+		})
+	}
+
+	svc, _, _ := buildProfileBreakglass(t, "laptop")
+	challenge, _, err := svc.BeginPasskeyLogin(t.Context(), "")
+	require.NoError(t, err)
+	assert.Empty(t, challenge.Options.Response.AllowedCredentials)
+	assert.True(t, breakglass.NamesNoAccount(challenge.SessionData))
+	assert.Equal(t, protocol.VerificationRequired, challenge.Options.Response.UserVerification)
+}
+
 // spec:server-identity-authentication/a-laptop-s-owner-signs-in-with-their-passkey-alone/a-server-install-offers-no-passkey-only-sign-in
 //
 // The deployment profile decides whether the break-glass handler mounts the passkey-only sign-in: a laptop answers its challenge route
@@ -417,14 +462,7 @@ func TestBuildBreakglass_MountsThePasskeySignInOnlyOnALaptop(t *testing.T) {
 	} {
 		t.Run(tc.profile, func(t *testing.T) {
 			t.Parallel()
-			db := testdb.Open(t)
-			require.NoError(t, ApplySchema(t.Context(), db))
-			_, h, err := buildBreakglass(breakglassDeps{
-				deps:   Deps{DB: db, Profile: tc.profile, SessionSigningKey: bytes.Repeat([]byte{0x11}, 32)},
-				logger: slog.Default(), sessions: sessions.New(db, sessions.Options{}), users: users.New(db),
-				identities: identities.New(db), audit: audit.New(db, slog.Default()),
-			})
-			require.NoError(t, err)
+			_, h, _ := buildProfileBreakglass(t, tc.profile)
 			mux := http.NewServeMux()
 			h.RegisterPublicRoutes(mux)
 			rec := httptest.NewRecorder()

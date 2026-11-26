@@ -445,6 +445,8 @@ func buildBreakglass(in breakglassDeps) (*breakglass.Service, *breakglass.Handle
 	}
 	tokens := breakglass.NewTokenStore(in.deps.DB)
 	credentials := breakglass.NewCredentialStore(in.deps.DB)
+	// A laptop's owner signs in with their passkey alone; a server keeps the password as well.
+	passkeyOnly := in.deps.Profile == "laptop"
 	svc := breakglass.NewService(breakglass.ServiceOptions{
 		DB:          in.deps.DB,
 		Users:       in.users,
@@ -455,19 +457,19 @@ func buildBreakglass(in breakglassDeps) (*breakglass.Service, *breakglass.Handle
 		WebAuthn:    wa,
 		Audit:       in.audit,
 		Logger:      in.logger,
+		PasskeyOnly: passkeyOnly,
 	})
 	allowlist, err := breakglass.NewAllowlist(bg.IPAllowlist)
 	if err != nil {
 		return nil, nil, fmt.Errorf("identity bootstrap: breakglass allowlist: %w", err)
 	}
 	h := breakglass.NewHandler(breakglass.HandlerOptions{
-		Service:    svc,
-		Identity:   in.identity,
-		SigningKey: in.deps.SessionSigningKey,
-		Allowlist:  allowlist,
-		Logger:     in.logger,
-		// A laptop's owner signs in with their passkey alone; a server keeps the password as well.
-		PasskeyOnly: in.deps.Profile == "laptop",
+		Service:     svc,
+		Identity:    in.identity,
+		SigningKey:  in.deps.SessionSigningKey,
+		Allowlist:   allowlist,
+		Logger:      in.logger,
+		PasskeyOnly: passkeyOnly,
 	})
 	return svc, h, nil
 }

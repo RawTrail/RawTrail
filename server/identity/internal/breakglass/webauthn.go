@@ -100,6 +100,14 @@ func (u User) WebAuthnID() []byte {
 	return out
 }
 
+// userIDFromHandle reads the account id back out of a user handle WebAuthnID made. Any other length names no account.
+func userIDFromHandle(handle []byte) (int64, bool) {
+	if len(handle) != 8 {
+		return 0, false
+	}
+	return int64(binary.BigEndian.Uint64(handle)), true //nolint:gosec // the inverse of WebAuthnID's reinterpretation
+}
+
 // WebAuthnName returns the email, which is operator-friendly when the
 // browser displays "register a credential for <name>".
 func (u User) WebAuthnName() string { return u.Email }
