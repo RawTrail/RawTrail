@@ -23,6 +23,14 @@ import (
 
 const testSigningKey = "0123456789abcdef0123456789abcdef"
 
+// ownersAssertion is an assertion of the credential the fake engine registered for the account uid, carrying that account's handle.
+func ownersAssertion(uid int64) *protocol.ParsedCredentialAssertionData {
+	return &protocol.ParsedCredentialAssertionData{
+		ParsedPublicKeyCredential: protocol.ParsedPublicKeyCredential{RawID: credentialID(uid)},
+		Response:                  protocol.ParsedAssertionResponse{UserHandle: userHandle(uid)},
+	}
+}
+
 // spec:server-identity-authentication/a-laptop-s-passkey-sign-in-can-name-no-account/a-discoverable-passkey-signs-its-owner-in
 func TestService_FinishPasskeyLogin_SignsInTheAccountTheUserHandleNames(t *testing.T) {
 	t.Parallel()
@@ -39,7 +47,7 @@ func TestService_FinishPasskeyLogin_SignsInTheAccountTheUserHandleNames(t *testi
 	require.NoError(t, err)
 	sess, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
 		User: owner, Session: challenge.SessionData,
-		Assertion: &protocol.ParsedCredentialAssertionData{Response: protocol.ParsedAssertionResponse{UserHandle: userHandle(uid)}},
+		Assertion: ownersAssertion(uid),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, uid, sess.UserID)
@@ -97,7 +105,7 @@ func TestHandle_PasskeyLogin_WithNoEmailSignsInThePasskeysOwner(t *testing.T) {
 	assert.True(t, breakglass.NamesNoAccount(sd))
 	assert.Equal(t, protocol.VerificationRequired, sd.UserVerification)
 
-	finish := postJSON(t, srv, "/admin/break-glass/passkey", assertionBody(t, map[string]any{}, userHandle(uid)), state)
+	finish := postJSON(t, srv, "/admin/break-glass/passkey", assertionBody(t, map[string]any{}, userHandle(uid), credentialID(uid)), state)
 	require.Equal(t, http.StatusOK, finish.StatusCode, "reason=%s", finish.Header.Get("X-Edr-Auth-Reason"))
 	require.NotNil(t, cookieNamed(finish, api.SessionCookieName))
 	last := rec.events[len(rec.events)-1]
@@ -122,7 +130,7 @@ func TestHandle_PasskeyLogin_RefusesAUserHandleThatNamesNoBreakGlassAccount(t *t
 		{"no account", userHandle(sso.ID + 1000), "user_not_found"},
 	} {
 		challenge := postJSON(t, srv, "/admin/break-glass/passkey/challenge", `{}`, nil)
-		finish := postJSON(t, srv, "/admin/break-glass/passkey", assertionBody(t, map[string]any{}, tc.handle),
+		finish := postJSON(t, srv, "/admin/break-glass/passkey", assertionBody(t, map[string]any{}, tc.handle, credentialID(uid)),
 			cookieNamed(challenge, breakglass.ChallengeStateCookieName))
 		assert.Equal(t, http.StatusUnauthorized, finish.StatusCode, tc.name)
 		assert.Nil(t, cookieNamed(finish, api.SessionCookieName), tc.name)
@@ -139,40 +147,65 @@ func TestHandle_PasswordLogin_DoesNotNameItsAccountByUserHandle(t *testing.T) {
 	srv, svc, db, rec, uid, fake := newPasskeyServer(t, true)
 	registerFakeCredential(t, svc, db, uid, fake)
 	challenge := postJSON(t, srv, "/admin/break-glass/passkey/challenge", `{}`, nil)
-	finish := postJSON(t, srv, "/admin/break-glass", assertionBody(t, map[string]any{"password": "long-enough-password"}, userHandle(uid)),
-		cookieNamed(challenge, breakglass.ChallengeStateCookieName))
+	body := assertionBody(t, map[string]any{"password": "long-enough-password"}, userHandle(uid), credentialID(uid))
+	finish := postJSON(t, srv, "/admin/break-glass", body, cookieNamed(challenge, breakglass.ChallengeStateCookieName))
 	assert.Equal(t, http.StatusUnauthorized, finish.StatusCode)
 	assert.Nil(t, cookieNamed(finish, api.SessionCookieName))
 	assert.Equal(t, "user_not_found", rec.events[len(rec.events)-1].Payload["reason"])
 }
 
-// A sign-in with no email spends the per-email budget of the account the user handle names, whatever email the body carries: with a
-// budget of one, the owner's second sign-in is refused even when the body names someone else.
+// A sign-in with no email spends the per-email budget of the account the user handle names, whatever email the body carries, and a spent
+// budget is answered as any other refusal: repeating bad assertions under a break-glass account's handle gets the same responses as
+// under a handle that names no account, so the responses do not say which handles are break-glass accounts.
 func TestHandle_PasskeyLogin_WithNoEmailSpendsTheHandlesAccountBudget(t *testing.T) {
 	t.Parallel()
 	svc, db, rec, uid, fake := newFakeService(t)
 	registerFakeCredential(t, svc, db, uid, fake)
+	fake.validateLoginErr = protocol.ErrVerification
 	h := breakglass.NewHandler(breakglass.HandlerOptions{
 		Service: svc, SigningKey: []byte(testSigningKey), Logger: slog.Default(), PasskeyOnly: true,
-		RateLimits: breakglass.NewRateLimits(0, 1, 0),
+		RateLimits: breakglass.NewRateLimits(100, 1, 0),
 	})
 	mux := http.NewServeMux()
 	h.RegisterPublicRoutes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	signIn := func(fields map[string]any) *http.Response {
-		challenge := postJSON(t, srv, "/admin/break-glass/passkey/challenge", `{}`, nil)
-		return postJSON(t, srv, "/admin/break-glass/passkey", assertionBody(t, fields, userHandle(uid)),
-			cookieNamed(challenge, breakglass.ChallengeStateCookieName))
+	statuses := func(handle []byte) []int {
+		var got []int
+		for range 3 {
+			challenge := postJSON(t, srv, "/admin/break-glass/passkey/challenge", `{}`, nil)
+			resp := postJSON(t, srv, "/admin/break-glass/passkey",
+				assertionBody(t, map[string]any{"email": "someone-else@example.com"}, handle, credentialID(uid)),
+				cookieNamed(challenge, breakglass.ChallengeStateCookieName))
+			got = append(got, resp.StatusCode)
+		}
+		return got
 	}
-	first := signIn(map[string]any{})
-	require.Equal(t, http.StatusOK, first.StatusCode, "reason=%s", first.Header.Get("X-Edr-Auth-Reason"))
-	second := signIn(map[string]any{"email": "someone-else@example.com"})
-	assert.Equal(t, http.StatusTooManyRequests, second.StatusCode)
+	owners := statuses(userHandle(uid))
 	last := rec.events[len(rec.events)-1]
-	assert.Equal(t, "email_rate_limited", last.Payload["reason"])
-	assert.Equal(t, "admin@rawtrail.local", last.Actor.Label)
+	assert.Equal(t, "email_rate_limited", last.Payload["reason"], "the audit row says the budget is spent")
+	assert.Equal(t, "admin@rawtrail.local", last.Actor.Label, "it is the handle's account's budget")
+	assert.Equal(t, statuses(userHandle(uid+1000)), owners, "a break-glass account's handle answers as a handle that names nothing")
+	assert.Equal(t, []int{http.StatusUnauthorized, http.StatusUnauthorized, http.StatusUnauthorized}, owners)
+}
+
+// A credential is accepted only from the account the user handle names: break-glass account B's handle with account A's credential is
+// refused and mints no session.
+func TestHandle_PasskeyLogin_RefusesAnotherAccountsCredential(t *testing.T) {
+	t.Parallel()
+	srv, svc, db, rec, uid, fake := newPasskeyServer(t, true)
+	registerFakeCredential(t, svc, db, uid, fake)
+	other, err := users.New(db).CreateBreakglass(t.Context(), users.CreateBreakglassRequest{Email: "second@rawtrail.local"})
+	require.NoError(t, err)
+	registerFakeCredential(t, svc, db, other.ID, fake)
+
+	challenge := postJSON(t, srv, "/admin/break-glass/passkey/challenge", `{}`, nil)
+	finish := postJSON(t, srv, "/admin/break-glass/passkey", assertionBody(t, map[string]any{}, userHandle(other.ID), credentialID(uid)),
+		cookieNamed(challenge, breakglass.ChallengeStateCookieName))
+	assert.Equal(t, http.StatusUnauthorized, finish.StatusCode)
+	assert.Nil(t, cookieNamed(finish, api.SessionCookieName))
+	assert.Equal(t, api.AuditAuthBreakglassFailure, rec.events[len(rec.events)-1].Action)
 }
 
 // A sign-in that names its account by email is refused for an account outside break-glass, and once that email's budget is spent. The
@@ -201,7 +234,7 @@ func TestHandle_PasskeyLogin_RefusesByEmail(t *testing.T) {
 		{"an account outside break-glass", "sso@example.com", "not_breakglass", http.StatusUnauthorized},
 		{"an email whose budget is spent", "sso@example.com", "email_rate_limited", http.StatusTooManyRequests},
 	} {
-		resp := postJSON(t, srv, "/admin/break-glass/passkey", assertionBody(t, map[string]any{"email": tc.email}, nil), state)
+		resp := postJSON(t, srv, "/admin/break-glass/passkey", assertionBody(t, map[string]any{"email": tc.email}, nil, credentialID(uid)), state)
 		assert.Equal(t, tc.status, resp.StatusCode, tc.name)
 		assert.Equal(t, tc.want, rec.events[len(rec.events)-1].Payload["reason"], tc.name)
 	}
@@ -236,7 +269,7 @@ func TestService_PasskeyLoginWithNoEmail_SurfacesEngineErrors(t *testing.T) {
 	require.NoError(t, err)
 	sess, err := svc.FinishPasskeyLogin(t.Context(), breakglass.FinishLoginRequest{
 		User: owner, Session: challenge.SessionData,
-		Assertion: &protocol.ParsedCredentialAssertionData{Response: protocol.ParsedAssertionResponse{UserHandle: userHandle(uid)}},
+		Assertion: ownersAssertion(uid),
 	})
 	require.ErrorIs(t, err, protocol.ErrVerification)
 	assert.Nil(t, sess)

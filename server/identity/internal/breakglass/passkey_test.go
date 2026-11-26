@@ -156,11 +156,12 @@ func cookieNamed(resp *http.Response, name string) *http.Cookie {
 // parseableAssertion is an assertion body protocol.ParseCredentialRequestResponseBytes accepts; the fake engine decides its validity.
 func parseableAssertion(t *testing.T) string {
 	t.Helper()
-	return assertionBody(t, map[string]any{"email": "admin@rawtrail.local"}, nil)
+	return assertionBody(t, map[string]any{"email": "admin@rawtrail.local"}, nil, []byte("cred-id-1"))
 }
 
-// assertionBody is a sign-in body of fields plus a parseable assertion, which carries userHandle when it is set.
-func assertionBody(t *testing.T, fields map[string]any, userHandle []byte) string {
+// assertionBody is a sign-in body of fields plus a parseable assertion of the credential rawID, which carries userHandle when it is
+// set.
+func assertionBody(t *testing.T, fields map[string]any, userHandle, rawID []byte) string {
 	t.Helper()
 	clientData, err := json.Marshal(map[string]any{"type": "webauthn.get", "challenge": "fake-challenge", "origin": "http://localhost:8088"})
 	require.NoError(t, err)
@@ -174,7 +175,7 @@ func assertionBody(t *testing.T, fields map[string]any, userHandle []byte) strin
 	}
 	body := maps.Clone(fields)
 	body["assertion"] = map[string]any{
-		"id": base64.RawURLEncoding.EncodeToString([]byte("cred-id-1")), "rawId": base64.RawURLEncoding.EncodeToString([]byte("cred-id-1")),
+		"id": base64.RawURLEncoding.EncodeToString(rawID), "rawId": base64.RawURLEncoding.EncodeToString(rawID),
 		"type": "public-key", "response": response,
 	}
 	out, err := json.Marshal(body)
@@ -185,10 +186,14 @@ func assertionBody(t *testing.T, fields map[string]any, userHandle []byte) strin
 // userHandle is the WebAuthn user handle of the account with id uid.
 func userHandle(uid int64) []byte { return breakglass.User{ID: uid}.WebAuthnID() }
 
+// credentialID is the id of the credential the fake engine registers for the account uid.
+func credentialID(uid int64) []byte { return append([]byte("cred-"), userHandle(uid)...) }
+
 // verifiedSession is the session data of a passkey-only challenge naming the account uid, as BeginPasskeyLogin issues it.
 func verifiedSession(uid int64) webauthn.SessionData {
 	return webauthn.SessionData{
-		Challenge: "fake-challenge", UserID: userHandle(uid), UserVerification: protocol.VerificationRequired, Expires: time.Now().Add(time.Minute),
+		Challenge: "fake-challenge", UserID: userHandle(uid), UserVerification: protocol.VerificationRequired,
+		Expires: time.Now().Add(time.Minute),
 	}
 }
 

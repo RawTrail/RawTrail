@@ -509,6 +509,9 @@ func (h *Handler) emailSubject(
 
 // userHandleSubject resolves the break-glass account a discoverable passkey's user handle names, for a challenge that named no account,
 // and spends that account's per-email budget. The body's email is ignored. It answers every refusal itself and then reports false.
+//
+// A spent budget is answered with the same 401 as a handle that names no account, not a 429: the budget is spent only once a handle
+// resolves, so a 429 would tell anyone repeating a guessed handle that it names a break-glass account. The audit row keeps the reason.
 func (h *Handler) userHandleSubject(
 	w http.ResponseWriter, r *http.Request, _ string, assertion json.RawMessage,
 ) (*users.User, *protocol.ParsedCredentialAssertionData, bool) {
@@ -524,7 +527,8 @@ func (h *Handler) userHandleSubject(
 		return nil, nil, false
 	}
 	if !h.rates.AllowEmailFail(user.Email) {
-		h.refuse(w, r, user.Email, "email_rate_limited", h.tooMany)
+		h.svc.AuditFailure(r.Context(), user.Email, "email_rate_limited", httpserver.ClientIP(r), r.UserAgent())
+		h.unauthorized(r.Context(), w)
 		return nil, nil, false
 	}
 	return user, parsed, true

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -115,7 +116,9 @@ func (f *fakeWebAuthnEngine) BeginLogin(
 	return ca, sd, nil
 }
 
-func (f *fakeWebAuthnEngine) BeginDiscoverableLogin(opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+func (f *fakeWebAuthnEngine) BeginDiscoverableLogin(
+	opts ...webauthn.LoginOption,
+) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	if f.beginLoginErr != nil {
 		return nil, nil, f.beginLoginErr
 	}
@@ -156,7 +159,8 @@ func (f *fakeWebAuthnEngine) ValidateLogin(
 }
 
 // ValidateDiscoverableLogin refuses as go-webauthn does a challenge that named an account and an assertion with no user handle, asks the
-// handler for the handle's account, and refuses a handle that is not that account's. It then answers as ValidateLogin.
+// handler for the handle's account, and refuses a handle that is not that account's or a credential that is not one of theirs. It then
+// answers as ValidateLogin.
 func (f *fakeWebAuthnEngine) ValidateDiscoverableLogin(
 	handler webauthn.DiscoverableUserHandler, session webauthn.SessionData, assertion *protocol.ParsedCredentialAssertionData,
 ) (*webauthn.Credential, error) {
@@ -174,6 +178,9 @@ func (f *fakeWebAuthnEngine) ValidateDiscoverableLogin(
 	}
 	if !bytes.Equal(handle, user.WebAuthnID()) {
 		return nil, errors.New("fake: user handle and user id do not match")
+	}
+	if !slices.ContainsFunc(user.WebAuthnCredentials(), func(c webauthn.Credential) bool { return bytes.Equal(c.ID, assertion.RawID) }) {
+		return nil, errors.New("fake: unable to find the credential for the returned credential id")
 	}
 	return f.ValidateLogin(user, session, assertion)
 }
