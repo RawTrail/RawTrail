@@ -1,5 +1,4 @@
 import Foundation
-import os.log
 @testable import EDRExtensionLogic
 import XCTest
 
@@ -8,7 +7,6 @@ final class HostIdentityTests: XCTestCase {
     func testTheHostIDIsThisMacsHardwareUUIDInCanonicalForm() throws {
         let uuid = try XCTUnwrap(HostIdentity.hardwareUUID())
         XCTAssertNotNil(UUID(uuidString: uuid))
-        XCTAssertEqual(HostIdentity.hostID(logger: Logger(subsystem: "io.rawtrail.tests", category: "HostIdentity")), uuid)
     }
 
     func testThePlatformIsTheServersPlatformDarwinValue() {

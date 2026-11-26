@@ -363,7 +363,7 @@ final class EventSerializer: Sendable {
     private let hostID: String
 
     init() {
-        self.hostID = HostIdentity.hostID(logger: logger)
+        self.hostID = HostIdentity.hardwareUUID() ?? "unknown"
     }
 
     /// serialize wraps a payload in the wire envelope.
