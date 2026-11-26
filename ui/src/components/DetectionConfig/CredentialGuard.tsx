@@ -14,12 +14,16 @@ import { Input, Select } from "../ui/Input";
 import { Table, EmptyState } from "../ui/Table";
 import { PushNotice } from "./PushNotice";
 import { ReasonModal } from "./ReasonModal";
-import { saveRefusal } from "./saveRefusal";
+import { showSaveRefusal } from "./saveRefusal";
 import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
 import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
 import { CREDENTIAL_KINDS, credentialKey, describeOwner, formatOwners, ownersProblem, parseOwners } from "./credentialOwners";
+
+// GUARD_CONFLICT is the message for a save refused because someone saved after this page loaded.
+const GUARD_CONFLICT =
+  "Not saved: someone changed the credential guard after this page loaded it. Load the latest policy to see their change, then make yours again.";
 
 const MODE_LABEL: Record<CredentialGuardMode, string> = {
   detect: "Detect: report an agent's read",
@@ -261,12 +265,7 @@ export function CredentialGuard({ canWrite }: { readonly canWrite: boolean }) {
         setSaved(result);
       })
       .catch((err: unknown) => {
-        const refusal = saveRefusal(
-          err,
-          "Not saved: someone changed the credential guard after this page loaded it. Load the latest policy to see their change, then make yours again.",
-        );
-        if (refusal.conflict) setConflict(true);
-        setSaveError(refusal.message);
+        showSaveRefusal(err, GUARD_CONFLICT, setConflict, setSaveError);
       })
       .finally(() => {
         setSaving(false);

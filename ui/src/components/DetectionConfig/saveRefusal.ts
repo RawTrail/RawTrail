@@ -15,3 +15,15 @@ export function saveRefusal(err: unknown, conflictMessage: string): SaveRefusal 
   }
   return { conflict: false, message: `Not saved: ${err instanceof Error ? err.message : String(err)}` };
 }
+
+// showSaveRefusal shows a failed save on a page: it flags a conflict, so the page offers to load the latest, and sets the message.
+export function showSaveRefusal(
+  err: unknown,
+  conflictMessage: string,
+  setConflict: (conflict: boolean) => void,
+  setSaveError: (message: string) => void,
+) {
+  const refusal = saveRefusal(err, conflictMessage);
+  if (refusal.conflict) setConflict(true);
+  setSaveError(refusal.message);
+}

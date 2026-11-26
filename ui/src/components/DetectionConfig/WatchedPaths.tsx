@@ -12,11 +12,15 @@ import { Input, Select } from "../ui/Input";
 import { Table, EmptyState } from "../ui/Table";
 import { PushNotice } from "./PushNotice";
 import { ReasonModal } from "./ReasonModal";
-import { saveRefusal } from "./saveRefusal";
+import { showSaveRefusal } from "./saveRefusal";
 import { useReauthDraft } from "../../hooks/useReauthDraft";
 import { useReauthRetry } from "../../hooks/useReauthRetry";
 import { ReauthDraftNotice } from "../ReauthDraftNotice";
 import { ReauthModal } from "../ReauthModal";
+
+// PATHS_CONFLICT is the message for a save refused because someone saved after this page loaded.
+const PATHS_CONFLICT =
+  "Not saved: someone changed the watched paths after this page loaded them. Load the latest set to see their change, then make yours again.";
 
 const MATCH_LABEL: Record<WatchedPath["match"], string> = {
   literal: "This file",
@@ -182,12 +186,7 @@ export function WatchedPaths({ canWrite }: { readonly canWrite: boolean }) {
         setSaved(result);
       })
       .catch((err: unknown) => {
-        const refusal = saveRefusal(
-          err,
-          "Not saved: someone changed the watched paths after this page loaded them. Load the latest set to see their change, then make yours again.",
-        );
-        if (refusal.conflict) setConflict(true);
-        setSaveError(refusal.message);
+        showSaveRefusal(err, PATHS_CONFLICT, setConflict, setSaveError);
       })
       .finally(() => {
         setSaving(false);
