@@ -322,7 +322,8 @@ describe("PolicyDetail reopens the dialog whose work was saved", () => {
     renderDetail();
 
     const dialog = within(await screen.findByRole("dialog", { name: "Add rule" }));
-    expect(dialog.getByText(RESTORED)).toBeVisible();
+    // The dialog can render a pass before the restore fills it, so wait for the notice rather than reading it at once.
+    expect(await dialog.findByText(RESTORED)).toBeVisible();
     expect(dialog.getByLabelText(/identifier/i)).toHaveValue(hex);
     expect(dialog.getByLabelText(/reason/i)).toHaveValue("block it");
   });
@@ -340,7 +341,8 @@ describe("PolicyDetail reopens the dialog whose work was saved", () => {
     renderDetail();
 
     const dialog = within(await screen.findByRole("dialog", { name: "Paste many rules" }));
-    expect(dialog.getByText(RESTORED)).toBeVisible();
+    // The dialog can render a pass before the restore fills it, so wait for the notice rather than reading it at once.
+    expect(await dialog.findByText(RESTORED)).toBeVisible();
     expect(dialog.getByLabelText(/identifiers/i)).toHaveValue("EQHXZ8M8AV");
   });
 
@@ -356,7 +358,8 @@ describe("PolicyDetail reopens the dialog whose work was saved", () => {
     renderDetail();
 
     const dialog = within(await screen.findByRole("dialog", { name: "Edit rule" }));
-    expect(dialog.getByText(RESTORED)).toBeVisible();
+    // The dialog can render a pass before the restore fills it, so wait for the notice rather than reading it at once.
+    expect(await dialog.findByText(RESTORED)).toBeVisible();
     expect(dialog.getByLabelText(/reason/i)).toHaveValue("raise it");
   });
 
@@ -461,7 +464,8 @@ describe("restoring under StrictMode", () => {
     mount(true);
 
     const dialog = within(await screen.findByRole("dialog", { name: "Edit rule" }));
-    expect(dialog.getByText(RESTORED)).toBeVisible();
+    // The dialog can render a pass before the restore fills it, so wait for the notice rather than reading it at once.
+    expect(await dialog.findByText(RESTORED)).toBeVisible();
     expect(dialog.getByLabelText(/reason/i)).toHaveValue("raise it");
   });
 });
