@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,9 +43,14 @@ func newFakeStream(ctx context.Context, hostID, token string) *fakeStream {
 func (s *fakeStream) Context() context.Context { return s.ctx }
 
 // Send drops a frame nothing is reading rather than blocking the writer: heartbeats tick on their own here and are not what any of
-// these tests assert.
+// these tests assert. A send fails only on a stream that has ended, so a failing send also ends the pending receive, as the
+// transport's bare error.
 func (s *fakeStream) Send(frame *control.ServerFrame) error {
 	if s.sendErr != nil {
+		select {
+		case s.recvErr <- errors.New("transport is closing"):
+		default:
+		}
 		return s.sendErr
 	}
 	select {
@@ -271,6 +277,7 @@ func TestEndAfterReceive(t *testing.T) {
 	unreadable := status.Error(codes.Internal, "grpc: error unmarshalling request")
 	// The transport ending under the stream: a bare error carrying no status, which is what grpc-go's ErrConnClosing is.
 	transportDied := errors.New("transport is closing")
+	oversized := status.Error(codes.ResourceExhausted, "grpc: received message larger than max")
 
 	cases := []struct {
 		desc       string
@@ -325,6 +332,20 @@ func TestEndAfterReceive(t *testing.T) {
 			desc:            "and so does a clean end of stream landing at the same moment",
 			tornDownBecause: reasonReplaced,
 			wantReason:      reasonReplaced,
+		},
+		{
+			// gRPC has already sent the rejection to the client, and a heartbeat on the rejected stream fails behind it (#1626).
+			desc:            "a rejected frame outranks the outbound failure it caused",
+			clientGone:      true,
+			tornDownBecause: reasonSendFailed,
+			recvErr:         oversized,
+			wantErr:         oversized,
+		},
+		{
+			desc:            "and a teardown the server recorded at the same moment",
+			tornDownBecause: reasonTokenInvalid,
+			recvErr:         unreadable,
+			wantErr:         unreadable,
 		},
 	}
 	for _, tc := range cases {
@@ -403,4 +424,56 @@ func TestConnectWaitsForTheReceiveResultOnceTheStreamHasEnded(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
+}
+
+// rejectedMidSendStream holds the first send in flight until the client's frame is rejected, then fails it, as a send on a stream gRPC
+// has already ended does. The rejection reaches the receive loop only after the failed send has torn the connection down.
+type rejectedMidSendStream struct {
+	*fakeStream
+	sending    chan struct{} // closed once a send is in flight
+	rejected   chan struct{} // closed when gRPC rejects the client's frame
+	sendFailed chan struct{} // closed once the in-flight send has failed
+	once       sync.Once
+}
+
+func (s *rejectedMidSendStream) Send(*control.ServerFrame) error {
+	s.once.Do(func() { close(s.sending) })
+	<-s.rejected
+	defer func() {
+		select {
+		case <-s.sendFailed:
+		default:
+			close(s.sendFailed)
+		}
+	}()
+	return errors.New("transport: the stream is done")
+}
+
+func (s *rejectedMidSendStream) Recv() (*control.AgentFrame, error) {
+	<-s.sendFailed
+	// Connect has to see the failed send's teardown before the rejection exists; nothing can be waited on to know it has.
+	time.Sleep(100 * time.Millisecond)
+	return nil, status.Error(codes.ResourceExhausted, "grpc: received message larger than max")
+}
+
+// gRPC writes an oversized frame's rejection to the client itself, and a heartbeat already being sent then fails on the ended stream,
+// which tears the connection down as an outbound failure. The RPC must still end with the rejection the client received, or the span
+// names a status nobody was sent (issue #1626).
+//
+// spec:agent-control-channel/a-rejected-frame-outranks-the-failures-it-causes/a-heartbeat-in-flight-does-not-replace-the-rejection
+func TestARejectedFrameOutranksTheHeartbeatItBreaks(t *testing.T) {
+	t.Parallel()
+	stream := &rejectedMidSendStream{
+		fakeStream: newFakeStream(t.Context(), "host-a", "tok-a"),
+		sending:    make(chan struct{}), rejected: make(chan struct{}), sendFailed: make(chan struct{}),
+	}
+	g, returned := connectedGateway(t, stream)
+	conn := g.reg.get("host-a")
+
+	<-stream.sending // a heartbeat is in flight
+	close(stream.rejected)
+
+	err := returnedFrom(t, returned)
+	assert.Equal(t, codes.ResourceExhausted, status.Code(err), "the RPC ends with the status the client was sent")
+	assert.Equal(t, reasonSendFailed, conn.closedBecause(), "the failed heartbeat really did tear the connection down first")
 }
