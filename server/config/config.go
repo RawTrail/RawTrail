@@ -120,8 +120,8 @@ type Config struct {
 	LogLevel         string
 	LogFormat        string
 	// Profile is the kind of deployment this server is (issue #1436): "server", the default, for a fleet, or "laptop" for one person
-	// watching their own agents (docker-compose.laptop.yml). The console reads it to choose its defaults; it grants and removes nothing.
-	// From EDR_PROFILE.
+	// watching their own agents (docker-compose.laptop.yml). The console reads it to choose its defaults, and on a laptop break-glass
+	// signs in with a passkey alone and keeps its sessions for days, so it is a security setting (ADR-0022). From EDR_PROFILE.
 	Profile string
 
 	// Data lifecycle.
