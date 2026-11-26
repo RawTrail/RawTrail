@@ -390,7 +390,7 @@ func (d *Detection) ProcessorConcurrency() int {
 }
 
 // SetMetrics wires the metrics recorder into the engine + intake + pipeline (processttl + retention) AFTER construction. Used by
-// cmd/main to break the circular dependency between detectionCtx and metrics.New (the OfflineHosts gauge source needs detectionCtx;
+// cmd/main to break the circular dependency between detectionCtx and metrics.New (the HostFleet gauge source needs detectionCtx;
 // detectionCtx's engine + intake + pipeline need the recorder).
 //
 // It MUST be called before Run. The recorder is set-once construction-phase config that the running loops read (the pipeline runners

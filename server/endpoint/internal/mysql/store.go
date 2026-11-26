@@ -107,8 +107,7 @@ func (s *Store) Register(ctx context.Context, req RegisterRequest) (*RegisterRes
 	return &RegisterResult{HostID: req.HostID, EnrolledAt: row.EnrolledAt.UTC(), Epoch: row.Epoch}, nil
 }
 
-// CountActive returns how many non-revoked enrollments exist. Cheaper than ActiveHostIDs when the caller only needs the count. The
-// OTel gauge `edr.enrolled.hosts` is the primary caller.
+// CountActive returns how many non-revoked enrollments exist. Cheaper than ActiveHostIDs when the caller only needs the count.
 func (s *Store) CountActive(ctx context.Context) (int, error) {
 	var n int
 	if err := s.db.GetContext(ctx, &n, `SELECT COUNT(*) FROM enrollments WHERE revoked_at IS NULL`); err != nil {

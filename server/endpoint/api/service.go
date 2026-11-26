@@ -42,12 +42,12 @@ type Service interface {
 	// repeat revoke preserves the original revoked_at, reason and actor. Returns ErrNotFound when the host_id has no enrollment.
 	Revoke(ctx context.Context, req RevokeRequest) error
 
-	// CountActive returns the count of non-revoked enrollments. Used
-	// by metrics (the EnrolledHosts gauge in cmd/main).
+	// CountActive returns the count of non-revoked enrollments, for a
+	// caller that needs only the count.
 	CountActive(ctx context.Context) (int, error)
 
 	// ActiveHostIDs returns the non-revoked host_ids in stable order.
-	// Used by the policy fan-out path.
+	// Used by the policy fan-out path and the host fleet gauges in cmd/main.
 	ActiveHostIDs(ctx context.Context) ([]string, error)
 
 	// ActiveEnrollments returns each non-revoked host_id with the time it last enrolled, on the database clock, in stable order.

@@ -19,7 +19,7 @@ type processTTLReconciler interface {
 }
 
 // SetMetrics installs the metrics recorder after construction. Used by Detection.SetMetrics to break the cmd/main circular-dependency
-// (metrics recorder needs detectionCtx for the OfflineHosts gauge, detectionCtx's TTL runner needs the recorder).
+// (metrics recorder needs detectionCtx for the HostFleet gauge source, detectionCtx's TTL runner needs the recorder).
 func (r *ProcessTTLRunner) SetMetrics(m api.MetricsRecorder) { r.metrics = m }
 
 // ProcessTTLOptions tune the runner. Zero values fall back to defaults.

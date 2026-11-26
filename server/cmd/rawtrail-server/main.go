@@ -51,33 +51,31 @@ type serverGaugeSource struct {
 	identitySvc  identityapi.Service
 }
 
-func (g serverGaugeSource) EnrolledHosts(ctx context.Context) (int, error) {
-	return g.endpointSvc.CountActive(ctx)
-}
-
-// OfflineHosts counts the non-revoked enrollments not seen within threshold, so offline hosts are a subset of enrolled ones. A revoked
-// host stops checking in, and counting it held "EDR hosts offline" above 100% and could silence "EDR event ingest stopped" (#1624).
-// Detection holds no revocation state, so the two contexts' answers are intersected here. An enrollment never seen is offline.
-func (g serverGaugeSource) OfflineHosts(ctx context.Context, threshold time.Duration) (int, error) {
+// HostFleet counts the non-revoked enrollments and those among them not seen within threshold, so offline hosts are a subset of
+// enrolled ones. A revoked host stops checking in, and counting it held "EDR hosts offline" above 100% and could silence "EDR event
+// ingest stopped" (#1624). Detection holds no revocation state, so the two contexts' answers are intersected here. An enrollment
+// never seen is offline. Host IDs compare case-insensitively, as both contexts' MySQL columns do: enrollment accepts a hardware UUID
+// in either case, and a re-enrollment in the other case keeps the row the first one wrote.
+func (g serverGaugeSource) HostFleet(ctx context.Context, threshold time.Duration) (metrics.HostFleet, error) {
 	active, err := g.endpointSvc.ActiveHostIDs(ctx)
 	if err != nil {
-		return 0, err
+		return metrics.HostFleet{}, err
 	}
 	online, err := g.detectionSvc.OnlineHostIDs(ctx, threshold)
 	if err != nil {
-		return 0, err
+		return metrics.HostFleet{}, err
 	}
 	seen := make(map[string]struct{}, len(online))
 	for _, id := range online {
-		seen[id] = struct{}{}
+		seen[strings.ToLower(id)] = struct{}{}
 	}
-	offline := 0
+	fleet := metrics.HostFleet{Enrolled: len(active)}
 	for _, id := range active {
-		if _, ok := seen[id]; !ok {
-			offline++
+		if _, ok := seen[strings.ToLower(id)]; !ok {
+			fleet.Offline++
 		}
 	}
-	return offline, nil
+	return fleet, nil
 }
 
 func (g serverGaugeSource) ExpiringServiceAccounts(ctx context.Context, within time.Duration) (int, error) {
