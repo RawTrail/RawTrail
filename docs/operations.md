@@ -440,7 +440,7 @@ Common causes, in order:
 2. **Network-level change.** Moved to a VPN / Wi-Fi with egress filtering. Validate `curl -v https://<edr-server>/livez` from the endpoint.
 3. **Agent crashed.** `sudo launchctl print system/io.rawtrail.agent` shows `state = running`? If not: `sudo launchctl kickstart -k system/io.rawtrail.agent`.
 4. **Enrollment revoked.** Check the audit log for an `enrollment.revoke` entry. An agent that holds the enroll secret re-enrolls on its own within a minute or two; one that does not needs the MDM install script re-run and the daemon restarted.
-5. **DB clock skew / server down.** `edr.enrolled.hosts` gauge returning -1 means the DB query failed.
+5. **DB clock skew / server down.** `edr.enrolled.hosts` and `edr.offline.hosts` both missing for a collection means the fleet query failed; the server logs `host fleet gauge callback failed` with the error.
 
 If a host has been offline for >30 days and you expect it to be permanently gone (retired laptop), revoke its enrollment with `POST /api/enrollments/{host_id}/revoke` so the host tokens it holds can no longer be used. A revoked host no longer counts toward `edr.offline.hosts` or the "EDR hosts offline" alert. A revoke does not stop an agent that still holds the enroll secret from enrolling again.
 
