@@ -61,12 +61,19 @@ var knownHTTPMethods = map[string]bool{
 // cadence; the callback issues a live DB query each time. Interface not concrete struct so tests can swap in fakes without pulling in
 // a MySQL dependency.
 type GaugeSource interface {
-	EnrolledHosts(ctx context.Context) (int, error)
-	OfflineHosts(ctx context.Context, threshold time.Duration) (int, error)
+	// HostFleet counts the non-revoked enrollments and those among them not seen within threshold, from one read of the enrollments
+	// so the offline count never exceeds the enrolled one in the same collection.
+	HostFleet(ctx context.Context, threshold time.Duration) (HostFleet, error)
 	// PendingEvents counts queued events not yet processed, saturating at the queue's cap.
 	PendingEvents(ctx context.Context) (int64, error)
 	// ExpiringServiceAccounts counts active service accounts whose credential expires within the given window.
 	ExpiringServiceAccounts(ctx context.Context, within time.Duration) (int, error)
+}
+
+// HostFleet is the host population the two fleet gauges report: Offline is a subset of Enrolled.
+type HostFleet struct {
+	Enrolled int
+	Offline  int
 }
 
 // Recorder is the write surface instrumentation code uses. Every method is safe to call from any goroutine and safe on a nil receiver
@@ -251,36 +258,26 @@ func New(gauges GaugeSource, opts Options) *Recorder {
 		r.enrolledGauge, _ = meter.Int64ObservableGauge(
 			"edr.enrolled.hosts",
 			metric.WithDescription("Number of non-revoked host enrollments, counted each collection."),
-			metric.WithInt64Callback(func(ctx context.Context, obs metric.Int64Observer) error {
-				gaugeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-				defer cancel()
-				n, err := gauges.EnrolledHosts(gaugeCtx)
-				if err != nil {
-					// A slow or failing DB must not drop every collection cycle; log so an
-					// operator staring at a flat/absent `edr.enrolled.hosts` has a breadcrumb.
-					slog.Default().WarnContext(ctx, "edr.enrolled.hosts gauge callback failed", "err", err)
-					return nil
-				}
-				obs.Observe(int64(n))
-				return nil
-			}),
 		)
 		r.offlineGauge, _ = meter.Int64ObservableGauge(
 			"edr.offline.hosts",
-			metric.WithDescription("Hosts whose last_seen_ns is older than the offline threshold."),
-			metric.WithInt64Callback(func(ctx context.Context, obs metric.Int64Observer) error {
-				gaugeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-				defer cancel()
-				n, err := gauges.OfflineHosts(gaugeCtx, threshold)
-				if err != nil {
-					slog.Default().WarnContext(ctx, "edr.offline.hosts gauge callback failed",
-						"err", err, "threshold", threshold)
-					return nil
-				}
-				obs.Observe(int64(n))
-				return nil
-			}),
+			metric.WithDescription("Non-revoked host enrollments not seen within the offline threshold, so never more than edr.enrolled.hosts."),
 		)
+		// One callback observes both from one read, so a host enrolling between two separate reads cannot put offline above enrolled.
+		_, _ = meter.RegisterCallback(func(ctx context.Context, obs metric.Observer) error {
+			gaugeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			fleet, err := gauges.HostFleet(gaugeCtx, threshold)
+			if err != nil {
+				// A slow or failing DB must not drop every collection cycle; log so an operator staring at flat or absent host
+				// gauges has a breadcrumb.
+				slog.Default().WarnContext(ctx, "host fleet gauge callback failed", "err", err, "threshold", threshold)
+				return nil
+			}
+			obs.ObserveInt64(r.enrolledGauge, int64(fleet.Enrolled))
+			obs.ObserveInt64(r.offlineGauge, int64(fleet.Offline))
+			return nil
+		}, r.enrolledGauge, r.offlineGauge)
 		r.pendingGauge, _ = meter.Int64ObservableGauge(
 			"edr.events.pending",
 			metric.WithDescription("Queued events waiting for or in detection processing, saturating at 1,000,000. "+

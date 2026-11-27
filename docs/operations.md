@@ -325,7 +325,7 @@ Core metrics to chart:
 | `edr.events.ingested` | counter | Spikes up = agent fleet healthy. Drop to zero = ingress wedged |
 | `edr.alerts.created` | counter | By `rule_id` + `severity`. Sudden spike warrants a look |
 | `edr.enrolled.hosts` | gauge | Should match your MDM's scoped Mac count |
-| `edr.offline.hosts` | gauge | Hosts whose `last_seen` is older than 5 min. Keep near zero |
+| `edr.offline.hosts` | gauge | Enrolled hosts the server has not heard from in 5 min, including any that never checked in. Revoked hosts are not counted. Keep near zero |
 | `edr.detection.lag` | histogram | Seconds from the server receiving an event to detection finishing with it. Watch p95: it is how late alerts arrive. Measured on the server's clock, so an agent uploading events it buffered offline does not count as lag |
 | `edr.service_accounts.expiring` | gauge | Active service accounts whose credential expires within 14 days. Above zero means an integration will start failing at the token endpoint on that date: rotate the credential before then |
 | `edr.events.pending` | gauge | Events queued for detection. Reads 1,000,000 at and above that. Above zero while `edr.detection.lag` records nothing = the processor is stalled |
@@ -440,9 +440,9 @@ Common causes, in order:
 2. **Network-level change.** Moved to a VPN / Wi-Fi with egress filtering. Validate `curl -v https://<edr-server>/livez` from the endpoint.
 3. **Agent crashed.** `sudo launchctl print system/io.rawtrail.agent` shows `state = running`? If not: `sudo launchctl kickstart -k system/io.rawtrail.agent`.
 4. **Enrollment revoked.** Check the audit log for an `enrollment.revoke` entry. An agent that holds the enroll secret re-enrolls on its own within a minute or two; one that does not needs the MDM install script re-run and the daemon restarted.
-5. **DB clock skew / server down.** `edr.enrolled.hosts` gauge returning -1 means the DB query failed.
+5. **DB clock skew / server down.** `edr.enrolled.hosts` and `edr.offline.hosts` both missing for a collection means the fleet query failed; the server logs `host fleet gauge callback failed` with the error.
 
-If a host has been offline for >30 days and you expect it to be permanently gone (retired laptop), revoke its enrollment with `POST /api/enrollments/{host_id}/revoke` so the host tokens it holds can no longer be used. A revoke does not stop an agent that still holds the enroll secret from enrolling again.
+If a host has been offline for >30 days and you expect it to be permanently gone (retired laptop), revoke its enrollment with `POST /api/enrollments/{host_id}/revoke` so the host tokens it holds can no longer be used. A revoked host no longer counts toward `edr.offline.hosts` or the "EDR hosts offline" alert. A revoke does not stop an agent that still holds the enroll secret from enrolling again.
 
 ## Network containment
 

@@ -10,7 +10,7 @@
 //   - processes.go: InsertProcess, GetProcessByPID, GetChildProcesses,
 //     GetExecChain, ProcessTTL helpers.
 //   - hosts.go: UpsertHosts, UpdateHostLastSeen, ListHosts,
-//     CountOfflineHosts.
+//     OnlineHostIDs.
 //   - alerts.go: InsertAlert (with dedup), GetAlert, ListAlerts,
 //     UpdateAlertStatus.
 //

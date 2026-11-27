@@ -10,7 +10,7 @@ import (
 // context. Consumed by:
 //   - response/internal/service via the Heartbeat closure (cmd/main
 //     wires response.Heartbeat = detectionCtx.Service().RecordHostSeen);
-//   - cmd/main metrics adapter (CountOfflineHosts, CountUnprocessed);
+//   - cmd/main metrics adapter (OnlineHostIDs, CountUnprocessed);
 //   - the operator HTTP handlers inside detection/internal/operator.
 //
 // The agent-facing ingest path does NOT go through this Service; the
@@ -53,9 +53,9 @@ type Service interface {
 	// on every /api/commands poll; replaces store.UpdateHostLastSeen.
 	RecordHostSeen(ctx context.Context, hostID string, at time.Time) error
 
-	// CountOfflineHosts counts hosts whose last_seen_ns is older than
-	// the threshold. Used by the OTel offline-hosts gauge.
-	CountOfflineHosts(ctx context.Context, threshold time.Duration) (int, error)
+	// OnlineHostIDs lists the hosts whose last_seen_ns is within the threshold. The OTel offline-hosts gauge counts the active
+	// enrollments not among them, since detection holds no revocation state.
+	OnlineHostIDs(ctx context.Context, threshold time.Duration) ([]string, error)
 
 	// CountUnprocessed counts events still waiting to be processed or in flight (queue states pending and claimed), up to the queue's
 	// cap of 1,000,000. Backs the edr.events.pending gauge, which the stalled-detection alert reads. Events SET ASIDE after repeated

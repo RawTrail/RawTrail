@@ -187,10 +187,9 @@ func (s *Service) RecordHostSeen(ctx context.Context, hostID string, at time.Tim
 	return s.store.UpdateHostLastSeen(ctx, hostID, at)
 }
 
-// CountOfflineHosts counts hosts whose last_seen_ns is older than
-// the threshold.
-func (s *Service) CountOfflineHosts(ctx context.Context, threshold time.Duration) (int, error) {
-	return s.store.CountOfflineHosts(ctx, threshold)
+// OnlineHostIDs lists the hosts seen within the threshold.
+func (s *Service) OnlineHostIDs(ctx context.Context, threshold time.Duration) ([]string, error) {
+	return s.store.OnlineHostIDs(ctx, threshold)
 }
 
 // CountUnprocessed counts events not yet fully processed, up to the queue's cap: the visibility EventLog work-queue backlog

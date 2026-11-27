@@ -113,9 +113,8 @@ type stubGauges struct {
 	window *time.Duration
 }
 
-func (s stubGauges) EnrolledHosts(context.Context) (int, error) { return s.enrolled, nil }
-func (s stubGauges) OfflineHosts(context.Context, time.Duration) (int, error) {
-	return s.offline, nil
+func (s stubGauges) HostFleet(context.Context, time.Duration) (HostFleet, error) {
+	return HostFleet{Enrolled: s.enrolled, Offline: s.offline}, nil
 }
 func (s stubGauges) PendingEvents(context.Context) (int64, error) { return s.pending, nil }
 func (s stubGauges) ExpiringServiceAccounts(_ context.Context, within time.Duration) (int, error) {
@@ -253,10 +252,9 @@ type thresholdCapturingGauges struct {
 	out *time.Duration
 }
 
-func (g thresholdCapturingGauges) EnrolledHosts(context.Context) (int, error) { return 0, nil }
-func (g thresholdCapturingGauges) OfflineHosts(_ context.Context, t time.Duration) (int, error) {
+func (g thresholdCapturingGauges) HostFleet(_ context.Context, t time.Duration) (HostFleet, error) {
 	*g.out = t
-	return 0, nil
+	return HostFleet{}, nil
 }
 func (g thresholdCapturingGauges) PendingEvents(context.Context) (int64, error) { return 0, nil }
 func (g thresholdCapturingGauges) ExpiringServiceAccounts(context.Context, time.Duration) (int, error) {
@@ -297,14 +295,14 @@ var (
 
 // spec:observability-instrumentation/observable-host-fleet-gauges/a-failing-gauge-callback-is-contained
 //
-// A GaugeSource that returns an error from EnrolledHosts MUST NOT take down the whole collection cycle.
-// The contract: the failed gauge observes no value, but the other gauges and counters still report.
-// Pins that contract by wiring a failingGauges source whose EnrolledHosts returns an error while
-// OfflineHosts succeeds, then asserting (a) collect() returns without error, (b) the failed gauge has
-// no datapoint, and (c) the offline gauge reports its value.
+// A GaugeSource that returns an error from HostFleet MUST NOT take down the whole collection cycle.
+// The contract: the failed gauges observe no value, but the other gauges and counters still report.
+// Pins that contract by wiring a failingGauges source whose HostFleet returns an error while
+// PendingEvents succeeds, then asserting (a) collect() returns without error, (b) both host gauges have
+// no datapoint, and (c) the pending gauge reports its value.
 func TestRecorder_FailingGaugeCallbackIsContained(t *testing.T) {
 	t.Parallel()
-	gauges := failingGauges{offline: 7}
+	gauges := failingGauges{pending: 7}
 	_, collect := newTestRecorder(t, gauges, Options{})
 
 	// collect itself must not panic or fail even though one gauge callback errors. The test helper would call require.NoError on
@@ -313,27 +311,23 @@ func TestRecorder_FailingGaugeCallbackIsContained(t *testing.T) {
 
 	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.enrolled.hosts"),
 		"failed gauge callback must observe no value this cycle")
-	assert.Equal(t, int64(7), findGauge(t, rm, "edr.offline.hosts"),
+	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.offline.hosts"), "for either host gauge, since they share one read")
+	assert.Equal(t, int64(7), findGauge(t, rm, "edr.events.pending"),
 		"the rest of the gauge collection must still succeed")
-	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.events.pending"), "the pending gauge's failure is contained the same way")
-	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.service_accounts.expiring"), "and so is the expiring gauge's")
+	assert.Equal(t, int64(-1), findGauge(t, rm, "edr.service_accounts.expiring"), "and the expiring gauge's failure is contained too")
 }
 
-// failingGauges has EnrolledHosts return an error to exercise the per-gauge containment branch; the
-// OfflineHosts callback still succeeds so the test can also assert the rest of the cycle proceeds.
+// failingGauges has HostFleet return an error to exercise the containment branch; the PendingEvents
+// callback still succeeds so the test can also assert the rest of the cycle proceeds.
 type failingGauges struct {
-	offline int
+	pending int64
 }
 
-func (g failingGauges) EnrolledHosts(context.Context) (int, error) {
-	return 0, assert.AnError
+func (g failingGauges) HostFleet(context.Context, time.Duration) (HostFleet, error) {
+	return HostFleet{}, assert.AnError
 }
 
-func (g failingGauges) OfflineHosts(context.Context, time.Duration) (int, error) {
-	return g.offline, nil
-}
-
-func (g failingGauges) PendingEvents(context.Context) (int64, error) { return 0, assert.AnError }
+func (g failingGauges) PendingEvents(context.Context) (int64, error) { return g.pending, nil }
 
 func (g failingGauges) ExpiringServiceAccounts(context.Context, time.Duration) (int, error) {
 	return 0, assert.AnError

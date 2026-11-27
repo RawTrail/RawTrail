@@ -66,7 +66,7 @@ type Deps struct {
 }
 
 // Endpoint is the handle cmd/main holds for the endpoint bounded context. It exposes the Service for cross-context callers (today:
-// metrics' EnrolledHosts gauge), the host-token middleware factory, the route-registration methods, and ApplySchema.
+// metrics' HostFleet gauge source), the host-token middleware factory, the route-registration methods, and ApplySchema.
 type Endpoint struct {
 	svc         api.Service
 	enrollH     *enroll.Handler
@@ -169,8 +169,8 @@ func ApplySchema(ctx context.Context, db *sqlx.DB) error {
 	})
 }
 
-// Service exposes the public api.Service for cross-context callers. Today: cmd/main's serverGaugeSource calls Service().CountActive
-// for the EnrolledHosts metrics gauge.
+// Service exposes the public api.Service for cross-context callers. Today: cmd/main's serverGaugeSource calls Service().ActiveHostIDs
+// for the HostFleet metrics gauge source.
 func (e *Endpoint) Service() api.Service { return e.svc }
 
 // HostTokenMiddleware returns the per-request middleware that gates agent endpoints. cmd/main chains this on POST /api/events,

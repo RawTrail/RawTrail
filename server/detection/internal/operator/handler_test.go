@@ -121,8 +121,8 @@ func (f fakeService) UpdateAlertStatus(ctx context.Context, id int64, status api
 func (f fakeService) RecordHostSeen(context.Context, string, time.Time) error {
 	panic("fakeService.RecordHostSeen: operator routes do not call this")
 }
-func (f fakeService) CountOfflineHosts(context.Context, time.Duration) (int, error) {
-	panic("fakeService.CountOfflineHosts: operator routes do not call this")
+func (f fakeService) OnlineHostIDs(context.Context, time.Duration) ([]string, error) {
+	panic("fakeService.OnlineHostIDs: operator routes do not call this")
 }
 func (f fakeService) CountUnprocessed(context.Context) (int64, error) {
 	panic("fakeService.CountUnprocessed: operator routes do not call this")
