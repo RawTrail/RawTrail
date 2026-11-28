@@ -1,0 +1,26 @@
+{
+  "events": [
+    {
+      "event_id": "saf-pidinfo-fork",
+      "host_id": "fixture-host",
+      "timestamp_ns": 1020000000,
+      "event_type": "fork",
+      "payload": {"child_pid": 4901, "parent_pid": 1}
+    },
+    {
+      "event_id": "saf-pidinfo-exec",
+      "host_id": "fixture-host",
+      "timestamp_ns": 1030000000,
+      "event_type": "exec",
+      "payload": {
+        "pid": 4901,
+        "ppid": 1,
+        "path": "/Applications/iTerm.app/Contents/XPCServices/pidinfo.xpc/Contents/MacOS/pidinfo",
+        "args": ["/Applications/iTerm.app/Contents/XPCServices/pidinfo.xpc/Contents/MacOS/pidinfo", "--git-state", "/Users/fixture/repo", "4", "1", ""],
+        "uid": 501,
+        "gid": 20
+      }
+    }
+  ],
+  "expected_findings": []
+}

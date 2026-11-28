@@ -111,6 +111,66 @@ func TestEvent_AbsentVersusEmpty(t *testing.T) {
 	})
 }
 
+// spec:server-detection-rules-engine/the-command-line-ends-with-the-last-non-empty-argument/a-trailing-empty-argument-adds-no-space
+// spec:server-detection-rules-engine/the-command-line-ends-with-the-last-non-empty-argument/a-space-inside-the-last-argument-is-kept
+// spec:server-detection-rules-engine/the-command-line-ends-with-the-last-non-empty-argument/all-empty-arguments-supply-no-command-line
+// spec:server-detection-rules-engine/the-command-line-ends-with-the-last-non-empty-argument/an-empty-middle-argument-keeps-its-spaces
+//
+// TestEvent_CommandLineHoldsOnlyArgumentText pins that joining argv adds no separator past the last argument that carries text
+// (issue #1635). The first case is iTerm2's pidinfo exec as a laptop install recorded it.
+func TestEvent_CommandLineHoldsOnlyArgumentText(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		args        string
+		wantValues  []string
+		wantPresent bool
+	}{
+		{
+			"a trailing empty argument adds no trailing space",
+			`["/Applications/iTerm.app/Contents/XPCServices/pidinfo.xpc/Contents/MacOS/pidinfo","--git-state","/Users/me/repo","4","1",""]`,
+			[]string{"/Applications/iTerm.app/Contents/XPCServices/pidinfo.xpc/Contents/MacOS/pidinfo --git-state /Users/me/repo 4 1"}, true,
+		},
+		{
+			"several trailing empty arguments add none",
+			`["tool","-d","",""]`,
+			[]string{"tool -d"}, true,
+		},
+		{
+			"an argument that ends in a space still ends the line with one",
+			`["open","invoice.txt ",""]`,
+			[]string{"open invoice.txt "}, true,
+		},
+		{
+			// A file named only a space is the barest form of the masquerade. Its argument carries text, so it is not trimmed.
+			"a last argument that is only a space is kept",
+			`["open"," ",""]`,
+			[]string{"open  "}, true,
+		},
+		{
+			"arguments that are all empty supply no command line",
+			`[""]`,
+			nil, false,
+		},
+		{
+			"an empty argument in the middle is joined as before",
+			`["tool","","-d"]`,
+			[]string{"tool  -d"}, true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e, err := NewEvent(event("exec", `{"pid":4900,"ppid":1,"path":"/usr/local/bin/tool","args":`+tc.args+`}`))
+			require.NoError(t, err)
+			values, present := e.Field("CommandLine")
+			assert.Equal(t, tc.wantPresent, present)
+			assert.Equal(t, tc.wantValues, values)
+		})
+	}
+}
+
 // TestNewEvent_MalformedPayloadIsAnError separates a malformed event from an uninteresting one: the first is worth surfacing, the
 // second is routine.
 func TestNewEvent_MalformedPayloadIsAnError(t *testing.T) {

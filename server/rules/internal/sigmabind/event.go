@@ -326,9 +326,17 @@ func presentString(v string) []string {
 // separator, so such a value does not match a flag that appears last. That is a property of how those rules are written against
 // Windows command lines rather than something this mapping can fix; appending a trailing space would break every |endswith.
 //
-// An exec with no arguments yields no CommandLine at all rather than an empty string, so a rule written as `CommandLine: null` (the
-// corpus does contain one) matches it, which is what its author intended.
+// Empty arguments at the end are left out (issue #1635). Joining one adds a trailing space that is in no argument the process
+// received, and space_after_filename matches `CommandLine|endswith: ' '`: iTerm2 runs `pidinfo --git-state <dir> 4 1 ""` every
+// couple of seconds, which made about 1,800 monitor records an hour on one Mac. An argument that itself ends in a space still ends
+// the line with one, which is the masquerade that rule is for. Empty arguments elsewhere keep their separators.
+//
+// An exec with no arguments, or only empty ones, yields no CommandLine at all rather than an empty string, so a rule written as
+// `CommandLine: null` (the corpus does contain one) matches it, which is what its author intended.
 func commandLine(args []string) []string {
+	for len(args) > 0 && args[len(args)-1] == "" {
+		args = args[:len(args)-1]
+	}
 	if len(args) == 0 {
 		return nil
 	}
