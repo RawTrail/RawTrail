@@ -346,6 +346,54 @@ func TestAllow_StaleSession_ChallengedBeforeFleetWideChange(t *testing.T) {
 	}
 }
 
+// spec:server-identity-authentication/reauthentication-is-required-for-destructive-actions/application-control-needs-a-fresh-session
+//
+// Every application control write needs a fresh sign-in (issue #1575): an allow rule or a deleted block rule lifts a block on every
+// host its policy covers, and a policy write changes which hosts enforce at all. Pinned per action for the same reason as above.
+func TestAllow_StaleSession_ChallengedBeforeAppControlChange(t *testing.T) {
+	t.Parallel()
+	e, _ := newEngine(t)
+	actions := []api.Action{
+		api.ActionAppControlRuleCreate, api.ActionAppControlRuleUpdate, api.ActionAppControlRuleDelete,
+		api.ActionAppControlRuleBulkUpsert, api.ActionAppControlPolicyCreate, api.ActionAppControlPolicyUpdate,
+		api.ActionAppControlPolicyDelete,
+	}
+	for _, action := range actions {
+		t.Run(string(action), func(t *testing.T) {
+			t.Parallel()
+			for _, fresh := range []bool{false, true} {
+				actor := &api.Actor{
+					Principal:    api.UserPrincipal(1, ""),
+					AuthMethod:   "oidc",
+					SessionFresh: fresh,
+					Roles:        []api.RoleBinding{globalBinding("admin", "default")},
+				}
+				d, err := e.Allow(api.WithActor(t.Context(), actor), action, api.Resource{Type: "application_control"})
+				require.NoError(t, err)
+				if fresh {
+					assert.True(t, d.Allow, "a fresh admin session performs %s", action)
+					continue
+				}
+				assert.False(t, d.Allow, "a stale session must not perform %s", action)
+				assert.Equal(t, api.ReasonReauthRequired, d.Reason)
+			}
+		})
+	}
+
+	t.Run("reading application control needs no fresh session", func(t *testing.T) {
+		t.Parallel()
+		actor := &api.Actor{
+			Principal:    api.UserPrincipal(1, ""),
+			AuthMethod:   "oidc",
+			SessionFresh: false,
+			Roles:        []api.RoleBinding{globalBinding("admin", "default")},
+		}
+		d, err := e.Allow(api.WithActor(t.Context(), actor), api.ActionAppControlRead, api.Resource{Type: "application_control"})
+		require.NoError(t, err)
+		assert.True(t, d.Allow)
+	})
+}
+
 // TestAllow_NilAuditDoesNotPanic guards the test-only path where a caller passes nil for the AuditRecorder. Production callers must
 // supply one; tests sometimes don't.
 func TestAllow_NilAuditDoesNotPanic(t *testing.T) {

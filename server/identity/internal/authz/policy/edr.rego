@@ -83,7 +83,9 @@ reauth_satisfied if input.actor.auth_method == "service_account"
 # revoking a host's enrollment always need freshness, and so do the deployment-wide writes that
 # weaken every host at once: the reachable-address set, rule content
 # and detection tuning (exclusions, rule modes, watched paths), any of
-# which can blind detection fleet-wide. alert.resolve needs it only when
+# which can blind detection fleet-wide, and every application control write
+# (issue #1575), since an allow rule or a deleted block rule lifts a block on
+# every host its policy covers. alert.resolve needs it only when
 # the alert is critical-severity. Add new rules here as the action set grows; the
 # pattern is "rule fires when this action+resource pair is destructive
 # enough to warrant proving recent possession of credentials."
@@ -91,6 +93,10 @@ requires_fresh_auth(action, _) if {
 	action in {
 		"host.isolate", "host.kill_process", "host.run_script", "enrollment.revoke",
 		"containment_config.write", "rule_content.write", "detection_config.write",
+		"application_control.rule_create", "application_control.rule_update",
+		"application_control.rule_delete", "application_control.rule_bulk_upsert",
+		"application_control.policy_create", "application_control.policy_update",
+		"application_control.policy_delete",
 	}
 }
 

@@ -225,6 +225,55 @@ test_admin_run_script_denied_when_stale if {
 	d == {"allow": false, "reason": "reauth_required"}
 }
 
+# Every application control write is reauth-gated (issue #1575); reading the policies is not.
+
+app_control_writes := {
+	"application_control.rule_create", "application_control.rule_update",
+	"application_control.rule_delete", "application_control.rule_bulk_upsert",
+	"application_control.policy_create", "application_control.policy_update",
+	"application_control.policy_delete",
+}
+
+test_admin_app_control_writes_denied_when_stale if {
+	every action in app_control_writes {
+		d := authz.decision with input as {
+			"actor": {
+				"roles": [{"role_id": "admin", "scope_type": "global", "scope_id": "*"}],
+				"session_fresh": false,
+			},
+			"action": action,
+			"resource": {"type": "application_control"},
+		}
+		d == {"allow": false, "reason": "reauth_required"}
+	}
+}
+
+test_admin_app_control_writes_allowed_when_fresh if {
+	every action in app_control_writes {
+		d := authz.decision with input as {
+			"actor": {
+				"roles": [{"role_id": "admin", "scope_type": "global", "scope_id": "*"}],
+				"session_fresh": true,
+			},
+			"action": action,
+			"resource": {"type": "application_control"},
+		}
+		d == {"allow": true, "reason": "granted"}
+	}
+}
+
+test_admin_app_control_read_unaffected_by_stale_session if {
+	d := authz.decision with input as {
+		"actor": {
+			"roles": [{"role_id": "admin", "scope_type": "global", "scope_id": "*"}],
+			"session_fresh": false,
+		},
+		"action": "application_control.read",
+		"resource": {"type": "application_control"},
+	}
+	d == {"allow": true, "reason": "granted"}
+}
+
 # --- Service-account exemption: the reauth gate is a human-interactive-session
 #     control and does not apply to a non-interactive service-account actor. A
 #     service account is never session_fresh; the chokepoint exempts it by

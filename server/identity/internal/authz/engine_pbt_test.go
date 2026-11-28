@@ -224,6 +224,14 @@ var freshAuthActions = map[api.Action]struct{}{
 	api.ActionContainmentConfigWrite: {},
 	api.ActionRuleContentWrite:       {},
 	api.ActionDetectionConfigWrite:   {},
+
+	api.ActionAppControlRuleCreate:     {},
+	api.ActionAppControlRuleUpdate:     {},
+	api.ActionAppControlRuleDelete:     {},
+	api.ActionAppControlRuleBulkUpsert: {},
+	api.ActionAppControlPolicyCreate:   {},
+	api.ActionAppControlPolicyUpdate:   {},
+	api.ActionAppControlPolicyDelete:   {},
 }
 
 func requiresFreshAuth(action api.Action, resource api.Resource) bool {

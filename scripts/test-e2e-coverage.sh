@@ -202,7 +202,7 @@ echo "$END_GROUP"
 # Includes the M5 wire smoke (agent-events-flow.spec.ts) and M6 UI specs (host-list-and-process-tree.spec.ts); both consume the
 # break-glass setup endpoint, so they share this phase's 5/min token budget with reauth-modal-retry. The set is intentionally short
 # enough that the bucket doesn't overflow within the phase.
-echo "::group::Phase 2: qa default-env (RBAC, reauth, audit, reauth-modal, break-glass login failures, agent wire + UI)"
+echo "::group::Phase 2: qa default-env (RBAC, reauth, audit, reauth-modal, application control reauth, break-glass login failures, agent wire + UI)"
 start_server "default-env-qa"
 seed_oidc 1
 (
@@ -211,6 +211,7 @@ seed_oidc 1
     tests/qa/authz-and-audit-flows.spec.ts \
     tests/qa/breakglass-login-failure-reason.spec.ts \
     tests/qa/reauth-modal-retry.spec.ts \
+    tests/qa/app-control-reauth.spec.ts \
     tests/qa/agent-events-flow.spec.ts \
     tests/qa/host-list-and-process-tree.spec.ts \
     --workers=1

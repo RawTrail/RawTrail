@@ -113,7 +113,7 @@ The requested OIDC scopes default to `openid,email,profile`: enough for the clai
 Notes on the optional knobs:
 
 - **JIT provisioning.** Saving through the SSO settings UI always enables JIT (the page has no toggle): a first successful sign-in creates a user + identity + role binding at the configured default role. The stored config and admin API accept `jit_enabled=false`, but the UI does not expose it. An admin can pre-provision a user with a role on the **Users** settings page before their first sign-in.
-- **Session timeouts.** OIDC-minted sessions slide on every authenticated request up to `EDR_SESSION_ABSOLUTE_TIMEOUT`. The reauth window applies to destructive actions (`host.isolate`, `host.kill_process`, `host.run_script`, `alert.resolve` when severity=critical) and forces a fresh IdP prompt when `last_auth_at` is older than `EDR_REAUTH_WINDOW`.
+- **Session timeouts.** OIDC-minted sessions slide on every authenticated request up to `EDR_SESSION_ABSOLUTE_TIMEOUT`. The reauth window applies to destructive actions (host commands, enrollment revoke, edits to rule content, detection tuning, application control and the reachable-address set, and `alert.resolve` when severity=critical) and forces a fresh IdP prompt when `last_auth_at` is older than `EDR_REAUTH_WINDOW`.
 
 ## Verify
 
