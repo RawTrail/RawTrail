@@ -9,8 +9,10 @@ import { SearchResultsFrame } from "../Search/SearchResultsFrame";
 import { formatNs } from "../Search/format";
 import { useHostNames } from "../useHostNames";
 import { MILLISECONDS_PER_DAY, NANOSECONDS_PER_MILLISECOND } from "../../constants";
-import { sessionPath } from "./sessionPath";
+import { formatRelativeNs } from "../../time";
+import { sessionPath, shortSessionId } from "./sessionPath";
 import { snippetAround } from "./promptSnippet";
+import "../Search/SearchPage.scss";
 import "./PromptSearch.scss";
 
 // SEARCH_WINDOWS are the windows a prompt search can read, in days: the server reads at most thirty (issue #1428).
@@ -54,7 +56,8 @@ function queryProblem(query: string): string | null {
 }
 
 // PromptSearch finds the prompts people typed to AI agents across every session (issue #1428): the text searched for, regardless of
-// case, within a window of at most thirty days, newest first, each with its host, time and a link to its session's conversation.
+// case, within a window of at most thirty days, newest first, each with how long ago it was typed, its host, its session (issue #1560)
+// and a link to its session's conversation.
 // The server audits every search with its text; the page shows it only to an operator who may read prompts.
 export function PromptSearch() {
   const hostNames = useHostNames();
@@ -121,6 +124,7 @@ export function PromptSearch() {
               <tr>
                 <th>Typed</th>
                 <th>Host</th>
+                <th>Session</th>
                 <th>Prompt</th>
               </tr>
             </thead>
@@ -129,10 +133,13 @@ export function PromptSearch() {
                 const snippet = snippetAround(p.text, submitted.q);
                 return (
                   <tr key={`${p.host_id}/${p.agent_session_id}/${p.prompt_id}/${String(p.at_ns)}`}>
-                    <td>
-                      <Link to={conversationHref(p, submitted.q)}>{formatNs(p.at_ns)}</Link>
+                    <td className="search-page__nowrap" title={formatNs(p.at_ns)}>
+                      <Link to={conversationHref(p, submitted.q)}>{formatRelativeNs(p.at_ns)}</Link>
                     </td>
                     <td>{hostNames.get(p.host_id) ?? p.host_id}</td>
+                    <td className="search-page__mono search-page__nowrap" title={p.agent_session_id}>
+                      <Link to={sessionPath(p.host_id, p.agent_session_id)}>{shortSessionId(p.agent_session_id)}</Link>
+                    </td>
                     <td className="prompt-search__snippet">
                       {snippet.before}
                       {snippet.match && <mark>{snippet.match}</mark>}

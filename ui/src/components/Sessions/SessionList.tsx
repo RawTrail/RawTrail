@@ -10,14 +10,11 @@ import { SearchResultsFrame } from "../Search/SearchResultsFrame";
 import { formatNs } from "../Search/format";
 import { useHostNames } from "../useHostNames";
 import { formatElapsedNs, formatRelativeNs } from "../../time";
-import { sessionPath } from "./sessionPath";
+import { sessionPath, shortSessionId } from "./sessionPath";
 import { PromptSearch } from "./PromptSearch";
 import { PermissionAction, useCan } from "../../permissions-core";
 import { formatTokens } from "./sessionUsage";
 import { useProfile } from "../../profile-core";
-
-// SESSION_ID_PREFIX is how much of a session id the table shows; the full id is the cell's title.
-const SESSION_ID_PREFIX = 8;
 
 // LIST_KEY names the list's one result set for useCursorList, which reloads when its key changes.
 const LIST_KEY = "all";
@@ -103,7 +100,7 @@ export function SessionList() {
                 <td title={s.tokens === undefined ? undefined : `${s.tokens.toLocaleString()} tokens`}>
                   {s.tokens === undefined ? "" : formatTokens(s.tokens)}
                 </td>
-                <td className="search-page__mono search-page__nowrap" title={s.agent_session_id}>{s.agent_session_id.slice(0, SESSION_ID_PREFIX)}</td>
+                <td className="search-page__mono search-page__nowrap" title={s.agent_session_id}>{shortSessionId(s.agent_session_id)}</td>
               </tr>
             ))}
           </tbody>

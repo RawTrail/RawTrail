@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { PromptSearch } from "./PromptSearch";
 import * as api from "../../api";
 import type { FoundAgentPrompt } from "../../types";
+import { formatNs } from "../Search/format";
 
 const DAY_NS = 24 * 3_600_000 * 1_000_000;
 
@@ -39,8 +40,41 @@ describe("PromptSearch", () => {
     expect(spy.mock.calls[0][0]).toEqual({ q: "Deploy", from: String(10 * DAY_NS), to: String(40 * DAY_NS), cursor: undefined });
     expect(await screen.findByText("mac-a.local")).toBeVisible();
     expect(screen.getByText("deploy", { selector: "mark" })).toBeVisible();
-    expect(screen.getByRole("link")).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /ago$/ })).toHaveAttribute(
       "href", "/agent-sessions/H1/169b5bb1-29b5-41da-9a54-92cd72599ad9?view=timeline&group=prompt&q=Deploy");
+  });
+
+  // spec:web-ui/agent-prompt-search/each-prompt-says-when-it-was-typed-and-which-session-it-is-in
+  it("shows when each prompt was typed as an age and names its session, the same for two prompts of one session", async () => {
+    vi.spyOn(api, "listHosts").mockResolvedValue([]);
+    const nowMs = 40 * 24 * 3_600_000;
+    vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    const sixMinutesAgoNs = (nowMs - 6 * 60_000) * 1_000_000;
+    const other = "7d2f0c4e-1111-4a2b-9c3d-000000000000";
+    vi.spyOn(api, "searchAgentPrompts").mockResolvedValue({
+      prompts: [
+        found({ prompt_id: "turn-1", at_ns: sixMinutesAgoNs }),
+        found({ prompt_id: "turn-2", at_ns: sixMinutesAgoNs - 60_000_000_000 }),
+        found({ agent_session_id: other, prompt_id: "turn-9", at_ns: sixMinutesAgoNs - 120_000_000_000 }),
+      ],
+    });
+    renderSearch();
+    search("deploy");
+
+    const typed = await screen.findByRole("link", { name: "6m ago" });
+    expect(typed).toBeVisible();
+    expect(typed.closest("td")).toHaveAttribute("title", formatNs(sixMinutesAgoNs));
+
+    const sameSession = screen.getAllByRole("link", { name: "169b5bb1" });
+    expect(sameSession).toHaveLength(2);
+    for (const link of sameSession) {
+      expect(link).toBeVisible();
+      expect(link).toHaveAttribute("href", "/agent-sessions/H1/169b5bb1-29b5-41da-9a54-92cd72599ad9");
+      expect(link.closest("td")).toHaveAttribute("title", "169b5bb1-29b5-41da-9a54-92cd72599ad9");
+    }
+    const otherSession = screen.getByRole("link", { name: "7d2f0c4e" });
+    expect(otherSession).toBeVisible();
+    expect(otherSession).toHaveAttribute("href", `/agent-sessions/H1/${other}`);
   });
 
   it("pages the same window, and says when nothing matches", async () => {
