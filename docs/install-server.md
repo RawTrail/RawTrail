@@ -230,7 +230,7 @@ Non-exhaustive; see `server/config/config.go` for every knob. Anything unset use
 | `EDR_BREAKGLASS_IP_ALLOWLIST` | no | none | Comma-separated CIDR list gating `/admin/break-glass*`. Off-list callers get a 404 |
 | `EDR_SESSION_IDLE_TIMEOUT` | no | 8h | Inactivity cap for OIDC-minted sessions. Sliding window on last_seen_at |
 | `EDR_SESSION_ABSOLUTE_TIMEOUT` | no | 24h | Hard age cap for OIDC-minted sessions (forces periodic re-auth) |
-| `EDR_REAUTH_WINDOW` | no | 30m | Freshness window for destructive actions (host commands, enrollment revoke, and edits to rule content, detection tuning and the reachable-address set, plus critical alert resolve) |
+| `EDR_REAUTH_WINDOW` | no | 30m | Freshness window for destructive actions (host commands, enrollment revoke, and edits to rule content, detection tuning, application control and the reachable-address set, plus critical alert resolve) |
 | `EDR_BREAKGLASS_SESSION_IDLE_TIMEOUT` | no | 15m (7 days on a laptop install) | Strict idle cap for recovery sessions |
 | `EDR_BREAKGLASS_SESSION_ABSOLUTE_TIMEOUT` | no | 1h (30 days on a laptop install) | Absolute cap for recovery sessions |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | none | `host:port` of an OTLP/gRPC collector; unset disables metrics export |
