@@ -1,0 +1,28 @@
+{
+  "events": [
+    {
+      "event_id": "saf-open-fork",
+      "host_id": "fixture-host",
+      "timestamp_ns": 1020000000,
+      "event_type": "fork",
+      "payload": {"child_pid": 4902, "parent_pid": 1}
+    },
+    {
+      "event_id": "saf-open-exec",
+      "host_id": "fixture-host",
+      "timestamp_ns": 1030000000,
+      "event_type": "exec",
+      "payload": {
+        "pid": 4902,
+        "ppid": 1,
+        "path": "/usr/bin/open",
+        "args": ["open", "/tmp/invoice.txt ", ""],
+        "uid": 501,
+        "gid": 20
+      }
+    }
+  ],
+  "expected_findings": [
+    {"rule_id": "proc_creation_macos_space_after_filename", "severity": "low"}
+  ]
+}
